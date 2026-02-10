@@ -1,6 +1,6 @@
 # Custom Worker Extensibility
 
-**Status:** ✅ Implemented (v0.8.0+)
+**Status:** ✅ Implemented (v1.0.0+)
 **Date:** 2026-01-31
 
 ---
@@ -445,4 +445,4 @@ await NativeWorkManager.enqueue(
 
 ---
 
-**Status:** ✅ Production Ready (v0.8.0+)
+**Status:** ✅ Production Ready (v1.0.0+)

@@ -130,7 +130,7 @@ But the iOS bridge (`KMPSchedulerBridge.swift`) doesn't currently expose these c
 
 ## Mitigation Strategy
 
-### Current State (v0.8.1)
+### Current State (v1.0.0)
 
 **What we do now:**
 1. ✅ Document the difference (this file + code comments)
@@ -326,7 +326,7 @@ See [PLATFORM_CONSISTENCY.md](docs/PLATFORM_CONSISTENCY.md) for details.
 
 ## Timeline
 
-### v0.8.1 (Current)
+### v1.0.0 (Current)
 - ✅ Document platform difference
 - ✅ Add code comments
 - ✅ File GitHub issue #16

@@ -709,7 +709,7 @@ class _DemoHomePageState extends State<DemoHomePage>
           Colors.orange,
         ),
         const Text(
-          '  Compresses files to ZIP archive (v0.9.0+)',
+          '  Compresses files to ZIP archive (v1.0.0+)',
           style: TextStyle(fontSize: 12, color: Colors.grey),
         ),
         const SizedBox(height: 16),
@@ -1234,7 +1234,7 @@ class _DemoHomePageState extends State<DemoHomePage>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '✨ What\'s New in v0.8.0',
+                  '✨ What\'s New in v1.0.0',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: Colors.white,

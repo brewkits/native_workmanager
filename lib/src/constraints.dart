@@ -450,7 +450,7 @@ enum BGTaskType {
 
 /// Android 14+ foreground service type for heavy tasks.
 ///
-/// **New in KMP WorkManager 2.1.2+, exposed in native_workmanager 0.8.0**: Android 14 (API 34+)
+/// **Available in native_workmanager 1.0.0+** (introduced in 0.8.0): Android 14 (API 34+)
 /// requires explicit foreground service types for apps targeting SDK 34+.
 ///
 /// **Platform Support**: Android 14+ only. iOS and Android <14 ignore this setting.

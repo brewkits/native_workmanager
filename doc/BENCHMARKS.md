@@ -32,7 +32,7 @@ Detailed methodology and results for native_workmanager performance claims.
 
 - Flutter: 3.16.5
 - Dart: 3.2.3
-- native_workmanager: 0.8.0
+- native_workmanager: 1.0.0
 - flutter_workmanager: 0.5.2
 - kmpworkmanager: 2.2.1
 
@@ -368,7 +368,7 @@ Choose the right tool for your use case.
 
 ## Changelog
 
-- **2026-02-04:** Initial benchmarks (v0.8.0)
+- **2026-02-04:** Initial benchmarks (v1.0.0)
 - *Future updates will be listed here*
 
 ## References

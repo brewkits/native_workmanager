@@ -23,7 +23,7 @@ import dev.brewkits.native_workmanager.workers.ImageProcessWorker
  * - HttpUploadWorker: Multipart file upload with security validation
  * - HttpDownloadWorker: Streaming file download with security validation
  * - HttpSyncWorker: JSON sync operations with security validation
- * - FileCompressionWorker: ZIP compression for files/directories (v0.9.0+)
+ * - FileCompressionWorker: ZIP compression for files/directories (v1.0.0+)
  * - FileDecompressionWorker: ZIP extraction with security protection (v1.0.0+)
  * - ImageProcessWorker: Native image resize/compress/convert (v1.0.0+)
  * - CryptoWorker: File hashing and AES encryption (v1.0.0+)

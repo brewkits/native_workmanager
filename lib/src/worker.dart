@@ -377,7 +377,7 @@ class NativeWorker {
   /// });
   /// ```
   ///
-  /// ## Progress Tracking (v0.9.0+)
+  /// ## Progress Tracking (v1.0.0+)
   ///
   /// **NEW:** Upload progress is now automatically reported:
   /// ```dart
@@ -406,7 +406,7 @@ class NativeWorker {
   /// - Sending small JSON data → Use `httpRequest` or `httpSync`
   /// - You need to process file before upload → Use `DartWorker`
   ///
-  /// ## Storage Validation (v0.9.0+)
+  /// ## Storage Validation (v1.0.0+)
   ///
   /// **NEW:** Automatic storage checks before upload:
   /// - Validates minimum 100MB free space
@@ -667,7 +667,7 @@ class NativeWorker {
   /// });
   /// ```
   ///
-  /// ## Progress Tracking (v0.9.0+)
+  /// ## Progress Tracking (v1.0.0+)
   ///
   /// **NEW:** Download progress is now automatically reported:
   /// ```dart
@@ -699,7 +699,7 @@ class NativeWorker {
   /// - Downloading small JSON data → Use `httpSync` instead
   /// - You need to process data before saving → Use `DartWorker`
   ///
-  /// ## Storage Validation (v0.9.0+)
+  /// ## Storage Validation (v1.0.0+)
   ///
   /// **NEW:** Automatic storage checks before download:
   /// - Validates file size + 20% buffer + 50MB minimum free space
