@@ -1,0 +1,123 @@
+name: PR Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  pr-validate:
+    name: Validate PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check PR title format
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+
+          # Valid formats: feat: / fix: / docs: / test: / refactor: / chore:
+          if ! echo "$PR_TITLE" | grep -qE '^(feat|fix|docs|test|refactor|chore|ci|perf|style): .+'; then
+            echo "❌ Invalid PR title format!"
+            echo ""
+            echo "PR title must follow conventional commits format:"
+            echo "  feat: Add new feature"
+            echo "  fix: Fix bug"
+            echo "  docs: Update documentation"
+            echo "  test: Add tests"
+            echo "  refactor: Refactor code"
+            echo "  chore: Maintenance tasks"
+            echo "  ci: CI/CD changes"
+            echo "  perf: Performance improvements"
+            echo "  style: Code style changes"
+            echo ""
+            echo "Current title: $PR_TITLE"
+            exit 1
+          fi
+          echo "✅ PR title format is valid"
+
+      - name: Check for description
+        run: |
+          BODY_LENGTH=$(echo '${{ github.event.pull_request.body }}' | wc -c)
+          if [ "$BODY_LENGTH" -lt 20 ]; then
+            echo "⚠️ Warning: PR description is very short or empty"
+            echo "Consider adding more context about the changes"
+          else
+            echo "✅ PR has a description"
+          fi
+
+      - name: Check for large PR
+        run: |
+          FILES_CHANGED=${{ github.event.pull_request.changed_files }}
+          if [ "$FILES_CHANGED" -gt 50 ]; then
+            echo "⚠️ Warning: This PR modifies $FILES_CHANGED files"
+            echo "Consider breaking it into smaller PRs for easier review"
+          else
+            echo "✅ PR size is reasonable ($FILES_CHANGED files)"
+          fi
+
+  quick-check:
+    name: Quick Lint & Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Check formatting
+        run: |
+          dart format --output=none --set-exit-if-changed . || {
+            echo "❌ Code is not formatted!"
+            echo "Run: dart format ."
+            exit 1
+          }
+          echo "✅ Code is properly formatted"
+
+      - name: Run analyzer
+        run: |
+          flutter analyze --no-fatal-infos || {
+            echo "❌ Analyzer found issues!"
+            exit 1
+          }
+          echo "✅ No analyzer issues"
+
+  label-check:
+    name: Check Labels
+    runs-on: ubuntu-latest
+    if: github.event.action == 'opened'
+
+    steps:
+      - name: Suggest labels
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+
+          echo "Suggested labels based on PR title:"
+          if echo "$PR_TITLE" | grep -q '^feat:'; then
+            echo "  - enhancement"
+          elif echo "$PR_TITLE" | grep -q '^fix:'; then
+            echo "  - bug"
+          elif echo "$PR_TITLE" | grep -q '^docs:'; then
+            echo "  - documentation"
+          elif echo "$PR_TITLE" | grep -q '^test:'; then
+            echo "  - tests"
+          elif echo "$PR_TITLE" | grep -q '^refactor:'; then
+            echo "  - refactoring"
+          elif echo "$PR_TITLE" | grep -q '^perf:'; then
+            echo "  - performance"
+          fi
+
+          echo ""
+          echo "Please add appropriate labels to this PR for better organization."

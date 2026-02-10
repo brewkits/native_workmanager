@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(wc:*)",
+      "Bash(find:*)",
+      "Bash(./gradlew test:*)",
+      "Bash(flutter analyze:*)",
+      "Bash(pod install)",
+      "Bash(flutter clean:*)",
+      "Bash(flutter pub get:*)",
+      "Bash(flutter build:*)",
+      "Bash(./gradlew :native_workmanager:test:*)",
+      "Bash(./gradlew:*)",
+      "Bash(flutter test:*)",
+      "Bash(pod install:*)",
+      "Bash(xcrun simctl:*)",
+      "Bash(flutter run:*)",
+      "Bash(grep:*)",
+      "Bash(flutter install:*)",
+      "Bash(adb:*)",
+      "Bash(tee:*)",
+      "Bash(ls:*)",
+      "Bash(git add:*)",
+      "Bash(dart format:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(xcodebuild:*)",
+      "Bash(brew install:*)",
+      "Bash(git lfs:*)",
+      "Bash(git check-attr filter -- ios/Frameworks/KMPWorkManager.xcframework/ios-arm64/KMPWorkManager.framework/KMPWorkManager)",
+      "Bash(__NEW_LINE_d41cc7ca6a39ea7b__ echo \"\")",
+      "Bash(git check-attr:*)",
+      "Bash(git checkout:*)"
+    ]
+  }
+}

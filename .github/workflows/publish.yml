@@ -1,0 +1,90 @@
+name: Publish to pub.dev
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.0.0)'
+        required: true
+        type: string
+      create_release:
+        description: 'Create GitHub release'
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  publish:
+    name: Publish Package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Verify version
+        run: |
+          echo "Requested version: ${{ inputs.version }}"
+          PUBSPEC_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          echo "Pubspec version: $PUBSPEC_VERSION"
+
+          if [[ "$PUBSPEC_VERSION" != "${{ inputs.version }}" ]]; then
+            echo "❌ Version mismatch!"
+            echo "Update pubspec.yaml version to ${{ inputs.version }} before publishing"
+            exit 1
+          fi
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Run all checks
+        run: |
+          echo "Running format check..."
+          dart format --output=none --set-exit-if-changed .
+
+          echo "Running analyzer..."
+          flutter analyze --no-fatal-infos
+
+          echo "Running tests..."
+          flutter test
+
+          echo "Dry run publish..."
+          dart pub publish --dry-run
+
+      - name: Setup pub credentials
+        run: |
+          mkdir -p ~/.pub-cache
+          echo '${{ secrets.PUB_CREDENTIALS }}' > ~/.pub-cache/credentials.json
+
+      - name: Publish to pub.dev
+        run: dart pub publish --force
+
+      - name: Create GitHub Release
+        if: ${{ inputs.create_release }}
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ inputs.version }}
+          release_name: v${{ inputs.version }}
+          body: |
+            ## native_workmanager v${{ inputs.version }}
+
+            Published to [pub.dev](https://pub.dev/packages/native_workmanager).
+
+            See [CHANGELOG.md](CHANGELOG.md) for details.
+          draft: false
+          prerelease: false
+
+      - name: Notify success
+        if: success()
+        run: |
+          echo "✅ Successfully published v${{ inputs.version }} to pub.dev!"
