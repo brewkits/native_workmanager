@@ -9,85 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### ✨ Added
-
-#### **iOS Background Session Support** 🚀
-
-Downloads and uploads can now survive app termination on iOS using `URLSessionConfiguration.background`.
-
-**Features:**
-- No time limits (vs 30-second BGTask limit)
-- Survives app force-quit and termination
-- System-managed retry on network changes
-- Battery-efficient scheduling by iOS
-- iOS-only feature (Android already handles this via WorkManager)
-
-**Usage:**
-```dart
-// Download that survives app termination
-await NativeWorkManager.enqueue(
-  taskId: 'large-download',
-  trigger: TaskTrigger.oneTime(),
-  worker: NativeWorker.httpDownload(
-    url: 'https://cdn.example.com/large-video.mp4',
-    savePath: '/path/to/video.mp4',
-    useBackgroundSession: true,  // 🚀 NEW
-  ),
-);
-
-// Upload that survives app termination
-await NativeWorkManager.enqueue(
-  taskId: 'large-upload',
-  trigger: TaskTrigger.oneTime(),
-  worker: NativeWorker.httpUpload(
-    url: 'https://api.example.com/videos',
-    filePath: '/path/to/video.mp4',
-    useBackgroundSession: true,  // 🚀 NEW
-  ),
-);
-```
-
-**When to use:**
-- ✅ Large files (>10MB) that may take minutes to transfer
-- ✅ Downloads/uploads that must complete even if user force-quits app
-- ✅ Transfers on unreliable networks (automatic retry)
-- ❌ Small files (<1MB) - foreground session is faster
-- ❌ Immediate transfers - foreground session has less overhead
-
-**AppDelegate Integration:**
-Users must add background session handler to their iOS AppDelegate:
-```swift
-import native_workmanager
-
-@available(iOS 13.0, *)
-override func application(
-  _ application: UIApplication,
-  handleEventsForBackgroundURLSession identifier: String,
-  completionHandler: @escaping () -> Void
-) {
-  if identifier == "dev.brewkits.native_workmanager.background" {
-    BackgroundSessionManager.shared.backgroundCompletionHandler = completionHandler
-  } else {
-    completionHandler()
-  }
-}
-```
-
-**Benefits:**
-- ✅ No more failed downloads when app is terminated
-- ✅ Better user experience for large file transfers
-- ✅ Reduced bandwidth waste (iOS retries automatically)
-- ✅ Matches Android WorkManager behavior
-
-**See Also:**
-- [IOS_BACKGROUND_LIMITS.md](docs/IOS_BACKGROUND_LIMITS.md) - Background session documentation
-
-### 🔮 Future Enhancements
-
-- Chain data passing (native variable passing between tasks)
-- Query params builder for HttpRequestWorker
-- Password-protected ZIP support for FileDecompressionWorker
-- Advanced FileSystemWorker features (batch operations, symbolic links)
+### Planned Features
+- iOS Background Session Support (URLSessionConfiguration.background)
+- Chain data passing between tasks
+- Password-protected ZIP support
+- Advanced FileSystemWorker features
 
 ---
 

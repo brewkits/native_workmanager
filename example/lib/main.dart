@@ -12,7 +12,6 @@ import 'pages/production_impact_page_improved.dart';
 import 'pages/demo_scenarios_page.dart';
 import 'pages/comprehensive_demo_page.dart';
 import 'pages/performance_page.dart';
-import 'utils/performance_benchmark.dart';
 
 /// flutter_workmanager background callback.
 /// Runs in a separate isolate — communicates completion back via SharedPreferences.
@@ -112,18 +111,7 @@ void main() async {
 
   // Performance benchmarks - DISABLED by default to avoid auto-running tasks on app start
   // Users can run benchmarks manually from the Performance page
-  // To enable auto-run: set AUTO_RUN_BENCHMARKS = true
-  const autoRunBenchmarks = false;
-
-  if (autoRunBenchmarks && !Platform.isIOS) {
-    debugPrint('🏃 Running performance benchmarks...');
-    final benchmarkResults = await PerformanceBenchmark.runAll();
-    debugPrint('\n${benchmarkResults.toString()}');
-  } else {
-    debugPrint(
-      '💡 Benchmarks disabled - Use Performance page to run manually',
-    );
-  }
+  debugPrint('💡 Benchmarks disabled - Use Performance page to run manually');
 }
 
 /// Heavy compute callback for A/B benchmark (runs inside native_workmanager's cached engine).

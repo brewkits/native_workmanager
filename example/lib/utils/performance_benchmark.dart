@@ -185,10 +185,6 @@ class PerformanceBenchmark {
     );
   }
 
-  // Dummy implementation for missing method to prevent errors
-  static Future<BenchmarkResult> _benchmarkEventDispatchLatency() async {
-    return BenchmarkResult(name: 'Event Latency', measurements: [], unit: 'us');
-  }
 }
 
 // --- Data Models ---

@@ -12,6 +12,16 @@
 .swiftpm/
 migrate_working_dir/
 
+# Backup files
+*.bak
+*.bak2
+*.orig
+*_OLD*
+*_BACKUP*
+
+# Claude Code
+.claude/
+
 # IntelliJ related
 *.iml
 *.ipr
@@ -24,8 +34,8 @@ migrate_working_dir/
 #.vscode/
 
 # Internal docs (not for public repo)
-docs/history/
-docs/current/COMPETITIVE_ANALYSIS.md
+doc/history/
+doc/current/COMPETITIVE_ANALYSIS.md
 
 # Flutter/Dart/Pub related
 # Libraries should not include pubspec.lock, per https://dart.dev/guides/libraries/private-files#pubspeclock.
