@@ -5,8 +5,8 @@
 [![pub package](https://img.shields.io/pub/v/native_workmanager.svg?color=blueviolet)](https://pub.dev/packages/native_workmanager)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/platform-Android%20%7C%20iOS-blue.svg)](https://pub.dev/packages/native_workmanager)
-[![Tests](https://img.shields.io/badge/tests-462%2F462%20passing-brightgreen)](doc/releases/RELEASE_v1.0.0.md)
-[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](doc/releases/RELEASE_v1.0.0.md)
+[![Tests](https://img.shields.io/badge/tests-744%20unit%20tests%20passing-brightgreen)](doc/releases/RELEASE_v1.0.0.md)
+[![Platform Coverage](https://img.shields.io/badge/platform%20coverage-Android%20%7C%20iOS-blue)](doc/releases/RELEASE_v1.0.0.md)
 
 **The only Flutter background task manager with zero-overhead native workers and automated task chains.**
 
@@ -344,7 +344,7 @@ A: Background tasks are for periodic work, not continuous tracking. For location
 ## 📊 Production Ready
 
 - ✅ **Security Audit Passed** - No critical vulnerabilities
-- ✅ **462 Tests Passing** - 100% pass rate, comprehensive test suite
+- ✅ **744+ Unit Tests Passing** - Comprehensive test suite covering all workers
 - ✅ **100% Worker Coverage** - All 11 native workers tested
 - ✅ **Performance Verified** - Benchmarks published, independent validation invited
 - ✅ **Used in Production** - Apps with 1M+ active users
@@ -375,7 +375,7 @@ A: Background tasks are for periodic work, not continuous tracking. For location
 - API stability guarantee
 - Security audit passed
 - Performance benchmarks published
-- 462 tests passing, 100% coverage
+- 744+ unit tests passing, all workers covered
 
 **v1.1** (Q2 2026)
 - Password-protected ZIP support
