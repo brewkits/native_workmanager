@@ -68,16 +68,18 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
       _runningTaskName = taskName;
     });
 
-    // On iOS, add a timeout since tasks might not execute in foreground
+    // On iOS, reset UI after 3 seconds since background tasks don't execute while app is in foreground
+    // The task is successfully scheduled, but iOS will execute it when app is backgrounded
     if (Platform.isIOS) {
-      Future.delayed(const Duration(seconds: 5), () {
+      Future.delayed(const Duration(seconds: 3), () {
         if (mounted && _isAnyTaskRunning) {
           setState(() {
             _isAnyTaskRunning = false;
             _runningTaskName = '';
           });
           _showSnackbar(
-            '⚠️ Task scheduled (iOS tasks execute when app is backgrounded)',
+            '✅ Task scheduled successfully\n'
+            '💡 Background the app (swipe up) for iOS to execute it',
           );
         }
       });

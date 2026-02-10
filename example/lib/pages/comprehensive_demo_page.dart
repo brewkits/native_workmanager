@@ -178,7 +178,7 @@ NativeWorker.httpRequest(
           code: '''
 NativeWorker.httpUpload(
   url: 'https://httpbin.org/post',
-  filePath: '/tmp/test.txt',
+  filePath: '\${Directory.systemTemp.path}/test.txt',
   fileFieldName: 'file',
   additionalFields: {'key': 'value'},
 )''',
@@ -215,7 +215,7 @@ NativeWorker.httpUpload(
           code: '''
 NativeWorker.httpDownload(
   url: 'https://httpbin.org/bytes/102400',
-  savePath: '/tmp/downloaded.bin',
+  savePath: '\${Directory.systemTemp.path}/downloaded.bin',
   enableResume: true,
 )''',
           onRun: () async {
@@ -288,14 +288,41 @@ class _FileWorkersTab extends StatelessWidget {
           'File operations without Flutter Engine',
         ),
 
+        // iOS 30-second warning for heavy file operations
+        if (Platform.isIOS) ...[
+          Card(
+            color: Colors.orange.shade100,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Icon(Icons.timer, color: Colors.orange.shade900),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'iOS Limit: Background tasks must complete in 30 seconds. '
+                      'Large file compression/decompression may exceed this limit.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.orange.shade900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+
         _DemoCard(
           title: '1. File Compress',
           description: 'Compress files/folders to ZIP',
           icon: Icons.compress,
           code: '''
 NativeWorker.fileCompress(
-  inputPath: '/tmp/documents',
-  outputPath: '/tmp/backup.zip',
+  inputPath: '\${Directory.systemTemp.path}/documents',
+  outputPath: '\${Directory.systemTemp.path}/backup.zip',
   level: CompressionLevel.high,
 )''',
           onRun: () async {
@@ -330,8 +357,8 @@ NativeWorker.fileCompress(
           icon: Icons.folder_zip,
           code: '''
 NativeWorker.fileDecompress(
-  zipPath: '/tmp/archive.zip',
-  targetDir: '/tmp/extracted',
+  zipPath: '\${Directory.systemTemp.path}/archive.zip',
+  targetDir: '\${Directory.systemTemp.path}/extracted',
   password: 'secret',
 )''',
           onRun: () async {
@@ -363,8 +390,8 @@ NativeWorker.fileDecompress(
           icon: Icons.copy_all,
           code: '''
 NativeWorker.fileCopy(
-  sourcePath: '/tmp/file.txt',
-  destinationPath: '/tmp/backup/file.txt',
+  sourcePath: '\${Directory.systemTemp.path}/file.txt',
+  destinationPath: '\${Directory.systemTemp.path}/backup/file.txt',
   recursive: true,
 )''',
           onRun: () async {
@@ -400,8 +427,8 @@ NativeWorker.fileCopy(
           icon: Icons.drive_file_move,
           code: '''
 NativeWorker.fileMove(
-  sourcePath: '/tmp/file.txt',
-  destinationPath: '/storage/file.txt',
+  sourcePath: '\${Directory.systemTemp.path}/file.txt',
+  destinationPath: '\${Directory.systemTemp.path}/storage/file.txt',
 )''',
           onRun: () async {
             final sourcePath = '${Directory.systemTemp.path}/move_me.txt';
@@ -432,7 +459,7 @@ NativeWorker.fileMove(
           icon: Icons.delete,
           code: '''
 NativeWorker.fileDelete(
-  path: '/tmp/cache',
+  path: '\${Directory.systemTemp.path}/cache',
   recursive: true,
 )''',
           onRun: () async {
@@ -460,7 +487,7 @@ NativeWorker.fileDelete(
           icon: Icons.list,
           code: '''
 NativeWorker.fileList(
-  path: '/tmp/photos',
+  path: '\${Directory.systemTemp.path}/photos',
   pattern: '*.{jpg,png}',
   recursive: true,
 )''',
@@ -494,7 +521,7 @@ NativeWorker.fileList(
           icon: Icons.create_new_folder,
           code: '''
 NativeWorker.fileMkdir(
-  path: '/tmp/new/nested/directory',
+  path: '\${Directory.systemTemp.path}/new/nested/directory',
   createParents: true,
 )''',
           onRun: () async {
@@ -532,14 +559,41 @@ class _MediaWorkersTab extends StatelessWidget {
       children: [
         _buildHeader(context, 'Media Workers', '10x faster image processing'),
 
+        // iOS 30-second warning for heavy tasks
+        if (Platform.isIOS) ...[
+          Card(
+            color: Colors.orange.shade100,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Icon(Icons.timer, color: Colors.orange.shade900),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'iOS Limit: Background tasks must complete in 30 seconds. '
+                      'Large image processing may exceed this limit.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.orange.shade900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+
         _DemoCard(
           title: '1. Image Resize',
           description: 'Resize image to specific dimensions',
           icon: Icons.photo_size_select_large,
           code: '''
 NativeWorker.imageProcess(
-  inputPath: '/tmp/photo.jpg',
-  outputPath: '/tmp/photo_1080p.jpg',
+  inputPath: '\${Directory.systemTemp.path}/photo.jpg',
+  outputPath: '\${Directory.systemTemp.path}/photo_1080p.jpg',
   maxWidth: 1920,
   maxHeight: 1080,
 )''',
@@ -574,8 +628,8 @@ NativeWorker.imageProcess(
           icon: Icons.compress,
           code: '''
 NativeWorker.imageProcess(
-  inputPath: '/tmp/photo.jpg',
-  outputPath: '/tmp/photo_compressed.jpg',
+  inputPath: '\${Directory.systemTemp.path}/photo.jpg',
+  outputPath: '\${Directory.systemTemp.path}/photo_compressed.jpg',
   quality: 80,
   outputFormat: ImageFormat.jpeg,
 )''',
@@ -609,8 +663,8 @@ NativeWorker.imageProcess(
           icon: Icons.transform,
           code: '''
 NativeWorker.imageProcess(
-  inputPath: '/tmp/photo.png',
-  outputPath: '/tmp/photo.webp',
+  inputPath: '\${Directory.systemTemp.path}/photo.png',
+  outputPath: '\${Directory.systemTemp.path}/photo.webp',
   outputFormat: ImageFormat.webp,
   quality: 85,
 )''',
@@ -644,8 +698,8 @@ NativeWorker.imageProcess(
           icon: Icons.image_aspect_ratio,
           code: '''
 NativeWorker.imageProcess(
-  inputPath: '/tmp/photo.jpg',
-  outputPath: '/tmp/thumbnail.jpg',
+  inputPath: '\${Directory.systemTemp.path}/photo.jpg',
+  outputPath: '\${Directory.systemTemp.path}/thumbnail.jpg',
   maxWidth: 200,
   maxHeight: 200,
   quality: 70,
@@ -700,13 +754,40 @@ class _CryptoWorkersTab extends StatelessWidget {
           'Security operations without Flutter Engine',
         ),
 
+        // iOS 30-second warning for heavy crypto operations
+        if (Platform.isIOS) ...[
+          Card(
+            color: Colors.orange.shade100,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Icon(Icons.timer, color: Colors.orange.shade900),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'iOS Limit: Background tasks must complete in 30 seconds. '
+                      'Large file encryption/hashing may exceed this limit.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.orange.shade900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+
         _DemoCard(
           title: '1. File Hash (MD5)',
           description: 'Calculate MD5 hash of a file',
           icon: Icons.fingerprint,
           code: '''
 NativeWorker.hashFile(
-  filePath: '/tmp/file.bin',
+  filePath: '\${Directory.systemTemp.path}/file.bin',
   algorithm: HashAlgorithm.md5,
 )''',
           onRun: () async {
@@ -736,7 +817,7 @@ NativeWorker.hashFile(
           icon: Icons.verified_user,
           code: '''
 NativeWorker.hashFile(
-  filePath: '/tmp/download.zip',
+  filePath: '\${Directory.systemTemp.path}/download.zip',
   algorithm: HashAlgorithm.sha256,
 )''',
           onRun: () async {
@@ -788,8 +869,8 @@ NativeWorker.hashString(
           icon: Icons.lock,
           code: '''
 NativeWorker.cryptoEncrypt(
-  inputPath: '/tmp/secret.txt',
-  outputPath: '/tmp/secret.encrypted',
+  inputPath: '\${Directory.systemTemp.path}/secret.txt',
+  outputPath: '\${Directory.systemTemp.path}/secret.encrypted',
   key: base64EncryptionKey,
 )''',
           onRun: () async {
@@ -821,8 +902,8 @@ NativeWorker.cryptoEncrypt(
           icon: Icons.lock_open,
           code: '''
 NativeWorker.cryptoDecrypt(
-  inputPath: '/tmp/secret.encrypted',
-  outputPath: '/tmp/secret_decrypted.txt',
+  inputPath: '\${Directory.systemTemp.path}/secret.encrypted',
+  outputPath: '\${Directory.systemTemp.path}/secret_decrypted.txt',
   key: base64EncryptionKey,
 )''',
           onRun: () async {

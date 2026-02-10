@@ -61,6 +61,21 @@
 		<string>demo-quick-sync</string>
 	</array>
 	<!-- Network Access -->
+	<!-- SECURITY WARNING: NSAllowsArbitraryLoads is enabled for DEMO purposes only.
+	     This allows insecure HTTP connections to httpbin.org test endpoints.
+	     PRODUCTION apps should use NSExceptionDomains instead of NSAllowsArbitraryLoads.
+	     Example:
+	     <key>NSExceptionDomains</key>
+	     <dict>
+	       <key>httpbin.org</key>
+	       <dict>
+	         <key>NSIncludesSubdomains</key>
+	         <true/>
+	         <key>NSTemporaryExceptionAllowsInsecureHTTPLoads</key>
+	         <true/>
+	       </dict>
+	     </dict>
+	-->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
