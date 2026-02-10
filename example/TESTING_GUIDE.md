@@ -1,6 +1,6 @@
 # 🧪 Native WorkManager Demo App - Testing Guide
 
-**Version:** 0.7.0
+**Version:** 1.0.0
 **Platforms:** iOS 13+ | Android 8.0+
 **Last Updated:** 2026-01-24
 
@@ -11,8 +11,8 @@
 Demo app có **6 tabs**, mỗi tab demo một nhóm features:
 
 1. **Basic** - Native Workers (HTTP, File, Database)
-2. **Retry** - BackoffPolicy v0.7.0 (Exponential & Linear)
-3. **ContentUri** - ContentUri Triggers v0.7.0 (Android only)
+2. **Retry** - BackoffPolicy v1.0.0 (Exponential & Linear)
+3. **ContentUri** - ContentUri Triggers v1.0.0 (Android only)
 4. **Constraints** - Advanced Constraints (QoS, isHeavyTask)
 5. **Chains** - Task Chains (Sequential & Parallel)
 6. **Scheduled** - Scheduled Tasks (Periodic, Exact, Windowed)
@@ -111,7 +111,7 @@ Event Log:
 
 ---
 
-## 🔄 Tab 2: Retry (BackoffPolicy v0.7.0)
+## 🔄 Tab 2: Retry (BackoffPolicy v1.0.0)
 
 ### Features Tested
 - Exponential backoff retry
@@ -753,7 +753,7 @@ Event Log:
 
 14:30:15 ✅ http-1: Success
 14:30:12 📤 Scheduled: HTTP GET task
-14:30:10 🚀 Native WorkManager v0.7.0 initialized
+14:30:10 🚀 Native WorkManager v1.0.0 initialized
 ```
 
 ### Status Icons

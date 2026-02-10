@@ -648,7 +648,7 @@ await NativeWorkManager.enqueue(
 
 - **[HttpUploadWorker](./HTTP_UPLOAD.md)** - Upload processed images
 - **[FileCompressionWorker](./FILE_COMPRESSION.md)** - Compress images into ZIP
-- **[Task Chains Guide](../TASK_CHAINS.md)** - Build image processing pipelines
+- **[Task Chains Guide](../use-cases/06-chain-processing.md)** - Build image processing pipelines
 
 ---
 

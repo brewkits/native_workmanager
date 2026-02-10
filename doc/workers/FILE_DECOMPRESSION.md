@@ -445,7 +445,7 @@ await NativeWorkManager.enqueue(
 - **[FileCompressionWorker](./FILE_COMPRESSION.md)** - Create ZIP archives
 - **[HttpDownloadWorker](./HTTP_DOWNLOAD.md)** - Download files before extraction
 - **[FileSystemWorker](./FILE_SYSTEM.md)** - Organize extracted files
-- **[Task Chains Guide](../TASK_CHAINS.md)** - Build complete workflows
+- **[Task Chains Guide](../use-cases/06-chain-processing.md)** - Build complete workflows
 
 ---
 

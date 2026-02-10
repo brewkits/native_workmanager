@@ -466,7 +466,7 @@ if (userPassword != storedPassword) {
 - **[HttpDownloadWorker](./HTTP_DOWNLOAD.md)** - Download files before hashing
 - **[HttpUploadWorker](./HTTP_UPLOAD.md)** - Upload encrypted files
 - **[FileCompressionWorker](./FILE_COMPRESSION.md)** - Compress before encryption
-- **[Task Chains Guide](../TASK_CHAINS.md)** - Build secure workflows
+- **[Task Chains Guide](../use-cases/06-chain-processing.md)** - Build secure workflows
 
 ---
 

@@ -1,21 +1,21 @@
 # Native WorkManager Example App
 
-Comprehensive demonstration of all Native WorkManager features including v0.7.0 additions.
+Comprehensive demonstration of all Native WorkManager features including v1.0.0 additions.
 
 ## Overview
 
 This example app showcases the complete Native WorkManager API through an interactive 6-tab interface:
 
 1. **Basic Tasks** - Native Workers (HTTP, File I/O, Database)
-2. **BackoffPolicy** - v0.7.0 retry logic (exponential & linear)
-3. **ContentUri** - v0.7.0 content observation (Android)
+2. **BackoffPolicy** - v1.0.0 retry logic (exponential & linear)
+3. **ContentUri** - v1.0.0 content observation (Android)
 4. **Advanced Constraints** - isHeavyTask & QoS
 5. **Task Chains** - Sequential & parallel workflows
 6. **Scheduled Tasks** - Periodic, exact, and windowed scheduling
 
 ## Features Demonstrated
 
-### ✅ v0.7.0 Features
+### ✅ v1.0.0 Features
 
 - **BackoffPolicy** - Automatic retry with exponential or linear backoff
 - **ContentUri Trigger** - React to MediaStore/Contacts changes (Android)
@@ -122,7 +122,7 @@ await NativeWorkManager.enqueue(
 - Background data synchronization
 - Periodic cache updates
 
-### 2. BackoffPolicy (v0.7.0)
+### 2. BackoffPolicy (v1.0.0)
 
 Demonstrates automatic retry logic with exponential and linear backoff strategies.
 
@@ -175,7 +175,7 @@ await NativeWorkManager.enqueue(
 - File I/O
 - Internal processing tasks
 
-### 3. ContentUri Trigger (v0.7.0 - Android Only)
+### 3. ContentUri Trigger (v1.0.0 - Android Only)
 
 Reacts to changes in Android content providers (MediaStore, Contacts, etc.).
 
@@ -591,7 +591,7 @@ All examples shown in the UI tabs are fully functional and can be copied directl
 - **API Reference:** See QUICK_REFERENCE.md
 - **KMP Parity:** See COMPREHENSIVE_COMPARISON.md
 - **Source Code Audit:** See SOURCE_CODE_AUDIT_REPORT.md
-- **Test Coverage:** See TEST_SUMMARY_v0.7.0.md
+- **Test Coverage:** See TEST_SUMMARY_v1.0.0.md
 
 ## Next Steps
 

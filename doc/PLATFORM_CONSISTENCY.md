@@ -1,6 +1,6 @@
 # Platform Consistency Analysis
 
-**Version:** 0.8.1
+**Version:** 1.0.0
 **Status:** Documented - Known Limitation
 **Tracking:** GitHub Issue #16
 

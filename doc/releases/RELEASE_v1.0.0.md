@@ -246,21 +246,21 @@ NativeWorkManager.events.listen((event) {
 ## 📖 Documentation
 
 ### Core Guides
-- [Getting Started](docs/GETTING_STARTED.md) - Quick start guide
-- [Migration Guide](docs/MIGRATION_GUIDE.md) - Upgrade from v0.9.0
-- [Production Guide](docs/PRODUCTION_GUIDE.md) - Best practices
-- [Security Audit](docs/SECURITY_AUDIT.md) - Security analysis
+- [Getting Started](../GETTING_STARTED.md) - Quick start guide
+- [Migration Guide](../MIGRATION_GUIDE.md) - Upgrade from v0.9.0
+- [Production Guide](../PRODUCTION_GUIDE.md) - Best practices
+- [Security Audit](../SECURITY_AUDIT.md) - Security analysis
 
 ### Worker Guides
-- [File System Operations](docs/workers/FILE_SYSTEM.md)
-- [Image Processing](docs/workers/IMAGE_PROCESSING.md)
-- [Crypto Operations](docs/workers/CRYPTO_OPERATIONS.md)
-- [File Decompression](docs/workers/FILE_DECOMPRESSION.md)
+- [File System Operations](../workers/FILE_SYSTEM.md)
+- [Image Processing](../workers/IMAGE_PROCESSING.md)
+- [Crypto Operations](../workers/CRYPTO_OPERATIONS.md)
+- [File Decompression](../workers/FILE_DECOMPRESSION.md)
 
 ### Use Cases (8 Real-World Examples)
-- [01 - Periodic API Sync](docs/use-cases/01-periodic-api-sync.md)
-- [02 - File Upload with Retry](docs/use-cases/02-file-upload-with-retry.md)
-- [03 - Photo Backup Pipeline](docs/use-cases/03-photo-backup-pipeline.md)
+- [01 - Periodic API Sync](../use-cases/01-periodic-api-sync.md)
+- [02 - File Upload with Retry](../use-cases/02-file-upload-with-retry.md)
+- [03 - Background Cleanup](../use-cases/03-background-cleanup.md)
 - ... and 5 more
 
 ---
@@ -309,7 +309,7 @@ Built with ❤️ using:
 
 ## 📞 Support
 
-- 📖 [Documentation](docs/)
+- 📖 [Documentation](../)
 - 🐛 [Issue Tracker](https://github.com/brewkits/native_workmanager/issues)
 - 💬 [Discussions](https://github.com/brewkits/native_workmanager/discussions)
 - 📧 Email: support@brewkits.dev

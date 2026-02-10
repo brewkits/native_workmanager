@@ -500,7 +500,7 @@ worker: NativeWorker.fileCopy(
 
 - **[FileCompressionWorker](./FILE_COMPRESSION.md)** - Compress files after copying
 - **[FileDecompressionWorker](./FILE_DECOMPRESSION.md)** - Extract before organizing
-- **[Task Chains Guide](../TASK_CHAINS.md)** - Build pure-native workflows
+- **[Task Chains Guide](../use-cases/06-chain-processing.md)** - Build pure-native workflows
 
 ---
 

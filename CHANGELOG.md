@@ -1271,13 +1271,12 @@ See [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for complete migration guide.
 - [Issue Tracker](https://github.com/brewkits/native_workmanager/issues)
 - [Documentation](https://github.com/brewkits/native_workmanager#readme)
 - [KMP WorkManager](https://github.com/brewkits/kmpworkmanager)
-- [Migration Guide](MIGRATION_GUIDE.md)
-- [Architecture](ARCHITECTURE.md)
-- [Troubleshooting](TROUBLESHOOTING.md)
+- [Migration Guide](doc/MIGRATION_GUIDE.md)
+- [Production Guide](doc/PRODUCTION_GUIDE.md)
 
 ---
 
-**Latest Version:** 0.8.1
-**Status:** Beta - Production-ready for non-critical background tasks
+**Latest Version:** 1.0.0
+**Status:** ✅ Production Ready - Stable release for all production apps
 **KMP Parity:** 100% ✅ (kmpworkmanager v2.3.0)
 **Platforms:** Android ✅ | iOS ✅

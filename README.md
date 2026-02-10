@@ -287,7 +287,7 @@ await NativeWorkManager.enqueue(
 - **[Real-World Use Cases](doc/use-cases/)** (8 examples)
   - [Periodic API Sync](doc/use-cases/01-periodic-api-sync.md)
   - [File Upload with Retry](doc/use-cases/02-file-upload-with-retry.md)
-  - [Photo Backup Pipeline](doc/use-cases/03-photo-backup-pipeline.md)
+  - [Background Cleanup](doc/use-cases/03-background-cleanup.md)
   - [Photo Auto-Backup](doc/use-cases/04-photo-auto-backup.md)
   - [Hybrid Dart/Native Workflows](doc/use-cases/05-hybrid-workflow.md)
   - [Task Chain Processing](doc/use-cases/06-chain-processing.md)

@@ -1,6 +1,6 @@
 # Performance Guide
 
-**Version:** 0.8.1
+**Version:** 1.0.0
 **Last Updated:** 2026-02-07
 
 ---
@@ -616,5 +616,5 @@ qos: QoS.userInitiated,  // High priority
 ---
 
 **Last Updated:** 2026-02-07
-**Version:** 0.8.1
+**Version:** 1.0.0
 
