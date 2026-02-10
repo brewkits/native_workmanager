@@ -2,13 +2,105 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
 	<key>NSPrivacyTrackingDomains</key>
-	<array/>
-	<key>NSPrivacyAccessedAPITypes</key>
 	<array/>
 	<key>NSPrivacyCollectedDataTypes</key>
 	<array/>
-	<key>NSPrivacyTracking</key>
-	<false/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<!-- File Timestamp APIs -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<!-- Access file timestamps to determine modification dates for file operations -->
+				<string>C617.1</string>
+				<!-- Display file metadata in user interface -->
+				<string>DDA9.1</string>
+			</array>
+		</dict>
+
+		<!-- System Boot Time APIs -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<!-- Measure time intervals for task scheduling and retry logic -->
+				<string>35F9.1</string>
+			</array>
+		</dict>
+
+		<!-- Disk Space APIs -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<!-- Check available disk space before file operations (download, copy, decompress) -->
+				<string>E174.1</string>
+			</array>
+		</dict>
+
+		<!-- User Defaults APIs -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<!-- Store task metadata and configuration within the app's container -->
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
+
+	<!-- Privacy Practices Disclosure -->
+	<key>NSPrivacyPractices</key>
+	<dict>
+		<key>NSPrivacyPracticesDescription</key>
+		<string>Native WorkManager is a background task manager plugin that enables scheduled tasks, file operations, and network requests. The plugin operates entirely within the app's sandbox and does not collect, transmit, or share any user data. All operations are initiated by the host application and execute locally on the device.</string>
+
+		<key>NSPrivacyPracticesDetails</key>
+		<dict>
+			<!-- Network Access -->
+			<key>NetworkAccess</key>
+			<dict>
+				<key>Purpose</key>
+				<string>HTTP workers (request, upload, download, sync) perform network operations as configured by the host application. URLs, headers, and request bodies are provided by the host app. The plugin does not track, log, or transmit network activity to third parties.</string>
+				<key>DataSharing</key>
+				<false/>
+			</dict>
+
+			<!-- Background Tasks -->
+			<key>BackgroundTasks</key>
+			<dict>
+				<key>Purpose</key>
+				<string>Uses BGTaskScheduler (iOS 13+) to execute tasks when the app is not active. Tasks include file operations, image processing, encryption, and network requests as configured by the host application.</string>
+				<key>DataSharing</key>
+				<false/>
+			</dict>
+
+			<!-- File System Access -->
+			<key>FileSystemAccess</key>
+			<dict>
+				<key>Purpose</key>
+				<string>File workers perform operations (copy, move, delete, compress, decompress) within the app's sandbox. All file paths are validated to prevent directory traversal. No files are accessed outside the app's container.</string>
+				<key>DataSharing</key>
+				<false/>
+			</dict>
+
+			<!-- Local Storage -->
+			<key>LocalStorage</key>
+			<dict>
+				<key>Purpose</key>
+				<string>Task configuration, metadata, and progress state are stored locally using UserDefaults and file system. Data persists only within the app's container and is not shared with other apps or services.</string>
+				<key>DataSharing</key>
+				<false/>
+			</dict>
+		</dict>
+	</dict>
 </dict>
 </plist>

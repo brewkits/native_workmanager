@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:native_workmanager/native_workmanager.dart';
-import 'package:path_provider/path_provider.dart';
 import 'dart:developer' as developer;
 
 /// Integration tests for FileSystemWorker.
@@ -18,7 +17,7 @@ void main() {
 
   setUp(() async {
     // Create temporary test directory
-    final tempDir = await getTemporaryDirectory();
+    final tempDir = Directory.systemTemp;
     testDir = Directory('${tempDir.path}/file_system_test_${DateTime.now().millisecondsSinceEpoch}');
     await testDir.create(recursive: true);
     testDirPath = testDir.path;

@@ -4,7 +4,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'native_workmanager'
-  s.version          = '0.1.0'
+  s.version          = '1.0.0'
   s.summary          = 'Native background task manager for Flutter with zero Flutter Engine overhead.'
   s.description      = <<-DESC
 Native WorkManager is a Flutter plugin that provides native background task scheduling
@@ -44,6 +44,6 @@ Features:
   # Option 2: CocoaPods (when published to CocoaPods Trunk)
   # s.dependency 'KMPWorkManager', '~> 2.3.0'
 
-  # Privacy manifest for background task APIs
-  # s.resource_bundles = {'native_workmanager_privacy' => ['Resources/PrivacyInfo.xcprivacy']}
+  # Privacy manifest for background task APIs (iOS 17+ App Store requirement)
+  s.resource_bundles = {'native_workmanager_privacy' => ['Resources/PrivacyInfo.xcprivacy']}
 end

@@ -68,6 +68,12 @@ public class BackgroundSessionManager: NSObject {
     /// Background completion handler from AppDelegate
     public var backgroundCompletionHandler: (() -> Void)?
 
+    /// Progress delegate for reporting download/upload progress to Flutter
+    public var progressDelegate: ((String, Double) -> Void)?
+
+    /// Resume data storage for failed downloads (taskId -> resumeData)
+    private var resumeDataStorage: [String: Data] = [:]
+
     // MARK: - Session Creation
 
     private func createBackgroundSession() -> URLSession {
@@ -219,9 +225,29 @@ public class BackgroundSessionManager: NSObject {
             self.downloadHandlers.removeAll()
             self.uploadHandlers.removeAll()
             self.taskIdMap.removeAll()
+            self.resumeDataStorage.removeAll()
         }
 
         NSLog("BackgroundSessionManager: Cancelled all tasks")
+    }
+
+    /// Get resume data for a task (if available).
+    ///
+    /// - Parameter taskId: The task identifier
+    /// - Returns: Resume data if available, nil otherwise
+    public func getResumeData(taskId: String) -> Data? {
+        return queue.sync {
+            resumeDataStorage[taskId]
+        }
+    }
+
+    /// Clear resume data for a task.
+    ///
+    /// - Parameter taskId: The task identifier
+    public func clearResumeData(taskId: String) {
+        queue.async(flags: .barrier) {
+            self.resumeDataStorage.removeValue(forKey: taskId)
+        }
     }
 
     // MARK: - Helper Methods
@@ -290,8 +316,10 @@ extension BackgroundSessionManager: URLSessionDownloadDelegate {
 
         NSLog("BackgroundSessionManager: Download progress for \(taskId): \(Int(progress))%")
 
-        // TODO: Report progress to Flutter via EventChannel
-        // This would require integration with NativeWorkmanagerPlugin
+        // Report progress to Flutter via delegate
+        DispatchQueue.main.async { [weak self] in
+            self?.progressDelegate?(taskId, progress)
+        }
     }
 
     /// Called when download is resumed from previous session.
@@ -325,10 +353,14 @@ extension BackgroundSessionManager: URLSessionTaskDelegate {
             NSLog("BackgroundSessionManager: Task \(taskId) failed with error: \(error.localizedDescription)")
 
             // Check if we can resume download
-            if let downloadTask = task as? URLSessionDownloadTask,
+            if task is URLSessionDownloadTask,
                let resumeData = (error as NSError).userInfo[NSURLSessionDownloadTaskResumeData] as? Data {
-                NSLog("BackgroundSessionManager: Resume data available for \(taskId)")
-                // TODO: Store resume data for retry
+                NSLog("BackgroundSessionManager: Resume data available for \(taskId) (\(resumeData.count) bytes)")
+
+                // Store resume data for retry
+                queue.async(flags: .barrier) {
+                    self.resumeDataStorage[taskId] = resumeData
+                }
             }
 
             // Call appropriate completion handler
@@ -375,7 +407,10 @@ extension BackgroundSessionManager: URLSessionTaskDelegate {
 
         NSLog("BackgroundSessionManager: Upload progress for \(taskId): \(Int(progress))%")
 
-        // TODO: Report progress to Flutter
+        // Report progress to Flutter via delegate
+        DispatchQueue.main.async { [weak self] in
+            self?.progressDelegate?(taskId, progress)
+        }
     }
 }
 

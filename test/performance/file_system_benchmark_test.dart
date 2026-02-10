@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:math';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:native_workmanager/native_workmanager.dart';
-import 'package:path_provider/path_provider.dart';
 import 'dart:developer' as developer;
 
 /// Performance benchmark and stress tests for FileSystemWorker.
@@ -21,7 +20,7 @@ void main() {
   late String testDirPath;
 
   setUp(() async {
-    final tempDir = await getTemporaryDirectory();
+    final tempDir = Directory.systemTemp;
     testDir = Directory('${tempDir.path}/fs_bench_${DateTime.now().millisecondsSinceEpoch}');
     await testDir.create(recursive: true);
     testDirPath = testDir.path;
