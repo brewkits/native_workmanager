@@ -33,8 +33,8 @@ android {
     }
 
     dependencies {
-        // KMP WorkManager - Core library (from Maven Central v2.3.0)
-        api("dev.brewkits:kmpworkmanager:2.3.0")
+        // KMP WorkManager - Core library (from Maven Central v2.3.1)
+        api("dev.brewkits:kmpworkmanager:2.3.1")
 
         // Koin for DI (must match kmpworkmanager v2.1.2's Koin 4.1.1)
         api("io.insert-koin:koin-android:4.1.1")

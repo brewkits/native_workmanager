@@ -1,3 +1,8 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:d66c0f591a69f01417a971d47ed83ae1a58ab807221fe9a4f102324786ecf097
-size 137
+framework module "KMPWorkManager" {
+    umbrella header "KMPWorkManager.h"
+
+    export *
+    module * { export * }
+
+    use Foundation
+}

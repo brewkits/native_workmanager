@@ -1,5 +1,5 @@
 name: native_workmanager
-description: "Native background task manager for Flutter. Zero Flutter Engine overhead. 50MB less memory, 5x faster startup. Built on kmpworkmanager v2.3.0 (Android + iOS) with WorkerResult API, chain IDs, and UX improvements."
+description: "Native background task manager for Flutter. Zero Flutter Engine overhead. 50MB less memory, 5x faster startup. Built on kmpworkmanager v2.3.1 (Android + iOS) with critical bug fixes, security hardening, Koin scope isolation, and iOS chain reliability improvements."
 version: 1.0.0
 homepage: https://github.com/brewkits/native_workmanager
 repository: https://github.com/brewkits/native_workmanager

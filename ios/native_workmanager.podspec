@@ -37,7 +37,7 @@ Features:
   s.swift_version = '5.0'
 
   # KMP WorkManager Framework
-  # Using local XCFramework (integrated from kmpworkmanager v2.3.0)
+  # Using local XCFramework (integrated from kmpworkmanager v2.3.1)
   # Tracked with Git LFS for efficient binary storage
   s.vendored_frameworks = 'Frameworks/KMPWorkManager.xcframework'
 
