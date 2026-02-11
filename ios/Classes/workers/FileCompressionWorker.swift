@@ -177,6 +177,14 @@ class FileCompressionWorker: IosWorker {
                 return .failure(message: "Output file is empty")
             }
 
+            // ✅ SECURITY: Validate archive size
+            let outputURL = URL(fileURLWithPath: config.outputPath)
+            guard SecurityValidator.validateArchiveSize(outputURL) else {
+                print("FileCompressionWorker: Error - Archive size exceeds limit")
+                try? FileManager.default.removeItem(at: outputURL)
+                return .failure(message: "Archive size exceeds limit")
+            }
+
             let originalSize = try calculateSize(url: inputURL)
             let compressionRatio = Int((Float(compressedSize) / Float(originalSize)) * 100)
 

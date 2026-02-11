@@ -73,6 +73,24 @@ class NativeWorker {
         'Provide a valid file path like "/path/to/file.jpg"',
       );
     }
+
+    // ✅ SECURITY: Prevent path traversal attacks
+    if (path.contains('..')) {
+      throw ArgumentError(
+        'Path traversal detected in $parameterName: "$path"\n'
+        'Paths containing ".." are not allowed for security reasons.\n'
+        'This prevents attacks like "../../../etc/passwd"',
+      );
+    }
+
+    // ✅ SECURITY: Require absolute paths (relative paths can be manipulated)
+    if (!path.startsWith('/')) {
+      throw ArgumentError(
+        'Relative path not allowed in $parameterName: "$path"\n'
+        'Use absolute paths like "/path/to/file.jpg"\n'
+        'Relative paths are blocked to prevent path traversal attacks',
+      );
+    }
   }
 
   /// HTTP request worker (GET, POST, PUT, DELETE).
@@ -479,6 +497,16 @@ class NativeWorker {
         'Current count: ${additionalFields.length}\n'
         'Consider sending large data as JSON in request body instead',
       );
+    }
+
+    // Validate field names are not empty
+    for (final key in additionalFields.keys) {
+      if (key.isEmpty) {
+        throw ArgumentError(
+          'Empty field name in additionalFields\n'
+          'All field names must be non-empty strings',
+        );
+      }
     }
 
     return HttpUploadWorker(

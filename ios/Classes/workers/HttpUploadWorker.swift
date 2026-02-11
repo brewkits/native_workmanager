@@ -195,6 +195,12 @@ class HttpUploadWorker: IosWorker {
                 return .failure(message: "File not found: \(fileURL.lastPathComponent)")
             }
 
+            // ✅ SECURITY: Validate file size
+            guard SecurityValidator.validateFileSize(fileURL) else {
+                print("HttpUploadWorker: Error - File too large: \(fileConfig.filePath)")
+                return .failure(message: "File size exceeds limit")
+            }
+
             // Get file size
             do {
                 let fileAttributes = try FileManager.default.attributesOfItem(atPath: fileConfig.filePath)

@@ -200,6 +200,25 @@ class HttpDownloadWorker: IosWorker {
                     return
                 }
 
+                // ✅ SECURITY: Validate content length before downloading
+                let contentLength = httpResponse.expectedContentLength
+                if contentLength > 0 {
+                    if !SecurityValidator.validateContentLength(contentLength) {
+                        print("HttpDownloadWorker: Error - Content too large")
+                        try? FileManager.default.removeItem(at: location)
+                        continuation.resume(returning: .failure(message: "Download size exceeds limit"))
+                        return
+                    }
+
+                    // ✅ SECURITY: Check disk space
+                    if !SecurityValidator.hasEnoughDiskSpace(requiredBytes: contentLength, targetURL: destinationURL) {
+                        print("HttpDownloadWorker: Error - Insufficient disk space")
+                        try? FileManager.default.removeItem(at: location)
+                        continuation.resume(returning: .failure(message: "Insufficient disk space"))
+                        return
+                    }
+                }
+
                 // Log resume status
                 if isResumingDownload {
                     print("HttpDownloadWorker: Resume confirmed - Server sent 206 Partial Content")

@@ -74,6 +74,11 @@ class ImageProcessWorker: IosWorker {
             return .failure(message: "Input file not found: \(config.inputPath)")
         }
 
+        // ✅ SECURITY: Validate file size
+        guard SecurityValidator.validateFileSize(inputURL) else {
+            return .failure(message: "Input file size exceeds limit")
+        }
+
         // Get original file size
         let originalSize: Int64
         do {

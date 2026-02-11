@@ -209,12 +209,12 @@ NativeWorkManager.enqueue(
 - `autoDispose` flag for fine-grained memory control
 - Best of both worlds
 
-**4. KMP Architecture** ⭐⭐⭐⭐
-- Shared Kotlin Multiplatform core
-- 95% platform consistency
-- Future-proof (easy to add Desktop/Web support)
+**4. Cross-Platform Consistency** ⭐⭐⭐⭐
+- Unified API across Android and iOS
+- 95% behavior consistency
+- Future-proof architecture for Desktop/Web support
 
-[See detailed comparison →](doc/strategy/COMPETITIVE_LANDSCAPE.md)
+[See detailed comparison →](doc/FAQ.md#how-does-this-compare-to-other-solutions)
 
 ---
 
@@ -417,12 +417,12 @@ MIT License - See [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
-Built with ❤️ using:
-- [kmpworkmanager](https://github.com/frankois944/kmpworkmanager) v2.3.0 - Kotlin Multiplatform core
-- WorkManager (Android) - Google's official background task library
-- BGTaskScheduler (iOS) - Apple's background task API
+Built with ❤️ using platform-native APIs:
+- **Android:** WorkManager - Google's official background task library
+- **iOS:** BGTaskScheduler - Apple's background task framework
+- **Shared Core:** [kmpworkmanager](https://github.com/frankois944/kmpworkmanager) - Cross-platform worker orchestration
 
-Inspired by Android WorkManager and iOS BackgroundTasks APIs.
+Inspired by Android WorkManager and iOS BackgroundTasks best practices.
 
 ---
 

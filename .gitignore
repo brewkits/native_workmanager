@@ -36,6 +36,8 @@ migrate_working_dir/
 # Internal docs (not for public repo)
 doc/history/
 doc/current/COMPETITIVE_ANALYSIS.md
+doc/strategy/
+doc/development/
 
 # Flutter/Dart/Pub related
 # Libraries should not include pubspec.lock, per https://dart.dev/guides/libraries/private-files#pubspeclock.

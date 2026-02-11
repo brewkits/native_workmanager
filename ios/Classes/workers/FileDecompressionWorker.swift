@@ -82,6 +82,12 @@ class FileDecompressionWorker: IosWorker {
             return .failure(message: "ZIP file not found")
         }
 
+        // ✅ SECURITY: Validate archive size
+        guard SecurityValidator.validateArchiveSize(zipURL) else {
+            print("FileDecompressionWorker: Error - Archive size exceeds limit")
+            return .failure(message: "Archive size exceeds limit")
+        }
+
         // Create target directory if needed
         if !FileManager.default.fileExists(atPath: targetDirURL.path) {
             do {
