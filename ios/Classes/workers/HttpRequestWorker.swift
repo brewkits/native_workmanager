@@ -67,9 +67,14 @@ class HttpRequestWorker: IosWorker {
         }
 
         // Parse configuration
+        // Parse configuration
+        guard let data = input.data(using: .utf8) else {
+            print("HttpRequestWorker: Error - Invalid UTF-8 encoding")
+            return .failure(message: "Invalid input encoding")
+        }
+
         let config: Config
         do {
-            let data = input.data(using: .utf8)!
             config = try JSONDecoder().decode(Config.self, from: data)
         } catch {
             print("HttpRequestWorker: Error parsing JSON config: \(error)")
