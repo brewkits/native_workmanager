@@ -401,20 +401,6 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 
 ---
 
-## 📄 License
-
-MIT License - See [LICENSE](LICENSE) file for details.
-
-**You can:**
-- ✅ Use in commercial projects
-- ✅ Modify the code
-- ✅ Distribute freely
-
-**You must:**
-- ✅ Include license and copyright notice
-
----
-
 ## 🙏 Acknowledgments
 
 Built with ❤️ using platform-native APIs:
@@ -426,6 +412,26 @@ Inspired by Android WorkManager and iOS BackgroundTasks best practices.
 
 ---
 
-**⭐ If this library saves you 50MB RAM and improves battery life, please star the repo!**
+## 📞 Support & Contact
 
-[GitHub Repository](https://github.com/brewkits/native_workmanager) | [pub.dev Package](https://pub.dev/packages/native_workmanager) | [Documentation](doc/)
+**Need help?**
+- 🌐 **Website:** [brewkits.dev](https://brewkits.dev)
+- 🐛 **Issues:** [GitHub Issues](https://github.com/brewkits/native_workmanager/issues)
+- 📧 **Email:** datacenter111@gmail.com
+
+**Links:**
+- 📦 [pub.dev Package](https://pub.dev/packages/native_workmanager)
+- 📖 [Documentation](doc/)
+- 💻 [GitHub Repository](https://github.com/brewkits/native_workmanager)
+
+---
+
+## 📄 License
+
+Licensed under the MIT License - see [LICENSE](LICENSE) file for details.
+
+**Author:** Nguyễn Tuấn Việt • [BrewKits](https://brewkits.dev)
+
+---
+
+**⭐ If this library saves you 50MB RAM and improves battery life, please star the repo!**
