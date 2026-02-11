@@ -18,7 +18,7 @@ Features:
 - Built-in HTTP workers (request, upload, download, sync)
                        DESC
   s.homepage         = 'https://github.com/user/native_workmanager'
-  s.license          = { :type => 'Apache-2.0', :file => '../LICENSE' }
+  s.license          = { :type => 'MIT', :file => '../LICENSE' }
   s.author           = { 'Brewkits' => 'vietnguyentuan@gmail.com' }
   s.source           = { :path => '.' }
   s.source_files     = 'Classes/**/*.{swift,h,m}'
