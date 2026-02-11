@@ -195,15 +195,29 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             let stepTasks = steps[stepIndex]
             print("NativeWorkManager: Chain '\(chainId)' - Step \(stepIndex + 1)/\(steps.count)")
 
+            // Get previous step's result for data flow
+            let previousStepData = try? await chainStateManager.getPreviousStepResult(
+                chainId: chainId,
+                currentStepIndex: stepIndex
+            )
+
             // Execute tasks in parallel
             var stepSucceeded = false
-            await withTaskGroup(of: Bool.self) { group in
+            var stepResultData: [String: Any]? = nil
+
+            await withTaskGroup(of: WorkerResult.self) { group in
                 for task in stepTasks {
                     let taskId = task.taskId
                     let workerClassName = task.workerClassName
-                    let workerConfig = task.workerConfig.mapValues { $0.value as? [String: Any] ?? [:] }
+                    var workerConfig = task.workerConfig.mapValues { $0.value as? [String: Any] ?? [:] }
                                                         .compactMapValues { $0.isEmpty ? nil : $0 }
                                                         .reduce(into: [String: Any]()) { $0[$1.key] = $1.value }
+
+                    // 🔗 Merge previous step's output into current step's input
+                    if let previousData = previousStepData {
+                        print("NativeWorkManager: Merging \(previousData.count) keys from previous step into '\(taskId)'")
+                        workerConfig.merge(previousData) { (current, _) in current }
+                    }
 
                     group.addTask {
                         await self.executeWorkerSync(
@@ -217,9 +231,14 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
                 // Wait for all tasks
                 var allSucceeded = true
-                for await success in group {
-                    if !success {
+                for await taskResult in group {
+                    if !taskResult.success {
                         allSucceeded = false
+                    } else {
+                        // Capture result data from successful task
+                        if let data = taskResult.data {
+                            stepResultData = data
+                        }
                     }
                 }
                 stepSucceeded = allSucceeded
@@ -232,8 +251,16 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                 return
             }
 
-            // Step completed - save progress
+            // Step completed - save result data and progress
             do {
+                // Save result data first
+                try await chainStateManager.saveStepResult(
+                    chainId: chainId,
+                    stepIndex: stepIndex,
+                    resultData: stepResultData
+                )
+
+                // Then advance to next step
                 try await chainStateManager.advanceToNextStep(chainId: chainId)
                 print("NativeWorkManager: Chain '\(chainId)' progress saved (\(stepIndex + 1)/\(steps.count))")
             } catch {
@@ -555,14 +582,28 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                     return
                 }
 
+                // Get previous step's result for data flow
+                let previousStepData = try? await chainStateManager.getPreviousStepResult(
+                    chainId: chainId,
+                    currentStepIndex: stepIndex
+                )
+
                 // Execute tasks in parallel (if multiple tasks in step)
                 var stepSucceeded = false
-                await withTaskGroup(of: Bool.self) { group in
+                var stepResultData: [String: Any]? = nil
+
+                await withTaskGroup(of: WorkerResult.self) { group in
                     for taskData in stepTasks {
                         guard let taskId = taskData["id"] as? String,
                               let workerClassName = taskData["workerClassName"] as? String,
-                              let workerConfig = taskData["workerConfig"] as? [String: Any] else {
+                              var workerConfig = taskData["workerConfig"] as? [String: Any] else {
                             continue
+                        }
+
+                        // 🔗 Merge previous step's output into current step's input
+                        if let previousData = previousStepData {
+                            print("NativeWorkManager: Merging \(previousData.count) keys from previous step into '\(taskId)'")
+                            workerConfig.merge(previousData) { (current, _) in current }
                         }
 
                         group.addTask {
@@ -577,9 +618,15 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
                     // Wait for all tasks in this step to complete
                     var allSucceeded = true
-                    for await success in group {
-                        if !success {
+                    for await taskResult in group {
+                        if !taskResult.success {
                             allSucceeded = false
+                        } else {
+                            // Capture result data from successful task
+                            // If multiple tasks, last one's data wins (same as Android WorkManager)
+                            if let data = taskResult.data {
+                                stepResultData = data
+                            }
                         }
                     }
 
@@ -599,8 +646,16 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                     return
                 }
 
-                // ✅ Step completed - save progress
+                // ✅ Step completed - save result data and progress
                 do {
+                    // Save result data first (for data flow to next step)
+                    try await chainStateManager.saveStepResult(
+                        chainId: chainId,
+                        stepIndex: stepIndex,
+                        resultData: stepResultData
+                    )
+
+                    // Then advance to next step
                     try await chainStateManager.advanceToNextStep(chainId: chainId)
                     print("NativeWorkManager: Chain '\(chainId)' progress saved (\(stepIndex + 1)/\(steps.count))")
                 } catch {
@@ -627,29 +682,31 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         workerClassName: String,
         workerConfig: [String: Any],
         qos: String = "background"
-    ) async -> Bool {
+    ) async -> WorkerResult {
         print("NativeWorkManager: Executing task '\(taskId)' in chain with QoS: \(qos)...")
 
         // Map QoS string to DispatchQoS
         let qosClass = mapQoS(qos)
 
-        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+        return await withCheckedContinuation { (continuation: CheckedContinuation<WorkerResult, Never>) in
             DispatchQueue.global(qos: qosClass).async {
                 Task {
                     // Convert worker config to JSON string
                     guard let jsonData = try? JSONSerialization.data(withJSONObject: workerConfig),
                           let inputJson = String(data: jsonData, encoding: .utf8) else {
                         print("NativeWorkManager: Error serializing worker config")
-                        self.emitTaskEvent(taskId: taskId, success: false, message: "Config serialization failed")
-                        continuation.resume(returning: false)
+                        let result = WorkerResult.failure(message: "Config serialization failed")
+                        self.emitTaskEvent(taskId: taskId, success: false, message: result.message)
+                        continuation.resume(returning: result)
                         return
                     }
 
                     // Create worker
                     guard let worker = IosWorkerFactory.createWorker(className: workerClassName) else {
                         print("NativeWorkManager: Unknown worker class: \(workerClassName)")
-                        self.emitTaskEvent(taskId: taskId, success: false, message: "Unknown worker class")
-                        continuation.resume(returning: false)
+                        let result = WorkerResult.failure(message: "Unknown worker class")
+                        self.emitTaskEvent(taskId: taskId, success: false, message: result.message)
+                        continuation.resume(returning: result)
                         return
                     }
 
@@ -665,11 +722,12 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                             self.emitTaskEvent(taskId: taskId, success: false, message: result.message ?? "Worker returned failure", resultData: result.data)
                         }
 
-                        continuation.resume(returning: result.success)
+                        continuation.resume(returning: result)
                     } catch {
                         print("NativeWorkManager: Task '\(taskId)' error: \(error.localizedDescription)")
-                        self.emitTaskEvent(taskId: taskId, success: false, message: error.localizedDescription)
-                        continuation.resume(returning: false)
+                        let result = WorkerResult.failure(message: error.localizedDescription)
+                        self.emitTaskEvent(taskId: taskId, success: false, message: result.message)
+                        continuation.resume(returning: result)
                     }
                 }
             }

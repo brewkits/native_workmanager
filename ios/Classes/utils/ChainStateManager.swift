@@ -26,6 +26,7 @@ actor ChainStateManager {
         let createdAt: Date
         var lastUpdatedAt: Date
         let steps: [[TaskData]]  // All steps with their tasks
+        var stepResults: [[String: AnyCodable]?]  // Output data from each completed step (v1.0.0+)
 
         struct TaskData: Codable {
             let taskId: String
@@ -160,6 +161,55 @@ actor ChainStateManager {
     }
 
     // MARK: - Update
+
+    /// Save result data from a completed step
+    func saveStepResult(chainId: String, stepIndex: Int, resultData: [String: Any]?) throws {
+        guard var state = try loadChainState(chainId: chainId) else {
+            print("ChainStateManager: Chain '\(chainId)' not found")
+            return
+        }
+
+        guard stepIndex >= 0 && stepIndex < state.totalSteps else {
+            print("ChainStateManager: Invalid step index \(stepIndex)")
+            return
+        }
+
+        // Store result data (convert to AnyCodable)
+        if let resultData = resultData {
+            state.stepResults[stepIndex] = resultData.mapValues { AnyCodable($0) }
+            print("ChainStateManager: Saved result data for step \(stepIndex + 1) (\(resultData.count) keys)")
+        } else {
+            state.stepResults[stepIndex] = nil
+            print("ChainStateManager: No result data for step \(stepIndex + 1)")
+        }
+
+        state.lastUpdatedAt = Date()
+        try saveChainState(state)
+    }
+
+    /// Get result data from previous step (for data flow between steps)
+    func getPreviousStepResult(chainId: String, currentStepIndex: Int) throws -> [String: Any]? {
+        guard let state = try loadChainState(chainId: chainId) else {
+            return nil
+        }
+
+        // If first step or invalid index, no previous result
+        guard currentStepIndex > 0 && currentStepIndex <= state.totalSteps else {
+            return nil
+        }
+
+        let previousIndex = currentStepIndex - 1
+        guard previousIndex < state.stepResults.count else {
+            return nil
+        }
+
+        // Convert AnyCodable back to [String: Any]
+        if let result = state.stepResults[previousIndex] {
+            return result.mapValues { $0.value }
+        }
+
+        return nil
+    }
 
     /// Mark current step as completed and advance to next step
     func advanceToNextStep(chainId: String) throws {
@@ -302,7 +352,8 @@ actor ChainStateManager {
             completed: false,
             createdAt: Date(),
             lastUpdatedAt: Date(),
-            steps: steps
+            steps: steps,
+            stepResults: Array(repeating: nil, count: steps.count)  // Initialize with nil
         )
     }
 }
