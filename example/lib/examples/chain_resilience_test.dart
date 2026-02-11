@@ -45,6 +45,9 @@ class _ChainResilienceTestState extends State<ChainResilienceTest> {
 
   Future<void> _checkForResumedChain() async {
     // Check if there's a marker file indicating chain was in progress
+    // Delay slightly to ensure platform channels are ready
+    await Future.delayed(const Duration(milliseconds: 100));
+
     try {
       final dir = await getApplicationDocumentsDirectory();
       final markerFile = File('${dir.path}/chain_test_marker.txt');
@@ -57,7 +60,10 @@ class _ChainResilienceTestState extends State<ChainResilienceTest> {
         _log('✅ No interrupted chains found');
       }
     } catch (e) {
-      _log('Error checking marker: $e');
+      // Ignore path_provider initialization errors on first launch
+      if (!e.toString().contains('objective_c')) {
+        _log('Error checking marker: $e');
+      }
     }
   }
 
@@ -195,8 +201,9 @@ class _ChainResilienceTestState extends State<ChainResilienceTest> {
         title: const Text('Chain Resilience Test'),
         backgroundColor: Colors.deepPurple,
       ),
-      body: Column(
-        children: [
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
           // Instructions Card
           Card(
             margin: const EdgeInsets.all(16),
@@ -370,6 +377,7 @@ class _ChainResilienceTestState extends State<ChainResilienceTest> {
 
           const SizedBox(height: 16),
         ],
+      ),
       ),
     );
   }
