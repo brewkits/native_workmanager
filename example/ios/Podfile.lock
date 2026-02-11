@@ -2,7 +2,7 @@ PODS:
   - Flutter (1.0.0)
   - integration_test (0.0.1):
     - Flutter
-  - native_workmanager (0.1.0):
+  - native_workmanager (1.0.0):
     - Flutter
     - ZIPFoundation (~> 0.9)
   - shared_preferences_foundation (0.0.1):
@@ -38,7 +38,7 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
-  native_workmanager: d7fc3a4cbbbec4f31efa69d61b02b11a448abc93
+  native_workmanager: c989b50ba6da6eb52d6986c0c34d7d0650e8696c
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
   workmanager_apple: 904529ae31e97fc5be632cf628507652294a0778
   ZIPFoundation: dfd3d681c4053ff7e2f7350bc4e53b5dba3f5351

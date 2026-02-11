@@ -46,6 +46,9 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     // Task start times for debug mode
     private var taskStartTimes: [String: Date] = [:]
 
+    // Chain state manager for persistence
+    private let chainStateManager = ChainStateManager()
+
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = NativeWorkmanagerPlugin()
 
@@ -141,7 +144,110 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             print("NativeWorkManager: Initialized (KMP native workers)")
         }
 
+        // ✅ NEW: Resume incomplete chains and cleanup old states
+        Task {
+            await resumePendingChains()
+        }
+
         result(nil)
+    }
+
+    /// Resume incomplete chains that were interrupted by app kill
+    private func resumePendingChains() async {
+        print("NativeWorkManager: Checking for pending chains to resume...")
+
+        do {
+            // Cleanup old/completed chains first
+            try await chainStateManager.cleanupOldStates()
+
+            // Load resumable chains
+            let resumableChains = try await chainStateManager.loadResumableChains()
+
+            if resumableChains.isEmpty {
+                print("NativeWorkManager: No pending chains to resume")
+                return
+            }
+
+            print("NativeWorkManager: Found \(resumableChains.count) chain(s) to resume")
+
+            // Resume each chain
+            for chainState in resumableChains {
+                print("NativeWorkManager: Resuming chain '\(chainState.chainId)'")
+                print("  Progress: Step \(chainState.currentStep + 1)/\(chainState.totalSteps)")
+
+                await resumeChain(chainState: chainState)
+            }
+        } catch {
+            print("NativeWorkManager: Error resuming chains: \(error)")
+        }
+    }
+
+    /// Resume a specific chain from saved state
+    private func resumeChain(chainState: ChainStateManager.ChainState) async {
+        let chainId = chainState.chainId
+        let startStep = chainState.currentStep
+        let steps = chainState.steps
+
+        print("NativeWorkManager: Resuming chain '\(chainId)' from step \(startStep + 1)")
+
+        // Execute remaining steps
+        for stepIndex in startStep..<steps.count {
+            let stepTasks = steps[stepIndex]
+            print("NativeWorkManager: Chain '\(chainId)' - Step \(stepIndex + 1)/\(steps.count)")
+
+            // Execute tasks in parallel
+            var stepSucceeded = false
+            await withTaskGroup(of: Bool.self) { group in
+                for task in stepTasks {
+                    let taskId = task.taskId
+                    let workerClassName = task.workerClassName
+                    let workerConfig = task.workerConfig.mapValues { $0.value as? [String: Any] ?? [:] }
+                                                        .compactMapValues { $0.isEmpty ? nil : $0 }
+                                                        .reduce(into: [String: Any]()) { $0[$1.key] = $1.value }
+
+                    group.addTask {
+                        await self.executeWorkerSync(
+                            taskId: taskId,
+                            workerClassName: workerClassName,
+                            workerConfig: workerConfig,
+                            qos: "background"
+                        )
+                    }
+                }
+
+                // Wait for all tasks
+                var allSucceeded = true
+                for await success in group {
+                    if !success {
+                        allSucceeded = false
+                    }
+                }
+                stepSucceeded = allSucceeded
+            }
+
+            // If step failed, stop and mark as failed
+            if !stepSucceeded {
+                print("NativeWorkManager: Chain '\(chainId)' failed at step \(stepIndex + 1)")
+                try? await chainStateManager.markChainFailed(chainId: chainId)
+                return
+            }
+
+            // Step completed - save progress
+            do {
+                try await chainStateManager.advanceToNextStep(chainId: chainId)
+                print("NativeWorkManager: Chain '\(chainId)' progress saved (\(stepIndex + 1)/\(steps.count))")
+            } catch {
+                print("NativeWorkManager: Failed to save chain progress: \(error)")
+            }
+        }
+
+        // All steps completed
+        do {
+            try await chainStateManager.markChainCompleted(chainId: chainId)
+            print("NativeWorkManager: Chain '\(chainId)' resumed and completed successfully")
+        } catch {
+            print("NativeWorkManager: Failed to mark chain completed: \(error)")
+        }
     }
 
     private func handleEnqueue(call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -415,11 +521,32 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         result: @escaping FlutterResult
     ) {
         Task {
+            // Generate unique chain ID
+            let chainId = "\(chainName ?? "chain")_\(UUID().uuidString)"
+
+            // Create initial chain state
+            do {
+                let initialState = try ChainStateManager.createInitialState(
+                    chainId: chainId,
+                    chainName: chainName,
+                    stepsData: steps
+                )
+                try await chainStateManager.saveChainState(initialState)
+                print("NativeWorkManager: Created chain state '\(chainId)'")
+            } catch {
+                print("NativeWorkManager: Failed to create chain state: \(error)")
+                // Continue anyway - state is optional enhancement
+            }
+
+            // Execute chain steps
             for (stepIndex, stepData) in steps.enumerated() {
                 print("NativeWorkManager: Chain '\(chainName ?? "unnamed")' - Step \(stepIndex + 1)/\(steps.count)")
 
                 // Parse tasks in this step
                 guard let stepTasks = stepData as? [[String: Any]] else {
+                    // Mark chain as failed
+                    try? await chainStateManager.markChainFailed(chainId: chainId)
+
                     result(FlutterError(
                         code: "INVALID_STEP",
                         message: "Step \(stepIndex) has invalid format",
@@ -429,6 +556,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                 }
 
                 // Execute tasks in parallel (if multiple tasks in step)
+                var stepSucceeded = false
                 await withTaskGroup(of: Bool.self) { group in
                     for taskData in stepTasks {
                         guard let taskId = taskData["id"] as? String,
@@ -455,19 +583,40 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                         }
                     }
 
-                    // If any task failed, stop the chain
-                    if !allSucceeded {
-                        result(FlutterError(
-                            code: "CHAIN_FAILED",
-                            message: "Chain step \(stepIndex + 1) failed",
-                            details: nil
-                        ))
-                        return
-                    }
+                    stepSucceeded = allSucceeded
+                }
+
+                // If step failed, stop the chain
+                if !stepSucceeded {
+                    // Mark chain as failed and remove state
+                    try? await chainStateManager.markChainFailed(chainId: chainId)
+
+                    result(FlutterError(
+                        code: "CHAIN_FAILED",
+                        message: "Chain step \(stepIndex + 1) failed",
+                        details: nil
+                    ))
+                    return
+                }
+
+                // ✅ Step completed - save progress
+                do {
+                    try await chainStateManager.advanceToNextStep(chainId: chainId)
+                    print("NativeWorkManager: Chain '\(chainId)' progress saved (\(stepIndex + 1)/\(steps.count))")
+                } catch {
+                    print("NativeWorkManager: Failed to save chain progress: \(error)")
+                    // Continue anyway - state is optional
                 }
             }
 
-            print("NativeWorkManager: Chain '\(chainName ?? "unnamed")' completed successfully")
+            // All steps completed
+            do {
+                try await chainStateManager.markChainCompleted(chainId: chainId)
+                print("NativeWorkManager: Chain '\(chainName ?? "unnamed")' completed and state saved")
+            } catch {
+                print("NativeWorkManager: Failed to mark chain completed: \(error)")
+            }
+
             result("ACCEPTED")
         }
     }
