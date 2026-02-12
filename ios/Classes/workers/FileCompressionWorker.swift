@@ -79,9 +79,13 @@ class FileCompressionWorker: IosWorker {
             return .failure(message: "Empty or null input")
         }
 
+        guard let data = input.data(using: .utf8) else {
+            print("FileCompressionWorker: Error - Invalid UTF-8 encoding")
+            return .failure(message: "Invalid input encoding")
+        }
+
         let config: Config
         do {
-            let data = input.data(using: .utf8)!
             config = try JSONDecoder().decode(Config.self, from: data)
         } catch {
             print("FileCompressionWorker: Error parsing JSON config: \(error)")

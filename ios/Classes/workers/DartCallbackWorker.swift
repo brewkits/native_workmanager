@@ -64,9 +64,13 @@ class DartCallbackWorker: IosWorker {
         }
 
         // Parse configuration
+        guard let data = input.data(using: .utf8) else {
+            print("DartCallbackWorker: Error - Invalid UTF-8 encoding")
+            return WorkerResult.failure(message: "Invalid input encoding")
+        }
+
         let config: Config
         do {
-            let data = input.data(using: .utf8)!
             config = try JSONDecoder().decode(Config.self, from: data)
         } catch {
             print("DartCallbackWorker: Error parsing JSON config: \(error)")
