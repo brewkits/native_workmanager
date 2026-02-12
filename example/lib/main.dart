@@ -13,6 +13,7 @@ import 'pages/demo_scenarios_page.dart';
 import 'pages/comprehensive_demo_page.dart';
 import 'pages/performance_page.dart';
 import 'examples/chain_resilience_test.dart';
+import 'examples/chain_data_flow_demo.dart';
 
 /// flutter_workmanager background callback.
 /// Runs in a separate isolate — communicates completion back via SharedPreferences.
@@ -179,7 +180,7 @@ class _DemoHomePageState extends State<DemoHomePage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 13, vsync: this);
+    _tabController = TabController(length: 14, vsync: this);
 
     // Listen to task events (v2.3.0+: includes resultData)
     NativeWorkManager.events.listen((event) {
@@ -586,6 +587,7 @@ class _DemoHomePageState extends State<DemoHomePage>
             Tab(text: 'Manual BM'),
             Tab(text: 'Production'),
             Tab(text: '🔄 Chain Test'),
+            Tab(text: '🔗 Data Flow'),
           ],
         ),
       ),
@@ -610,6 +612,7 @@ class _DemoHomePageState extends State<DemoHomePage>
                     const ManualBenchmarkPage(),
                     const ProductionImpactPageImproved(),
                     const ChainResilienceTest(),
+                    const ChainDataFlowDemo(),
                   ],
                 ),
               ),
