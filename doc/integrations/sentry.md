@@ -837,7 +837,6 @@ Future<void> processData(List<dynamic> data) async {
 
 - [Sentry Flutter Documentation](https://docs.sentry.io/platforms/flutter/)
 - [native_workmanager Events](../API_REFERENCE.md#events)
-- [Performance Guide](../PERFORMANCE_GUIDE.md)
 
 ---
 

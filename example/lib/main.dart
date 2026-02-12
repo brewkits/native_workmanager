@@ -15,7 +15,7 @@ import 'pages/performance_page.dart';
 import 'examples/chain_resilience_test.dart';
 import 'examples/chain_data_flow_demo.dart';
 
-/// flutter_workmanager background callback.
+/// workmanager background callback.
 /// Runs in a separate isolate — communicates completion back via SharedPreferences.
 @pragma('vm:entry-point')
 void flutterWorkmanagerCallback() {
@@ -97,7 +97,7 @@ int fibonacciCompute(int n) {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize flutter_workmanager (for A/B benchmark comparison only)
+  // Initialize workmanager (for A/B benchmark comparison only)
   Workmanager().initialize(flutterWorkmanagerCallback);
 
   // Initialize native_workmanager

@@ -5,9 +5,9 @@
 The `FileDecompressionWorker` extracts ZIP archives in the background **without** starting the Flutter Engine. This completes the native file compression workflow, allowing apps to download, extract, and process files entirely in native code for optimal performance.
 
 **Key Benefits:**
-- **Native Performance:** 5-10x faster than Dart ZIP packages
-- **Low Memory:** Streaming extraction uses <20MB RAM
-- **Battery Efficient:** No Flutter Engine overhead (~50MB saved)
+- **Native Performance:** Uses platform ZIP libraries (no Flutter Engine)
+- **Low Memory:** Streaming extraction
+- **Battery Efficient:** No Flutter Engine overhead
 - **Background Execution:** Works when app is closed
 - **Security:** Built-in zip bomb protection and path traversal prevention
 
@@ -273,13 +273,12 @@ All extracted files must be within app sandbox:
 
 ## Performance
 
-### Benchmarks
+### Native Performance Benefits
 
-| Operation | Dart (archive package) | Native Worker | Improvement |
-|-----------|----------------------|---------------|-------------|
-| 100MB ZIP, 1000 files | 8,500ms / 180MB RAM | 1,200ms / 18MB RAM | **7x faster, 10x less RAM** |
-| 50MB ZIP, 500 files | 4,200ms / 90MB RAM | 650ms / 12MB RAM | **6.5x faster, 7.5x less RAM** |
-| 10MB ZIP, 100 files | 900ms / 40MB RAM | 180ms / 8MB RAM | **5x faster, 5x less RAM** |
+FileDecompressionWorker uses platform-native ZIP libraries without loading the Flutter Engine, providing:
+- Streaming extraction (low memory usage)
+- Native performance (no Dart VM overhead)
+- Better battery efficiency (no engine initialization)
 
 ### Performance Tips
 
@@ -307,7 +306,7 @@ All extracted files must be within app sandbox:
 - Atomic operations (temp → final)
 
 **Limitations:**
-- Password-protected ZIPs: Not supported in v1.0 (planned for v1.1)
+- Password-protected ZIPs: Not supported in v1.0 (not yet supported)
 - Encrypted ZIPs: Not supported
 - Split archives: Not supported
 
@@ -456,7 +455,7 @@ await NativeWorkManager.enqueue(
 - ✅ ZIP extraction support
 - ✅ Security validations (path traversal, zip bomb)
 - ✅ Progress reporting
-- ❌ Password-protected ZIPs not supported (planned for v1.1)
+- ❌ Password-protected ZIPs not supported (not yet supported)
 
 ### Planned for v1.1.0
 - Password-protected ZIP support

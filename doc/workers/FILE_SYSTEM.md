@@ -6,7 +6,7 @@ The `FileSystemWorker` performs file system operations (copy, move, delete, list
 
 **Key Benefits:**
 - **Pure-Native Chains:** Build complete workflows without Dart callbacks
-- **Battery Efficient:** No Flutter Engine overhead (~50MB saved)
+- **Battery Efficient:** No Flutter Engine overhead
 - **Background Execution:** Organize files when app is closed
 - **Atomic Operations:** Safe file moves and copies
 - **Security:** Built-in path traversal protection

@@ -36,7 +36,7 @@ dependencies:
   # Competitor library (used only for A/B benchmark comparison in demo)
   workmanager: ^0.9.0+3
 
-  # IPC between flutter_workmanager background isolate and main thread
+  # IPC between workmanager background isolate and main thread
   shared_preferences: ^2.2.0
 
   # For file system demo test environment setup

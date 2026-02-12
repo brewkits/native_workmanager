@@ -108,7 +108,7 @@ class BenchmarkComparisonPage extends StatelessWidget {
       children: [
         _buildHeaderCell('Metric'),
         _buildHeaderCell('native_workmanager'),
-        _buildHeaderCell('flutter_workmanager'),
+        _buildHeaderCell('workmanager'),
         _buildHeaderCell('workmanager'),
       ],
     );
@@ -258,7 +258,7 @@ class BenchmarkComparisonPage extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             _buildArchitectureDetail(
-              'flutter_workmanager',
+              'workmanager',
               'Flutter Engine Required',
               'Always uses FlutterEngine (40-60MB overhead)',
               Colors.orange,
@@ -372,7 +372,7 @@ class BenchmarkComparisonPage extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             _buildReliabilityItem(
-              'flutter_workmanager',
+              'workmanager',
               '70-80% Success Rate',
               'Requires Flutter Engine startup in background. '
                   'May fail if engine initialization fails.',
@@ -552,7 +552,7 @@ class _PageHeader extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           const Text(
-            'native_workmanager vs flutter_workmanager vs workmanager',
+            'native_workmanager vs workmanager vs workmanager',
             style: TextStyle(fontSize: 14, color: Colors.white70),
           ),
           const SizedBox(height: 16),

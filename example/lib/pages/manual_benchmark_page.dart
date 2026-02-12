@@ -221,7 +221,7 @@ class _ManualBenchmarkPageState extends State<ManualBenchmarkPage> {
     }
   }
 
-  // ── flutter_workmanager execution ─────────────────────────────────────────
+  // ── workmanager execution ─────────────────────────────────────────
   // Registers a one-off task. The background isolate callback (in main.dart)
   // executes the work and writes a completion timestamp to SharedPreferences.
   // We poll SharedPreferences here until the key appears.
@@ -242,7 +242,7 @@ class _ManualBenchmarkPageState extends State<ManualBenchmarkPage> {
     );
 
     setState(() {
-      _status = 'Waiting for flutter_workmanager...';
+      _status = 'Waiting for workmanager...';
     });
 
     final deadline = DateTime.now().add(const Duration(seconds: 60));

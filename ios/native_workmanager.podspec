@@ -4,8 +4,8 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'native_workmanager'
-  s.version          = '1.0.0'
-  s.summary          = 'Native background task manager for Flutter with zero Flutter Engine overhead.'
+  s.version          = '1.0.2'
+  s.summary          = 'Background task manager for Flutter using platform-native APIs.'
   s.description      = <<-DESC
 Native WorkManager is a Flutter plugin that provides native background task scheduling
 using Kotlin Multiplatform. It runs tasks without waking up the Flutter Engine,
@@ -17,7 +17,7 @@ Features:
 - Auto iOS configuration (reads Info.plist)
 - Built-in HTTP workers (request, upload, download, sync)
                        DESC
-  s.homepage         = 'https://github.com/user/native_workmanager'
+  s.homepage         = 'https://github.com/brewkits/native_workmanager'
   s.license          = { :type => 'MIT', :file => '../LICENSE' }
   s.author           = { 'Brewkits' => 'vietnguyentuan@gmail.com' }
   s.source           = { :path => '.' }

@@ -1,4 +1,4 @@
-/// A/B Testing Service for comparing native_workmanager vs flutter_workmanager
+/// A/B Testing Service for comparing native_workmanager vs workmanager
 library;
 
 import 'dart:async';
@@ -25,7 +25,7 @@ enum TestScenario {
 /// Package under test
 enum TestPackage {
   nativeWorkmanager('native_workmanager'),
-  flutterWorkmanager('flutter_workmanager');
+  flutterWorkmanager('workmanager');
 
   final String packageName;
 
@@ -156,14 +156,14 @@ class ABTestingService {
         // Small delay between tests
         await Future.delayed(Duration(milliseconds: config.taskDelayMs * 2));
 
-        // Test flutter_workmanager if configured
+        // Test workmanager if configured
         if (config.testBothPackages) {
           _emitProgress(
             ABTestProgress(
               testId: testId,
               phase: TestPhase.testingFlutter,
               progress: 0.5,
-              message: 'Testing flutter_workmanager...',
+              message: 'Testing workmanager...',
             ),
           );
 

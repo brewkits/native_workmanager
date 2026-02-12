@@ -95,7 +95,7 @@ Future<bool> _syncDatabaseCallback(Map<String, dynamic>? input) async {
 
 ### Example 1: Simple HTTP Sync (Native Worker - Recommended)
 
-Perfect for periodic API calls, data sync, webhooks:
+For periodic API calls, data sync, webhooks:
 
 ```dart
 import 'package:native_workmanager/native_workmanager.dart';

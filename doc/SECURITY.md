@@ -135,7 +135,7 @@ const apiKey = 'sk_live_1234567890';  // NEVER do this!
 
 Subscribe to security advisories:
 - Watch this repository
-- Check [GitHub Security Advisories](https://github.com/user/native_workmanager/security/advisories)
+- Check [GitHub Security Advisories](https://github.com/brewkits/native_workmanager/security/advisories)
 
 ## Responsible Disclosure
 
@@ -160,7 +160,6 @@ We recognize security researchers who help make native_workmanager more secure:
 
 ## Additional Resources
 
-- [Security Audit Report](SECURITY_AUDIT.md)
 - [OWASP Mobile Security](https://owasp.org/www-project-mobile-security/)
 - [Flutter Security Best Practices](https://docs.flutter.dev/security)
 

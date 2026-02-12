@@ -39,6 +39,17 @@ doc/current/COMPETITIVE_ANALYSIS.md
 doc/strategy/
 doc/development/
 
+# Benchmark tool (work in progress, not ready for public)
+benchmark/
+
+# Advanced/internal documentation (not for general users)
+doc/PRODUCTION_GUIDE.md
+doc/EXTENSIBILITY.md
+doc/PLATFORM_CONSISTENCY.md
+
+# Internal analysis documents
+SPM_ANALYSIS.md
+
 # Flutter/Dart/Pub related
 # Libraries should not include pubspec.lock, per https://dart.dev/guides/libraries/private-files#pubspeclock.
 /pubspec.lock

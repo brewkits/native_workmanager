@@ -272,7 +272,7 @@ class ABTestResult {
   /// Test identifier
   final String testId;
 
-  /// Package being tested (native_workmanager or flutter_workmanager)
+  /// Package being tested (native_workmanager or workmanager)
   final String package;
 
   /// Test scenario name

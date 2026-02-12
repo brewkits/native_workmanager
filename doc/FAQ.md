@@ -73,7 +73,7 @@ TaskA (✅) → TaskB (❌ FAILS) → TaskC (⏸️ Skipped) → TaskD (⏸️ S
 
 ---
 
-### Q: Is this compatible with flutter_workmanager?
+### Q: Is this compatible with workmanager?
 
 **A:** ~90% API compatible with minor syntax changes required.
 
@@ -81,7 +81,7 @@ TaskA (✅) → TaskB (❌ FAILS) → TaskC (⏸️ Skipped) → TaskD (⏸️ S
 1. **Import:** `import 'package:native_workmanager/native_workmanager.dart';`
 2. **Initialization:** `NativeWorkManager.initialize()` vs `Workmanager.initialize()`
 3. **Enqueue syntax:** Different trigger API
-4. **Native workers:** New capability not in flutter_workmanager
+4. **Native workers:** New capability not in workmanager
 
 [See full migration guide →](MIGRATION_GUIDE.md)
 
@@ -281,10 +281,10 @@ trigger: TaskTrigger.periodic(Duration(seconds: 30))
 **Compatible:**
 - ✅ `flutter_local_notifications` - Different use case (notifications vs tasks)
 - ✅ `geolocator` - Can coexist (use geolocator for continuous, native_workmanager for periodic)
-- ✅ `shared_preferences` - Perfect for task data storage
+- ✅ `shared_preferences` - For task data storage
 
 **Potential conflicts:**
-- ⚠️ `flutter_workmanager` - Same underlying APIs, choose one
+- ⚠️ `workmanager` - Same underlying APIs, choose one
 - ⚠️ `workmanager` - Same underlying APIs, choose one
 
 **Best practice:**
@@ -344,7 +344,7 @@ await NativeWorkManager.enqueue(
 
 2. **30-second limit exceeded**
    - Tasks must complete in 30 seconds
-   - Use native workers (5x faster)
+   - Use native workers (faster startup, no engine overhead)
    - Split into chains
 
 3. **Low Power Mode active**

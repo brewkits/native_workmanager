@@ -1,56 +1,33 @@
 # native_workmanager
 
-> **Save 50MB RAM, 5x faster, 50% better battery** - Background tasks done right.
+> **Native background task manager for Flutter with zero Flutter Engine overhead.**
 
 [![pub package](https://img.shields.io/pub/v/native_workmanager.svg?color=blueviolet)](https://pub.dev/packages/native_workmanager)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/platform-Android%20%7C%20iOS-blue.svg)](https://pub.dev/packages/native_workmanager)
-[![Tests](https://img.shields.io/badge/tests-744%20unit%20tests%20passing-brightgreen)](doc/releases/RELEASE_v1.0.0.md)
-[![Platform Coverage](https://img.shields.io/badge/platform%20coverage-Android%20%7C%20iOS-blue)](doc/releases/RELEASE_v1.0.0.md)
 
-**The only Flutter background task manager with zero-overhead native workers and automated task chains.**
+Flutter background task manager with native workers and task chains.
 
 ---
 
-## 🚨 Is Your Flutter App Suffering From These Issues?
+## ✨ Key Features
 
-- ❌ Background tasks eating 50MB+ RAM per execution
-- ❌ Slow task startup (500ms+ delay)
-- ❌ Battery drain complaints from users
-- ❌ Can't chain tasks (Download → Process → Upload requires manual coordination)
-- ❌ No way to run I/O operations without full Flutter Engine overhead
-
-**If yes, native_workmanager solves all of this.**
+- **Zero Flutter Engine Overhead:** Native workers execute I/O tasks without loading the Flutter Engine
+- **Task Chains:** Automate multi-step workflows (Download → Process → Upload) with built-in dependency management
+- **11 Built-in Workers:** HTTP, File operations, Compression, Crypto, Image processing
+- **Hybrid Architecture:** Choose native workers for I/O or Dart workers for complex logic
+- **Production Ready:** 808 passing tests, comprehensive documentation, iOS 12.0+ and Android API 21+ support
 
 ---
 
-## ⚡ Performance Comparison
+## 🚀 Quick Start
 
-| Metric | flutter_workmanager | native_workmanager | Improvement |
-|--------|:------------------:|:------------------:|:-----------:|
-| **Memory** | 85 MB | 35 MB | **-50 MB (58%)** |
-| **Startup** | 500ms | <100ms | **5x faster** |
-| **Battery** | High drain | Minimal | **~50% savings** |
-| **Task Chains** | ❌ Manual | ✅ Built-in | **Unique** |
-
-### Real-World Impact
-
-- **Periodic API sync (hourly):** Save 1.2GB RAM over 24 hours
-- **File upload queue:** 2-3s faster per upload start
-- **Battery life:** ~1 extra hour per day on typical usage
-
-[See detailed benchmarks](doc/BENCHMARKS.md) | [Try it yourself](example/)
-
----
-
-## 🚀 Get Started in 3 Minutes
-
-**Step 1: Install (30 seconds)**
+**Step 1: Install**
 ```bash
 flutter pub add native_workmanager
 ```
 
-**Step 2: Initialize (1 minute)**
+**Step 2: Initialize**
 ```dart
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -59,50 +36,42 @@ void main() async {
 }
 ```
 
-**Step 3: Schedule Your First Task (1 minute)**
+**Step 3: Schedule a Task**
 
-**Option A: Simple HTTP Sync (Native Worker - 0 overhead)**
+**Option A: Simple HTTP Sync (Native Worker)**
 ```dart
-// Starts hourly API sync using only ~2-5MB memory
+// Starts hourly API sync without Flutter Engine overhead
 await NativeWorkManager.enqueue(
   taskId: 'sync',
   trigger: TaskTrigger.periodic(Duration(hours: 1)),
-  worker: NativeWorker.httpSync(  // ← Native = no Flutter engine overhead
+  worker: NativeWorker.httpSync(  // ← Native worker
     url: 'https://api.example.com/sync',
     method: HttpMethod.post,
   ),
 );
 // ✓ Task runs every hour, even when app is closed
-// ✓ Uses 2-5MB RAM vs 50MB with Dart workers
-// ✓ Startup: <100ms
+// ✓ No Flutter Engine overhead
 ```
 
-**Option B: Complex Dart Logic (Dart Worker - full engine)**
+**Option B: Complex Dart Logic (Dart Worker)**
 ```dart
 // For tasks requiring custom Dart code or packages
 await NativeWorkManager.enqueue(
   taskId: 'process',
   trigger: TaskTrigger.oneTime(),
-  worker: DartWorker(callbackId: 'complexLogic'),  // ← Full Flutter engine
+  worker: DartWorker(callbackId: 'complexLogic'),  // ← Dart worker
 );
 // ✓ Access to all Dart packages
-// ✓ Uses ~50MB RAM (still optimized vs alternatives)
+// ✓ Full Flutter/Dart ecosystem support
 ```
 
-**✅ Done! Your task is now scheduled and will run even when app is closed.**
-
-### What Just Happened? 🤔
-
-- Your task is now **registered with the OS** to run at scheduled intervals
-- **Native Worker (Option A):** Executes without starting Flutter engine → 2-5MB memory, <100ms startup
-- **Dart Worker (Option B):** Starts Flutter engine for full Dart access → ~50MB memory, but still faster than alternatives
-- Tasks survive **app restarts, phone reboots, and force-quits**
+Tasks are registered with the OS and survive app restarts, phone reboots, and force-quits.
 
 [Complete getting started guide →](doc/GETTING_STARTED.md)
 
 ---
 
-## 🔄 Migrating from flutter_workmanager?
+## 🔄 Migrating from workmanager?
 
 **Good news:** ~90% API compatibility, most code stays the same!
 
@@ -115,7 +84,7 @@ await NativeWorkManager.enqueue(
 
 ### Common Migration Pattern
 
-**Before (flutter_workmanager):**
+**Before (workmanager):**
 ```dart
 Workmanager.registerPeriodicTask(
   'myTask',
@@ -126,17 +95,17 @@ Workmanager.registerPeriodicTask(
 
 **After (native_workmanager):**
 ```dart
-// Upgrade to native worker for better performance
+// Upgrade to native worker
 NativeWorkManager.enqueue(
   taskId: 'myTask',
   trigger: TaskTrigger.periodic(Duration(hours: 1)),
-  worker: NativeWorker.httpSync(  // ← Now uses native HTTP, saves 45MB RAM!
+  worker: NativeWorker.httpSync(  // ← Native HTTP worker
     url: 'https://api.example.com/sync',
   ),
 );
 ```
 
-**Result:** Same functionality, 58% less memory, 5x faster startup.
+**Result:** Same functionality, zero Flutter Engine overhead for I/O tasks.
 
 [Full migration guide →](doc/MIGRATION_GUIDE.md) | [Migration tool →](tool/migrate.dart)
 
@@ -146,8 +115,7 @@ NativeWorkManager.enqueue(
 
 ### 📊 I need periodic API sync
 → Use **Native Workers** (zero Flutter Engine overhead)
-- 2-5MB memory vs 50MB
-- <100ms startup vs 500ms
+- No Flutter Engine overhead
 - Minimal battery impact
 - [See example →](doc/use-cases/01-periodic-api-sync.md)
 
@@ -178,43 +146,30 @@ NativeWorkManager.enqueue(
 
 ## 💡 Why native_workmanager?
 
-### Feature Comparison
+### Unique Features
 
-| Feature | native_workmanager | flutter_workmanager | workmanager |
-|---------|:--:|:--:|:--:|
-| Native Workers (zero overhead) | ✅ 11 types | ❌ | ❌ |
-| Task Chains (A→B→C) | ✅ Built-in | ❌ Manual | ❌ Manual |
-| Memory per task | 2-5 MB (native) | 50+ MB | 40+ MB |
-| Startup time | <100ms | 500ms | 400ms+ |
-| Hybrid execution | ✅ Per-task choice | ❌ | ⚠️ Limited |
-| Custom native workers | ✅ Kotlin/Swift | ❌ | ❌ |
-| iOS Background URLSession | ✅ Built-in | ❌ | ❌ |
-
-### Unique Features No Competitor Has
-
-**1. Native Workers** ⭐⭐⭐⭐⭐
+**1. Native Workers**
 - Execute I/O tasks without spawning Flutter Engine
-- 50MB memory savings per task
-- 5x faster startup
-- **11 Built-in Workers**: HTTP (request, upload, download, sync), Files (compress, decompress, copy, move, delete, list, mkdir), Image processing, Crypto (hash, encrypt, decrypt), plus custom Kotlin/Swift workers
+- **11 Built-in Workers**: HTTP (request, upload, download, sync), Files (compress, decompress, copy, move, delete), Image processing, Crypto (hash, encrypt, decrypt)
+- Extensible with custom Kotlin/Swift workers
 
-**2. Task Chains** ⭐⭐⭐⭐⭐
+**2. Task Chains**
 - Automate multi-step workflows: A → B → C or A → [B1, B2, B3] → D
 - Built-in dependency management
-- Automatic failure handling
-- No competitor has this
+- Automatic retry and failure handling
+- Data passing between steps
 
-**3. Hybrid Execution Model** ⭐⭐⭐⭐
-- Choose per-task: Native (fast, low memory) or Dart (full Flutter)
-- `autoDispose` flag for fine-grained memory control
+**3. Hybrid Execution Model**
+- Choose per-task: Native workers (I/O) or Dart workers (complex logic)
+- `autoDispose` flag for fine-grained engine lifecycle control
 - Best of both worlds
 
-**4. Cross-Platform Consistency** ⭐⭐⭐⭐
+**4. Cross-Platform Consistency**
 - Unified API across Android and iOS
-- 95% behavior consistency
-- Future-proof architecture for Desktop/Web support
+- Platform feature parity
+- Built on kmpworkmanager for reliability
 
-[See detailed comparison →](doc/FAQ.md#how-does-this-compare-to-other-solutions)
+[See FAQ →](doc/FAQ.md)
 
 ---
 
@@ -222,12 +177,8 @@ NativeWorkManager.enqueue(
 
 | Platform | Status | Min Version | Key Limitation |
 |----------|:------:|:-----------:|----------------|
-| **Android** | ✅ Full Support | API 21 (5.0+) | Doze mode may defer tasks |
-| **iOS** | ✅ Full Support | iOS 12.0+ | **30-second execution limit** |
-| **Web** | 🔜 Planned | - | v1.2+ |
-| **macOS** | 🔜 Planned | - | v1.3+ |
-| **Windows** | 🔜 Planned | - | v1.3+ |
-| **Linux** | 🔜 Planned | - | v1.3+ |
+| **Android** | ✅ Supported | API 21 (5.0+) | Doze mode may defer tasks |
+| **iOS** | ✅ Supported | iOS 12.0+ | **30-second execution limit** |
 
 ### iOS: 30-Second Execution Limit ⚠️
 
@@ -235,7 +186,7 @@ Background tasks on iOS **must complete in 30 seconds**. For longer tasks:
 
 **Solutions:**
 - ✅ **Use task chains** - Split work into 30-second chunks
-- ✅ **Use native workers** - 5x faster than Dart workers
+- ✅ **Use native workers** - Faster than Dart workers (no engine overhead)
 - ✅ **Use Background URLSession** - For large file transfers (no time limit)
 - ⚠️ Consider foreground services for truly long tasks
 
@@ -294,8 +245,7 @@ await NativeWorkManager.enqueue(
   - And more...
 
 ### 🔧 Build It Right
-- **[Performance Guide](doc/PERFORMANCE_GUIDE.md)** - Optimize memory & battery
-- **[Security Best Practices](doc/SECURITY_AUDIT.md)** - Encrypt data, handle tokens safely
+- **[Security Policy](doc/SECURITY.md)** - Report vulnerabilities, best practices
 - **[Production Deployment](doc/PRODUCTION_GUIDE.md)** - Launch with confidence
 - **[Platform Consistency](doc/PLATFORM_CONSISTENCY.md)** - iOS vs Android differences
 
@@ -312,7 +262,7 @@ await NativeWorkManager.enqueue(
 A: Yes! Tasks are registered with the OS (Android WorkManager / iOS BGTaskScheduler), not your Flutter app.
 
 **Q: How much memory does a task actually use?**
-A: Native workers: 2-5MB. Dart workers: ~50MB. Depends on worker type and task complexity.
+A: Native workers execute without Flutter Engine overhead. Dart workers require the full Flutter runtime. Actual memory usage depends on worker type and task complexity.
 
 **Q: Can I chain 100 tasks together?**
 A: Yes, but on iOS each task in the chain must complete within 30 seconds. Use native workers for speed.
@@ -320,7 +270,7 @@ A: Yes, but on iOS each task in the chain must complete within 30 seconds. Use n
 **Q: What happens if a task in a chain fails?**
 A: The chain stops. Subsequent tasks are cancelled. You can use retry policies to handle failures.
 
-**Q: Is this compatible with flutter_workmanager?**
+**Q: Is this compatible with workmanager?**
 A: ~90% compatible. Most code works with minor syntax changes. See [migration guide](doc/MIGRATION_GUIDE.md).
 
 **Q: Can I use this for location tracking?**
@@ -343,13 +293,10 @@ A: Background tasks are for periodic work, not continuous tracking. For location
 
 ## 📊 Production Ready
 
-- ✅ **Security Audit Passed** - No critical vulnerabilities
-- ✅ **744+ Unit Tests Passing** - Comprehensive test suite covering all workers
-- ✅ **100% Worker Coverage** - All 11 native workers tested
-- ✅ **Performance Verified** - Benchmarks published, independent validation invited
-- ✅ **Used in Production** - Apps with 1M+ active users
-
-[See v1.0.0 release notes →](doc/releases/RELEASE_v1.0.0.md)
+- **Security:** No critical vulnerabilities
+- **Tests:** 808 unit tests passing
+- **Coverage:** All 11 native workers tested
+- **Platforms:** iOS 12.0+ and Android API 21+
 
 ---
 
@@ -369,28 +316,6 @@ A: Background tasks are for periodic work, not continuous tracking. For location
 
 ---
 
-## 🗺️ Roadmap
-
-**v1.0** ✅ - Production Release (February 2026)
-- API stability guarantee
-- Security audit passed
-- Performance benchmarks published
-- 744+ unit tests passing, all workers covered
-
-**v1.1** (Q2 2026)
-- Password-protected ZIP support
-- Query params builder for HTTP workers
-- Advanced file system features (batch operations)
-
-**v1.2+** (Q3-Q4 2026)
-- Task history & analytics
-- Web platform support
-- Desktop platform support (Windows/macOS/Linux)
-
-[See full roadmap →](doc/strategy/MARKETING_ROADMAP.md)
-
----
-
 ## 🤝 Contributing
 
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for:
@@ -406,7 +331,7 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 Built with ❤️ using platform-native APIs:
 - **Android:** WorkManager - Google's official background task library
 - **iOS:** BGTaskScheduler - Apple's background task framework
-- **Shared Core:** [kmpworkmanager](https://github.com/frankois944/kmpworkmanager) - Cross-platform worker orchestration
+- **Shared Core:** [kmpworkmanager](https://github.com/pablichjenkov/kmpworkmanager) - Cross-platform worker orchestration
 
 Inspired by Android WorkManager and iOS BackgroundTasks best practices.
 
@@ -434,4 +359,4 @@ Licensed under the MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-**⭐ If this library saves you 50MB RAM and improves battery life, please star the repo!**
+**⭐ If this library helps your Flutter app, please star the repo!**

@@ -7,7 +7,7 @@ void main(List<String> args) async {
   developer.log('');
   developer.log('╔═══════════════════════════════════════════════════════════╗');
   developer.log('║   native_workmanager Migration Tool                      ║');
-  developer.log('║   flutter_workmanager → native_workmanager               ║');
+  developer.log('║   workmanager → native_workmanager               ║');
   developer.log('╚═══════════════════════════════════════════════════════════╝');
   developer.log('');
 
@@ -29,7 +29,7 @@ class MigrationTool {
 
   Future<void> run() async {
     developer.log('📁 Project path: $projectPath');
-    developer.log('🔍 Scanning for flutter_workmanager usage...');
+    developer.log('🔍 Scanning for workmanager usage...');
     developer.log('');
 
     // Step 1: Scan pubspec.yaml
@@ -42,7 +42,7 @@ class MigrationTool {
 
     final hasDependency = await _checkPubspecDependency(pubspecPath);
     if (hasDependency == false) {
-      developer.log('ℹ️  flutter_workmanager not found in dependencies');
+      developer.log('ℹ️  workmanager not found in dependencies');
       developer.log('   Nothing to migrate!');
       exit(0);
     }
@@ -77,7 +77,7 @@ class MigrationTool {
 
   Future<bool> _checkPubspecDependency(String path) async {
     final content = await File(path).readAsString();
-    return content.contains('flutter_workmanager');
+    return content.contains('workmanager');
   }
 
   Future<List<File>> _findDartFiles() async {
@@ -106,7 +106,7 @@ class MigrationTool {
       final relativePath = file.path.replaceFirst('$projectPath/', '');
 
       // Check for import
-      if (content.contains('flutter_workmanager')) {
+      if (content.contains('workmanager')) {
         analysis.filesWithImport.add(relativePath);
       }
 
@@ -168,7 +168,7 @@ class MigrationTool {
 
     // Detailed breakdown
     if (analysis.filesWithImport.isNotEmpty) {
-      developer.log('📄 Files with flutter_workmanager import:');
+      developer.log('📄 Files with workmanager import:');
       for (final file in analysis.filesWithImport) {
         developer.log('   • $file');
       }
@@ -253,7 +253,7 @@ class MigrationTool {
   Future<void> _generatePubspec(Directory dir) async {
     final originalPubspec = await File('$projectPath/pubspec.yaml').readAsString();
     final newPubspec = originalPubspec.replaceAll(
-      RegExp(r'flutter_workmanager:\s*[\^\~]?\d+\.\d+\.\d+'),
+      RegExp(r'workmanager:\s*[\^\~]?\d+\.\d+\.\d+'),
       'native_workmanager: ^1.0.0',
     );
 
@@ -264,13 +264,13 @@ class MigrationTool {
   Future<void> _generateMigrationGuide(
       Directory dir, MigrationAnalysis analysis) async {
     final guide = """
-# Migration Guide: flutter_workmanager → native_workmanager
+# Migration Guide: workmanager → native_workmanager
 
 **Date:** ${DateTime.now().toString().split(' ')[0]}
 
 ## Overview
 
-This guide helps you migrate from flutter_workmanager to native_workmanager.
+This guide helps you migrate from workmanager to native_workmanager.
 
 **Your Project:**
 - Files to update: ${analysis.filesWithImport.length}
@@ -281,12 +281,12 @@ This guide helps you migrate from flutter_workmanager to native_workmanager.
 
 ## Step 1: Update Dependencies
 
-Replace flutter_workmanager with native_workmanager in `pubspec.yaml`:
+Replace workmanager with native_workmanager in `pubspec.yaml`:
 
 ```yaml
 # Before:
 dependencies:
-  flutter_workmanager: ^0.5.2
+  workmanager: ^0.5.2
 
 # After:
 dependencies:
@@ -306,7 +306,7 @@ Find and replace in all files:
 
 ```dart
 // Before:
-import 'package:flutter_workmanager/flutter_workmanager.dart';
+import 'package:workmanager/workmanager.dart';
 
 // After:
 import 'package:native_workmanager/native_workmanager.dart';
@@ -545,9 +545,9 @@ Before and after code samples for common migration scenarios.
 
 ## Example 1: Simple HTTP Sync
 
-### Before (flutter_workmanager):
+### Before (workmanager):
 ```dart
-import 'package:flutter_workmanager/flutter_workmanager.dart';
+import 'package:workmanager/workmanager.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -607,7 +607,7 @@ void main() async {
 
 ## Example 2: File Upload
 
-### Before (flutter_workmanager):
+### Before (workmanager):
 ```dart
 @pragma('vm:entry-point')
 void callbackDispatcher() {
@@ -648,7 +648,7 @@ await NativeWorkManager.enqueue(
 
 ## Example 3: Constraints
 
-### Before (flutter_workmanager):
+### Before (workmanager):
 ```dart
 Workmanager().registerOneOffTask(
   "taskId",
@@ -760,7 +760,7 @@ ${analysis.callbackFiles.map((f) => '- [ ] Review and migrate callback in $f').j
 
 ## Verification
 
-- [ ] All old flutter_workmanager code removed
+- [ ] All old workmanager code removed
 - [ ] No import errors
 - [ ] No runtime errors
 - [ ] Background tasks work when app is closed
@@ -772,7 +772,7 @@ ${analysis.callbackFiles.map((f) => '- [ ] Review and migrate callback in $f').j
 ## Cleanup
 
 - [ ] Remove old callback dispatcher functions
-- [ ] Remove flutter_workmanager dependency from pubspec.yaml
+- [ ] Remove workmanager dependency from pubspec.yaml
 - [ ] Delete migration/ directory after successful migration
 - [ ] Update documentation/comments in code
 - [ ] Commit migration changes

@@ -1,4 +1,4 @@
-# Migration Guide: from flutter_workmanager to native_workmanager
+# Migration Guide: from workmanager to native_workmanager
 
 **Estimated Time:** 30 minutes for typical app
 **API Compatibility:** ~90%
@@ -12,7 +12,7 @@
 
 **Memory Savings:**
 ```
-Your current usage (flutter_workmanager):
+Your current usage (workmanager):
 - 85 MB per task
 - 10 tasks per day
 - = 850 MB daily memory consumption
@@ -29,7 +29,7 @@ Impact: Fewer crashes on low-end devices, better user reviews
 **Battery Savings:**
 ```
 24-hour test (periodic task every 15 minutes):
-- flutter_workmanager: 7% battery drain
+- workmanager: 7% battery drain
 - native_workmanager: 3% battery drain
 
 Savings: ~50% battery improvement
@@ -37,7 +37,7 @@ Impact: Higher App Store ratings, fewer user complaints
 ```
 
 **Performance Improvement:**
-- 5x faster task startup (<100ms vs 500ms)
+- Faster task startup (native workers don't load Flutter Engine)
 - Better responsiveness
 - Less UI jank during background execution
 
@@ -49,7 +49,7 @@ Impact: Higher App Store ratings, fewer user complaints
 
 These APIs work with minimal or no changes:
 
-| flutter_workmanager | native_workmanager | Changes Needed |
+| workmanager | native_workmanager | Changes Needed |
 |---------------------|-------------------|----------------|
 | `Workmanager().initialize()` | `NativeWorkManager.initialize()` | ✅ Direct replacement |
 | `registerOneOffTask()` | `enqueue()` with `oneTime()` | ⚠️ API structure change |
@@ -60,7 +60,7 @@ These APIs work with minimal or no changes:
 
 ### ⚠️ Requires Changes (10%)
 
-| flutter_workmanager | native_workmanager | Migration Path |
+| workmanager | native_workmanager | Migration Path |
 |---------------------|-------------------|----------------|
 | `registerTask()` (generic) | `enqueue()` | Use specific trigger type |
 | Task tags | Not yet supported | Use individual `cancel()` calls (v1.1 will add tagging) |
@@ -69,7 +69,7 @@ These APIs work with minimal or no changes:
 
 ### ❌ Not Supported
 
-| flutter_workmanager Feature | Alternative in native_workmanager |
+| workmanager Feature | Alternative in native_workmanager |
 |----------------------------|-----------------------------------|
 | Background fetch (iOS specific) | Use `TaskTrigger.periodic()` |
 | Custom callback dispatcher pattern | Use `dartWorkers` map registration |
@@ -140,7 +140,7 @@ flutter pub get
 
 ### Step 3: Replace Initialization
 
-#### Before (flutter_workmanager)
+#### Before (workmanager)
 
 ```dart
 import 'package:workmanager/workmanager.dart';
@@ -225,7 +225,7 @@ Future<bool> _uploadFilesCallback(Map<String, dynamic>? input) async {
 
 #### Pattern 1: One-Time Task
 
-**Before (flutter_workmanager):**
+**Before (workmanager):**
 ```dart
 Workmanager().registerOneOffTask(
   'task-1',
@@ -278,7 +278,7 @@ await NativeWorkManager.enqueue(
 
 #### Pattern 2: Periodic Task
 
-**Before (flutter_workmanager):**
+**Before (workmanager):**
 ```dart
 Workmanager().registerPeriodicTask(
   'periodic-sync',
@@ -328,7 +328,7 @@ await NativeWorkManager.enqueue(
 
 #### Pattern 3: With Retry Policy
 
-**Before (flutter_workmanager):**
+**Before (workmanager):**
 ```dart
 Workmanager().registerOneOffTask(
   'upload-task',
@@ -359,7 +359,7 @@ await NativeWorkManager.enqueue(
 
 #### Pattern 4: Constraints
 
-**Before (flutter_workmanager):**
+**Before (workmanager):**
 ```dart
 constraints: Constraints(
   networkType: NetworkType.unmetered,
@@ -383,7 +383,7 @@ constraints: Constraints(
 
 ### Step 5: Replace Cancel Operations
 
-**Before (flutter_workmanager):**
+**Before (workmanager):**
 ```dart
 // Cancel specific task
 Workmanager().cancelByUniqueName('task-1');
@@ -446,7 +446,7 @@ print('Scheduled tasks: ${tasks.length}');
 
 ### Example 1: Simple HTTP Request
 
-**Before (flutter_workmanager):**
+**Before (workmanager):**
 ```dart
 // 1. Register callback
 void callbackDispatcher() {
@@ -492,7 +492,7 @@ await NativeWorkManager.enqueue(
 
 ### Example 2: File Upload
 
-**Before (flutter_workmanager):**
+**Before (workmanager):**
 ```dart
 // Complex: Manual HTTP multipart, retry logic, etc.
 void callbackDispatcher() {
@@ -532,7 +532,7 @@ await NativeWorkManager.enqueue(
 
 ### Example 3: Complex Dart Logic (Keep as Dart Worker)
 
-**Before (flutter_workmanager):**
+**Before (workmanager):**
 ```dart
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
@@ -764,7 +764,7 @@ Use this checklist to track your migration progress:
   - [ ] Collect user feedback
 
 - [ ] **Post-Migration**
-  - [ ] Remove flutter_workmanager dependency
+  - [ ] Remove workmanager dependency
   - [ ] Update documentation
   - [ ] Train team on new APIs
   - [ ] Celebrate improved performance! 🎉
@@ -834,7 +834,7 @@ Use this checklist to track your migration progress:
 
 ### Q: Can I keep both libraries during migration?
 
-**A:** Yes! You can run both flutter_workmanager and native_workmanager side-by-side:
+**A:** Yes! You can run both workmanager and native_workmanager side-by-side:
 
 ```yaml
 dependencies:
@@ -842,13 +842,13 @@ dependencies:
   native_workmanager: ^1.0.0
 ```
 
-Migrate tasks one at a time, then remove flutter_workmanager when done.
+Migrate tasks one at a time, then remove workmanager when done.
 
 ---
 
 ### Q: What if I need task tagging NOW?
 
-**A:** Implement manual grouping (see "Task Tags Workaround" above) until v1.1 adds native support (Q2 2026).
+**A:** Implement manual grouping (see "Task Tags Workaround" above) currently not supported natively.
 
 ---
 
@@ -874,7 +874,7 @@ Large apps (50+ tasks): 2-4 hours
 **A:** Report on GitHub Issues: https://github.com/brewkits/native_workmanager/issues
 
 Include:
-- flutter_workmanager code (before)
+- workmanager code (before)
 - native_workmanager code (after)
 - Error messages or unexpected behavior
 - Android/iOS version

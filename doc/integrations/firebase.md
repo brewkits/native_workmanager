@@ -746,7 +746,6 @@ class FirebaseSyncService {
 
 - [Firebase Flutter Documentation](https://firebase.google.com/docs/flutter/setup)
 - [native_workmanager Dart Workers](../EXTENSIBILITY.md)
-- [Performance Guide](../PERFORMANCE_GUIDE.md)
 
 ---
 

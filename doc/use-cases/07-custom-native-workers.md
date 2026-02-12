@@ -431,11 +431,11 @@ override suspend fun doWork(input: String?): Boolean {
 
 ## Performance Comparison
 
-| Worker Type | RAM | Startup | Capabilities |
-|-------------|-----|---------|--------------|
-| Custom Native | ~2-5MB | <50ms | Native APIs only |
-| Built-in HTTP | ~3MB | <50ms | HTTP only |
-| DartWorker | ~50MB | 500-1000ms | Full Dart/Flutter |
+| Worker Type | Memory | Startup | Capabilities |
+|-------------|--------|---------|--------------|
+| Custom Native | Low (no Flutter Engine) | Fast | Native APIs only |
+| Built-in HTTP | Low (no Flutter Engine) | Fast | HTTP only |
+| DartWorker | Higher (Flutter Engine) | Slower | Full Dart/Flutter |
 
 **Recommendation:** Use custom native workers for CPU-intensive or platform-specific tasks. Avoid for simple operations that DartWorker can handle.
 

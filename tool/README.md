@@ -1,6 +1,6 @@
 # Migration Tools
 
-Tools to help migrate from flutter_workmanager to native_workmanager.
+Tools to help migrate from workmanager to native_workmanager.
 
 ---
 
@@ -34,9 +34,9 @@ dart run tools/migrate.dart --path /path/to/your/project
 
 ### 1. Scans Your Project
 
-- ✅ Checks pubspec.yaml for flutter_workmanager dependency
+- ✅ Checks pubspec.yaml for workmanager dependency
 - ✅ Finds all Dart files in lib/
-- ✅ Analyzes flutter_workmanager usage patterns
+- ✅ Analyzes workmanager usage patterns
 - ✅ Counts tasks and callbacks
 
 ### 2. Generates Report
@@ -64,11 +64,11 @@ Generates complete migration package:
 ```
 ╔═══════════════════════════════════════════════════════════╗
 ║   native_workmanager Migration Tool                      ║
-║   flutter_workmanager → native_workmanager               ║
+║   workmanager → native_workmanager               ║
 ╚═══════════════════════════════════════════════════════════╝
 
 📁 Project path: /Users/you/my_app
-🔍 Scanning for flutter_workmanager usage...
+🔍 Scanning for workmanager usage...
 
 📄 Found 15 Dart files
 
@@ -87,7 +87,7 @@ Generates complete migration package:
    7 tasks → Automatic migration possible
    ⚠️  1 callback(s) → Manual review needed
 
-📄 Files with flutter_workmanager import:
+📄 Files with workmanager import:
    • lib/main.dart
    • lib/services/sync_service.dart
    • lib/utils/background_tasks.dart
@@ -142,7 +142,7 @@ Updated dependencies file:
 dependencies:
   flutter:
     sdk: flutter
-  native_workmanager: ^1.0.0  # Replaced flutter_workmanager
+  native_workmanager: ^1.0.0  # Replaced workmanager
 ```
 
 **Usage:**
@@ -242,7 +242,7 @@ Verify:
 ```bash
 rm -rf migration/
 git add .
-git commit -m "Migrate from flutter_workmanager to native_workmanager"
+git commit -m "Migrate from workmanager to native_workmanager"
 ```
 
 ---
@@ -370,9 +370,9 @@ cd /path/to/your/flutter/project
 dart run path/to/migrate.dart
 ```
 
-### Issue: No flutter_workmanager found
+### Issue: No workmanager found
 
-This is expected if you're not using flutter_workmanager. The tool is only for migrating existing projects.
+This is expected if you're not using workmanager. The tool is only for migrating existing projects.
 
 ### Issue: Permission denied
 

@@ -1,4 +1,4 @@
-# Dio Integration Guide
+lam # Dio Integration Guide
 
 Integration guide for using native_workmanager with **Dio** - the powerful HTTP client for Dart.
 
@@ -47,7 +47,7 @@ flutter pub get
 2. **File uploads** → Use `NativeWorker.httpUpload()`
 3. **File downloads** → Use `NativeWorker.httpDownload()`
 
-**Why?** Native workers don't require Flutter Engine (50MB less memory, 5x faster).
+**Why?** Native workers don't require Flutter Engine (no Flutter Engine overhead).
 
 ---
 
@@ -225,7 +225,7 @@ await NativeWorkManager.enqueue(
 );
 ```
 
-**⚠️  Note:** For simple downloads without Dio features, use `NativeWorker.httpDownload()` instead (50MB less memory).
+**⚠️  Note:** For simple downloads without Dio features, use `NativeWorker.httpDownload()` instead (lower memory usage).
 
 ---
 
@@ -327,7 +327,7 @@ await NativeWorkManager.enqueue(
 ### 1. Use Native Workers When Possible
 
 ```dart
-// ❌ Avoid (uses Dio in Dart worker - 50MB overhead)
+// ❌ Avoid (uses Dio in Dart worker - Flutter Engine overhead)
 @pragma('vm:entry-point')
 Future<void> simpleSyncCallback(String? input) async {
   final dio = Dio();
@@ -401,9 +401,9 @@ Future<void> dioCallback(String? input) async {
 
 | Approach | Memory | Startup | Use When |
 |----------|--------|---------|----------|
-| **Native Worker** | 2-5MB | <100ms | Simple HTTP GET/POST |
-| **Dio in Dart Worker** | 50-85MB | ~500ms | Complex requests with interceptors |
-| **Dio with autoDispose** | 50MB (temp) | ~500ms | One-off complex requests |
+| **Native Worker** | Low | Fast | Simple HTTP GET/POST |
+| **Dio in Dart Worker** | Higher | Slower | Complex requests with interceptors |
+| **Dio with autoDispose** | Higher (temp) | Slower | One-off complex requests |
 
 **Recommendation:** Use native workers for 80% of cases, Dio for complex scenarios.
 
@@ -519,7 +519,6 @@ worker: NativeWorker.httpRequest(url: '...'),
 
 - [Dio Documentation](https://pub.dev/packages/dio)
 - [native_workmanager Dart Workers](../EXTENSIBILITY.md)
-- [Performance Guide](../PERFORMANCE_GUIDE.md)
 
 ---
 

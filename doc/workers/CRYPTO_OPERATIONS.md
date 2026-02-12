@@ -5,9 +5,9 @@
 The `CryptoWorker` performs cryptographic operations (hashing, encryption, decryption) in the background **without** starting the Flutter Engine. This provides native performance for file integrity verification, deduplication, and secure storage.
 
 **Key Benefits:**
-- **Native Performance:** 3-5x faster than Dart crypto packages
-- **Low Memory:** Streaming operations use <15MB RAM
-- **Battery Efficient:** No Flutter Engine overhead (~50MB saved)
+- **Native Performance:** Uses platform crypto libraries (no Flutter Engine)
+- **Low Memory:** Streaming operations
+- **Battery Efficient:** No Flutter Engine overhead
 - **Background Execution:** Hash/encrypt files when app is closed
 - **Security:** Hardware-accelerated crypto (CryptoKit on iOS, Cipher on Android)
 
@@ -371,13 +371,12 @@ bool secureCompare(String a, String b) {
 
 ## Performance
 
-### Benchmarks
+### Native Performance Benefits
 
-| Operation | Dart (crypto package) | Native Worker | Improvement |
-|-----------|---------------------|---------------|-------------|
-| SHA-256 (100MB) | 1,200ms / 150MB RAM | 350ms / 15MB RAM | **3.4x faster, 10x less RAM** |
-| AES Encrypt (100MB) | 2,500ms / 180MB RAM | 650ms / 20MB RAM | **3.8x faster, 9x less RAM** |
-| MD5 (100MB) | 800ms / 140MB RAM | 220ms / 12MB RAM | **3.6x faster, 11x less RAM** |
+CryptoWorker uses platform-native crypto libraries without loading the Flutter Engine:
+- Hardware-accelerated cryptography (CryptoKit on iOS, Android Cipher)
+- Streaming operations (low memory usage)
+- Native performance (no Dart VM overhead)
 
 ### Performance Tips
 

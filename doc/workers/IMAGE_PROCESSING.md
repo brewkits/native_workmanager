@@ -2,12 +2,12 @@
 
 ## Overview
 
-The `ImageProcessWorker` processes images (resize, compress, convert, crop) in the background **without** starting the Flutter Engine. This provides native Bitmap/UIImage performance, making it **10x faster** and using **9x less memory** than Dart image packages.
+The `ImageProcessWorker` processes images (resize, compress, convert, crop) in the background **without** starting the Flutter Engine. This provides native Bitmap/UIImage performance with reduced memory usage and faster execution.
 
 **Key Benefits:**
-- **Native Performance:** 10x faster than Dart image packages
-- **Low Memory:** 9x less RAM usage (uses native Bitmap/UIImage)
-- **Battery Efficient:** No Flutter Engine overhead (~50MB saved)
+- **Native Performance:** Uses platform image libraries (Bitmap on Android, UIImage on iOS)
+- **Low Memory:** No Flutter Engine overhead
+- **Battery Efficient:** Runs natively without loading Flutter runtime
 - **Background Execution:** Process images when app is closed
 - **EXIF Handling:** Automatic orientation correction from camera photos
 
@@ -399,14 +399,12 @@ NativeWorkManager.progress.listen((progress) {
 
 ## Performance
 
-### Benchmarks
+### Native Performance Benefits
 
-| Operation | Dart (image package) | Native Worker | Improvement |
-|-----------|---------------------|---------------|-------------|
-| 4K → 1080p resize | 2,500ms / 180MB RAM | 250ms / 20MB RAM | **10x faster, 9x less RAM** |
-| JPEG quality 85 → 75 | 1,200ms / 150MB RAM | 120ms / 15MB RAM | **10x faster, 10x less RAM** |
-| PNG → JPEG conversion | 2,000ms / 200MB RAM | 200ms / 20MB RAM | **10x faster, 10x less RAM** |
-| Crop 1000×1000 | 800ms / 100MB RAM | 80ms / 12MB RAM | **10x faster, 8x less RAM** |
+ImageProcessWorker uses platform-native image libraries (Android Bitmap, iOS UIImage/CoreImage) without loading the Flutter Engine, providing:
+- Reduced memory usage (no Flutter runtime overhead)
+- Faster execution (native code, no Dart VM)
+- Better battery efficiency (no engine initialization)
 
 ### Performance Tips
 
@@ -448,8 +446,8 @@ NativeWorkManager.progress.listen((progress) {
 - ✅ Formats: JPEG, PNG, HEIC
 - ✅ Hardware acceleration
 - ❌ WEBP not supported (returns error with helpful message)
-- ⏳ EXIF orientation (planned for v1.0.1)
-- ⏳ Progress reporting (planned for v1.0.1)
+- ⏳ EXIF orientation (available in v1.0)
+- ⏳ Progress reporting (available in v1.0)
 
 **iOS-Specific Behavior:**
 - HEIC format supported (iOS native camera format)
@@ -620,7 +618,7 @@ void processImage() {
 
 **After (Native Worker):**
 ```dart
-// ✅ Streaming, native, non-blocking, 10x faster, 9x less RAM
+// ✅ Native processing, no Flutter Engine overhead
 await NativeWorkManager.enqueue(
   taskId: 'process',
   trigger: TaskTrigger.oneTime(),
@@ -635,8 +633,8 @@ await NativeWorkManager.enqueue(
 ```
 
 **Benefits:**
-- 10x faster execution
-- 9x less memory usage
+- Native performance (no Flutter Engine overhead)
+- Reduced memory usage
 - Non-blocking (doesn't freeze UI)
 - Works in background
 - Automatic EXIF handling (Android)

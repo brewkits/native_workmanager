@@ -76,8 +76,7 @@ Each guide includes:
 
 **Not covered here:**
 - API reference - See main README.md
-- Architecture details - See ARCHITECTURE.md
-- Performance benchmarks - See PERFORMANCE_BENCHMARKS.md
+- API documentation - See doc/API_REFERENCE.md
 
 ---
 

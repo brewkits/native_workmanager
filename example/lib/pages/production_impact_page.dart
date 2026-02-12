@@ -1,6 +1,6 @@
 /// Production Impact Comparison Page
 ///
-/// Shows the REAL advantages of native_workmanager vs flutter_workmanager:
+/// Shows the REAL advantages of native_workmanager vs workmanager:
 /// 1. Memory Footprint (50MB less - no Flutter Engine overhead)
 /// 2. Battery Impact (0 engine startups vs N startups)
 /// 3. Heavy I/O Performance (native OkHttp vs Dart http)
@@ -306,7 +306,7 @@ class _ProductionImpactPageState extends State<ProductionImpactPage> {
         ),
         const SizedBox(height: 8),
         Text(
-          'Measure the REAL advantages of native_workmanager vs flutter_workmanager in production scenarios.',
+          'Measure the REAL advantages of native_workmanager vs workmanager in production scenarios.',
           style: Theme.of(
             context,
           ).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),

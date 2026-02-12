@@ -1,4 +1,4 @@
-/// A/B Testing UI for comparing native_workmanager vs flutter_workmanager
+/// A/B Testing UI for comparing native_workmanager vs workmanager
 library;
 
 import 'dart:async';
@@ -167,7 +167,7 @@ class _ABTestingPageState extends State<ABTestingPage>
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Run a fast comparison between native_workmanager and flutter_workmanager with 5 simple tasks.',
+                  'Run a fast comparison between native_workmanager and workmanager with 5 simple tasks.',
                 ),
                 const SizedBox(height: 16),
                 const Divider(),
@@ -569,7 +569,7 @@ class _ABTestingPageState extends State<ABTestingPage>
                 ),
                 const Icon(Icons.compare_arrows),
                 _buildValueColumn(
-                  'flutter_workmanager',
+                  'workmanager',
                   flutter,
                   unit,
                   !nativeWins,

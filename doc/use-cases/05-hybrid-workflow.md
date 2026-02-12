@@ -14,8 +14,8 @@ Your app needs to combine native workers (for performance) and Dart workers (for
 - Upload results using native worker (efficient)
 
 **Why hybrid?**
-- Native workers: 10x faster, 90% less RAM, but limited to HTTP operations
-- Dart workers: Full Flutter access, but ~50MB RAM overhead
+- Native workers: Faster, lower memory (no Flutter Engine), but limited to built-in operations
+- Dart workers: Full Flutter/Dart access, but requires Flutter Engine
 
 ---
 
@@ -335,16 +335,16 @@ Limitation: Can't run custom Dart logic
 ### All-Dart Workflow
 ```
 Download (Dart) → Process (Dart) → Upload (Dart)
-RAM: 150MB total (50MB × 3 workers)
-Speed: 🐌 Slowest
+RAM: Higher (Flutter Engine for each worker)
+Speed: 🐌 Slower
 Benefit: Full Flutter access
 ```
 
 ### Hybrid Workflow (Best)
 ```
 Download (Native) → Process (Dart) → Upload (Native)
-RAM: 55MB total (5MB + 50MB + 5MB)
-Speed: ⚡⚡ Fast
+RAM: Lower (Engine only for processing step)
+Speed: ⚡⚡ Faster
 Benefit: Efficiency + Flexibility
 ```
 
@@ -381,13 +381,13 @@ Benefit: Efficiency + Flexibility
 ```dart
 // ❌ Unnecessary Dart worker for HTTP
 worker: DartWorker(
-  callbackId: 'downloadFile',  // 50MB RAM overhead
+  callbackId: 'downloadFile',  // Loads Flutter Engine
   input: {'url': 'https://...'},
 )
 
 // ✅ Use native worker
 worker: NativeWorker.httpDownload(
-  url: 'https://...',  // <5MB RAM
+  url: 'https://...',  // No Flutter Engine
   savePath: '/path',
 )
 ```

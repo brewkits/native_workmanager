@@ -1,6 +1,6 @@
 /// Production Impact Comparison Page (IMPROVED)
 ///
-/// Shows the REAL advantages of native_workmanager vs flutter_workmanager:
+/// Shows the REAL advantages of native_workmanager vs workmanager:
 /// 1. Memory Footprint (50MB less - no Flutter Engine overhead)
 /// 2. Battery Impact (0 engine startups vs N startups)
 /// 3. Heavy I/O Performance (native OkHttp vs Dart http)
@@ -222,7 +222,7 @@ class _ProductionImpactPageImprovedState
     // HONEST NOTE: Can't measure engine overhead when running IN the app
     // These values are from REAL separate process measurements:
     // - Standalone native worker process: ~35MB
-    // - Standalone flutter_workmanager worker: ~85MB (includes Flutter Engine)
+    // - Standalone workmanager worker: ~85MB (includes Flutter Engine)
     //
     // This is EDUCATIONAL - shows the theoretical difference
     await Future.delayed(const Duration(milliseconds: 800));
