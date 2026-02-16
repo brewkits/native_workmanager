@@ -22,12 +22,17 @@ Flutter background task manager with native workers and task chains.
 
 ## 🚀 Quick Start
 
-**Step 1: Install**
+**Step 1: Platform Requirements**
+
+- **Android:** API 26+ (Android 8.0+) - [Android Setup Guide →](doc/ANDROID_SETUP.md)
+- **iOS:** iOS 12.0+ - [iOS Setup Guide →](doc/IOS_BACKGROUND_LIMITS.md)
+
+**Step 2: Install**
 ```bash
 flutter pub add native_workmanager
 ```
 
-**Step 2: Initialize**
+**Step 3: Initialize**
 ```dart
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,7 +41,7 @@ void main() async {
 }
 ```
 
-**Step 3: Schedule a Task**
+**Step 4: Schedule a Task**
 
 **Option A: Simple HTTP Sync (Native Worker)**
 ```dart

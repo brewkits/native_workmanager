@@ -10,6 +10,16 @@
 - Basic understanding of background tasks concept
 - Android Studio or VS Code with Flutter extension
 
+### Platform Requirements
+
+- **Android:** API 26+ (Android 8.0+) required
+  - Set `minSdk 26` in `android/app/build.gradle`
+  - [Full Android setup guide →](ANDROID_SETUP.md)
+
+- **iOS:** iOS 12.0+ required
+  - Background tasks have 30-second execution limit
+  - [Full iOS setup guide →](IOS_BACKGROUND_LIMITS.md)
+
 ---
 
 ## Step 1: Installation (30 seconds)
@@ -319,15 +329,39 @@ Learn from real-world examples:
 
 ## Troubleshooting
 
+### Android: "KmpWorkManager not initialized" Error
+
+**Problem:** Getting initialization errors on Android.
+
+**Solutions:**
+1. **Verify minimum SDK version** - Edit `android/app/build.gradle`:
+   ```gradle
+   defaultConfig {
+       minSdk 26  // Must be 26 or higher!
+   }
+   ```
+2. Ensure `await NativeWorkManager.initialize()` is called in `main()` before `runApp()`
+3. Clean and rebuild:
+   ```bash
+   flutter clean
+   rm -rf android/build android/app/build
+   flutter pub get
+   flutter build apk --debug
+   ```
+4. Check logcat: `adb logcat -s NativeWorkmanagerPlugin`
+
+[Full Android troubleshooting →](ANDROID_SETUP.md#troubleshooting)
+
 ### Task Not Running
 
 **Problem:** Task scheduled but never executes.
 
 **Solutions:**
-1. Check constraints - task may be waiting for conditions (Wi-Fi, charging, etc.)
-2. Check device battery optimization settings (Android)
-3. Verify task ID is unique
-4. Check logs for errors
+1. **Android:** Verify `minSdk` is 26+ in `android/app/build.gradle`
+2. Check constraints - task may be waiting for conditions (Wi-Fi, charging, etc.)
+3. Check device battery optimization settings (Android)
+4. Verify task ID is unique
+5. Check logs for errors
 
 ```dart
 // Debug: Remove all constraints

@@ -7,14 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.0.2] - 2026-02-13
+## [1.0.2] - 2026-02-16
+
+### Fixed
+- **Android: Critical initialization bug** - "KmpWorkManager not initialized!" error
+  - **Root cause:** Plugin was not calling `KmpWorkManager.initialize()` from kmpworkmanager library
+  - **Impact:** All Android users attempting to use the plugin would get runtime errors when tasks execute
+  - **Solution:** Added `KmpWorkManager.initialize()` call in `initializeKoin()` before setting up Koin modules
+  - **Files changed:** `NativeWorkmanagerPlugin.kt`
+  - **Reported by:** Abdullah Al-Hasnat (GitHub issue - user feedback)
+
+### Added
+- **Documentation: Android Setup Guide** (`doc/ANDROID_SETUP.md`)
+  - Comprehensive Android configuration requirements
+  - Minimum SDK 26+ requirement clearly documented
+  - Troubleshooting section for initialization errors
+  - Build verification steps
+  - ProGuard/R8 configuration
+  - Production checklist
 
 ### Changed
-- **Package Description:** Simplified to remove internal dependency version details
-- **Documentation:** Updated based on user feedback to be more concise and factual
+- **Documentation:** Updated README, GETTING_STARTED, and FAQ with Android setup requirements
+  - Platform requirements mentioned upfront in Quick Start
+  - Android minSdk 26+ requirement added to prerequisites
+  - Troubleshooting section enhanced with Android-specific issues
+  - Links to new Android setup guide
 
 ### Notes
-- No code changes - documentation and metadata updates only
+- **CRITICAL FIX** - All Android users should upgrade immediately
+- Previous versions (1.0.0, 1.0.1) are non-functional on Android
+- iOS not affected by this bug
+- Package description updates from 1.0.2 (2026-02-13) merged into this release
 
 ---
 

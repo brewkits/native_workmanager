@@ -357,6 +357,47 @@ await NativeWorkManager.enqueue(
 
 ---
 
+### Android: "KmpWorkManager not initialized" error?
+
+**Common reasons:**
+
+1. **Minimum SDK version too low**
+   - Plugin requires API 26+ (Android 8.0+)
+   - Edit `android/app/build.gradle`:
+   ```gradle
+   defaultConfig {
+       minSdk 26  // Must be 26 or higher!
+   }
+   ```
+
+2. **Initialization not called or not awaited**
+   - Ensure `await NativeWorkManager.initialize()` in `main()`
+   ```dart
+   void main() async {
+     WidgetsFlutterBinding.ensureInitialized();
+     await NativeWorkManager.initialize();  // ← Must await!
+     runApp(MyApp());
+   }
+   ```
+
+3. **Build cache corruption**
+   - Clean and rebuild:
+   ```bash
+   flutter clean
+   rm -rf android/build android/app/build
+   flutter pub get
+   flutter build apk --debug
+   ```
+
+4. **Check logcat for details**
+   ```bash
+   adb logcat -s NativeWorkmanagerPlugin
+   ```
+
+**See also:** [Full Android Setup Guide](ANDROID_SETUP.md)
+
+---
+
 ### Android: Why is my task delayed?
 
 **Common reasons:**

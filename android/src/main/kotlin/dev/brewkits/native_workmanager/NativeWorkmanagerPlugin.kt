@@ -14,6 +14,7 @@ import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import dev.brewkits.native_workmanager.workers.utils.ProgressReporter
 import dev.brewkits.kmpworkmanager.kmpWorkerModule
 import dev.brewkits.kmpworkmanager.KmpWorkManagerConfig
+import dev.brewkits.kmpworkmanager.KmpWorkManager
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -116,6 +117,14 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
         if (isKoinInitialized) return
 
         try {
+            // ✅ Initialize KmpWorkManager BEFORE setting up Koin modules
+            // This fixes "KmpWorkManager not initialized!" error when workers execute
+            KmpWorkManager.initialize(
+                context = context,
+                workerFactory = SimpleAndroidWorkerFactory(context),
+                config = KmpWorkManagerConfig()
+            )
+
             // ✅ Pass context to factory so it can create DartCallbackWorker with context
             val kmpModule = kmpWorkerModule(
                 SimpleAndroidWorkerFactory(context),
@@ -131,7 +140,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                 GlobalContext.get().loadModules(listOf(kmpModule))
             }
             isKoinInitialized = true
-            Log.d(TAG, "✅ Koin initialized with kmpworkmanager v2.3.0 from Maven Central")
+            Log.d(TAG, "✅ Koin initialized with kmpworkmanager v2.3.1 from Maven Central")
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to initialize Koin", e)
         }
