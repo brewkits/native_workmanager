@@ -21,7 +21,7 @@ This guide shows how to integrate Firebase with native_workmanager for backgroun
 
 ```yaml
 dependencies:
-  native_workmanager: ^1.0.0
+  native_workmanager: ^1.0.3
   firebase_core: ^2.24.0
   firebase_analytics: ^10.7.0
   firebase_crashlytics: ^3.4.0

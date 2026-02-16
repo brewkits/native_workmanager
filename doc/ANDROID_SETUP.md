@@ -59,7 +59,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  native_workmanager: ^1.0.1
+  native_workmanager: ^1.0.3
 ```
 
 Run:

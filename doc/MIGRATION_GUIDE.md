@@ -126,7 +126,7 @@ dependencies:
 **After:**
 ```yaml
 dependencies:
-  native_workmanager: ^1.0.0
+  native_workmanager: ^1.0.3
 ```
 
 **Then run:**
@@ -839,7 +839,7 @@ Use this checklist to track your migration progress:
 ```yaml
 dependencies:
   workmanager: ^0.5.0
-  native_workmanager: ^1.0.0
+  native_workmanager: ^1.0.3
 ```
 
 Migrate tasks one at a time, then remove workmanager when done.
