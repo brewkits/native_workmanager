@@ -159,7 +159,7 @@ adb logcat -s NativeWorkmanagerPlugin
 
 **Expected output:**
 ```
-✅ Koin initialized with kmpworkmanager v2.3.0 from Maven Central
+✅ Koin initialized with kmpworkmanager v2.3.1 from Maven Central
 ✅ Task scheduled: your-task-id
 [NativeWorkManager] Task started: your-task-id
 [NativeWorkManager] Task completed: your-task-id (success)

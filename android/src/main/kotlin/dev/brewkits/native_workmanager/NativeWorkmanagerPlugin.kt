@@ -36,7 +36,7 @@ import org.koin.core.context.startKoin
 /**
  * Native WorkManager Flutter Plugin for Android.
  *
- * Uses kmpworkmanager v2.3.0 from Maven Central as the core engine.
+ * Uses kmpworkmanager v2.3.1 from Maven Central as the core engine.
  * This ensures compatibility with Pro/Enterprise versions.
  */
 class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent {
@@ -161,7 +161,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
     private fun subscribeToTaskEvents() {
         scope.launch {
             try {
-                // Access TaskEventBus object singleton directly (v2.3.0+ with outputData support)
+                // Access TaskEventBus object singleton directly (v2.3.1+ with outputData support)
                 TaskEventBus.events.collect { event ->
                     // Show debug notification if enabled
                     if (debugMode && isDebugBuild()) {
@@ -212,7 +212,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                     // Update in-memory status
                     taskStatuses[event.taskName] = if (event.success) "completed" else "failed"
 
-                    // Always emit event to Dart (v2.3.0+: includes outputData)
+                    // Always emit event to Dart (v2.3.1+: includes outputData)
                     eventSink?.success(mapOf(
                         "taskId" to event.taskName,  // Map taskName to taskId for Dart compatibility
                         "success" to event.success,
