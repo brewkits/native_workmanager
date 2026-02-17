@@ -14,6 +14,7 @@ import 'pages/comprehensive_demo_page.dart';
 import 'pages/performance_page.dart';
 import 'examples/chain_resilience_test.dart';
 import 'examples/chain_data_flow_demo.dart';
+import 'screens/bug_fix_demo_screen.dart';
 
 /// workmanager background callback.
 /// Runs in a separate isolate — communicates completion back via SharedPreferences.
@@ -180,7 +181,7 @@ class _DemoHomePageState extends State<DemoHomePage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 14, vsync: this);
+    _tabController = TabController(length: 15, vsync: this);
 
     // Listen to task events (v2.3.0+: includes resultData)
     NativeWorkManager.events.listen((event) {
@@ -575,6 +576,7 @@ class _DemoHomePageState extends State<DemoHomePage>
           isScrollable: true,
           tabs: const [
             Tab(text: 'Demo'),
+            Tab(text: '🐛 Bug Fix'),
             Tab(text: '✨ All Workers'),
             Tab(text: 'Performance'),
             Tab(text: 'Basic'),
@@ -600,6 +602,7 @@ class _DemoHomePageState extends State<DemoHomePage>
                   controller: _tabController,
                   children: [
                     const DemoScenariosPage(),
+                    const BugFixDemoScreen(),
                     const ComprehensiveDemoPage(),
                     const PerformancePage(),
                     _buildBasicTab(),
