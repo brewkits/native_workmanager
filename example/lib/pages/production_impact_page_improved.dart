@@ -147,7 +147,7 @@ class _ProductionImpactPageImprovedState
       title: 'Memory Footprint',
       description: 'Theoretical comparison (educational)',
       explanation:
-          'THEORETICAL: native_wm runs purely native (~35MB), while flutter_wm spawns a Flutter Engine (~85MB total, +50MB overhead). Cannot measure live in-app - these values from separate process measurements.',
+          'THEORETICAL: native_wm runs purely native (~35MB), while workmanager spawns a Flutter Engine (~85MB total, +50MB overhead). Cannot measure live in-app - these values from separate process measurements.',
       icon: Icons.memory,
       color: Color(0xFF1976D2),
     ),
@@ -156,7 +156,7 @@ class _ProductionImpactPageImprovedState
       title: 'Battery Impact',
       description: 'Theoretical engine startups',
       explanation:
-          'THEORETICAL: Every flutter_wm task spawns a Flutter Engine (~500ms startup), draining battery. native_wm has zero engine overhead. Demonstrates architectural difference.',
+          'THEORETICAL: Every workmanager task spawns a Flutter Engine (~500ms startup), draining battery. native_wm has zero engine overhead. Demonstrates architectural difference.',
       icon: Icons.battery_charging_full,
       color: Color(0xFF388E3C),
     ),
@@ -284,7 +284,7 @@ class _ProductionImpactPageImprovedState
       }
     }
 
-    // Estimate flutter_wm overhead based on REAL measurement (or fallback)
+    // Estimate workmanager overhead based on REAL measurement (or fallback)
     final estimatedFlutterMs =
         (nativeMs * BenchmarkConstants.flutterOverheadMultiplier).toInt();
 
@@ -522,7 +522,7 @@ class _ProductionImpactPageImprovedState
                   const SizedBox(width: 16),
                   Expanded(
                     child: _buildValueColumn(
-                      label: 'flutter_wm',
+                      label: 'workmanager',
                       value: result.formattedFlutterValue,
                       unit: result.unit,
                       color: Colors.grey.shade600,

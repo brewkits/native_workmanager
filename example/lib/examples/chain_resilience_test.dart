@@ -343,7 +343,8 @@ class _ChainResilienceTestState extends State<ChainResilienceTest> {
             ),
           ),
 
-          Expanded(
+          SizedBox(
+            height: 300,
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 16),
               padding: const EdgeInsets.all(12),

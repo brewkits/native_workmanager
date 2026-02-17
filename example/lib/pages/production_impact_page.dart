@@ -135,7 +135,7 @@ class _ProductionImpactPageState extends State<ProductionImpactPage> {
     // Note: Can't accurately measure Flutter Engine overhead when running
     // inside the same app (engine already loaded). In production:
     // - native_wm: ~35MB (no engine, pure native)
-    // - flutter_wm: ~85MB (spawns engine ~50MB overhead)
+    // - workmanager: ~85MB (spawns engine ~50MB overhead)
     //
     // This demonstration uses realistic values based on cold-start measurements.
 
@@ -166,7 +166,7 @@ class _ProductionImpactPageState extends State<ProductionImpactPage> {
     // Simulate 3 tasks to demonstrate the difference
     // In reality:
     // - native_wm: 0 engine startups (runs purely native)
-    // - flutter_wm: 3 engine startups (1 per task, ~500ms + 50MB each)
+    // - workmanager: 3 engine startups (1 per task, ~500ms + 50MB each)
 
     await Future.delayed(const Duration(seconds: 1));
 
@@ -427,7 +427,7 @@ class _ProductionImpactPageState extends State<ProductionImpactPage> {
                   const SizedBox(width: 16),
                   Expanded(
                     child: _buildValueColumn(
-                      label: 'flutter_wm',
+                      label: 'workmanager',
                       value: result.flutterValue,
                       unit: result.unit,
                       color: Colors.grey.shade600,

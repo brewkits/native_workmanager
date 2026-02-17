@@ -16,11 +16,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Impact:** All Android users can now safely use WorkManager 2.10.0+
   - **Files changed:** `android/build.gradle`
   - **Reported by:** Abdullah Al-Hasnat
+- **Example app: Flutter rendering error** in Chain Resilience Test screen
+  - Fixed `RenderFlex` unbounded height constraint error caused by `Expanded` widget inside `SingleChildScrollView`
+  - Changed to `SizedBox` with fixed height for logs section
+- **Example app: Integration test API errors**
+  - Updated bug fix integration tests to use correct `native_workmanager` API
+  - Fixed `TaskTrigger.periodic()` usage and event stream handling
+- **Example app: Incorrect library naming in benchmarks**
+  - Corrected competitor library references from `flutter_wm` to `workmanager`
+  - Updated production impact comparison pages and manual benchmark page
 
 ### Changed
 - **Dependencies:**
   - Upgraded `kmpworkmanager` from 2.3.1 to 2.3.3 (fixes WorkManager 2.10.0+ compatibility)
   - Upgraded `work-runtime-ktx` from 2.9.1 to 2.10.1 (safe with kmpworkmanager 2.3.3+)
+
+### Added
+- **Bug fix verification demo** - Interactive UI demonstrating WorkManager 2.10.0+ compatibility
+  - Shows original bug details and fix information
+  - Runs expedited tasks (original crash scenario) and displays real-time results
+  - Tests concurrent expedited tasks and task chains
+  - Accessible via "🐛 Bug Fix" tab in example app
+- **Integration tests** - Comprehensive test coverage for WorkManager 2.10.0+ bug fix
+  - Tests expedited tasks, concurrent tasks, periodic tasks, and chains
+  - Verifies notification i18n support
+- **Documentation** - Complete bug fix verification guide (`BUG_FIX_VERIFICATION.md`)
+  - Root cause analysis and fix details
+  - Build and runtime verification steps
+  - Migration guide for users
 
 ### Upstream Fix (kmpworkmanager 2.3.3)
 - Added `getForegroundInfo()` override in `KmpWorker` with notification localization support

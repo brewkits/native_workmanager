@@ -32,7 +32,7 @@ enum BenchTaskType {
 
 enum BenchLibrary {
   native('native_wm', Color(0xFF1976D2), Icons.rocket_launch),
-  flutter('flutter_wm', Color(0xFF3F51B5), Icons.code),
+  flutter('workmanager', Color(0xFF3F51B5), Icons.code),
   direct('Direct', Color(0xFF00897B), Icons.flash_on);
 
   final String label;

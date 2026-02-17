@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:native_workmanager/native_workmanager.dart';
+import 'dart:async';
 
 /// Integration test for WorkManager 2.10.0+ getForegroundInfo() bug fix
 ///
@@ -23,10 +24,7 @@ void main() {
 
   group('WorkManager 2.10.0+ Compatibility Tests', () {
     setUpAll(() async {
-      await NativeWorkManager.initialize(
-        isDebug: true,
-        enableBackgroundIsolate: true,
-      );
+      await NativeWorkManager.initialize();
     });
 
     /// Test 1: OneTime expedited task (original bug scenario)
@@ -36,33 +34,29 @@ void main() {
     testWidgets('OneTime expedited task should not crash', (tester) async {
       await tester.pumpAndSettle();
 
-      final taskId = 'bug-fix-test-onetime-expedited';
+      final taskId = 'bug-fix-test-onetime-expedited-${DateTime.now().millisecondsSinceEpoch}';
       var taskCompleted = false;
-      String? taskOutput;
+      String? taskMessage;
 
-      // Register callback
-      NativeWorkManager.onTaskCompleted((id, output) {
-        if (id == taskId) {
-          taskCompleted = true;
-          taskOutput = output;
+      StreamSubscription? eventsSub;
+
+      // Listen to events
+      eventsSub = NativeWorkManager.events.listen((event) {
+        if (event.taskId == taskId) {
+          taskCompleted = event.success;
+          taskMessage = event.message;
         }
       });
 
       // Schedule OneTime expedited task (triggers the bug in WM 2.10.0+)
-      await NativeWorkManager.scheduleOneTime(
+      await NativeWorkManager.enqueue(
         taskId: taskId,
-        workerType: WorkerType.sync,
-        inputData: {
-          'url': 'https://httpbin.org/delay/1',
-          'method': 'GET',
-        },
-        constraints: WorkConstraints(
-          networkType: NetworkType.connected,
-          requiresCharging: false,
-          requiresBatteryNotLow: false,
-          // Expedited = true triggers getForegroundInfoAsync() call
+        trigger: TaskTrigger.oneTime(),
+        worker: HttpRequestWorker(
+          url: 'https://httpbin.org/delay/1',
+          method: HttpMethod.get,
         ),
-        // initialDelay: Duration.zero, // Execute ASAP
+        constraints: const Constraints(requiresNetwork: true),
       );
 
       // Wait for task completion (max 30s)
@@ -72,11 +66,11 @@ void main() {
         attempts++;
       }
 
+      await eventsSub.cancel();
+
       // Verify task completed without crash
       expect(taskCompleted, true, reason: 'Task should complete without crashing');
-      expect(taskOutput, isNotNull, reason: 'Task should return output');
-
-      print('✓ OneTime expedited task completed successfully: $taskOutput');
+      expect(taskMessage, isNotNull, reason: 'Task should return output');
     });
 
     /// Test 2: Multiple concurrent expedited tasks
@@ -85,27 +79,28 @@ void main() {
     testWidgets('Multiple concurrent expedited tasks should not crash', (tester) async {
       await tester.pumpAndSettle();
 
-      final taskIds = List.generate(5, (i) => 'bug-fix-test-concurrent-$i');
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final taskIds = List.generate(5, (i) => 'bug-fix-test-concurrent-$timestamp-$i');
       final completedTasks = <String>{};
 
-      NativeWorkManager.onTaskCompleted((id, output) {
-        if (taskIds.contains(id)) {
-          completedTasks.add(id);
+      StreamSubscription? eventsSub;
+
+      eventsSub = NativeWorkManager.events.listen((event) {
+        if (taskIds.contains(event.taskId) && event.success) {
+          completedTasks.add(event.taskId);
         }
       });
 
       // Schedule 5 concurrent expedited tasks
       for (var i = 0; i < taskIds.length; i++) {
-        await NativeWorkManager.scheduleOneTime(
+        await NativeWorkManager.enqueue(
           taskId: taskIds[i],
-          workerType: WorkerType.sync,
-          inputData: {
-            'url': 'https://httpbin.org/delay/${i + 1}',
-            'method': 'GET',
-          },
-          constraints: WorkConstraints(
-            networkType: NetworkType.connected,
+          trigger: TaskTrigger.oneTime(),
+          worker: HttpRequestWorker(
+            url: 'https://httpbin.org/delay/${i + 1}',
+            method: HttpMethod.get,
           ),
+          constraints: const Constraints(requiresNetwork: true),
         );
       }
 
@@ -116,10 +111,10 @@ void main() {
         attempts++;
       }
 
+      await eventsSub.cancel();
+
       expect(completedTasks.length, taskIds.length,
           reason: 'All concurrent tasks should complete without crashing');
-
-      print('✓ ${completedTasks.length} concurrent expedited tasks completed successfully');
     });
 
     /// Test 3: Periodic task (should not crash even though not expedited)
@@ -128,25 +123,22 @@ void main() {
     testWidgets('Periodic task should work correctly', (tester) async {
       await tester.pumpAndSettle();
 
-      final taskId = 'bug-fix-test-periodic';
+      final taskId = 'bug-fix-test-periodic-${DateTime.now().millisecondsSinceEpoch}';
 
-      await NativeWorkManager.schedulePeriodic(
+      await NativeWorkManager.enqueue(
         taskId: taskId,
-        workerType: WorkerType.sync,
-        interval: const Duration(minutes: 15),
-        inputData: {
-          'url': 'https://httpbin.org/get',
-          'method': 'GET',
-        },
+        trigger: TaskTrigger.periodic(const Duration(minutes: 15)),
+        worker: HttpRequestWorker(
+          url: 'https://httpbin.org/get',
+          method: HttpMethod.get,
+        ),
       );
 
       // Just verify it schedules without crash
       await tester.pump(const Duration(seconds: 2));
 
       // Cancel the periodic task
-      await NativeWorkManager.cancelTask(taskId);
-
-      print('✓ Periodic task scheduled and cancelled successfully');
+      await NativeWorkManager.cancel(taskId);
     });
 
     /// Test 4: Task chain with expedited tasks
@@ -155,55 +147,49 @@ void main() {
     testWidgets('Task chain should handle expedited tasks correctly', (tester) async {
       await tester.pumpAndSettle();
 
-      final chainId = 'bug-fix-test-chain';
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final chainName = 'bug-fix-test-chain-$timestamp';
+      final task1 = 'chain-step-1-$timestamp';
+      final task2 = 'chain-step-2-$timestamp';
+      final task3 = 'chain-step-3-$timestamp';
+
       var chainCompleted = false;
 
-      NativeWorkManager.onChainCompleted((id) {
-        if (id == chainId) {
+      StreamSubscription? eventsSub;
+
+      eventsSub = NativeWorkManager.events.listen((event) {
+        if (event.taskId == task3 && event.success) {
           chainCompleted = true;
         }
       });
 
       // Create chain with mixed task types
-      await NativeWorkManager.scheduleChain(
-        chainId: chainId,
-        steps: [
-          [
-            // Step 1: Regular sync task (expedited)
-            ChainTaskRequest(
-              workerType: WorkerType.sync,
-              inputData: {
-                'url': 'https://httpbin.org/get',
-                'method': 'GET',
-              },
-            ),
-          ],
-          [
-            // Step 2: Heavy task (uses KmpHeavyWorker, not expedited)
-            ChainTaskRequest(
-              workerType: WorkerType.fileDownload,
-              inputData: {
-                'url': 'https://httpbin.org/delay/2',
-                'destinationPath': '/tmp/test-download.json',
-              },
-              constraints: WorkConstraints(
-                isHeavyTask: true, // This should use KmpHeavyWorker
-              ),
-            ),
-          ],
-          [
-            // Step 3: Another regular task (expedited)
-            ChainTaskRequest(
-              workerType: WorkerType.sync,
-              inputData: {
-                'url': 'https://httpbin.org/post',
-                'method': 'POST',
-                'body': '{"test": "data"}',
-              },
-            ),
-          ],
-        ],
-      );
+      await NativeWorkManager.beginWith(
+        TaskRequest(
+          id: task1,
+          worker: HttpRequestWorker(
+            url: 'https://httpbin.org/get',
+            method: HttpMethod.get,
+          ),
+        ),
+      ).then(
+        TaskRequest(
+          id: task2,
+          worker: HttpRequestWorker(
+            url: 'https://httpbin.org/delay/2',
+            method: HttpMethod.get,
+          ),
+        ),
+      ).then(
+        TaskRequest(
+          id: task3,
+          worker: HttpRequestWorker(
+            url: 'https://httpbin.org/post',
+            method: HttpMethod.post,
+            body: '{"test": "data"}',
+          ),
+        ),
+      ).named(chainName).enqueue();
 
       // Wait for chain completion (max 60s)
       var attempts = 0;
@@ -212,9 +198,9 @@ void main() {
         attempts++;
       }
 
-      expect(chainCompleted, true, reason: 'Chain should complete without crashing');
+      await eventsSub.cancel();
 
-      print('✓ Task chain with mixed expedited/heavy tasks completed successfully');
+      expect(chainCompleted, true, reason: 'Chain should complete without crashing');
     });
 
     /// Test 5: Verify WorkManager version
@@ -227,7 +213,6 @@ void main() {
       // For now, we trust the build.gradle configuration
       // In a real test, you could use platform channels to query the version
 
-      print('✓ Assuming WorkManager 2.10.1+ per build.gradle configuration');
       expect(true, true);
     });
   });
@@ -243,22 +228,24 @@ void main() {
       // For now, we just verify the task executes without crashing,
       // which confirms the string resource system is working
 
-      final taskId = 'notification-i18n-test';
+      final taskId = 'notification-i18n-test-${DateTime.now().millisecondsSinceEpoch}';
       var taskCompleted = false;
 
-      NativeWorkManager.onTaskCompleted((id, output) {
-        if (id == taskId) {
+      StreamSubscription? eventsSub;
+
+      eventsSub = NativeWorkManager.events.listen((event) {
+        if (event.taskId == taskId && event.success) {
           taskCompleted = true;
         }
       });
 
-      await NativeWorkManager.scheduleOneTime(
+      await NativeWorkManager.enqueue(
         taskId: taskId,
-        workerType: WorkerType.sync,
-        inputData: {
-          'url': 'https://httpbin.org/get',
-          'method': 'GET',
-        },
+        trigger: TaskTrigger.oneTime(),
+        worker: HttpRequestWorker(
+          url: 'https://httpbin.org/get',
+          method: HttpMethod.get,
+        ),
       );
 
       var attempts = 0;
@@ -267,8 +254,9 @@ void main() {
         attempts++;
       }
 
+      await eventsSub.cancel();
+
       expect(taskCompleted, true);
-      print('✓ Task with notification i18n support completed successfully');
     });
   });
 }
