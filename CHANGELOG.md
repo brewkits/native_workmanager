@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.4] - 2026-02-18
+
+### Fixed
+- **Android: Worker crash "IllegalStateException: Not implemented"** (Complete fix)
+  - **Root cause:** WorkManager 2.10.0+ calls `getForegroundInfoAsync()` in execution path for expedited tasks. Upstream `kmpworkmanager` did not override `getForegroundInfo()`, causing crash
+  - **Solution:** Upgraded to `kmpworkmanager:2.3.3` which adds proper `getForegroundInfo()` override
+  - **Impact:** All Android users can now safely use WorkManager 2.10.0+
+  - **Files changed:** `android/build.gradle`
+  - **Reported by:** Abdullah Al-Hasnat
+
+### Changed
+- **Dependencies:**
+  - Upgraded `kmpworkmanager` from 2.3.1 to 2.3.3 (fixes WorkManager 2.10.0+ compatibility)
+  - Upgraded `work-runtime-ktx` from 2.9.1 to 2.10.1 (safe with kmpworkmanager 2.3.3+)
+
+### Upstream Fix (kmpworkmanager 2.3.3)
+- Added `getForegroundInfo()` override in `KmpWorker` with notification localization support
+- Fixed chain heavy-task routing bug (tasks with `isHeavyTask=true` now correctly use `KmpHeavyWorker`)
+- Notification strings now support i18n via Android string resources
+
+---
+
 ## [1.0.3] - 2026-02-16
 
 ### Fixed

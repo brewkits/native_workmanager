@@ -5,6 +5,7 @@ apply plugin: "com.android.library"
 apply plugin: "kotlin-android"
 
 repositories {
+    mavenLocal()  // For testing kmpworkmanager 2.3.3 before Maven Central publish
     google()
     mavenCentral()
 }
@@ -33,15 +34,16 @@ android {
     }
 
     dependencies {
-        // KMP WorkManager - Core library (from Maven Central v2.3.1)
-        api("dev.brewkits:kmpworkmanager:2.3.1")
+        // KMP WorkManager - Core library (from Maven Central v2.3.3)
+        api("dev.brewkits:kmpworkmanager:2.3.3")
 
         // Koin for DI (must match kmpworkmanager v2.1.2's Koin 4.1.1)
         api("io.insert-koin:koin-android:4.1.1")
         api("io.insert-koin:koin-core:4.1.1")
 
-        // Android WorkManager (match kmpworkmanager's version)
-        api("androidx.work:work-runtime-ktx:2.11.0")
+        // Android WorkManager — safe to use 2.10.0+ with kmpworkmanager 2.3.3+
+        // (getForegroundInfo() override added in kmpworkmanager 2.3.3)
+        api("androidx.work:work-runtime-ktx:2.10.1")
 
         // Coroutines for async operations
         implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")

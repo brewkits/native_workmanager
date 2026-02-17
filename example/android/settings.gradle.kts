@@ -11,6 +11,7 @@ pluginManagement {
     includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
 
     repositories {
+        mavenLocal()  // For testing kmpworkmanager 2.3.3 before Maven Central publish
         google()
         mavenCentral()
         gradlePluginPortal()
