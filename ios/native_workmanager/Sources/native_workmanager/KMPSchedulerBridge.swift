@@ -81,7 +81,17 @@ class KMPSchedulerBridge {
             }
             return TaskTriggerExact(atEpochMillis: scheduledTimeMs)
 
+        case "windowed":
+            // iOS supports windowed via earliestBeginDate; `latest` is advisory only.
+            guard let earliestMs = (map["earliestMs"] as? NSNumber)?.int64Value,
+                  let latestMs = (map["latestMs"] as? NSNumber)?.int64Value else {
+                return nil
+            }
+            return TaskTriggerWindowed(earliest: earliestMs, latest: latestMs)
+
         default:
+            // Android-only triggers (contentUri, batteryOkay, batteryLow, deviceIdle, storageLow)
+            // return nil — caller will surface "Invalid trigger configuration" to Dart.
             return nil
         }
     }
