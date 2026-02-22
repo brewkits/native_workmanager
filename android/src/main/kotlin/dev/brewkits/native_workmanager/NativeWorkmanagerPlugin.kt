@@ -647,7 +647,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
         }
 
         val systemConstraintNames = map["systemConstraints"] as? List<*> ?: emptyList<Any>()
-        val systemConstraints: Set<SystemConstraint> = systemConstraintNames
+        val systemConstraints: MutableSet<SystemConstraint> = systemConstraintNames
             .filterIsInstance<String>()
             .mapNotNull { name ->
                 when (name) {
@@ -657,7 +657,12 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                     "deviceIdle" -> SystemConstraint.DEVICE_IDLE
                     else -> null
                 }
-            }.toSet()
+            }.toMutableSet()
+
+        // Merge legacy boolean flags into systemConstraints if not already covered
+        if (map["requiresDeviceIdle"] as? Boolean == true) systemConstraints.add(SystemConstraint.DEVICE_IDLE)
+        if (map["requiresBatteryNotLow"] as? Boolean == true) systemConstraints.add(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)
+        // requiresStorageNotLow has no direct SystemConstraint equivalent — intentionally skipped
 
         return Constraints(
             requiresNetwork = requiresNetwork,
