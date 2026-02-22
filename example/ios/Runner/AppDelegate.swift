@@ -1,10 +1,6 @@
 import Flutter
 import UIKit
-import Runner // Added to explicitly import the Runner module
-import native_workmanager  // For BackgroundSessionManager access
-#if canImport(ImageCompressWorker)
-import ImageCompressWorker
-#endif
+import native_workmanager  // For IosWorkerFactory and BackgroundSessionManager
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -12,13 +8,13 @@ import ImageCompressWorker
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    // Register custom workers BEFORE GeneratedPluginRegistrant
-#if canImport(ImageCompressWorker)
-      IosWorkerFactory.registerWorker(className: "ImageCompressWorker") {
-          return ImageCompressWorker()
-      }
-#endif
-    // Add more workers here
+    // Register custom workers BEFORE GeneratedPluginRegistrant.
+    // IosWorker and WorkerResult are re-exported from native_workmanager via typealiases
+    // in Runner/IosWorker.swift and Runner/WorkerResult.swift.
+    IosWorkerFactory.registerWorker(className: "ImageCompressWorker") {
+        return ImageCompressWorker()
+    }
+    // Add more custom workers here following the same pattern.
 
     GeneratedPluginRegistrant.register(with: self)
 

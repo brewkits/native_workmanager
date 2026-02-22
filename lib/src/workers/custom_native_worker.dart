@@ -8,14 +8,18 @@ import '../worker.dart';
 /// without modifying the plugin source code.
 @immutable
 final class CustomNativeWorker extends Worker {
-  const CustomNativeWorker({
+  CustomNativeWorker({
     required this.className,
     this.input,
-  }) : assert(
-          className.length > 0,
-          'className cannot be empty. '
-          'Provide the name of your custom worker class.',
-        );
+  }) {
+    if (className.isEmpty) {
+      throw ArgumentError.value(
+        className,
+        'className',
+        'className cannot be empty. Provide the name of your custom worker class.',
+      );
+    }
+  }
 
   /// The native worker class name (must be registered on native side).
   final String className;

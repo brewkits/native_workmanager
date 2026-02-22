@@ -126,7 +126,7 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
       'workerConfig': worker.toMap(),
       'constraints': constraints.toMap(),
       'existingPolicy': existingPolicy.name,
-      'tag': ?tag,
+      if (tag != null) 'tag': tag,
     });
 
     return _parseScheduleResult(result);

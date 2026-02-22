@@ -548,4 +548,331 @@ void main() {
       expect(map['requiresBatteryNotLow'], isTrue);
     });
   });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Tests covering bug-fixed fields: systemConstraints, bgTaskType,
+  // foregroundServiceType — previously missing from operator== and hashCode.
+  // ────────────────────────────────────────────────────────────────────────────
+
+  group('Constraints - Equality (operator==)', () {
+    test('identical values are equal', () {
+      final a = Constraints(requiresNetwork: true);
+      final b = Constraints(requiresNetwork: true);
+      expect(a, equals(b));
+    });
+
+    test('different basic fields are not equal', () {
+      final a = Constraints(requiresNetwork: true);
+      final b = Constraints(requiresNetwork: false);
+      expect(a, isNot(equals(b)));
+    });
+
+    test('systemConstraints: same set is equal', () {
+      final a = Constraints(systemConstraints: {SystemConstraint.deviceIdle});
+      final b = Constraints(systemConstraints: {SystemConstraint.deviceIdle});
+      expect(a, equals(b));
+    });
+
+    test('systemConstraints: different sets are not equal', () {
+      final a = Constraints(systemConstraints: {SystemConstraint.deviceIdle});
+      final b = Constraints(systemConstraints: {SystemConstraint.allowLowBattery});
+      expect(a, isNot(equals(b)));
+    });
+
+    test('systemConstraints: empty vs non-empty is not equal', () {
+      final a = Constraints();
+      final b = Constraints(systemConstraints: {SystemConstraint.deviceIdle});
+      expect(a, isNot(equals(b)));
+    });
+
+    test('systemConstraints: order-independent set equality', () {
+      final a = Constraints(systemConstraints: {
+        SystemConstraint.deviceIdle,
+        SystemConstraint.allowLowStorage,
+      });
+      final b = Constraints(systemConstraints: {
+        SystemConstraint.allowLowStorage,
+        SystemConstraint.deviceIdle,
+      });
+      expect(a, equals(b));
+    });
+
+    test('bgTaskType: same value is equal', () {
+      final a = Constraints(bgTaskType: BGTaskType.appRefresh);
+      final b = Constraints(bgTaskType: BGTaskType.appRefresh);
+      expect(a, equals(b));
+    });
+
+    test('bgTaskType: different values are not equal', () {
+      final a = Constraints(bgTaskType: BGTaskType.appRefresh);
+      final b = Constraints(bgTaskType: BGTaskType.processing);
+      expect(a, isNot(equals(b)));
+    });
+
+    test('bgTaskType: null vs non-null is not equal', () {
+      final a = Constraints();
+      final b = Constraints(bgTaskType: BGTaskType.appRefresh);
+      expect(a, isNot(equals(b)));
+    });
+
+    test('foregroundServiceType: same value is equal', () {
+      final a = Constraints(foregroundServiceType: ForegroundServiceType.dataSync);
+      final b = Constraints(foregroundServiceType: ForegroundServiceType.dataSync);
+      expect(a, equals(b));
+    });
+
+    test('foregroundServiceType: different values are not equal', () {
+      final a = Constraints(foregroundServiceType: ForegroundServiceType.dataSync);
+      final b = Constraints(foregroundServiceType: ForegroundServiceType.location);
+      expect(a, isNot(equals(b)));
+    });
+
+    test('foregroundServiceType: null vs non-null is not equal', () {
+      final a = Constraints();
+      final b = Constraints(foregroundServiceType: ForegroundServiceType.camera);
+      expect(a, isNot(equals(b)));
+    });
+
+    test('all three new fields equal simultaneously', () {
+      final a = Constraints(
+        systemConstraints: {SystemConstraint.deviceIdle},
+        bgTaskType: BGTaskType.processing,
+        foregroundServiceType: ForegroundServiceType.location,
+      );
+      final b = Constraints(
+        systemConstraints: {SystemConstraint.deviceIdle},
+        bgTaskType: BGTaskType.processing,
+        foregroundServiceType: ForegroundServiceType.location,
+      );
+      expect(a, equals(b));
+    });
+  });
+
+  group('Constraints - hashCode', () {
+    test('equal objects have same hashCode', () {
+      final a = Constraints(requiresNetwork: true);
+      final b = Constraints(requiresNetwork: true);
+      expect(a.hashCode, equals(b.hashCode));
+    });
+
+    test('systemConstraints affects hashCode', () {
+      final withConstraint = Constraints(
+        systemConstraints: {SystemConstraint.deviceIdle},
+      );
+      final withoutConstraint = Constraints();
+      expect(withConstraint.hashCode, isNot(equals(withoutConstraint.hashCode)));
+    });
+
+    test('bgTaskType affects hashCode', () {
+      final withType = Constraints(bgTaskType: BGTaskType.processing);
+      final withoutType = Constraints();
+      expect(withType.hashCode, isNot(equals(withoutType.hashCode)));
+    });
+
+    test('foregroundServiceType affects hashCode', () {
+      final withType = Constraints(
+        foregroundServiceType: ForegroundServiceType.location,
+      );
+      final withoutType = Constraints();
+      expect(withType.hashCode, isNot(equals(withoutType.hashCode)));
+    });
+
+    test('can be used as Map key (hashCode + == consistent)', () {
+      final c1 = Constraints(
+        requiresNetwork: true,
+        systemConstraints: {SystemConstraint.deviceIdle},
+        bgTaskType: BGTaskType.appRefresh,
+        foregroundServiceType: ForegroundServiceType.dataSync,
+      );
+      final c2 = Constraints(
+        requiresNetwork: true,
+        systemConstraints: {SystemConstraint.deviceIdle},
+        bgTaskType: BGTaskType.appRefresh,
+        foregroundServiceType: ForegroundServiceType.dataSync,
+      );
+
+      final map = {c1: 'value'};
+      expect(map[c2], 'value');
+    });
+  });
+
+  group('Constraints - systemConstraints serialization', () {
+    test('empty systemConstraints serializes to empty list', () {
+      final c = Constraints();
+      final map = c.toMap();
+      expect(map['systemConstraints'], isEmpty);
+    });
+
+    test('single systemConstraint serializes by name', () {
+      final c = Constraints(systemConstraints: {SystemConstraint.deviceIdle});
+      final map = c.toMap();
+      expect(map['systemConstraints'], ['deviceIdle']);
+    });
+
+    test('multiple systemConstraints serialize correctly', () {
+      final c = Constraints(systemConstraints: {
+        SystemConstraint.allowLowStorage,
+        SystemConstraint.allowLowBattery,
+      });
+      final list = c.toMap()['systemConstraints'] as List;
+      expect(list, containsAll(['allowLowStorage', 'allowLowBattery']));
+      expect(list.length, 2);
+    });
+
+    test('all SystemConstraint values serialize by their enum name', () {
+      for (final constraint in SystemConstraint.values) {
+        final c = Constraints(systemConstraints: {constraint});
+        final list = c.toMap()['systemConstraints'] as List;
+        expect(list, [constraint.name]);
+      }
+    });
+  });
+
+  group('Constraints - bgTaskType serialization', () {
+    test('null bgTaskType serializes to null', () {
+      final c = Constraints();
+      expect(c.toMap()['bgTaskType'], isNull);
+    });
+
+    test('appRefresh bgTaskType serializes as "appRefresh"', () {
+      final c = Constraints(bgTaskType: BGTaskType.appRefresh);
+      expect(c.toMap()['bgTaskType'], 'appRefresh');
+    });
+
+    test('processing bgTaskType serializes as "processing"', () {
+      final c = Constraints(bgTaskType: BGTaskType.processing);
+      expect(c.toMap()['bgTaskType'], 'processing');
+    });
+
+    test('all BGTaskType values serialize by their enum name', () {
+      for (final type in BGTaskType.values) {
+        final c = Constraints(bgTaskType: type);
+        expect(c.toMap()['bgTaskType'], type.name);
+      }
+    });
+  });
+
+  group('Constraints - foregroundServiceType serialization', () {
+    test('null foregroundServiceType serializes to null', () {
+      final c = Constraints();
+      expect(c.toMap()['foregroundServiceType'], isNull);
+    });
+
+    test('dataSync foregroundServiceType serializes as "dataSync"', () {
+      final c = Constraints(foregroundServiceType: ForegroundServiceType.dataSync);
+      expect(c.toMap()['foregroundServiceType'], 'dataSync');
+    });
+
+    test('all ForegroundServiceType values serialize by their enum name', () {
+      for (final type in ForegroundServiceType.values) {
+        final c = Constraints(foregroundServiceType: type);
+        expect(c.toMap()['foregroundServiceType'], type.name);
+      }
+    });
+  });
+
+  group('Constraints - fromMap round-trip for new fields', () {
+    test('round-trips systemConstraints', () {
+      final original = Constraints(systemConstraints: {
+        SystemConstraint.deviceIdle,
+        SystemConstraint.allowLowBattery,
+      });
+      final restored = Constraints.fromMap(original.toMap());
+      expect(restored.systemConstraints, original.systemConstraints);
+      expect(restored, original);
+    });
+
+    test('round-trips empty systemConstraints', () {
+      final original = Constraints();
+      final restored = Constraints.fromMap(original.toMap());
+      expect(restored.systemConstraints, isEmpty);
+    });
+
+    test('round-trips bgTaskType appRefresh', () {
+      final original = Constraints(bgTaskType: BGTaskType.appRefresh);
+      final restored = Constraints.fromMap(original.toMap());
+      expect(restored.bgTaskType, BGTaskType.appRefresh);
+      expect(restored, original);
+    });
+
+    test('round-trips bgTaskType processing', () {
+      final original = Constraints(bgTaskType: BGTaskType.processing);
+      final restored = Constraints.fromMap(original.toMap());
+      expect(restored.bgTaskType, BGTaskType.processing);
+      expect(restored, original);
+    });
+
+    test('round-trips null bgTaskType', () {
+      final original = Constraints();
+      final restored = Constraints.fromMap(original.toMap());
+      expect(restored.bgTaskType, isNull);
+    });
+
+    test('round-trips foregroundServiceType location', () {
+      final original = Constraints(
+        foregroundServiceType: ForegroundServiceType.location,
+      );
+      final restored = Constraints.fromMap(original.toMap());
+      expect(restored.foregroundServiceType, ForegroundServiceType.location);
+      expect(restored, original);
+    });
+
+    test('round-trips null foregroundServiceType', () {
+      final original = Constraints();
+      final restored = Constraints.fromMap(original.toMap());
+      expect(restored.foregroundServiceType, isNull);
+    });
+
+    test('round-trips all three new fields together', () {
+      final original = Constraints(
+        systemConstraints: {SystemConstraint.requireBatteryNotLow},
+        bgTaskType: BGTaskType.processing,
+        foregroundServiceType: ForegroundServiceType.camera,
+      );
+      final restored = Constraints.fromMap(original.toMap());
+      expect(restored, original);
+    });
+  });
+
+  group('Constraints - copyWith for new fields', () {
+    test('copyWith systemConstraints replaces set', () {
+      final original = Constraints();
+      final updated = original.copyWith(
+        systemConstraints: {SystemConstraint.deviceIdle},
+      );
+      expect(updated.systemConstraints, {SystemConstraint.deviceIdle});
+      expect(original.systemConstraints, isEmpty); // original unchanged
+    });
+
+    test('copyWith bgTaskType changes type', () {
+      final original = Constraints();
+      final updated = original.copyWith(bgTaskType: BGTaskType.processing);
+      expect(updated.bgTaskType, BGTaskType.processing);
+      expect(original.bgTaskType, isNull); // original unchanged
+    });
+
+    test('copyWith foregroundServiceType changes type', () {
+      final original = Constraints();
+      final updated = original.copyWith(
+        foregroundServiceType: ForegroundServiceType.camera,
+      );
+      expect(updated.foregroundServiceType, ForegroundServiceType.camera);
+      expect(original.foregroundServiceType, isNull); // original unchanged
+    });
+
+    test('copyWith preserves unmodified fields', () {
+      final original = Constraints(
+        requiresNetwork: true,
+        systemConstraints: {SystemConstraint.deviceIdle},
+        bgTaskType: BGTaskType.appRefresh,
+        foregroundServiceType: ForegroundServiceType.dataSync,
+      );
+      final updated = original.copyWith(requiresCharging: true);
+      expect(updated.requiresNetwork, isTrue);
+      expect(updated.requiresCharging, isTrue);
+      expect(updated.systemConstraints, {SystemConstraint.deviceIdle});
+      expect(updated.bgTaskType, BGTaskType.appRefresh);
+      expect(updated.foregroundServiceType, ForegroundServiceType.dataSync);
+    });
+  });
 }

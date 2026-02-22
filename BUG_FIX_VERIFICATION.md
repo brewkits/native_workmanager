@@ -2,7 +2,6 @@
 
 ## Bug Report
 
-**Reporter:** Abdullah Al-Hasnat
 **Issue:** IllegalStateException: Not implemented at androidx.work.CoroutineWorker.getForegroundInfo(CoroutineWorker.kt:92)
 **Severity:** Critical - All Android users affected
 
@@ -139,7 +138,7 @@ Expected behavior on Android with WorkManager 2.10.1+:
 
 | Date | Version | Event |
 |------|---------|-------|
-| 2026-02-16 | native_workmanager 1.0.3 | Initial bug report from Abdullah |
+| 2026-02-16 | native_workmanager 1.0.3 | Initial bug report from community user |
 | 2026-02-17 | kmpworkmanager 2.3.3 | Fix released to Maven Central |
 | 2026-02-18 | native_workmanager 1.0.4 | Updated dependency, bug verified fixed |
 

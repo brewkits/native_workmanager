@@ -6,7 +6,6 @@ import 'dart:async';
 /// Integration test for WorkManager 2.10.0+ getForegroundInfo() bug fix
 ///
 /// Bug report: https://github.com/brewkits/native_workmanager/issues/xxx
-/// Reported by: Abdullah Al-Hasnat
 ///
 /// Original error:
 /// ```

@@ -435,7 +435,6 @@ class NativeWorkManager {
   /// **[existingPolicy]** *(optional)* - Handle duplicate task IDs (default: replace).
   /// - `ExistingTaskPolicy.replace` - Cancel old, schedule new
   /// - `ExistingTaskPolicy.keep` - Keep old, ignore new
-  /// - `ExistingTaskPolicy.append` - Schedule both (both will run)
   ///
   /// **[tag]** *(optional)* - Group related tasks for bulk operations.
   /// - Must not be empty string (use null if no tag)

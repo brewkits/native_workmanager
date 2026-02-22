@@ -7,6 +7,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.5] - 2026-02-21
+
+### Fixed (Critical — Android periodic tasks)
+
+- **Android: Trigger type was hardcoded to `OneTime` — periodic/exact/windowed triggers were silently ignored** (`NativeWorkmanagerPlugin.kt`)
+  - **Root cause:** `handleEnqueue` always passed `TaskTrigger.OneTime(initialDelayMs = 0)` to the kmpworkmanager scheduler, regardless of what the Dart side sent
+  - **Impact:** Every task was treated as a one-shot task. Periodic tasks only ran once; exact and windowed triggers were completely ineffective
+  - **Fix:** Added full trigger parsing from `call.argument<Map<String, Any?>>("trigger")`, switching on the `"type"` key and creating the correct `TaskTrigger` subtype (`Periodic`, `Exact`, `Windowed`, `ContentUri`, battery, idle, storage)
+  - **Reported by:** Abdullah Al-Hasnat (confirmed in production)
+
+- **Android: `ExistingTaskPolicy` was hardcoded to `KEEP` — users could not replace existing tasks** (`NativeWorkmanagerPlugin.kt`)
+  - **Root cause:** `handleEnqueue` always passed `ExistingPolicy.KEEP`, ignoring the `existingPolicy` argument sent from Dart
+  - **Impact:** `ExistingTaskPolicy.replace` was silently treated as `KEEP`; calling `enqueue()` a second time with the same task ID had no effect even when `replace` was specified
+  - **Fix:** Parse `existingPolicy` from `call.argument<String>("existingPolicy")` and map `"replace"` → `ExistingPolicy.REPLACE`, anything else → `ExistingPolicy.KEEP`
+
+- **Android: Constraints were hardcoded to defaults — network, charging, backoff, system constraints were never applied** (`NativeWorkmanagerPlugin.kt`)
+  - **Root cause:** `handleEnqueue` and `toTaskRequest` always used `Constraints()` (all defaults), ignoring the map sent by Dart
+  - **Impact:** `requiresNetwork`, `requiresCharging`, `backoffPolicy`, `backoffDelayMs`, `isHeavyTask`, `systemConstraints` were silently ignored
+  - **Fix:** Added `parseConstraints(map: Map<String, Any?>?)` helper that reads every field from Dart's `Constraints.toMap()` output
+
+- **Android: Periodic tasks stopped emitting events after the first execution** (`NativeWorkmanagerPlugin.kt`)
+  - **Root cause:** `observeWorkCompletion` used `Flow.first {}` which suspends until the FIRST terminal state (SUCCEEDED/FAILED/CANCELLED) and then unsubscribes. Periodic tasks never reach a terminal state between cycles, so subsequent executions produced no events
+  - **Fix:** Periodic tasks now use `takeWhile { state != CANCELLED }.collect {}` to observe every execution cycle; one-time tasks keep the original `first {}` behaviour
+  - **Related:** `isPeriodic` flag propagated from trigger parsing to `observeWorkCompletion`
+
+- **iOS: `flexMs` key lookup used wrong name `flexIntervalMs`** (`KMPSchedulerBridge.swift`)
+  - **Root cause:** `parseTrigger` looked for `map["flexIntervalMs"]` but Dart's `PeriodicTrigger.toMap()` sends the key as `"flexMs"`
+  - **Impact:** `flexInterval` was always `nil` on iOS regardless of what Dart passed; WorkManager flex window was completely ignored
+  - **Fix:** Changed key from `"flexIntervalMs"` to `"flexMs"` to match Dart
+
+- **iOS: Constraints parsing ignored `qos` and `exactAlarmIOSBehavior` from Dart** (`KMPSchedulerBridge.swift`)
+  - **Root cause:** `parseConstraints` only read `requiresNetwork`, `requiresCharging`, and `isHeavyTask`; `qos` and `exactAlarmIOSBehavior` were hardcoded to `.background` and `.showNotification`
+  - **Fix:** Added full parsing for `qos` and `exactAlarmIOSBehavior` from the constraint map
+
+- **iOS: Chain resume drops all worker config values** (`NativeWorkmanagerPlugin.swift`)
+  - **Root cause:** `resumeChain` used `.mapValues { $0.value as? [String:Any] ?? [:] }.compactMapValues { $0.isEmpty ? nil : $0 }` which cast every `AnyCodable` to a nested dict; non-dict values (strings, ints, URLs) became empty dicts and were filtered out
+  - **Impact:** After an app kill/crash, resumed chains ran workers with an empty config
+  - **Fix:** Replaced faulty pipeline with `task.workerConfig.mapValues { $0.value }`
+
+- **iOS: Initial task state set to `"running"` instead of `"pending"`** (`NativeWorkmanagerPlugin.swift`)
+  - **Root cause:** `handleEnqueue` set `taskStates[taskId] = "running"` when scheduling; the task hasn't started executing yet
+  - **Fix:** Changed to `"pending"` — state transitions to `"running"` when the worker actually starts
+
+- **iOS: Custom worker registration always silently skipped** (`example/ios/Runner/AppDelegate.swift`)
+  - **Root cause:** `#if canImport(ImageCompressWorker)` is always `false` — `canImport()` checks module names, not class names
+  - **Fix:** Removed `#if canImport` guard; registration now unconditional
+
+- **iOS: `IosWorker` protocol and `IosWorkerFactory` were `internal`** (`ios/Classes/workers/IosWorker.swift`)
+  - **Root cause:** Both lacked `public` modifier, making them inaccessible outside the `native_workmanager` module; host apps could not conform to `IosWorker` or call `IosWorkerFactory.registerWorker`
+  - **Fix:** Added `public` to both declarations
+
+- **iOS example: `WorkerError` undefined; `WorkerResult.success(data:)` wrong type** (`example/ios/Runner/ImageCompressWorker.swift`)
+  - **Fix:** Defined local `ImageCompressError` enum; changed `success(data: "string")` → `success(message: "...", data: [String: Any])`
+
+- **iOS example: Type conflict between `Runner.IosWorker` and `native_workmanager.IosWorker`** (`example/ios/Runner/IosWorker.swift`, `WorkerResult.swift`)
+  - **Fix:** Replaced duplicate declarations with `typealias` pointing to the plugin module's types
+
+- **Android: Stale version strings in comments and logs** (`NativeWorkmanagerPlugin.kt`, `KMPBridge.swift`)
+  - **Fix:** Updated "v2.3.1" / "v2.3.0" references to v2.3.3
+
+- **Dart docs: `ExistingTaskPolicy` default incorrectly documented as `keep`**
+  - **Fix:** Corrected to `replace` (the actual default in `NativeWorkManager.enqueue`)
+
+- **Example app: Stale version strings** — updated to v1.0.5
+
+### Added
+- **Device integration test suite** (`example/integration_test/device_integration_test.dart`)
+  - Covers all trigger types, ExistingPolicy (REPLACE/KEEP), all 11 workers, chains, tags, cancellation, events and progress streams
+  - Run with: `flutter test integration_test/device_integration_test.dart --timeout=none`
+
+---
+
 ## [1.0.4] - 2026-02-18
 
 ### Fixed
@@ -15,7 +87,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Solution:** Upgraded to `kmpworkmanager:2.3.3` which adds proper `getForegroundInfo()` override
   - **Impact:** All Android users can now safely use WorkManager 2.10.0+
   - **Files changed:** `android/build.gradle`
-  - **Reported by:** Abdullah Al-Hasnat
 - **Example app: Flutter rendering error** in Chain Resilience Test screen
   - Fixed `RenderFlex` unbounded height constraint error caused by `Expanded` widget inside `SingleChildScrollView`
   - Changed to `SizedBox` with fixed height for logs section
@@ -60,7 +131,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Impact:** All Android users attempting to use the plugin would get runtime errors when tasks execute
   - **Solution:** Added `KmpWorkManager.initialize()` call in `initializeKoin()` before setting up Koin modules
   - **Files changed:** `NativeWorkmanagerPlugin.kt`
-  - **Reported by:** Abdullah Al-Hasnat (GitHub issue - user feedback)
+  - **Reported by:** Community user feedback
 
 ### Added
 - **Documentation: Android Setup Guide** (`doc/ANDROID_SETUP.md`)
@@ -586,5 +657,5 @@ Built on [kmpworkmanager v2.3.0](https://github.com/pablichjenkov/kmpworkmanager
 
 **Latest Version:** 1.0.1
 **Status:**  Production Ready - Stable release for all production apps
-**KMP Parity:** 100%  (kmpworkmanager v2.3.1)
+**KMP Parity:** 100%  (kmpworkmanager v2.3.3)
 **Platforms:** Android  | iOS 

@@ -190,7 +190,8 @@ class FileDecompressionWorker : AndroidWorker {
                                 totalBytes += len
 
                                 // ✅ SECURITY: Prevent zip bombs (check extracted size)
-                                if (bytesWritten > entry.size * 2) {
+                                // Guard: entry.size == -1 when ZIP uses data descriptors (most modern ZIPs)
+                                if (entry.size > 0 && bytesWritten > entry.size * 2) {
                                     Log.e(TAG, "Security - Possible zip bomb detected: $entryName")
                                     cleanupExtractedFiles(extractedPaths)
                                     return@withContext WorkerResult.Failure("Possible zip bomb detected")

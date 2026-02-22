@@ -635,14 +635,14 @@ void main() {
 
   group('CustomNativeWorker', () {
     test('should create CustomNativeWorker with className only', () {
-      final worker = const CustomNativeWorker(className: 'ImageCompressWorker');
+      final worker = CustomNativeWorker(className: 'ImageCompressWorker');
 
       expect(worker.className, 'ImageCompressWorker');
       expect(worker.input, isNull);
     });
 
     test('should create CustomNativeWorker with input', () {
-      final worker = const CustomNativeWorker(
+      final worker = CustomNativeWorker(
         className: 'ImageCompressWorker',
         input: {'path': '/photo.jpg', 'quality': 85},
       );
@@ -654,12 +654,12 @@ void main() {
     });
 
     test('should have correct workerClassName', () {
-      final worker = const CustomNativeWorker(className: 'MyCustomWorker');
+      final worker = CustomNativeWorker(className: 'MyCustomWorker');
       expect(worker.workerClassName, 'MyCustomWorker');
     });
 
     test('should serialize to map correctly', () {
-      final worker = const CustomNativeWorker(
+      final worker = CustomNativeWorker(
         className: 'ImageCompressWorker',
         input: {'inputPath': '/photo.jpg', 'quality': 90},
       );
@@ -674,7 +674,7 @@ void main() {
     });
 
     test('should serialize without input', () {
-      final worker = const CustomNativeWorker(className: 'SimpleWorker');
+      final worker = CustomNativeWorker(className: 'SimpleWorker');
 
       final map = worker.toMap();
 
@@ -699,6 +699,14 @@ void main() {
       expect(map['input'], isA<String>());
       expect(map['input'], contains('files'));
       expect(map['input'], contains('settings'));
+    });
+
+    test('should throw ArgumentError on empty className via direct constructor', () {
+      // assert() is debug-only; this verifies the real throw works in all builds.
+      expect(
+        () => CustomNativeWorker(className: ''),
+        throwsArgumentError,
+      );
     });
 
     test('should throw on empty className via NativeWorker.custom()', () {

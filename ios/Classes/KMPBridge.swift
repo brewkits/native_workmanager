@@ -25,7 +25,7 @@ class KMPBridge {
         scheduler = NativeTaskScheduler(additionalPermittedTaskIds: [])
 
         isInitialized = true
-        print("✅ KMPBridge: Initialized with NativeTaskScheduler from kmpworkmanager v2.3.0")
+        print("✅ KMPBridge: Initialized with NativeTaskScheduler from kmpworkmanager v2.3.3")
     }
 
     /// Check if KMP is initialized and scheduler is available
@@ -46,7 +46,7 @@ class KMPBridge {
 }
 
 /// Phase 2 Implementation Notes:
-/// - Uses kmpworkmanager v2.3.0 (WorkerResult API, Chain IDs, UX improvements)
+/// - Uses kmpworkmanager v2.3.3 (WorkerResult API, Chain IDs, UX improvements)
 /// - Direct NativeTaskScheduler instantiation (no Koin from Swift side)
 /// - iOS task IDs are read from Info.plist automatically
 /// - Simpler and more reliable than Koin DI from Swift

@@ -352,7 +352,7 @@ class TaskChainBuilder {
   /// Submits the chain to the OS scheduler. The chain will execute according
   /// to the defined sequence and constraints.
   ///
-  /// **Returns:** [ScheduleResult.ACCEPTED] if successfully scheduled.
+  /// **Returns:** [ScheduleResult.accepted] if successfully scheduled.
   ///
   /// **Throws:** [StateError] if NativeWorkManager is not initialized.
   ///
@@ -361,7 +361,7 @@ class TaskChainBuilder {
   ///     .then(taskB)
   ///     .enqueue();
   ///
-  /// if (result == ScheduleResult.ACCEPTED) {
+  /// if (result == ScheduleResult.accepted) {
   ///   print('Chain scheduled successfully');
   /// }
   /// ```

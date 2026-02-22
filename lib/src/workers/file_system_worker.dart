@@ -6,7 +6,6 @@ enum FileOperation {
   copy('copy'),
   move('move'),
   delete('delete'),
-  exists('exists'),
   mkdir('mkdir'),
   list('list');
 
