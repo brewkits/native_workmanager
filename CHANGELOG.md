@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.0.5] - 2026-02-21
+## [1.0.5] - 2026-02-22
+
+### Added
+
+- **Swift Package Manager (SPM) support for iOS** — the plugin now works with both SPM and CocoaPods
+  - Added `ios/native_workmanager/Package.swift` with `binaryTarget` for the bundled KMPWorkManager XCFramework and `ZIPFoundation` dependency
+  - Moved Swift sources from `ios/Classes/` to `ios/native_workmanager/Sources/native_workmanager/` (Flutter SPM layout)
+  - Updated `ios/native_workmanager.podspec` to reference new source paths (CocoaPods build unchanged)
+  - Resolves the partial pub.dev platform score for Swift Package Manager support
 
 ### Fixed (Critical — Android periodic tasks)
 

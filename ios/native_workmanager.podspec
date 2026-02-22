@@ -4,7 +4,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'native_workmanager'
-  s.version          = '1.0.2'
+  s.version          = '1.0.5'
   s.summary          = 'Background task manager for Flutter using platform-native APIs.'
   s.description      = <<-DESC
 Native WorkManager is a Flutter plugin that provides native background task scheduling
@@ -21,7 +21,8 @@ Features:
   s.license          = { :type => 'MIT', :file => '../LICENSE' }
   s.author           = { 'Brewkits' => 'vietnguyentuan@gmail.com' }
   s.source           = { :path => '.' }
-  s.source_files     = 'Classes/**/*.{swift,h,m}'
+  # Sources now live in the SPM-compatible location (shared with Package.swift)
+  s.source_files     = 'native_workmanager/Sources/native_workmanager/**/*.{swift,h,m}'
   s.dependency 'Flutter'
   s.dependency 'ZIPFoundation', '~> 0.9'
   s.platform         = :ios, '13.0'
@@ -36,14 +37,10 @@ Features:
   }
   s.swift_version = '5.0'
 
-  # KMP WorkManager Framework
-  # Using local XCFramework (integrated from kmpworkmanager v2.3.1)
+  # KMP WorkManager Framework (kmpworkmanager v2.3.3)
   # Tracked with Git LFS for efficient binary storage
   s.vendored_frameworks = 'Frameworks/KMPWorkManager.xcframework'
 
-  # Option 2: CocoaPods (when published to CocoaPods Trunk)
-  # s.dependency 'KMPWorkManager', '~> 2.3.0'
-
   # Privacy manifest for background task APIs (iOS 17+ App Store requirement)
-  s.resource_bundles = {'native_workmanager_privacy' => ['Resources/PrivacyInfo.xcprivacy']}
+  s.resource_bundles = {'native_workmanager_privacy' => ['native_workmanager/Sources/native_workmanager/PrivacyInfo.xcprivacy']}
 end
