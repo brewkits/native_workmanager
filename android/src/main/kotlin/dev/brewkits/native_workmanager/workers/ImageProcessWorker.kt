@@ -223,6 +223,10 @@ class ImageProcessWorker : AndroidWorker {
                 )
             }
 
+            // Save dimensions before recycle (accessing recycled bitmap is undefined behavior)
+            val processedWidth = bitmap.width
+            val processedHeight = bitmap.height
+
             FileOutputStream(outputFile).use { out ->
                 bitmap.compress(format, config.quality, out)
             }
@@ -263,8 +267,8 @@ class ImageProcessWorker : AndroidWorker {
                     "outputPath" to config.outputPath,
                     "originalWidth" to originalWidth,
                     "originalHeight" to originalHeight,
-                    "processedWidth" to bitmap.width,
-                    "processedHeight" to bitmap.height,
+                    "processedWidth" to processedWidth,
+                    "processedHeight" to processedHeight,
                     "originalSize" to originalSize,
                     "processedSize" to processedSize,
                     "compressionRatio" to compressionRatio,

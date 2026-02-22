@@ -1243,7 +1243,10 @@ class Constraints {
           qos == other.qos &&
           exactAlarmIOSBehavior == other.exactAlarmIOSBehavior &&
           backoffPolicy == other.backoffPolicy &&
-          backoffDelayMs == other.backoffDelayMs;
+          backoffDelayMs == other.backoffDelayMs &&
+          setEquals(systemConstraints, other.systemConstraints) &&
+          bgTaskType == other.bgTaskType &&
+          foregroundServiceType == other.foregroundServiceType;
 
   @override
   int get hashCode => Object.hash(
@@ -1259,6 +1262,9 @@ class Constraints {
         exactAlarmIOSBehavior,
         backoffPolicy,
         backoffDelayMs,
+        Object.hashAll(systemConstraints),
+        bgTaskType,
+        foregroundServiceType,
       );
 
   @override

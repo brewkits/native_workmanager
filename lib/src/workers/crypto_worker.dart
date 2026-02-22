@@ -59,7 +59,13 @@ final class CryptoHashWorker extends Worker {
 
 /// Crypto worker configuration for file encryption.
 ///
-/// Encrypts a file using AES-256-GCM with password-derived key.
+/// Encrypts a file using AES-256 with PBKDF2 password-derived key.
+///
+/// **⚠️ Platform Compatibility Warning:**
+/// Android uses AES-256-CBC mode; iOS uses AES-256-GCM mode.
+/// Files encrypted on Android **cannot** be decrypted on iOS and vice versa.
+/// Use this worker only for single-platform encryption, or when both
+/// encrypt and decrypt operations happen on the same OS.
 @immutable
 final class CryptoEncryptWorker extends Worker {
   const CryptoEncryptWorker({
@@ -97,7 +103,12 @@ final class CryptoEncryptWorker extends Worker {
 
 /// Crypto worker configuration for file decryption.
 ///
-/// Decrypts a file previously encrypted by CryptoEncryptWorker.
+/// Decrypts a file previously encrypted by [CryptoEncryptWorker].
+///
+/// **⚠️ Platform Compatibility Warning:**
+/// Decryption must happen on the same platform as encryption.
+/// Android-encrypted files (AES-CBC) cannot be decrypted on iOS (AES-GCM)
+/// and vice versa.
 @immutable
 final class CryptoDecryptWorker extends Worker {
   const CryptoDecryptWorker({

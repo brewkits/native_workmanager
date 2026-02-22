@@ -106,6 +106,13 @@ class HttpUploadWorker: IosWorker {
         let timeoutMs: Int64?
         let useBackgroundSession: Bool?  // NEW v2.3.0: Use background URLSession
 
+        // Map Dart's "additionalFields" JSON key to Swift's "fields" property
+        enum CodingKeys: String, CodingKey {
+            case url, filePath, files, fileFieldName, fileName, mimeType
+            case body, bodyBytes, contentType, headers, timeoutMs, useBackgroundSession
+            case fields = "additionalFields"
+        }
+
         var timeout: TimeInterval {
             TimeInterval((timeoutMs ?? HttpUploadWorker.defaultTimeoutMs) / 1000)
         }

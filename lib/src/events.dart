@@ -104,7 +104,7 @@ enum ScheduleResult {
 ///   taskId: 'daily-sync',
 ///   trigger: TaskTrigger.periodic(Duration(hours: 24)),
 ///   worker: NativeWorker.httpSync(url: 'https://api.example.com/sync'),
-///   policy: ExistingTaskPolicy.keep,  // Default
+///   existingPolicy: ExistingTaskPolicy.keep,  // Prevent duplicate
 /// );
 ///
 /// // Later, user changes settings - but keep the original task running
@@ -112,7 +112,7 @@ enum ScheduleResult {
 ///   taskId: 'daily-sync',  // Same ID
 ///   trigger: TaskTrigger.periodic(Duration(hours: 12)),
 ///   worker: NativeWorker.httpSync(url: 'https://api.example.com/sync'),
-///   policy: ExistingTaskPolicy.keep,  // Original 24h task continues
+///   existingPolicy: ExistingTaskPolicy.keep,  // Original 24h task continues
 /// );
 /// ```
 ///
@@ -131,7 +131,7 @@ enum ScheduleResult {
 ///   taskId: 'daily-sync',  // Same ID
 ///   trigger: TaskTrigger.periodic(Duration(hours: 12)),
 ///   worker: NativeWorker.httpSync(url: 'https://api.example.com/sync'),
-///   policy: ExistingTaskPolicy.replace,  // Cancels 24h, starts 12h
+///   existingPolicy: ExistingTaskPolicy.replace,  // Cancels 24h, starts 12h
 /// );
 /// ```
 ///
@@ -149,7 +149,7 @@ enum ScheduleResult {
 ///   taskId: 'v2-migration',
 ///   trigger: TaskTrigger.oneTime(),
 ///   worker: DartWorker(callbackId: 'migrateData'),
-///   policy: ExistingTaskPolicy.keep,  // Don't duplicate if already scheduled
+///   existingPolicy: ExistingTaskPolicy.keep,  // Don't duplicate if already scheduled
 /// );
 /// ```
 ///
@@ -168,7 +168,7 @@ enum ScheduleResult {
 ///   taskId: 'background-sync',
 ///   trigger: TaskTrigger.periodic(newInterval),
 ///   worker: NativeWorker.httpSync(url: syncUrl),
-///   policy: ExistingTaskPolicy.replace,  // Apply new frequency immediately
+///   existingPolicy: ExistingTaskPolicy.replace,  // Apply new frequency immediately
 /// );
 /// ```
 ///
@@ -182,8 +182,8 @@ enum ScheduleResult {
 ///
 /// ## Default Behavior
 ///
-/// If policy is not specified, `ExistingTaskPolicy.keep` is used by default.
-/// This prevents accidental duplicate tasks.
+/// If policy is not specified, `ExistingTaskPolicy.replace` is used by default.
+/// This ensures the latest configuration is always applied.
 ///
 /// See also: [NativeWorkManager.enqueue]
 enum ExistingTaskPolicy {
@@ -192,7 +192,7 @@ enum ExistingTaskPolicy {
   /// If a task with the same ID already exists, the new enqueue request
   /// is silently ignored. The existing task continues unchanged.
   ///
-  /// This is the **default policy** and prevents accidental duplicate tasks.
+  /// Useful when you want to prevent duplicate tasks from being scheduled.
   keep,
 
   /// Replace the existing task with the new one.

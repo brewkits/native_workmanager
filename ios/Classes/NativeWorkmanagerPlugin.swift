@@ -209,9 +209,11 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                 for task in stepTasks {
                     let taskId = task.taskId
                     let workerClassName = task.workerClassName
-                    var workerConfig = task.workerConfig.mapValues { $0.value as? [String: Any] ?? [:] }
-                                                        .compactMapValues { $0.isEmpty ? nil : $0 }
-                                                        .reduce(into: [String: Any]()) { $0[$1.key] = $1.value }
+                    // Unwrap AnyCodable → Any for each key.  The previous
+                    // cast-to-[String:Any] pipeline silently dropped all flat values
+                    // (strings, ints, bools) because they failed the cast and became
+                    // empty dicts that were then compactMapped away.
+                    var workerConfig: [String: Any] = task.workerConfig.mapValues { $0.value }
 
                     // 🔗 Merge previous step's output into current step's input
                     if let previousData = previousStepData {
@@ -310,9 +312,9 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             print("NativeWorkManager: Stored tag '\(tag)' for task '\(taskId)'")
         }
 
-        // Set initial task state to running
+        // Set initial task state to pending (task is scheduled, not yet executing)
         stateQueue.async(flags: .barrier) {
-            self.taskStates[taskId] = "running"
+            self.taskStates[taskId] = "pending"
         }
 
         // Convert workerConfig to JSON string for KMP
@@ -478,11 +480,12 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         }
 
         // Get task status from state map
+        // Returns plain String to match Android's getTaskStatus return type
         let status = stateQueue.sync {
-            taskStates[taskId] ?? "unknown"
+            taskStates[taskId]
         }
 
-        result(["status": status])
+        result(status)
     }
 
     private func handleEnqueueChain(call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -574,11 +577,13 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                     // Mark chain as failed
                     try? await chainStateManager.markChainFailed(chainId: chainId)
 
-                    result(FlutterError(
-                        code: "INVALID_STEP",
-                        message: "Step \(stepIndex) has invalid format",
-                        details: nil
-                    ))
+                    DispatchQueue.main.async {
+                        result(FlutterError(
+                            code: "INVALID_STEP",
+                            message: "Step \(stepIndex) has invalid format",
+                            details: nil
+                        ))
+                    }
                     return
                 }
 
@@ -638,11 +643,13 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                     // Mark chain as failed and remove state
                     try? await chainStateManager.markChainFailed(chainId: chainId)
 
-                    result(FlutterError(
-                        code: "CHAIN_FAILED",
-                        message: "Chain step \(stepIndex + 1) failed",
-                        details: nil
-                    ))
+                    DispatchQueue.main.async {
+                        result(FlutterError(
+                            code: "CHAIN_FAILED",
+                            message: "Chain step \(stepIndex + 1) failed",
+                            details: nil
+                        ))
+                    }
                     return
                 }
 
@@ -672,7 +679,9 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                 print("NativeWorkManager: Failed to mark chain completed: \(error)")
             }
 
-            result("ACCEPTED")
+            DispatchQueue.main.async {
+                result("ACCEPTED")
+            }
         }
     }
 
@@ -766,11 +775,14 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     }
 
     func emitProgress(taskId: String, progress: Int, message: String?) {
-        progressSink?([
-            "taskId": taskId,
-            "progress": progress,
-            "message": message as Any
-        ])
+        // FlutterEventSink must be called on the main thread
+        DispatchQueue.main.async {
+            self.progressSink?([
+                "taskId": taskId,
+                "progress": progress,
+                "message": message as Any
+            ])
+        }
     }
 
     // MARK: - Helper Methods

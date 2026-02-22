@@ -5,7 +5,6 @@ import 'dart:async';
 /// Demo screen proving WorkManager 2.10.0+ bug fix
 ///
 /// Original bug: IllegalStateException: Not implemented at CoroutineWorker.getForegroundInfo()
-/// Reporter: Abdullah Al-Hasnat
 /// Fix: kmpworkmanager 2.3.3 + native_workmanager 1.0.4
 class BugFixDemoScreen extends StatefulWidget {
   const BugFixDemoScreen({Key? key}) : super(key: key);
@@ -316,11 +315,6 @@ class _BugFixDemoScreenState extends State<BugFixDemoScreen> {
                     '• native_workmanager 1.0.4: Upgraded to WM 2.10.1\n'
                     '• Fixed chain heavy-task routing bug',
                     style: TextStyle(fontSize: 13),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Reported by: Abdullah Al-Hasnat',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[700], fontStyle: FontStyle.italic),
                   ),
                 ],
               ),

@@ -157,6 +157,9 @@ class FileCompressionWorker: IosWorker {
         // ════════════════════════════════════════════════════════════
         // STEP 4: Compress files using native ZIP creation
         // ════════════════════════════════════════════════════════════
+        // Count files before compression (matches Android behavior)
+        let filesCompressed = countFilesToCompress(at: inputURL, patterns: config.patterns)
+
         do {
             try await compressToZip(
                 inputURL: inputURL,
@@ -208,7 +211,7 @@ class FileCompressionWorker: IosWorker {
             return .success(
                 message: "Compressed \(formatBytes(originalSize)) to \(formatBytes(compressedSize)) (\(compressionRatio)%)",
                 data: [
-                    "filesCompressed": 1,
+                    "filesCompressed": filesCompressed,
                     "originalSize": originalSize,
                     "compressedSize": compressedSize,
                     "compressionRatio": compressionRatio,
@@ -222,6 +225,34 @@ class FileCompressionWorker: IosWorker {
             try? FileManager.default.removeItem(at: outputURL)
             return .failure(message: "Compression failed: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: - File Counting
+
+    /// Count total files to compress (respects exclude patterns, matches Android behavior)
+    private func countFilesToCompress(at url: URL, patterns: [String]) -> Int {
+        var isDirectory: ObjCBool = false
+        FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+
+        if !isDirectory.boolValue {
+            return shouldExclude(fileName: url.lastPathComponent, patterns: patterns) ? 0 : 1
+        }
+
+        var count = 0
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return 0 }
+
+        for case let fileURL as URL in enumerator {
+            if shouldExclude(fileName: fileURL.lastPathComponent, patterns: patterns) { continue }
+            let resourceValues = try? fileURL.resourceValues(forKeys: [.isDirectoryKey])
+            if resourceValues?.isDirectory != true {
+                count += 1
+            }
+        }
+        return count
     }
 
     // MARK: - ZIP Compression

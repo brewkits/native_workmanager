@@ -670,6 +670,72 @@ void main() {
       });
     });
 
+    // ────────────────────────────────────────────────────────────────────────
+    // Bug fix coverage: CryptoWorker cross-platform incompatibility.
+    // Android uses AES-256-CBC; iOS uses AES-256-GCM.
+    // Files encrypted on one platform CANNOT be decrypted on the other.
+    // These tests document the Dart API behavior and highlight the constraint.
+    // ────────────────────────────────────────────────────────────────────────
+    group('Platform Encryption Incompatibility', () {
+      test('encrypt and decrypt send same algorithm string to native layer', () {
+        // Both sides pass 'AES' — but Android interprets as CBC, iOS as GCM.
+        // Decryption MUST happen on the same platform as encryption.
+        const encryptWorker = CryptoEncryptWorker(
+          inputPath: '/data/file.txt',
+          outputPath: '/data/file.enc',
+          password: 'secret',
+        );
+        const decryptWorker = CryptoDecryptWorker(
+          inputPath: '/data/file.enc',
+          outputPath: '/data/file.txt',
+          password: 'secret',
+        );
+
+        expect(encryptWorker.toMap()['algorithm'], decryptWorker.toMap()['algorithm']);
+        expect(encryptWorker.toMap()['algorithm'], 'AES');
+      });
+
+      test('encrypt operation key is "encrypt", decrypt is "decrypt"', () {
+        // Confirms the native layer can distinguish the two operations.
+        const encryptWorker = CryptoEncryptWorker(
+          inputPath: '/in.txt',
+          outputPath: '/out.enc',
+          password: 'p',
+        );
+        const decryptWorker = CryptoDecryptWorker(
+          inputPath: '/out.enc',
+          outputPath: '/result.txt',
+          password: 'p',
+        );
+
+        expect(encryptWorker.toMap()['operation'], 'encrypt');
+        expect(decryptWorker.toMap()['operation'], 'decrypt');
+      });
+
+      test('encrypt uses inputPath as "filePath" key (not "inputPath")', () {
+        // Documents the serialization contract: inputPath → filePath in map.
+        const worker = CryptoEncryptWorker(
+          inputPath: '/my/secret.txt',
+          outputPath: '/my/secret.enc',
+          password: 'pass',
+        );
+        final map = worker.toMap();
+        expect(map['filePath'], '/my/secret.txt');
+        expect(map.containsKey('inputPath'), isFalse); // no leaking field name
+      });
+
+      test('decrypt uses inputPath as "filePath" key (not "inputPath")', () {
+        const worker = CryptoDecryptWorker(
+          inputPath: '/my/secret.enc',
+          outputPath: '/my/secret.txt',
+          password: 'pass',
+        );
+        final map = worker.toMap();
+        expect(map['filePath'], '/my/secret.enc');
+        expect(map.containsKey('inputPath'), isFalse);
+      });
+    });
+
     group('Hash Algorithm Comparison', () {
       test('should create workers with different hash algorithms', () {
         const filePath = '/data/test.bin';

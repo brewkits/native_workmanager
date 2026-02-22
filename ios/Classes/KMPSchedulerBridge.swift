@@ -69,7 +69,7 @@ class KMPSchedulerBridge {
             guard let intervalMs = (map["intervalMs"] as? NSNumber)?.int64Value else {
                 return nil
             }
-            let flexMs = (map["flexIntervalMs"] as? NSNumber)?.int64Value
+            let flexMs = (map["flexMs"] as? NSNumber)?.int64Value
             return TaskTriggerPeriodic(
                 intervalMs: intervalMs,
                 flexMs: flexMs != nil ? KotlinLong(value: flexMs!) : nil
@@ -86,27 +86,41 @@ class KMPSchedulerBridge {
         }
     }
 
-    /// Parse Constraints from Flutter map
+    /// Parse Constraints from Flutter map.
+    /// Every field sent by Dart's Constraints.toMap() is honoured here.
     private static func parseConstraints(from map: [String: Any]?) -> Constraints {
         let requiresNetwork = map?["requiresNetwork"] as? Bool ?? false
         let requiresCharging = map?["requiresCharging"] as? Bool ?? false
         let isHeavyTask = map?["isHeavyTask"] as? Bool ?? false
 
-        // System constraints are not currently mapped from Flutter
-        // Default to empty set
-        let systemConstraints: Set<SystemConstraint> = []
+        let qos: Qos
+        switch (map?["qos"] as? String)?.lowercased() {
+        case "utility":         qos = .utility
+        case "userinitiated":   qos = .userinitiated
+        case "userinteractive": qos = .userinteractive
+        default:                qos = .background
+        }
 
+        let exactAlarmBehavior: ExactAlarmIOSBehavior
+        switch (map?["exactAlarmIOSBehavior"] as? String)?.lowercased() {
+        case "attemptbackgroundrun": exactAlarmBehavior = .attemptBackgroundRun
+        case "throwerror":           exactAlarmBehavior = .throwError
+        default:                     exactAlarmBehavior = .showNotification
+        }
+
+        // systemConstraints, allowWhileIdle, backoffPolicy, backoffDelayMs,
+        // requiresUnmeteredNetwork are Android-only — iOS ignores them.
         return Constraints(
             requiresNetwork: requiresNetwork,
             requiresUnmeteredNetwork: false,
             requiresCharging: requiresCharging,
             allowWhileIdle: false,
-            qos: .background,
+            qos: qos,
             isHeavyTask: isHeavyTask,
             backoffPolicy: .exponential,
             backoffDelayMs: 30000,
-            systemConstraints: systemConstraints,
-            exactAlarmIOSBehavior: .showNotification
+            systemConstraints: [],
+            exactAlarmIOSBehavior: exactAlarmBehavior
         )
     }
 

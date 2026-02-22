@@ -9,7 +9,7 @@ import Foundation
 ///
 /// Workers should be lightweight and stateless. All configuration
 /// should be passed via the JSON input string.
-protocol IosWorker {
+public protocol IosWorker {
     /// Execute the background work.
     ///
     /// v2.3.0+: Return type changed from Bool to WorkerResult
@@ -24,7 +24,7 @@ protocol IosWorker {
 ///
 /// Supports custom worker registration via `registerWorker()`.
 /// User workers are checked first, then falls back to built-in workers.
-class IosWorkerFactory {
+public class IosWorkerFactory {
 
     /// User-registered worker factories: className -> factory closure
     private static var userWorkers: [String: () -> IosWorker] = [:]

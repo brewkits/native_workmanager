@@ -510,6 +510,45 @@ void main() {
     });
   });
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Bug fix coverage: FileOperation.exists was removed because no native
+  // handler exists for it on Android or iOS. These tests document the
+  // supported set and prevent regression.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('FileOperation enum', () {
+    test('does not contain "exists" — removed because no native handler', () {
+      final values = FileOperation.values.map((op) => op.value);
+      expect(values, isNot(contains('exists')));
+    });
+
+    test('contains exactly the 5 supported operations', () {
+      final values = FileOperation.values.map((op) => op.value).toSet();
+      expect(values, {'copy', 'move', 'delete', 'mkdir', 'list'});
+    });
+
+    test('each operation value matches its enum name', () {
+      expect(FileOperation.copy.value, 'copy');
+      expect(FileOperation.move.value, 'move');
+      expect(FileOperation.delete.value, 'delete');
+      expect(FileOperation.mkdir.value, 'mkdir');
+      expect(FileOperation.list.value, 'list');
+    });
+
+    test('worker operation strings match FileOperation values', () {
+      // Ensures workers send the same strings that the FileOperation enum defines.
+      expect(FileSystemCopyWorker(sourcePath: '/s', destinationPath: '/d').toMap()['operation'],
+          FileOperation.copy.value);
+      expect(FileSystemMoveWorker(sourcePath: '/s', destinationPath: '/d').toMap()['operation'],
+          FileOperation.move.value);
+      expect(FileSystemDeleteWorker(path: '/p').toMap()['operation'],
+          FileOperation.delete.value);
+      expect(FileSystemListWorker(path: '/p').toMap()['operation'],
+          FileOperation.list.value);
+      expect(FileSystemMkdirWorker(path: '/p').toMap()['operation'],
+          FileOperation.mkdir.value);
+    });
+  });
+
   group('Serialization/Deserialization', () {
     test('copy worker can be serialized and deserialized', () {
       final original = FileSystemCopyWorker(
