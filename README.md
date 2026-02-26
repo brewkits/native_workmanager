@@ -1,38 +1,57 @@
 # native_workmanager
 
-> **Native background task manager for Flutter with zero Flutter Engine overhead.**
+> **Background task manager for Flutter — native workers, task chains, zero Flutter Engine overhead.**
 
 [![pub package](https://img.shields.io/pub/v/native_workmanager.svg?color=blueviolet)](https://pub.dev/packages/native_workmanager)
+[![pub points](https://img.shields.io/pub/points/native_workmanager?color=green)](https://pub.dev/packages/native_workmanager/score)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/platform-Android%20%7C%20iOS-blue.svg)](https://pub.dev/packages/native_workmanager)
 
-Flutter background task manager with native workers and task chains.
+Schedule background tasks that **survive app restarts, phone reboots, and force-quits** — with native Kotlin/Swift workers that run without loading the Flutter Engine.
 
 ---
 
-## ✨ Key Features
+## Why native_workmanager?
 
-- **Zero Flutter Engine Overhead:** Native workers execute I/O tasks without loading the Flutter Engine
-- **Task Chains:** Automate multi-step workflows (Download → Process → Upload) with built-in dependency management
-- **11 Built-in Workers:** HTTP, File operations, Compression, Crypto, Image processing
-- **Hybrid Architecture:** Choose native workers for I/O or Dart workers for complex logic
-- **Production Ready:** 808 passing tests, comprehensive documentation, iOS 12.0+ and Android API 21+ support
+Most Flutter background task plugins execute Dart code, which means spawning a full Flutter Engine just to make an HTTP request or move a file. **native_workmanager** takes a different approach:
+
+| | workmanager | native_workmanager |
+|---|---|---|
+| HTTP sync without Flutter Engine | ❌ | ✅ |
+| File operations without Flutter Engine | ❌ | ✅ |
+| Task chains (A → B → C) | ❌ | ✅ |
+| Built-in workers (HTTP, file, crypto, image) | ❌ | ✅ 11 workers |
+| Dart callbacks for custom logic | ✅ | ✅ |
+| Periodic tasks (actually working) | ✅ | ✅ v1.0.5 |
 
 ---
 
-## 🚀 Quick Start
+## Features
 
-**Step 1: Platform Requirements**
+- **11 Built-in Native Workers** — HTTP request/download/upload/sync, file compress/decompress/system, image processing, AES-256 encryption, file hashing — all running in native Kotlin/Swift without the Flutter Engine
+- **Task Chains** — Wire tasks together: `Download → Decrypt → Extract → Notify`. Each step starts only when the previous succeeds; data flows between steps automatically
+- **Dart Workers** — For logic that needs Flutter packages or complex Dart code, with smart engine lifecycle management
+- **Constraints** — `requiresNetwork`, `requiresCharging`, `requiresBatteryNotLow`, `requiresDeviceIdle`, backoff policies — correctly enforced on both platforms
+- **Event & Progress Streams** — Real-time status updates and byte-level progress for long-running workers
+- **SPM + CocoaPods** — iOS integration works with both Swift Package Manager and CocoaPods
 
-- **Android:** API 26+ (Android 8.0+) - [Android Setup Guide →](doc/ANDROID_SETUP.md)
-- **iOS:** iOS 12.0+ - [iOS Setup Guide →](doc/IOS_BACKGROUND_LIMITS.md)
+---
 
-**Step 2: Install**
+## Quick Start
+
+### 1. Platform requirements
+
+- **Android:** API 26+ (Android 8.0+) — [Android Setup →](doc/ANDROID_SETUP.md)
+- **iOS:** iOS 14.0+ — [iOS Background Limits →](doc/IOS_BACKGROUND_LIMITS.md)
+
+### 2. Install
+
 ```bash
 flutter pub add native_workmanager
 ```
 
-**Step 3: Initialize**
+### 3. Initialize
+
 ```dart
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,327 +60,274 @@ void main() async {
 }
 ```
 
-**Step 4: Schedule a Task**
+### 4. Schedule your first task
 
-**Option A: Simple HTTP Sync (Native Worker)**
+**Periodic API sync (native worker — no Flutter Engine):**
 ```dart
-// Starts hourly API sync without Flutter Engine overhead
 await NativeWorkManager.enqueue(
-  taskId: 'sync',
+  taskId: 'hourly-sync',
   trigger: TaskTrigger.periodic(Duration(hours: 1)),
-  worker: NativeWorker.httpSync(  // ← Native worker
+  worker: NativeWorker.httpSync(
     url: 'https://api.example.com/sync',
     method: HttpMethod.post,
+    headers: {'Authorization': 'Bearer $token'},
   ),
+  constraints: Constraints(requiresNetwork: true),
 );
-// ✓ Task runs every hour, even when app is closed
-// ✓ No Flutter Engine overhead
+// ✓ Runs every hour even when app is closed
+// ✓ No Flutter Engine spawned
 ```
 
-**Option B: Complex Dart Logic (Dart Worker)**
+**Custom Dart logic:**
 ```dart
-// For tasks requiring custom Dart code or packages
 await NativeWorkManager.enqueue(
-  taskId: 'process',
-  trigger: TaskTrigger.oneTime(),
-  worker: DartWorker(callbackId: 'complexLogic'),  // ← Dart worker
+  taskId: 'process-data',
+  trigger: TaskTrigger.oneTime(initialDelay: Duration(minutes: 5)),
+  worker: DartWorker(callbackId: 'processData'),
+  constraints: Constraints(requiresNetwork: true, requiresCharging: true),
 );
-// ✓ Access to all Dart packages
-// ✓ Full Flutter/Dart ecosystem support
+// ✓ Dart code executes with full package access
+// ✓ Constraints are enforced — task waits for network + charger
 ```
 
-Tasks are registered with the OS and survive app restarts, phone reboots, and force-quits.
-
-[Complete getting started guide →](doc/GETTING_STARTED.md)
+[Full getting started guide →](doc/GETTING_STARTED.md)
 
 ---
 
-## 🔄 Migrating from workmanager?
+## Built-in Workers
 
-**Good news:** ~90% API compatibility, most code stays the same!
-
-### Quick Migration Checklist
-
-- [ ] Replace `Workmanager.registerPeriodicTask` with `NativeWorkManager.enqueue`
-- [ ] Update task trigger syntax (same logic, different API)
-- [ ] Replace callback with `DartWorker(callbackId)` or use native workers
-- [ ] Test on both iOS and Android (should work immediately!)
-
-### Common Migration Pattern
-
-**Before (workmanager):**
+### HTTP Workers
 ```dart
-Workmanager.registerPeriodicTask(
-  'myTask',
-  'api_sync',
-  frequency: Duration(hours: 1),
-);
+// Download a file with resume support
+NativeWorker.httpDownload(
+  url: 'https://cdn.example.com/dataset.zip',
+  savePath: '/data/dataset.zip',
+  enableResume: true,          // Resumes from last byte on retry
+  expectedChecksum: 'sha256:...', // Integrity check after download
+)
+
+// Upload files with progress
+NativeWorker.httpUpload(
+  url: 'https://api.example.com/upload',
+  files: [
+    FileUploadConfig(filePath: '/photos/img1.jpg', fileFieldName: 'photo'),
+    FileUploadConfig(filePath: '/photos/img2.jpg', fileFieldName: 'photo'),
+  ],
+)
+
+// Fire-and-forget API call
+NativeWorker.httpSync(url: 'https://api.example.com/ping', method: HttpMethod.post)
 ```
 
-**After (native_workmanager):**
+### File Workers
 ```dart
-// Upgrade to native worker
-NativeWorkManager.enqueue(
-  taskId: 'myTask',
-  trigger: TaskTrigger.periodic(Duration(hours: 1)),
-  worker: NativeWorker.httpSync(  // ← Native HTTP worker
-    url: 'https://api.example.com/sync',
-  ),
-);
+// Compress files into a ZIP
+NativeWorker.fileCompress(sourcePath: '/data/logs/', outputPath: '/backup/logs.zip')
+
+// Extract ZIP with zip-slip + zip-bomb protection
+NativeWorker.fileDecompress(zipPath: '/downloads/assets.zip', targetDir: '/data/assets/')
+
+// Copy, move, delete, list, mkdir
+NativeWorker.fileMove(sourcePath: '/tmp/file.zip', destinationPath: '/downloads/file.zip')
 ```
 
-**Result:** Same functionality, zero Flutter Engine overhead for I/O tasks.
-
-[Full migration guide →](doc/MIGRATION_GUIDE.md) | [Migration tool →](tool/migrate.dart)
-
----
-
-## 🎯 Choose Your Use Case
-
-### 📊 I need periodic API sync
-→ Use **Native Workers** (zero Flutter Engine overhead)
-- No Flutter Engine overhead
-- Minimal battery impact
-- [See example →](doc/use-cases/01-periodic-api-sync.md)
-
-### 📁 I need file uploads with retry
-→ Use **HttpUploadWorker** with **Task Chains**
-- Built-in retry logic
-- Progress tracking
-- Automatic cleanup
-- [See example →](doc/use-cases/02-file-upload-with-retry.md)
-
-### 🖼️ I need photo backup pipeline
-→ Use **Task Chains** (Download → Compress → Upload)
-- Sequential or parallel execution
-- Automatic dependency management
-- Failure isolation
-- [See example →](doc/use-cases/04-photo-auto-backup.md)
-
-### 🔧 I have complex Dart logic
-→ Use **DartWorker** with `autoDispose`
-- Full Flutter Engine access
-- All Dart packages available
-- Smart memory management
-- [See example →](doc/use-cases/05-hybrid-workflow.md)
-
-[See all 8 use cases →](doc/use-cases/)
-
----
-
-## 💡 Why native_workmanager?
-
-### Unique Features
-
-**1. Native Workers**
-- Execute I/O tasks without spawning Flutter Engine
-- **11 Built-in Workers**: HTTP (request, upload, download, sync), Files (compress, decompress, copy, move, delete), Image processing, Crypto (hash, encrypt, decrypt)
-- Extensible with custom Kotlin/Swift workers
-
-**2. Task Chains**
-- Automate multi-step workflows: A → B → C or A → [B1, B2, B3] → D
-- Built-in dependency management
-- Automatic retry and failure handling
-- Data passing between steps
-
-**3. Hybrid Execution Model**
-- Choose per-task: Native workers (I/O) or Dart workers (complex logic)
-- `autoDispose` flag for fine-grained engine lifecycle control
-- Best of both worlds
-
-**4. Cross-Platform Consistency**
-- Unified API across Android and iOS
-- Platform feature parity
-- Built on kmpworkmanager for reliability
-
-[See FAQ →](doc/FAQ.md)
-
----
-
-## 🖥️ Platform Support
-
-| Platform | Status | Min Version | Key Limitation |
-|----------|:------:|:-----------:|----------------|
-| **Android** | ✅ Supported | API 21 (5.0+) | Doze mode may defer tasks |
-| **iOS** | ✅ Supported | iOS 12.0+ | **30-second execution limit** |
-
-### iOS: 30-Second Execution Limit ⚠️
-
-Background tasks on iOS **must complete in 30 seconds**. For longer tasks:
-
-**Solutions:**
-- ✅ **Use task chains** - Split work into 30-second chunks
-- ✅ **Use native workers** - Faster than Dart workers (no engine overhead)
-- ✅ **Use Background URLSession** - For large file transfers (no time limit)
-- ⚠️ Consider foreground services for truly long tasks
-
-**Example:**
+### Crypto Worker
 ```dart
-// ❌ Won't work: Takes 90 seconds
-await downloadLargeFile();  // 60sec
-await processFile();        // 30sec
+// Hash a file (MD5, SHA-1, SHA-256, SHA-512)
+NativeWorker.hashFile(filePath: '/downloads/firmware.bin', algorithm: HashAlgorithm.sha256)
 
-// ✅ Works: Split into chain (each <30sec)
+// Encrypt with AES-256-GCM (random salt, PBKDF2 key derivation)
+NativeWorker.cryptoEncrypt(
+  inputPath: '/data/backup.db',
+  outputPath: '/data/backup.db.enc',
+  password: 'secret',
+)
+```
+
+### Image Worker
+```dart
+// Resize + compress, EXIF-aware, native performance
+NativeWorker.imageProcess(
+  inputPath: '/DCIM/IMG_4032.jpg',
+  outputPath: '/processed/thumb.jpg',
+  maxWidth: 1280,
+  maxHeight: 720,
+  quality: 85,
+  outputFormat: ImageFormat.jpeg,
+)
+```
+
+---
+
+## Task Chains
+
+Chain workers so each step starts only when the previous one succeeds:
+
+```dart
 await NativeWorkManager.beginWith(
-  TaskRequest(id: 'download', worker: HttpDownloadWorker(...)),  // 20sec
+  TaskRequest(
+    id: 'download',
+    worker: NativeWorker.httpDownload(
+      url: 'https://cdn.example.com/model.zip',
+      savePath: '/tmp/model.zip',
+    ),
+  ),
 ).then(
-  TaskRequest(id: 'process', worker: ImageProcessWorker(...)),   // 15sec
-).enqueue();
+  TaskRequest(
+    id: 'extract',
+    worker: NativeWorker.fileDecompress(
+      zipPath: '/tmp/model.zip',
+      targetDir: '/data/model/',
+      deleteAfterExtract: true,
+    ),
+  ),
+).then(
+  TaskRequest(
+    id: 'verify',
+    worker: NativeWorker.hashFile(
+      filePath: '/data/model/weights.bin',
+      algorithm: HashAlgorithm.sha256,
+    ),
+  ),
+).enqueue(chainName: 'update-model');
+// ✓ Pure native — zero Flutter Engine involved
+// ✓ Each step retries independently
+// ✓ Chain stops and cleans up if any step fails
 ```
 
-[Read iOS background task guide →](doc/IOS_BACKGROUND_LIMITS.md)
+---
 
-### Android: Doze Mode & Battery Optimization
-
-Android 6+ may defer tasks in Doze mode. Use constraints to ensure execution:
+## Constraints & Triggers
 
 ```dart
+// All constraints are enforced — task waits until conditions are met
 await NativeWorkManager.enqueue(
-  taskId: 'important-sync',
+  taskId: 'nightly-backup',
+  trigger: TaskTrigger.periodic(
+    Duration(hours: 24),
+    flexInterval: Duration(hours: 2),  // Run anytime in 2hr flex window
+  ),
+  worker: NativeWorker.fileCompress(
+    sourcePath: '/data/user/',
+    outputPath: '/backup/user.zip',
+  ),
+  constraints: Constraints(
+    requiresNetwork: false,
+    requiresCharging: true,          // Only run while charging
+    requiresBatteryNotLow: true,     // Skip if battery < 20%
+    requiresDeviceIdle: true,        // Run when phone is idle
+    backoffPolicy: BackoffPolicy.exponential,
+    backoffDelay: Duration(minutes: 5),
+  ),
+);
+```
+
+---
+
+## Events & Progress
+
+```dart
+// Listen for task completion
+NativeWorkManager.events.listen((event) {
+  print('${event.taskId}: ${event.success ? "done" : event.message}');
+});
+
+// Track download progress
+NativeWorkManager.progress.listen((update) {
+  print('${update.taskId}: ${update.progress}% — ${update.bytesDownloaded} bytes');
+});
+```
+
+---
+
+## Migrating from workmanager
+
+~90% API compatible. Most migrations take under 10 minutes.
+
+**Before:**
+```dart
+Workmanager().registerPeriodicTask('sync', 'apiSync', frequency: Duration(hours: 1));
+// → Callback fires, Flutter Engine starts, Dart code runs
+```
+
+**After:**
+```dart
+NativeWorkManager.enqueue(
+  taskId: 'sync',
   trigger: TaskTrigger.periodic(Duration(hours: 1)),
   worker: NativeWorker.httpSync(url: 'https://api.example.com/sync'),
-  constraints: Constraints(
-    requiresNetwork: true,         // Wait for network
-    requiresCharging: true,        // Wait for charging (optional)
-    requiresBatteryNotLow: true,   // Skip if battery low
-  ),
+  // → Pure native: no Flutter Engine, lower memory, lower battery
 );
 ```
 
-[Read Android optimization guide →](doc/PLATFORM_CONSISTENCY.md)
+[Full migration guide →](doc/MIGRATION_GUIDE.md) · [Migration CLI tool →](tool/migrate.dart)
 
 ---
 
-## 📚 Complete Documentation
+## Platform Support
 
-### 🚀 Start Here
-- **[Quick Start (3 min)](doc/GETTING_STARTED.md)** - Get running fast
-- **[API Reference](doc/API_REFERENCE.md)** - Complete API docs
-- **[FAQ](doc/FAQ.md)** - Common questions answered
+| Platform | Status | Min Version |
+|----------|:------:|:-----------:|
+| Android | ✅ | API 26 (Android 8.0+) |
+| iOS | ✅ | iOS 14.0+ |
 
-### 📖 Learn by Example
-- **[Real-World Use Cases](doc/use-cases/)** (8 examples)
-  - [Periodic API Sync](doc/use-cases/01-periodic-api-sync.md)
-  - [File Upload with Retry](doc/use-cases/02-file-upload-with-retry.md)
-  - [Background Cleanup](doc/use-cases/03-background-cleanup.md)
-  - [Photo Auto-Backup](doc/use-cases/04-photo-auto-backup.md)
-  - [Hybrid Dart/Native Workflows](doc/use-cases/05-hybrid-workflow.md)
-  - [Task Chain Processing](doc/use-cases/06-chain-processing.md)
-  - And more...
+**iOS note:** Background tasks must complete within **30 seconds**. Use task chains to split long work into steps, or native workers (which run faster than Dart workers). `HttpDownloadWorker` uses Background URLSession and has no time limit.
 
-### 🔧 Build It Right
-- **[Security Policy](doc/SECURITY.md)** - Report vulnerabilities, best practices
-- **[Production Deployment](doc/PRODUCTION_GUIDE.md)** - Launch with confidence
-- **[Platform Consistency](doc/PLATFORM_CONSISTENCY.md)** - iOS vs Android differences
-
-### 🎓 Go Deep
-- **[Custom Native Workers](doc/EXTENSIBILITY.md)** - Write Kotlin/Swift workers
-- **[Task Chains & Workflows](doc/use-cases/06-chain-processing.md)** - Complex automations
-- **[iOS Background Limits](doc/IOS_BACKGROUND_LIMITS.md)** - 30-second workarounds
+**Android note:** Constraints (`requiresCharging`, `requiresNetwork`, etc.) are correctly enforced since v1.0.5. Earlier versions silently ignored them.
 
 ---
 
-## ❓ FAQ
+## What's New in v1.0.5
 
-**Q: Will my task run if the app is force-closed?**
-A: Yes! Tasks are registered with the OS (Android WorkManager / iOS BGTaskScheduler), not your Flutter app.
+This release fixes the most impactful correctness bugs since launch:
 
-**Q: How much memory does a task actually use?**
-A: Native workers execute without Flutter Engine overhead. Dart workers require the full Flutter runtime. Actual memory usage depends on worker type and task complexity.
+- **Periodic tasks work correctly** — trigger type was hardcoded to `OneTime`; periodic tasks only ran once (fixed)
+- **Constraints are enforced** — `requiresNetwork`, `requiresCharging`, `initialDelay`, and all other constraints were silently ignored on Android (fixed)
+- **ExistingTaskPolicy works** — `replace` was silently treated as `keep` (fixed)
+- **iOS flex window applied** — `flexMs` key mismatch meant flex interval was never set (fixed)
+- **Chain resume preserves config** — all worker config was lost after app kill/resume (fixed)
+- **Custom iOS worker registration** — `IosWorker` protocol is now `public`; registration no longer silently skipped (fixed)
+- **HttpDownload resume** — partial downloads are preserved on network error so retries use `Range` header (fixed)
+- **Swift Package Manager support** — works with both SPM and CocoaPods
 
-**Q: Can I chain 100 tasks together?**
-A: Yes, but on iOS each task in the chain must complete within 30 seconds. Use native workers for speed.
-
-**Q: What happens if a task in a chain fails?**
-A: The chain stops. Subsequent tasks are cancelled. You can use retry policies to handle failures.
-
-**Q: Is this compatible with workmanager?**
-A: ~90% compatible. Most code works with minor syntax changes. See [migration guide](doc/MIGRATION_GUIDE.md).
-
-**Q: Can I use this for location tracking?**
-A: Background tasks are for periodic work, not continuous tracking. For location, use `geolocator` with background modes.
-
-[See full FAQ →](doc/FAQ.md)
+[Full changelog →](CHANGELOG.md)
 
 ---
 
-## 🔌 Popular Integrations
+## Documentation
 
-- **[Dio](doc/integrations/dio.md)** - HTTP client for complex requests
-- **[Hive](doc/integrations/hive.md)** - Local database sync
-- **[Firebase](doc/integrations/firebase.md)** - Analytics & Crashlytics
-- **[Sentry](doc/integrations/sentry.md)** - Error tracking in background tasks
+| | |
+|---|---|
+| [Quick Start](doc/GETTING_STARTED.md) | Get running in 3 minutes |
+| [API Reference](doc/API_REFERENCE.md) | Complete API docs |
+| [FAQ](doc/FAQ.md) | Common questions |
+| [Android Setup](doc/ANDROID_SETUP.md) | AndroidManifest, ProGuard, minSdk |
+| [iOS Background Limits](doc/IOS_BACKGROUND_LIMITS.md) | 30-second limit workarounds |
+| [Migration Guide](doc/MIGRATION_GUIDE.md) | From workmanager |
+| [Security Policy](doc/SECURITY.md) | Report vulnerabilities |
 
-[See all integrations →](doc/integrations/)
+**Worker guides:**
+[Crypto](doc/workers/CRYPTO_OPERATIONS.md) · [Image Processing](doc/workers/IMAGE_PROCESSING.md) · [File System](doc/workers/FILE_SYSTEM.md) · [File Decompression](doc/workers/FILE_DECOMPRESSION.md)
 
----
-
-## 📊 Production Ready
-
-- **Security:** No critical vulnerabilities
-- **Tests:** 808 unit tests passing
-- **Coverage:** All 11 native workers tested
-- **Platforms:** iOS 12.0+ and Android API 21+
-
----
-
-## 🤝 Community & Support
-
-- 💬 [GitHub Discussions](https://github.com/brewkits/native_workmanager/discussions) - Ask questions, share use cases
-- 🐛 [Issue Tracker](https://github.com/brewkits/native_workmanager/issues) - Report bugs
-- 📧 Email: support@brewkits.dev
-
-### Found a Bug?
-
-1. [Search existing issues](https://github.com/brewkits/native_workmanager/issues)
-2. [Create new issue](https://github.com/brewkits/native_workmanager/issues/new) with:
-   - Flutter version (`flutter --version`)
-   - Platform (iOS/Android)
-   - Minimal reproducible example
+**Use cases:**
+[Periodic API Sync](doc/use-cases/01-periodic-api-sync.md) · [File Upload with Retry](doc/use-cases/02-file-upload-with-retry.md) · [Photo Backup Pipeline](doc/use-cases/04-photo-auto-backup.md) · [Task Chain Processing](doc/use-cases/06-chain-processing.md) · [Custom Native Workers](doc/use-cases/07-custom-native-workers.md)
 
 ---
 
-## 🤝 Contributing
+## Support
 
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for:
-- How to report bugs
-- How to request features
-- How to submit pull requests
-- Coding standards
+- 🐛 [Issue Tracker](https://github.com/brewkits/native_workmanager/issues) — bug reports and feature requests
+- 💬 [GitHub Discussions](https://github.com/brewkits/native_workmanager/discussions) — questions and use cases
+- 📧 Email: datacenter111@gmail.com
 
 ---
 
-## 🙏 Acknowledgments
+## License
 
-Built with ❤️ using platform-native APIs:
-- **Android:** WorkManager - Google's official background task library
-- **iOS:** BGTaskScheduler - Apple's background task framework
-- **Shared Core:** [kmpworkmanager](https://github.com/pablichjenkov/kmpworkmanager) - Cross-platform worker orchestration
+MIT — see [LICENSE](LICENSE).
 
-Inspired by Android WorkManager and iOS BackgroundTasks best practices.
+**Author:** Nguyễn Tuấn Việt · [BrewKits](https://brewkits.dev)
 
 ---
 
-## 📞 Support & Contact
-
-**Need help?**
-- 🌐 **Website:** [brewkits.dev](https://brewkits.dev)
-- 🐛 **Issues:** [GitHub Issues](https://github.com/brewkits/native_workmanager/issues)
-- 📧 **Email:** datacenter111@gmail.com
-
-**Links:**
-- 📦 [pub.dev Package](https://pub.dev/packages/native_workmanager)
-- 📖 [Documentation](doc/)
-- 💻 [GitHub Repository](https://github.com/brewkits/native_workmanager)
-
----
-
-## 📄 License
-
-Licensed under the MIT License - see [LICENSE](LICENSE) file for details.
-
-**Author:** Nguyễn Tuấn Việt • [BrewKits](https://brewkits.dev)
-
----
-
-**⭐ If this library helps your Flutter app, please star the repo!**
+**If this library saves you time, a ⭐ on GitHub goes a long way.**
