@@ -2,6 +2,7 @@ package dev.brewkits.native_workmanager.engine
 
 import android.content.Context
 import android.util.Log
+import io.flutter.FlutterInjector
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.dart.DartExecutor
 import io.flutter.plugin.common.MethodChannel
@@ -187,23 +188,42 @@ object FlutterEngineManager {
             // Create engine
             val flutterEngine = FlutterEngine(context.applicationContext)
 
-            // Start executing Dart callback dispatcher
-            // Note: Simplified for compatibility - will need proper initialization later
-            val dartBundlePath = context.assets.toString()
+            // Get the correct app bundle path for the Flutter assets.
+            // context.assets.toString() returns the AssetManager object string, which is wrong.
+            // FlutterLoader provides the correct path for both debug (JIT) and release (AOT) modes.
+            val bundlePath = FlutterInjector.instance().flutterLoader().findAppBundlePath()
 
             val dartCallback = DartExecutor.DartCallback(
                 context.assets,
-                dartBundlePath,
+                bundlePath,
                 callbackInfo
             )
 
+            // Create MethodChannel and register 'dartReady' handler BEFORE starting the Dart isolate.
+            // This eliminates the race condition where Dart sends 'dartReady' before the Kotlin
+            // handler is registered, which would cause the message to be dropped and the
+            // waitForDartReady() 10-second timeout to fire.
+            val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_NAME)
+            val readyDeferred = CompletableDeferred<Unit>()
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "dartReady" -> {
+                        Log.d(TAG, "Dart side ready")
+                        readyDeferred.complete(Unit)
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
+            // Now start the Dart isolate — handler is already registered, no race possible.
             flutterEngine.dartExecutor.executeDartCallback(dartCallback)
 
-            // Create MethodChannel
-            val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_NAME)
-
-            // Wait for Dart side to signal ready
-            waitForDartReady(channel)
+            // Wait for Dart to signal it's ready (up to 10 seconds)
+            withTimeout(10_000L) {
+                readyDeferred.await()
+            }
+            Log.d(TAG, "Dart ready signal received")
 
             // Store references
             engine = flutterEngine
@@ -213,33 +233,6 @@ object FlutterEngineManager {
 
             Log.d(TAG, "Flutter engine initialized successfully")
         }
-    }
-
-    /**
-     * Wait for Dart side to signal it's ready.
-     *
-     * The Dart callback dispatcher will invoke 'dartReady' method
-     * to signal that it's initialized and ready to receive tasks.
-     */
-    private suspend fun waitForDartReady(channel: MethodChannel) {
-        val readyDeferred = CompletableDeferred<Unit>()
-
-        channel.setMethodCallHandler { call, result ->
-            if (call.method == "dartReady") {
-                Log.d(TAG, "Dart side ready")
-                readyDeferred.complete(Unit)
-                result.success(null)
-            } else {
-                result.notImplemented()
-            }
-        }
-
-        // Wait up to 10 seconds for Dart to be ready
-        withTimeout(10_000L) {
-            readyDeferred.await()
-        }
-
-        Log.d(TAG, "Dart ready signal received")
     }
 
     /**

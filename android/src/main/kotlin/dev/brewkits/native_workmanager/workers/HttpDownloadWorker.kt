@@ -290,8 +290,8 @@ class HttpDownloadWorker : AndroidWorker {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error - ${e.message}", e)
-            // Clean up temp file on error
-            tempFile.delete()
+            // Do NOT delete tempFile — preserve partial download so next retry can resume.
+            // Only intentional failures (checksum mismatch, invalid path) clean up the temp file.
             WorkerResult.Failure(
                 message = e.message ?: "Unknown error",
                 shouldRetry = true

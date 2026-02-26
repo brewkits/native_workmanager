@@ -321,7 +321,8 @@ class ImageProcessWorker : AndroidWorker {
         if (width > maxWidth || height > maxHeight) {
             val widthRatio = (width.toFloat() / maxWidth.toFloat()).toInt()
             val heightRatio = (height.toFloat() / maxHeight.toFloat()).toInt()
-            sampleSize = min(widthRatio, heightRatio)
+            // max(1, ...) prevents sampleSize=0 when one dimension fits within bounds
+            sampleSize = maxOf(1, min(widthRatio, heightRatio))
         }
 
         return sampleSize

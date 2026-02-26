@@ -5,7 +5,6 @@ import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.native_workmanager.workers.utils.ProgressReporter
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
-import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedInputStream
@@ -143,15 +142,13 @@ class FileCompressionWorker : AndroidWorker {
 
             // Report initial progress
             if (taskId != null) {
-                runBlocking {
-                    ProgressReporter.reportProgress(
-                        taskId = taskId,
-                        progress = 0,
-                        message = "Starting compression...",
-                        currentStep = 0,
-                        totalSteps = totalFiles
-                    )
-                }
+                ProgressReporter.reportProgress(
+                    taskId = taskId,
+                    progress = 0,
+                    message = "Starting compression...",
+                    currentStep = 0,
+                    totalSteps = totalFiles
+                )
             }
 
             // ════════════════════════════════════════════════════════════
@@ -183,15 +180,13 @@ class FileCompressionWorker : AndroidWorker {
 
                         // Report progress
                         if (taskId != null) {
-                            runBlocking {
-                                ProgressReporter.reportProgress(
-                                    taskId = taskId,
-                                    progress = 100,
-                                    message = "Compression complete",
-                                    currentStep = 1,
-                                    totalSteps = 1
-                                )
-                            }
+                            ProgressReporter.reportProgress(
+                                taskId = taskId,
+                                progress = 100,
+                                message = "Compression complete",
+                                currentStep = 1,
+                                totalSteps = 1
+                            )
                         }
                     }
                 }
@@ -201,15 +196,13 @@ class FileCompressionWorker : AndroidWorker {
 
             // Report final progress
             if (taskId != null) {
-                runBlocking {
-                    ProgressReporter.reportProgress(
-                        taskId = taskId,
-                        progress = 100,
-                        message = "Compression complete",
-                        currentStep = filesProcessed.get(),
-                        totalSteps = totalFiles
-                    )
-                }
+                ProgressReporter.reportProgress(
+                    taskId = taskId,
+                    progress = 100,
+                    message = "Compression complete",
+                    currentStep = filesProcessed.get(),
+                    totalSteps = totalFiles
+                )
             }
 
             // ════════════════════════════════════════════════════════════
@@ -229,7 +222,9 @@ class FileCompressionWorker : AndroidWorker {
 
             val originalSize = calculateSize(inputFile)
             val compressedSize = outputFile.length()
-            val compressionRatio = (compressedSize.toFloat() / originalSize.toFloat() * 100).toInt()
+            val compressionRatio = if (originalSize > 0L) {
+                (compressedSize.toFloat() / originalSize.toFloat() * 100).toInt()
+            } else 0
 
             Log.d(TAG, "Compression successful:")
             Log.d(TAG, "  Files: $filesCompressed")
@@ -334,19 +329,16 @@ class FileCompressionWorker : AndroidWorker {
                 // ✅ FIX #3: Thread-safe increment without lambda capture
                 val processed = filesProcessedCounter.incrementAndGet()
 
-                // Report progress
+                // Report progress (non-blocking — compressDirectory is not a suspend function)
                 if (taskId != null && totalFiles > 0) {
                     val progress = ((processed.toFloat() / totalFiles.toFloat()) * 100).toInt()
-
-                    runBlocking {
-                        ProgressReporter.reportProgress(
-                            taskId = taskId,
-                            progress = progress,
-                            message = "Compressing: ${file.name}",
-                            currentStep = processed,
-                            totalSteps = totalFiles
-                        )
-                    }
+                    ProgressReporter.reportProgressNonBlocking(
+                        taskId = taskId,
+                        progress = progress,
+                        message = "Compressing: ${file.name}",
+                        currentStep = processed,
+                        totalSteps = totalFiles
+                    )
                 }
             }
         }

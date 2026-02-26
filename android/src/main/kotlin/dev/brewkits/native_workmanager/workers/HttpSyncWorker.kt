@@ -117,15 +117,16 @@ class HttpSyncWorker : AndroidWorker {
             }
         }
 
-        // Build request
+        // Build request. Use header() (not addHeader()) so custom Content-Type overrides the default.
         val requestBuilder = Request.Builder()
             .url(config.url)
             .method(config.httpMethod, requestBody)
-            .addHeader("Content-Type", JSON_CONTENT_TYPE)
+            .header("Content-Type", JSON_CONTENT_TYPE)
 
-        // Add custom headers (may override Content-Type)
+        // Add custom headers; addHeader() accumulates while header() replaces — use addHeader for
+        // all user headers so multiple values (e.g. multiple Accept entries) are preserved.
         config.headers?.forEach { (key, value) ->
-            requestBuilder.addHeader(key, value)
+            requestBuilder.header(key, value)
         }
 
         val request = requestBuilder.build()

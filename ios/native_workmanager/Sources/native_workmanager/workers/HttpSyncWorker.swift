@@ -35,7 +35,7 @@ class HttpSyncWorker: IosWorker {
         let url: String
         let method: String?
         let headers: [String: String]?
-        let requestBody: [String: AnyCodable]? // Allow any JSON structure
+        let requestBody: String? // JSON string (pre-encoded by Dart via jsonEncode)
         let timeoutMs: Int64?
 
         var httpMethod: String {
@@ -90,23 +90,21 @@ class HttpSyncWorker: IosWorker {
             }
         }
 
-        // Add request body if present
-        if let requestBody = config.requestBody {
-            do {
-                let bodyData = try JSONEncoder().encode(requestBody)
-
-                // ✅ SECURITY: Validate request body size
-                guard SecurityValidator.validateRequestSize(bodyData) else {
-                    print("HttpSyncWorker: Error - Request body too large")
-                    return .failure(message: "Request body too large")
-                }
-
-                request.httpBody = bodyData
-                print("HttpSyncWorker: Request body size: \(bodyData.count) bytes")
-            } catch {
-                print("HttpSyncWorker: Error encoding request body: \(error)")
-                return .failure(message: "Failed to encode request body: \(error.localizedDescription)")
+        // Add request body if present (requestBody is a JSON string from Dart)
+        if let requestBody = config.requestBody, !requestBody.isEmpty {
+            guard let bodyData = requestBody.data(using: .utf8) else {
+                print("HttpSyncWorker: Error - Cannot encode request body as UTF-8")
+                return .failure(message: "Cannot encode request body as UTF-8")
             }
+
+            // ✅ SECURITY: Validate request body size
+            guard SecurityValidator.validateRequestSize(bodyData) else {
+                print("HttpSyncWorker: Error - Request body too large")
+                return .failure(message: "Request body too large")
+            }
+
+            request.httpBody = bodyData
+            print("HttpSyncWorker: Request body size: \(bodyData.count) bytes")
         }
 
         // Execute request

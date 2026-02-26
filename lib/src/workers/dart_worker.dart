@@ -233,17 +233,19 @@ typedef DartWorkerCallback = Future<bool> Function(Map<String, dynamic>? input);
 /// - [NativeWorker] - Lightweight HTTP workers (no Flutter Engine)
 /// - [NativeWorkManager.initialize] - Register dart workers
 /// - [DartWorkerCallback] - Callback function type
-@immutable
 final class DartWorker extends Worker {
-  const DartWorker({
+  DartWorker({
     required this.callbackId,
     this.input,
     this.autoDispose = false,
-  }) : assert(
-          callbackId.length > 0,
-          'callbackId cannot be empty. '
-          'Use the ID you registered in NativeWorkManager.initialize().',
-        );
+  }) {
+    if (callbackId.isEmpty) {
+      throw ArgumentError(
+        'callbackId cannot be empty. '
+        'Use the ID you registered in NativeWorkManager.initialize().',
+      );
+    }
+  }
 
   /// ID of the registered callback (from initialize()).
   final String callbackId;

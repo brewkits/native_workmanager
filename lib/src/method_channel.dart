@@ -167,7 +167,7 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
     );
 
     if (result == null) return null;
-    return TaskStatus.values.byName(result);
+    return TaskStatus.values.where((e) => e.name == result).firstOrNull;
   }
 
   @override

@@ -134,14 +134,14 @@ void main() {
 
     group('Path Traversal Protection - Documentation', () {
       test('should document path traversal expectation for relative paths', () {
-        // Path traversal attempts should be caught by native code
-        final worker = NativeWorker.fileCopy(
-          sourcePath: '/data/../../etc/passwd',
-          destinationPath: '/data/file.txt',
+        // Path traversal is rejected by the Dart layer before reaching native code
+        expect(
+          () => NativeWorker.fileCopy(
+            sourcePath: '/data/../../etc/passwd',
+            destinationPath: '/data/file.txt',
+          ),
+          throwsArgumentError,
         );
-
-        expect(worker, isA<Worker>());
-        // Expected behavior: Native code should reject path traversal
       });
 
       test('should document symlink handling expectation', () {
@@ -155,14 +155,14 @@ void main() {
       });
 
       test('should document absolute path requirement', () {
-        // Relative paths should be validated by native code
-        final worker = NativeWorker.fileCopy(
-          sourcePath: 'relative/path/file.txt',
-          destinationPath: '/data/file.txt',
+        // Relative paths are rejected by the Dart layer before reaching native code
+        expect(
+          () => NativeWorker.fileCopy(
+            sourcePath: 'relative/path/file.txt',
+            destinationPath: '/data/file.txt',
+          ),
+          throwsArgumentError,
         );
-
-        expect(worker, isA<Worker>());
-        // Expected behavior: Native code should validate absolute paths
       });
     });
 

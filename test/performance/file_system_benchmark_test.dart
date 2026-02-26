@@ -4,15 +4,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:native_workmanager/native_workmanager.dart';
 import 'dart:developer' as developer;
 
-/// Performance benchmark and stress tests for FileSystemWorker.
+/// Performance benchmark tests for the Dart-side of native_workmanager.
 ///
-/// Tests:
-/// - Performance benchmarks vs Dart File I/O
-/// - Stress tests (large files, many operations, edge cases)
-/// - Memory usage monitoring
-/// - Concurrent operations
+/// These tests run in pure Dart (no native platform / device required).
+/// They benchmark:
+/// - Worker object creation throughput
+/// - Serialization (toMap()) performance
+/// - Real Dart file I/O (baseline comparisons)
+/// - Edge-case file operations using system temp
 ///
-/// Coverage: Performance validation
+/// Device-dependent benchmarks (actual native execution speed) belong in
+/// example/integration_test/.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -21,7 +23,8 @@ void main() {
 
   setUp(() async {
     final tempDir = Directory.systemTemp;
-    testDir = Directory('${tempDir.path}/fs_bench_${DateTime.now().millisecondsSinceEpoch}');
+    testDir = Directory(
+        '${tempDir.path}/fs_bench_${DateTime.now().millisecondsSinceEpoch}');
     await testDir.create(recursive: true);
     testDirPath = testDir.path;
   });
@@ -32,554 +35,406 @@ void main() {
     }
   });
 
-  group('Performance Benchmarks', () {
-    test('benchmark: copy 1MB file - Native vs Dart', () async {
-      // Create 1MB test file
-      final sourceFile = File('$testDirPath/1mb_source.bin');
-      final data = List.generate(1024 * 1024, (i) => i % 256);
-      await sourceFile.writeAsBytes(data);
+  // ───────────────────────────────────────────────────────────────────────────
+  // Worker creation + serialization benchmarks
+  // ───────────────────────────────────────────────────────────────────────────
 
-      // Benchmark Native Worker
-      final nativeStopwatch = Stopwatch()..start();
-      await NativeWorkManager.enqueue(
-        taskId: 'bench-native-1mb',
-        trigger: TaskTrigger.oneTime(),
-        worker: NativeWorker.fileCopy(
-          sourcePath: sourceFile.path,
-          destinationPath: '$testDirPath/1mb_native.bin',
-        ),
-      );
-      await Future.delayed(const Duration(seconds: 2));
-      nativeStopwatch.stop();
-
-      // Benchmark Dart File I/O
-      final dartStopwatch = Stopwatch()..start();
-      await sourceFile.copy('$testDirPath/1mb_dart.bin');
-      dartStopwatch.stop();
-
-      developer.log('1MB Copy - Native: ${nativeStopwatch.elapsedMilliseconds}ms');
-      developer.log('1MB Copy - Dart: ${dartStopwatch.elapsedMilliseconds}ms');
-      developer.log('Ratio: ${dartStopwatch.elapsedMilliseconds / nativeStopwatch.elapsedMilliseconds}x');
-
-      // Native should be comparable or faster
-      expect(nativeStopwatch.elapsedMilliseconds, lessThan(5000));
-    });
-
-    test('benchmark: copy 10MB file - Native vs Dart', () async {
-      // Create 10MB test file
-      final sourceFile = File('$testDirPath/10mb_source.bin');
-      final data = List.generate(10 * 1024 * 1024, (i) => i % 256);
-      await sourceFile.writeAsBytes(data);
-
-      // Benchmark Native Worker
-      final nativeStopwatch = Stopwatch()..start();
-      await NativeWorkManager.enqueue(
-        taskId: 'bench-native-10mb',
-        trigger: TaskTrigger.oneTime(),
-        worker: NativeWorker.fileCopy(
-          sourcePath: sourceFile.path,
-          destinationPath: '$testDirPath/10mb_native.bin',
-        ),
-      );
-      await Future.delayed(const Duration(seconds: 5));
-      nativeStopwatch.stop();
-
-      // Benchmark Dart File I/O
-      final dartStopwatch = Stopwatch()..start();
-      await sourceFile.copy('$testDirPath/10mb_dart.bin');
-      dartStopwatch.stop();
-
-      developer.log('10MB Copy - Native: ${nativeStopwatch.elapsedMilliseconds}ms');
-      developer.log('10MB Copy - Dart: ${dartStopwatch.elapsedMilliseconds}ms');
-
-      // Native should handle large files efficiently
-      expect(nativeStopwatch.elapsedMilliseconds, lessThan(10000));
-    });
-
-    test('benchmark: copy 100 small files (1KB each)', () async {
-      // Create 100 small files
-      for (int i = 0; i < 100; i++) {
-        final file = File('$testDirPath/small_$i.txt');
-        await file.writeAsString('Content $i' * 100); // ~1KB
-      }
-
-      // Benchmark Native Worker (copy directory)
-      final nativeStopwatch = Stopwatch()..start();
-      await NativeWorkManager.enqueue(
-        taskId: 'bench-native-100files',
-        trigger: TaskTrigger.oneTime(),
-        worker: NativeWorker.fileCopy(
-          sourcePath: testDirPath,
-          destinationPath: '$testDirPath/../copy_native',
-          recursive: true,
-        ),
-      );
-      await Future.delayed(const Duration(seconds: 5));
-      nativeStopwatch.stop();
-
-      // Benchmark Dart File I/O
-      final copyDir = Directory('$testDirPath/../copy_dart');
-      await copyDir.create();
-
-      final dartStopwatch = Stopwatch()..start();
-      for (int i = 0; i < 100; i++) {
-        await File('$testDirPath/small_$i.txt').copy('${copyDir.path}/small_$i.txt');
-      }
-      dartStopwatch.stop();
-
-      developer.log('100 Files Copy - Native: ${nativeStopwatch.elapsedMilliseconds}ms');
-      developer.log('100 Files Copy - Dart: ${dartStopwatch.elapsedMilliseconds}ms');
-
-      // Cleanup
-      await Directory('$testDirPath/../copy_native').delete(recursive: true);
-      await copyDir.delete(recursive: true);
-    });
-
-    test('benchmark: move file vs copy+delete', () async {
-      // Create test file
-      final sourceFile = File('$testDirPath/move_test.bin');
-      final data = List.generate(1024 * 1024, (i) => i % 256); // 1MB
-      await sourceFile.writeAsBytes(data);
-
-      // Benchmark Native Move
-      final moveStopwatch = Stopwatch()..start();
-      await NativeWorkManager.enqueue(
-        taskId: 'bench-move',
-        trigger: TaskTrigger.oneTime(),
-        worker: NativeWorker.fileMove(
-          sourcePath: sourceFile.path,
-          destinationPath: '$testDirPath/moved.bin',
-        ),
-      );
-      await Future.delayed(const Duration(seconds: 2));
-      moveStopwatch.stop();
-
-      // Benchmark Dart Copy+Delete
-      final sourceFile2 = File('$testDirPath/move_test2.bin');
-      await sourceFile2.writeAsBytes(data);
-
-      final copyDeleteStopwatch = Stopwatch()..start();
-      await sourceFile2.copy('$testDirPath/moved2.bin');
-      await sourceFile2.delete();
-      copyDeleteStopwatch.stop();
-
-      developer.log('Move - Native: ${moveStopwatch.elapsedMilliseconds}ms');
-      developer.log('Copy+Delete - Dart: ${copyDeleteStopwatch.elapsedMilliseconds}ms');
-
-      // Move should be faster (atomic operation)
-      expect(moveStopwatch.elapsedMilliseconds, lessThan(copyDeleteStopwatch.elapsedMilliseconds + 100));
-    });
-
-    test('benchmark: list 1000 files', () async {
-      // Create 1000 files
+  group('Worker Creation Benchmarks', () {
+    test('benchmark: create 1000 FileSystemCopyWorkers', () {
+      final sw = Stopwatch()..start();
       for (int i = 0; i < 1000; i++) {
-        await File('$testDirPath/file_$i.txt').writeAsString('Content $i');
+        FileSystemCopyWorker(
+          sourcePath: '$testDirPath/src_$i.txt',
+          destinationPath: '$testDirPath/dst_$i.txt',
+          overwrite: i.isEven,
+          recursive: i.isOdd,
+        );
+      }
+      sw.stop();
+
+      developer.log('Create 1000 CopyWorkers: ${sw.elapsedMilliseconds}ms');
+      expect(sw.elapsedMilliseconds, lessThan(500),
+          reason: '1000 worker creations should finish in <500ms');
+    });
+
+    test('benchmark: create mixed worker types (500 each)', () {
+      final sw = Stopwatch()..start();
+      for (int i = 0; i < 500; i++) {
+        FileSystemCopyWorker(
+            sourcePath: '/src/$i', destinationPath: '/dst/$i');
+        FileSystemMoveWorker(
+            sourcePath: '/src/$i', destinationPath: '/dst/$i');
+        FileSystemDeleteWorker(path: '/path/$i');
+        FileSystemListWorker(path: '/dir/$i', pattern: '*.txt');
+        FileSystemMkdirWorker(path: '/new/$i');
+      }
+      sw.stop();
+
+      developer.log('Create 500×5 workers: ${sw.elapsedMilliseconds}ms');
+      expect(sw.elapsedMilliseconds, lessThan(1000));
+    });
+  });
+
+  group('Serialization Benchmarks', () {
+    test('benchmark: toMap() 10,000 times (CopyWorker)', () {
+      final worker = FileSystemCopyWorker(
+        sourcePath: '/source/file.txt',
+        destinationPath: '/dest/file.txt',
+        overwrite: true,
+        recursive: true,
+      );
+
+      final sw = Stopwatch()..start();
+      for (int i = 0; i < 10000; i++) {
+        worker.toMap();
+      }
+      sw.stop();
+
+      developer.log('10k toMap() calls: ${sw.elapsedMilliseconds}ms');
+      expect(sw.elapsedMilliseconds, lessThan(1000),
+          reason: '10k serializations should finish in <1s');
+    });
+
+    test('benchmark: toMap() for all worker types (2000 each)', () {
+      final copy = FileSystemCopyWorker(
+          sourcePath: '/src', destinationPath: '/dst', overwrite: true);
+      final move = FileSystemMoveWorker(
+          sourcePath: '/src', destinationPath: '/dst', overwrite: false);
+      final delete = FileSystemDeleteWorker(path: '/path', recursive: true);
+      final list =
+          FileSystemListWorker(path: '/dir', pattern: '*.jpg', recursive: true);
+      final mkdir = FileSystemMkdirWorker(path: '/new', createParents: true);
+
+      final sw = Stopwatch()..start();
+      for (int i = 0; i < 2000; i++) {
+        copy.toMap();
+        move.toMap();
+        delete.toMap();
+        list.toMap();
+        mkdir.toMap();
+      }
+      sw.stop();
+
+      developer.log('2000×5 toMap() calls: ${sw.elapsedMilliseconds}ms');
+      expect(sw.elapsedMilliseconds, lessThan(1000));
+    });
+
+    test('benchmark: NativeWorker factory + toMap() (1000 calls)', () {
+      final sw = Stopwatch()..start();
+      for (int i = 0; i < 1000; i++) {
+        NativeWorker.fileCopy(
+          sourcePath: '/src/$i.txt',
+          destinationPath: '/dst/$i.txt',
+          overwrite: i.isEven,
+        ).toMap();
+      }
+      sw.stop();
+
+      developer.log('1000 factory+toMap(): ${sw.elapsedMilliseconds}ms');
+      expect(sw.elapsedMilliseconds, lessThan(500));
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Real Dart I/O benchmarks (baseline — what native replaces)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  group('Dart File I/O Benchmarks', () {
+    test('benchmark: copy 1MB file via Dart I/O', () async {
+      final src = File('$testDirPath/1mb.bin');
+      await src.writeAsBytes(List.generate(1024 * 1024, (i) => i % 256));
+
+      final sw = Stopwatch()..start();
+      await src.copy('$testDirPath/1mb_copy.bin');
+      sw.stop();
+
+      developer.log('Dart 1MB copy: ${sw.elapsedMilliseconds}ms');
+      expect(sw.elapsedMilliseconds, lessThan(3000));
+      expect(await File('$testDirPath/1mb_copy.bin').exists(), isTrue);
+    });
+
+    test('benchmark: copy 10MB file via Dart I/O', () async {
+      final src = File('$testDirPath/10mb.bin');
+      await src.writeAsBytes(
+          List.generate(10 * 1024 * 1024, (i) => i % 256));
+
+      final sw = Stopwatch()..start();
+      await src.copy('$testDirPath/10mb_copy.bin');
+      sw.stop();
+
+      developer.log('Dart 10MB copy: ${sw.elapsedMilliseconds}ms');
+      expect(sw.elapsedMilliseconds, lessThan(10000));
+      expect(await File('$testDirPath/10mb_copy.bin').exists(), isTrue);
+    });
+
+    test('benchmark: list 1000 files via Dart I/O', () async {
+      for (int i = 0; i < 1000; i++) {
+        await File('$testDirPath/f_$i.txt').writeAsString('$i');
       }
 
-      // Benchmark Native List
-      final nativeStopwatch = Stopwatch()..start();
-      await NativeWorkManager.enqueue(
-        taskId: 'bench-list-1000',
-        trigger: TaskTrigger.oneTime(),
-        worker: NativeWorker.fileList(
-          path: testDirPath,
-        ),
-      );
-      await Future.delayed(const Duration(seconds: 3));
-      nativeStopwatch.stop();
-
-      // Benchmark Dart List
-      final dartStopwatch = Stopwatch()..start();
+      final sw = Stopwatch()..start();
       final files = await testDir.list().toList();
-      dartStopwatch.stop();
+      sw.stop();
 
-      developer.log('List 1000 Files - Native: ${nativeStopwatch.elapsedMilliseconds}ms');
-      developer.log('List 1000 Files - Dart: ${dartStopwatch.elapsedMilliseconds}ms');
-      developer.log('File count: ${files.length}');
+      developer.log('Dart list 1000 files: ${sw.elapsedMilliseconds}ms');
+      expect(files.length, 1000);
+      expect(sw.elapsedMilliseconds, lessThan(5000));
+    });
 
-      expect(nativeStopwatch.elapsedMilliseconds, lessThan(5000));
+    test('benchmark: copy 100 small files via Dart I/O', () async {
+      for (int i = 0; i < 100; i++) {
+        await File('$testDirPath/src_$i.txt')
+            .writeAsString('Content $i' * 100);
+      }
+      final destDir = Directory('$testDirPath/dest');
+      await destDir.create();
+
+      final sw = Stopwatch()..start();
+      for (int i = 0; i < 100; i++) {
+        await File('$testDirPath/src_$i.txt')
+            .copy('${destDir.path}/src_$i.txt');
+      }
+      sw.stop();
+
+      developer.log('Dart copy 100 files: ${sw.elapsedMilliseconds}ms');
+      expect(sw.elapsedMilliseconds, lessThan(5000));
+    });
+
+    test('benchmark: move (rename) 100 files via Dart I/O', () async {
+      for (int i = 0; i < 100; i++) {
+        await File('$testDirPath/move_src_$i.txt').writeAsString('$i');
+      }
+
+      final sw = Stopwatch()..start();
+      for (int i = 0; i < 100; i++) {
+        await File('$testDirPath/move_src_$i.txt')
+            .rename('$testDirPath/move_dst_$i.txt');
+      }
+      sw.stop();
+
+      developer.log('Dart move 100 files: ${sw.elapsedMilliseconds}ms');
+      expect(sw.elapsedMilliseconds, lessThan(5000));
+    });
+
+    test('benchmark: create 200 nested directories via Dart I/O', () async {
+      final sw = Stopwatch()..start();
+      for (int i = 0; i < 200; i++) {
+        await Directory('$testDirPath/dir_$i/sub').create(recursive: true);
+      }
+      sw.stop();
+
+      developer.log('Dart create 200 nested dirs: ${sw.elapsedMilliseconds}ms');
+      expect(sw.elapsedMilliseconds, lessThan(5000));
     });
   });
 
-  group('Stress Tests', () {
-    test('stress: copy very large file (100MB)', () async {
-      // Create 100MB file
-      final largeFile = File('$testDirPath/100mb.bin');
-      final random = Random();
-
-      // Write in chunks to avoid memory issues
-      final sink = largeFile.openWrite();
-      for (int i = 0; i < 100; i++) {
-        final chunk = List.generate(1024 * 1024, (_) => random.nextInt(256));
-        sink.add(chunk);
-      }
-      await sink.close();
-
-      developer.log('100MB file created');
-
-      // Copy large file
-      final stopwatch = Stopwatch()..start();
-      await NativeWorkManager.enqueue(
-        taskId: 'stress-100mb-copy',
-        trigger: TaskTrigger.oneTime(),
-        worker: NativeWorker.fileCopy(
-          sourcePath: largeFile.path,
-          destinationPath: '$testDirPath/100mb_copy.bin',
-        ),
-      );
-
-      await Future.delayed(const Duration(seconds: 30));
-      stopwatch.stop();
-
-      developer.log('100MB copy completed in: ${stopwatch.elapsedMilliseconds}ms');
-
-      // Verify copied
-      final copiedFile = File('$testDirPath/100mb_copy.bin');
-      expect(await copiedFile.exists(), true);
-      expect(await copiedFile.length(), await largeFile.length());
-
-      // Should complete within reasonable time
-      expect(stopwatch.elapsedMilliseconds, lessThan(60000)); // 60s
-    }, timeout: const Timeout(Duration(minutes: 2)));
-
-    test('stress: copy directory with 1000 files', () async {
-      // Create 1000 files in nested structure
-      for (int i = 0; i < 10; i++) {
-        final subDir = Directory('$testDirPath/dir_$i');
-        await subDir.create();
-
-        for (int j = 0; j < 100; j++) {
-          await File('${subDir.path}/file_$j.txt').writeAsString('Content $i-$j');
-        }
-      }
-
-      developer.log('1000 files created');
-
-      // Copy entire directory
-      final stopwatch = Stopwatch()..start();
-      await NativeWorkManager.enqueue(
-        taskId: 'stress-1000files-copy',
-        trigger: TaskTrigger.oneTime(),
-        worker: NativeWorker.fileCopy(
-          sourcePath: testDirPath,
-          destinationPath: '$testDirPath/../1000files_copy',
-          recursive: true,
-        ),
-      );
-
-      await Future.delayed(const Duration(seconds: 30));
-      stopwatch.stop();
-
-      developer.log('1000 files copy completed in: ${stopwatch.elapsedMilliseconds}ms');
-
-      // Verify
-      final copyDir = Directory('$testDirPath/../1000files_copy');
-      expect(await copyDir.exists(), true);
-
-      // Cleanup
-      await copyDir.delete(recursive: true);
-
-      // Should complete within reasonable time
-      expect(stopwatch.elapsedMilliseconds, lessThan(60000)); // 60s
-    }, timeout: const Timeout(Duration(minutes: 2)));
-
-    test('stress: delete directory with deep nesting (100 levels)', () async {
-      // Create deeply nested directory
-      String currentPath = testDirPath;
-      for (int i = 0; i < 100; i++) {
-        currentPath = '$currentPath/level_$i';
-        await Directory(currentPath).create();
-      }
-      await File('$currentPath/deep_file.txt').writeAsString('Deep file');
-
-      developer.log('100-level deep directory created');
-
-      // Delete from root
-      final stopwatch = Stopwatch()..start();
-      await NativeWorkManager.enqueue(
-        taskId: 'stress-deep-delete',
-        trigger: TaskTrigger.oneTime(),
-        worker: NativeWorker.fileDelete(
-          path: '$testDirPath/level_0',
-          recursive: true,
-        ),
-      );
-
-      await Future.delayed(const Duration(seconds: 10));
-      stopwatch.stop();
-
-      developer.log('Deep directory deleted in: ${stopwatch.elapsedMilliseconds}ms');
-
-      // Verify deleted
-      expect(await Directory('$testDirPath/level_0').exists(), false);
-
-      // Should handle deep nesting
-      expect(stopwatch.elapsedMilliseconds, lessThan(15000));
-    });
-
-    test('stress: list directory with 5000 files', () async {
-      // Create 5000 files
-      developer.log('Creating 5000 files...');
-      for (int i = 0; i < 5000; i++) {
-        await File('$testDirPath/file_$i.txt').writeAsString('Content $i');
-
-        if (i % 500 == 0) {
-          developer.log('Created $i files...');
-        }
-      }
-
-      developer.log('5000 files created');
-
-      // List files
-      final stopwatch = Stopwatch()..start();
-      await NativeWorkManager.enqueue(
-        taskId: 'stress-5000files-list',
-        trigger: TaskTrigger.oneTime(),
-        worker: NativeWorker.fileList(
-          path: testDirPath,
-        ),
-      );
-
-      await Future.delayed(const Duration(seconds: 10));
-      stopwatch.stop();
-
-      developer.log('5000 files listed in: ${stopwatch.elapsedMilliseconds}ms');
-
-      // Should handle large listings
-      expect(stopwatch.elapsedMilliseconds, lessThan(15000));
-    }, timeout: const Timeout(Duration(minutes: 2)));
-
-    test('stress: concurrent copy operations (10 parallel)', () async {
-      // Create 10 source files
-      for (int i = 0; i < 10; i++) {
-        final file = File('$testDirPath/concurrent_source_$i.bin');
-        final data = List.generate(1024 * 1024, (j) => (i + j) % 256); // 1MB each
-        await file.writeAsBytes(data);
-      }
-
-      developer.log('10 source files created');
-
-      // Start 10 copy operations concurrently
-      final stopwatch = Stopwatch()..start();
-
-      for (int i = 0; i < 10; i++) {
-        NativeWorkManager.enqueue(
-          taskId: 'concurrent-copy-$i',
-          trigger: TaskTrigger.oneTime(),
-          worker: NativeWorker.fileCopy(
-            sourcePath: '$testDirPath/concurrent_source_$i.bin',
-            destinationPath: '$testDirPath/concurrent_dest_$i.bin',
-          ),
-        );
-      }
-
-      // Wait for all to complete
-      await Future.delayed(const Duration(seconds: 15));
-      stopwatch.stop();
-
-      developer.log('10 concurrent copies completed in: ${stopwatch.elapsedMilliseconds}ms');
-
-      // Verify all copied
-      int successCount = 0;
-      for (int i = 0; i < 10; i++) {
-        if (await File('$testDirPath/concurrent_dest_$i.bin').exists()) {
-          successCount++;
-        }
-      }
-
-      developer.log('Success count: $successCount/10');
-
-      // Should handle concurrent operations
-      expect(successCount, greaterThan(5)); // At least 50% success
-      expect(stopwatch.elapsedMilliseconds, lessThan(30000));
-    });
-
-    test('stress: pattern matching with complex patterns', () async {
-      // Create files with various extensions
-      final extensions = ['txt', 'jpg', 'png', 'pdf', 'doc', 'mp3', 'mp4'];
-
-      for (int i = 0; i < 100; i++) {
-        final ext = extensions[i % extensions.length];
-        await File('$testDirPath/file_$i.$ext').writeAsString('Content $i');
-      }
-
-      // Test various patterns
-      final patterns = [
-        '*.txt',
-        '*.jpg',
-        '*.{jpg,png}',
-        'file_?.txt',
-        'file_1*.txt',
-      ];
-
-      for (final pattern in patterns) {
-        final stopwatch = Stopwatch()..start();
-
-        await NativeWorkManager.enqueue(
-          taskId: 'stress-pattern-${pattern.hashCode}',
-          trigger: TaskTrigger.oneTime(),
-          worker: NativeWorker.fileList(
-            path: testDirPath,
-            pattern: pattern,
-          ),
-        );
-
-        await Future.delayed(const Duration(seconds: 2));
-        stopwatch.stop();
-
-        developer.log('Pattern "$pattern" matched in: ${stopwatch.elapsedMilliseconds}ms');
-
-        // Should handle patterns efficiently
-        expect(stopwatch.elapsedMilliseconds, lessThan(5000));
-      }
-    });
-  });
+  // ───────────────────────────────────────────────────────────────────────────
+  // Edge cases (real file ops, no native platform required)
+  // ───────────────────────────────────────────────────────────────────────────
 
   group('Edge Cases', () {
     test('edge: copy file with special characters in name', () async {
-      // Create file with special chars
-      final specialFile = File('$testDirPath/file (1) [copy]\'s version #2.txt');
-      await specialFile.writeAsString('Special content');
+      final src = File("$testDirPath/file (1) [copy]'s v2.txt");
+      await src.writeAsString('Special content');
 
-      // Copy
-      await NativeWorkManager.enqueue(
-        taskId: 'edge-special-chars',
-        trigger: TaskTrigger.oneTime(),
-        worker: NativeWorker.fileCopy(
-          sourcePath: specialFile.path,
-          destinationPath: '$testDirPath/copied (2) [new].txt',
-        ),
-      );
+      final dst = File('$testDirPath/copied (2) [new].txt');
+      await src.copy(dst.path);
 
-      await Future.delayed(const Duration(seconds: 2));
-
-      // Verify
-      expect(await File('$testDirPath/copied (2) [new].txt').exists(), true);
+      expect(await dst.exists(), isTrue);
+      expect(await dst.readAsString(), 'Special content');
     });
 
     test('edge: copy file with unicode characters', () async {
-      // Create file with unicode
-      final unicodeFile = File('$testDirPath/ảnh_đẹp_图片_фото.jpg');
-      await unicodeFile.writeAsString('Unicode content');
+      final src = File('$testDirPath/ảnh_đẹp_图片_фото.jpg');
+      await src.writeAsString('Unicode content');
 
-      // Copy
-      await NativeWorkManager.enqueue(
-        taskId: 'edge-unicode',
-        trigger: TaskTrigger.oneTime(),
-        worker: NativeWorker.fileCopy(
-          sourcePath: unicodeFile.path,
-          destinationPath: '$testDirPath/复制_копия.jpg',
-        ),
-      );
+      final dst = File('$testDirPath/复制_копия.jpg');
+      await src.copy(dst.path);
 
-      await Future.delayed(const Duration(seconds: 2));
-
-      // Verify
-      expect(await File('$testDirPath/复制_копия.jpg').exists(), true);
+      expect(await dst.exists(), isTrue);
+      expect(await dst.readAsString(), 'Unicode content');
     });
 
     test('edge: copy zero-byte file', () async {
-      // Create empty file
-      final emptyFile = File('$testDirPath/empty.txt');
-      await emptyFile.create();
+      final src = File('$testDirPath/empty.txt');
+      await src.create();
 
-      // Copy
-      await NativeWorkManager.enqueue(
-        taskId: 'edge-zero-byte',
-        trigger: TaskTrigger.oneTime(),
-        worker: NativeWorker.fileCopy(
-          sourcePath: emptyFile.path,
-          destinationPath: '$testDirPath/empty_copy.txt',
-        ),
-      );
+      final dst = File('$testDirPath/empty_copy.txt');
+      await src.copy(dst.path);
 
-      await Future.delayed(const Duration(seconds: 2));
-
-      // Verify
-      final copiedFile = File('$testDirPath/empty_copy.txt');
-      expect(await copiedFile.exists(), true);
-      expect(await copiedFile.length(), 0);
+      expect(await dst.exists(), isTrue);
+      expect(await dst.length(), 0);
     });
 
     test('edge: list empty directory', () async {
-      // Create empty directory
       final emptyDir = Directory('$testDirPath/empty_dir');
       await emptyDir.create();
 
-      // List
-      await NativeWorkManager.enqueue(
-        taskId: 'edge-empty-list',
-        trigger: TaskTrigger.oneTime(),
-        worker: NativeWorker.fileList(
-          path: emptyDir.path,
-        ),
-      );
+      final files = await emptyDir.list().toList();
 
-      await Future.delayed(const Duration(seconds: 2));
-
-      // Should complete without error
-      // (Verify via event listener in real test)
+      expect(files, isEmpty);
     });
 
-    test('edge: create directory with existing name', () async {
-      // Create directory
+    test('edge: create directory when it already exists (idempotent)', () async {
       final dir = Directory('$testDirPath/existing_dir');
       await dir.create();
+      expect(await dir.exists(), isTrue);
 
-      // Try to create again
-      await NativeWorkManager.enqueue(
-        taskId: 'edge-mkdir-existing',
-        trigger: TaskTrigger.oneTime(),
-        worker: NativeWorker.fileMkdir(
-          path: dir.path,
+      // Dart: createSync with recursive:true is idempotent
+      await dir.create(recursive: true); // should not throw
+
+      expect(await dir.exists(), isTrue);
+    });
+
+    test('edge: worker config for special-char paths serializes correctly', () {
+      final worker = FileSystemCopyWorker(
+        sourcePath: "$testDirPath/file (1) [copy]'s v2.txt",
+        destinationPath: '$testDirPath/复制_копия.jpg',
+        overwrite: true,
+      );
+
+      final map = worker.toMap();
+      expect(map['sourcePath'], contains('file (1)'));
+      expect(map['destinationPath'], contains('复制'));
+    });
+
+    test('edge: worker config for zero-length path accepted', () {
+      // Workers accept any string path; validation happens at native execution
+      expect(
+        () => FileSystemCopyWorker(sourcePath: '', destinationPath: ''),
+        returnsNormally,
+      );
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Stress / memory tests (Dart-side only)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  group('Stress Tests', () {
+    test('stress: create 10,000 workers without memory issues', () {
+      final sw = Stopwatch()..start();
+      final workers = List.generate(
+        10000,
+        (i) => FileSystemCopyWorker(
+          sourcePath: '/source/file_$i.txt',
+          destinationPath: '/dest/file_$i.txt',
+          overwrite: i.isEven,
+        ),
+      );
+      sw.stop();
+
+      expect(workers.length, 10000);
+      developer.log('10k workers created in ${sw.elapsedMilliseconds}ms');
+      expect(sw.elapsedMilliseconds, lessThan(2000));
+    });
+
+    test('stress: serialize 10,000 workers without memory issues', () {
+      final workers = List.generate(
+        10000,
+        (i) => FileSystemCopyWorker(
+          sourcePath: '/source/file_$i.txt',
+          destinationPath: '/dest/file_$i.txt',
         ),
       );
 
-      await Future.delayed(const Duration(seconds: 2));
+      final sw = Stopwatch()..start();
+      final maps = workers.map((w) => w.toMap()).toList();
+      sw.stop();
 
-      // Should succeed (idempotent operation)
-      expect(await dir.exists(), true);
+      expect(maps.length, 10000);
+      developer.log('10k toMap() calls in ${sw.elapsedMilliseconds}ms');
+      expect(sw.elapsedMilliseconds, lessThan(2000));
+    });
+
+    test('stress: copy deeply nested directory (100 levels) via Dart I/O',
+        () async {
+      // Build 100-level deep path
+      String current = testDirPath;
+      for (int i = 0; i < 100; i++) {
+        current = '$current/level_$i';
+      }
+      await Directory(current).create(recursive: true);
+      await File('$current/deep_file.txt').writeAsString('Deep file');
+
+      expect(await File('$current/deep_file.txt').exists(), isTrue);
+
+      // Delete from the top of the subtree
+      await Directory('$testDirPath/level_0').delete(recursive: true);
+      expect(await Directory('$testDirPath/level_0').exists(), isFalse);
+    });
+
+    test('stress: pattern matching config for many workers', () {
+      final patterns = ['*.txt', '*.jpg', '*.{jpg,png}', 'file_?.txt', 'f*'];
+      final random = Random();
+
+      final sw = Stopwatch()..start();
+      final workers = List.generate(1000, (i) {
+        final pattern = patterns[random.nextInt(patterns.length)];
+        return FileSystemListWorker(
+          path: '/dir_$i',
+          pattern: pattern,
+          recursive: i.isEven,
+        );
+      });
+      final maps = workers.map((w) => w.toMap()).toList();
+      sw.stop();
+
+      expect(maps.length, 1000);
+      developer.log('1000 ListWorker configs in ${sw.elapsedMilliseconds}ms');
+      expect(sw.elapsedMilliseconds, lessThan(500));
     });
   });
 
   group('Memory Usage Tests', () {
-    test('memory: copy large file should not load entire file', () async {
-      // Create 50MB file
-      final largeFile = File('$testDirPath/50mb.bin');
+    test('memory: Dart streaming copy of large file stays within bounds',
+        () async {
+      // Create 20MB file
+      final src = File('$testDirPath/20mb.bin');
       final random = Random();
-      final sink = largeFile.openWrite();
-
-      for (int i = 0; i < 50; i++) {
-        final chunk = List.generate(1024 * 1024, (_) => random.nextInt(256));
-        sink.add(chunk);
+      final sink = src.openWrite();
+      for (int i = 0; i < 20; i++) {
+        sink.add(List.generate(1024 * 1024, (_) => random.nextInt(256)));
       }
       await sink.close();
 
-      developer.log('50MB file created');
+      developer.log('20MB file created');
 
-      // Get memory before
       final memBefore = ProcessInfo.currentRss;
 
-      // Copy (should use streaming)
-      await NativeWorkManager.enqueue(
-        taskId: 'memory-test-50mb',
-        trigger: TaskTrigger.oneTime(),
-        worker: NativeWorker.fileCopy(
-          sourcePath: largeFile.path,
-          destinationPath: '$testDirPath/50mb_copy.bin',
-        ),
-      );
+      // Copy using Dart streaming (openRead/openWrite pipeline)
+      final dst = File('$testDirPath/20mb_copy.bin');
+      await src.openRead().pipe(dst.openWrite());
 
-      await Future.delayed(const Duration(seconds: 20));
-
-      // Get memory after
       final memAfter = ProcessInfo.currentRss;
-      final memIncrease = (memAfter - memBefore) / (1024 * 1024); // MB
+      final memIncreaseMB = (memAfter - memBefore) / (1024 * 1024);
 
-      developer.log('Memory increase: ${memIncrease.toStringAsFixed(2)} MB');
+      developer
+          .log('Memory increase: ${memIncreaseMB.toStringAsFixed(2)} MB');
 
-      // Should not increase by 50MB (streaming copy)
-      expect(memIncrease, lessThan(50));
-    }, timeout: const Timeout(Duration(minutes: 1)));
+      expect(await dst.length(), await src.length());
+      // Streaming should not load entire 20MB at once
+      expect(memIncreaseMB, lessThan(20),
+          reason: 'Streaming copy should not load entire file into RAM');
+    });
+
+    test('memory: creating many workers does not leak', () {
+      final memBefore = ProcessInfo.currentRss;
+
+      for (int i = 0; i < 50000; i++) {
+        // Create and let GC collect
+        FileSystemCopyWorker(
+            sourcePath: '/src/$i', destinationPath: '/dst/$i');
+      }
+
+      final memAfter = ProcessInfo.currentRss;
+      final memIncreaseMB = (memAfter - memBefore) / (1024 * 1024);
+
+      developer.log(
+          '50k worker create/GC cycle: ${memIncreaseMB.toStringAsFixed(2)} MB increase');
+      // No strict assertion — GC timing varies; just ensure no catastrophic leak
+      expect(memIncreaseMB, lessThan(100),
+          reason: 'Transient workers should not retain >100MB');
+    });
   });
 }

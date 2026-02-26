@@ -181,8 +181,11 @@ class FileDecompressionWorker: IosWorker {
         }
     }
 
-    /// Unzip file using NSTask/Process (iOS workaround)
-    /// Unzip file using ZIPFoundation library.
+    /// Unzip file using ZIPFoundation's high-level FileManager API.
+    ///
+    /// Uses `FileManager.unzipItem(at:to:)` which is the recommended ZIPFoundation
+    /// API and correctly handles path resolution on all iOS versions/devices,
+    /// including real devices where /var is a symlink to /private/var.
     private func unzipFile(
         zipURL: URL,
         destinationURL: URL,
@@ -190,60 +193,50 @@ class FileDecompressionWorker: IosWorker {
         overwrite: Bool
     ) async throws -> (files: Int, dirs: Int, bytes: Int64, paths: [String]) {
         let fileManager = FileManager.default
+
+        // Use ZIPFoundation's high-level API — handles CRC, path traversal, and
+        // symlink resolution internally. Much more reliable than manual entry loops.
+        // Resolve symlinks on both URLs to ensure canonical paths on real devices.
+        let resolvedZipURL = zipURL.resolvingSymlinksInPath()
+        let resolvedDestURL = destinationURL.resolvingSymlinksInPath()
+
+        try fileManager.unzipItem(at: resolvedZipURL, to: resolvedDestURL)
+
+        // Enumerate the destination directory to build stats.
         var extractedFiles = 0
         var extractedDirs = 0
         var totalBytes: Int64 = 0
         var paths: [String] = []
 
-        guard let archive = Archive(url: zipURL, accessMode: .read) else {
-            throw NSError(domain: "FileDecompressionWorker", code: -1,
-                         userInfo: [NSLocalizedDescriptionKey: "Failed to open ZIP archive"])
-        }
+        let resourceKeys: Set<URLResourceKey> = [.isDirectoryKey, .fileSizeKey]
+        if let enumerator = fileManager.enumerator(
+            at: resolvedDestURL,
+            includingPropertiesForKeys: Array(resourceKeys),
+            options: [.skipsHiddenFiles]
+        ) {
+            for case let fileURL as URL in enumerator {
+                // ✅ SECURITY: Zip Slip — verify every extracted path is within target
+                let resolvedEntry = fileURL.resolvingSymlinksInPath().path
+                let resolvedBase  = resolvedDestURL.path
+                guard resolvedEntry.hasPrefix(resolvedBase) else {
+                    throw NSError(
+                        domain: "FileDecompressionWorker",
+                        code: -1,
+                        userInfo: [NSLocalizedDescriptionKey: "Zip slip attack detected: \(fileURL.path)"]
+                    )
+                }
 
-        for entry in archive {
-            let destinationEntryURL = destinationURL.appendingPathComponent(entry.path)
-
-            // ✅ SECURITY: Zip Slip Protection - ensure extracted path is within target directory
-            let canonicalDestinationEntryPath = destinationEntryURL.standardizedFileURL.path
-            guard canonicalDestinationEntryPath.hasPrefix(canonicalPath) else {
-                throw NSError(
-                    domain: "FileDecompressionWorker",
-                    code: -1,
-                    userInfo: [NSLocalizedDescriptionKey: "Zip slip attack detected for entry: \(entry.path)"]
-                )
-            }
-
-            // Handle overwrite logic
-            if fileManager.fileExists(atPath: destinationEntryURL.path) {
-                if !overwrite {
-                    print("FileDecompressionWorker: Skipping existing file (overwrite disabled): \(entry.path)")
-                    continue
+                let vals = try? fileURL.resourceValues(forKeys: resourceKeys)
+                paths.append(fileURL.path)
+                if vals?.isDirectory == true {
+                    extractedDirs += 1
                 } else {
-                    // Attempt to remove existing item for overwrite
-                    try? fileManager.removeItem(at: destinationEntryURL)
+                    extractedFiles += 1
+                    totalBytes += Int64(vals?.fileSize ?? 0)
                 }
             }
-
-            // Create parent directories if needed
-            let parentDirectory = destinationEntryURL.deletingLastPathComponent()
-            if !fileManager.fileExists(atPath: parentDirectory.path) {
-                try fileManager.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
-            }
-
-            // Extract entry
-            print("FileDecompressionWorker: Extracting \(entry.path)")
-            try archive.extract(entry, to: destinationEntryURL, skipCRC32: false)
-
-            paths.append(destinationEntryURL.path)
-
-            // Update stats
-            if entry.type == .directory {
-                extractedDirs += 1
-            } else {
-                extractedFiles += 1
-                totalBytes += Int64(entry.uncompressedSize)
-            }
         }
+
         return (extractedFiles, extractedDirs, totalBytes, paths)
     }
 

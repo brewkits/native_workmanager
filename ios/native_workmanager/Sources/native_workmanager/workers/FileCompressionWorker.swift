@@ -193,7 +193,7 @@ class FileCompressionWorker: IosWorker {
             }
 
             let originalSize = try calculateSize(url: inputURL)
-            let compressionRatio = Int((Float(compressedSize) / Float(originalSize)) * 100)
+            let compressionRatio = originalSize > 0 ? Int((Float(compressedSize) / Float(originalSize)) * 100) : 0
 
             print("FileCompressionWorker: Compression successful:")
             print("  Original: \(formatBytes(originalSize))")

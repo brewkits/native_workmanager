@@ -4,7 +4,7 @@ import 'package:native_workmanager/native_workmanager.dart';
 void main() {
   group('DartWorker', () {
     test('should create DartWorker with required fields', () {
-      final worker = const DartWorker(callbackId: 'testCallback');
+      final worker = DartWorker(callbackId: 'testCallback');
 
       expect(worker.callbackId, 'testCallback');
       expect(worker.input, isNull);
@@ -21,7 +21,7 @@ void main() {
     });
 
     test('should have correct workerClassName', () {
-      final worker = const DartWorker(callbackId: 'test');
+      final worker = DartWorker(callbackId: 'test');
       expect(worker.workerClassName, 'DartCallbackWorker');
     });
 
@@ -40,7 +40,7 @@ void main() {
     });
 
     test('should serialize to map without input', () {
-      final worker = const DartWorker(callbackId: 'testCallback');
+      final worker = DartWorker(callbackId: 'testCallback');
       final map = worker.toMap();
 
       expect(map['workerType'], 'dartCallback');
@@ -67,7 +67,7 @@ void main() {
     });
 
     test('should handle empty input map', () {
-      final worker = const DartWorker(callbackId: 'empty', input: {});
+      final worker = DartWorker(callbackId: 'empty', input: {});
 
       final map = worker.toMap();
       expect(map['input'], isA<String>());
@@ -777,7 +777,7 @@ void main() {
     });
 
     test('should handle null values in DartWorker input', () {
-      final worker = const DartWorker(
+      final worker = DartWorker(
         callbackId: 'test',
         input: {'key': null, 'value': 'not null'},
       );

@@ -50,43 +50,73 @@ enum SecurityValidator {
     /// - Parameter path: File path to validate
     /// - Returns: true if path is safe, false otherwise
     static func validateFilePath(_ path: String) -> Bool {
-        // Convert to URL and resolve symlinks/relative paths
-        let fileURL = URL(fileURLWithPath: path)
+        // Convert to URL and resolve symlinks/relative paths.
+        // NOTE: On real iOS devices, /var is a symlink to /private/var.
+        // We must resolve symlinks on BOTH the input path AND the allowed paths.
+        //
+        // CRITICAL: resolvingSymlinksInPath() returns the URL *unchanged* when the
+        // path does not exist on the filesystem (Apple-documented behaviour).
+        // Output files (e.g. encrypted.dat, compressed.zip) don't exist yet, so
+        // we resolve their parent directory (which does exist) and reconstruct.
+        let resolvedPath = resolvePathWithSymlinks(path)
 
-        guard let resolvedPath = try? fileURL.resolvingSymlinksInPath().path else {
-            print("SecurityValidator: Cannot resolve file path")
-            return false
-        }
+        // Get allowed directories (app sandbox) and resolve their symlinks too
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        let cachesURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        let tempURL = URL(fileURLWithPath: NSTemporaryDirectory())
 
-        // Get allowed directories (app sandbox)
-        let documentsDir = FileManager.default.urls(
-            for: .documentDirectory,
-            in: .userDomainMask
-        ).first?.path
+        let allowedURLs: [URL] = [documentsURL, cachesURL, tempURL].compactMap { $0 }
 
-        let cachesDir = FileManager.default.urls(
-            for: .cachesDirectory,
-            in: .userDomainMask
-        ).first?.path
-
-        let tempDir = NSTemporaryDirectory()
-
-        // ✅ SECURITY: Only allow writes within app sandbox
-        let allowedPaths = [documentsDir, cachesDir, tempDir].compactMap { $0 }
-
-        for allowedPath in allowedPaths {
-            if resolvedPath.hasPrefix(allowedPath) {
+        // ✅ SECURITY: Only allow paths within app sandbox (resolve symlinks on both sides)
+        for allowedURL in allowedURLs {
+            let resolvedAllowed = allowedURL.resolvingSymlinksInPath().path
+            if resolvedPath.hasPrefix(resolvedAllowed) {
                 return true
             }
         }
 
         print("SecurityValidator: File path '\(resolvedPath)' outside app sandbox")
         print("SecurityValidator: Allowed directories:")
-        for allowedPath in allowedPaths {
-            print("  - \(allowedPath)")
+        for allowedURL in allowedURLs {
+            print("  - \(allowedURL.resolvingSymlinksInPath().path)")
         }
 
         return false
+    }
+
+    /// Resolve symlinks in a path, including for paths that do not yet exist.
+    ///
+    /// `URL.resolvingSymlinksInPath()` is documented to return the URL unchanged
+    /// when the path doesn't exist. For non-existent paths (e.g. output files)
+    /// we walk up to the deepest existing ancestor, resolve symlinks there, then
+    /// reconstruct the full path so the /var → /private/var mapping is applied.
+    private static func resolvePathWithSymlinks(_ path: String) -> String {
+        let fileManager = FileManager.default
+        var url = URL(fileURLWithPath: path)
+
+        // If the path exists, resolve directly — this is the common case.
+        if fileManager.fileExists(atPath: url.path) {
+            return url.resolvingSymlinksInPath().path
+        }
+
+        // Walk up the directory tree until we find an existing ancestor.
+        var nonExistentTail: [String] = []
+        while url.path != "/" {
+            nonExistentTail.append(url.lastPathComponent)
+            url = url.deletingLastPathComponent()
+            if fileManager.fileExists(atPath: url.path) {
+                break
+            }
+        }
+
+        // Resolve symlinks on the existing ancestor.
+        let resolvedBase = url.resolvingSymlinksInPath().path
+        let tail = nonExistentTail.reversed().joined(separator: "/")
+
+        if resolvedBase == "/" {
+            return "/" + tail
+        }
+        return resolvedBase + "/" + tail
     }
 
     // MARK: - Safe Logging
