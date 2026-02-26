@@ -103,9 +103,9 @@ class FileSystemWorker : AndroidWorker {
             return WorkerResult.Failure("Destination already exists: $destinationPath (set overwrite=true to replace)")
         }
 
-        // Path traversal protection
-        if (!destFile.canonicalPath.startsWith(destFile.parentFile?.canonicalPath ?: "")) {
-            return WorkerResult.Failure("Path traversal detected in destination")
+        // Path traversal protection: reject paths containing ..
+        if (sourcePath.contains("..") || destinationPath.contains("..")) {
+            return WorkerResult.Failure("Path traversal detected: paths containing '..' are not allowed")
         }
 
         return try {
@@ -153,9 +153,9 @@ class FileSystemWorker : AndroidWorker {
             return WorkerResult.Failure("Destination already exists: $destinationPath (set overwrite=true to replace)")
         }
 
-        // Path traversal protection
-        if (!destFile.canonicalPath.startsWith(destFile.parentFile?.canonicalPath ?: "")) {
-            return WorkerResult.Failure("Path traversal detected in destination")
+        // Path traversal protection: reject paths containing ..
+        if (sourcePath.contains("..") || destinationPath.contains("..")) {
+            return WorkerResult.Failure("Path traversal detected: paths containing '..' are not allowed")
         }
 
         return try {
@@ -328,9 +328,9 @@ class FileSystemWorker : AndroidWorker {
             }
         }
 
-        // Path traversal protection
-        if (!directory.canonicalPath.startsWith(directory.parentFile?.canonicalPath ?: "")) {
-            return WorkerResult.Failure("Path traversal detected")
+        // Path traversal protection: reject paths containing ..
+        if (path.contains("..")) {
+            return WorkerResult.Failure("Path traversal detected: paths containing '..' are not allowed")
         }
 
         return try {

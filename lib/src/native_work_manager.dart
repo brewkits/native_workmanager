@@ -1467,6 +1467,16 @@ class NativeWorkManager {
   /// ```
   static void registerDartWorker(String id, DartWorkerCallback callback) {
     _dartWorkers[id] = callback;
+
+    final handle = PluginUtilities.getCallbackHandle(callback);
+    if (handle == null) {
+      throw StateError(
+        'Failed to get callback handle for "$id". '
+        'Ensure the callback is a top-level or static function, '
+        'NOT an anonymous function or instance method.',
+      );
+    }
+    _callbackHandles[id] = handle.toRawHandle();
   }
 
   /// Unregister a Dart worker.

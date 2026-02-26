@@ -234,13 +234,24 @@ class HttpDownloadWorker: IosWorker {
                 do {
                     // 👇 NEW: Handle resume by appending to temp file
                     if isResumingDownload {
-                        // Append downloaded data to existing temp file
-                        if let downloadedData = try? Data(contentsOf: location) {
-                            if let fileHandle = try? FileHandle(forWritingTo: tempURL) {
-                                defer { try? fileHandle.close() }
-                                fileHandle.seekToEndOfFile()
-                                fileHandle.write(downloadedData)
+                        // Stream-append downloaded chunk to existing temp file.
+                        // Avoids loading the entire chunk into RAM (OOM risk for large files).
+                        do {
+                            let chunkHandle = try FileHandle(forReadingFrom: location)
+                            defer { try? chunkHandle.close() }
+                            let destHandle = try FileHandle(forWritingTo: tempURL)
+                            defer { try? destHandle.close() }
+                            destHandle.seekToEndOfFile()
+                            let bufferSize = 65_536 // 64 KB chunks
+                            while true {
+                                let chunk = chunkHandle.readData(ofLength: bufferSize)
+                                if chunk.isEmpty { break }
+                                destHandle.write(chunk)
                             }
+                        } catch {
+                            try? FileManager.default.removeItem(at: location)
+                            continuation.resume(returning: .failure(message: "Failed to append resumed chunk: \(error.localizedDescription)"))
+                            return
                         }
                         try? FileManager.default.removeItem(at: location)
                     } else {

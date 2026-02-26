@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.security.MessageDigest
+import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.IvParameterSpec
@@ -75,6 +76,7 @@ class CryptoWorker : AndroidWorker {
         private const val AES_KEY_SIZE = 256
         private const val PBKDF2_ITERATIONS = 100_000
         private const val IV_SIZE = 16  // AES block size
+        private const val SALT_SIZE = 16 // Random salt size
     }
 
     data class Config(
@@ -220,8 +222,8 @@ class CryptoWorker : AndroidWorker {
         Log.d(TAG, "Encrypting: ${inputFile.name} → ${outputFile.name}")
 
         return try {
-            // Generate encryption key from password
-            val salt = "native_workmanager_salt".toByteArray()  // In production, use random salt
+            // Generate random salt (unique per encryption — defeats rainbow tables)
+            val salt = ByteArray(SALT_SIZE).also { SecureRandom().nextBytes(it) }
             val key = generateKey(config.password, salt)
 
             // Encrypt file
@@ -231,7 +233,8 @@ class CryptoWorker : AndroidWorker {
 
             inputFile.inputStream().use { input ->
                 outputFile.outputStream().use { output ->
-                    // Write IV to output (needed for decryption)
+                    // Write salt + IV to output (both needed for decryption)
+                    output.write(salt)
                     output.write(iv)
 
                     // Encrypt and write data
@@ -307,17 +310,18 @@ class CryptoWorker : AndroidWorker {
         Log.d(TAG, "Decrypting: ${inputFile.name} → ${outputFile.name}")
 
         return try {
-            // Generate decryption key from password
-            val salt = "native_workmanager_salt".toByteArray()  // Must match encryption salt
-            val key = generateKey(config.password, salt)
-
             inputFile.inputStream().use { input ->
-                // Read IV from input
+                // Read salt (first SALT_SIZE bytes), then IV
+                val salt = ByteArray(SALT_SIZE)
+                if (input.read(salt) != SALT_SIZE) {
+                    throw IllegalArgumentException("Invalid encrypted file (missing or incomplete salt)")
+                }
                 val iv = ByteArray(IV_SIZE)
-                val ivBytesRead = input.read(iv)
-                if (ivBytesRead != IV_SIZE) {
+                if (input.read(iv) != IV_SIZE) {
                     throw IllegalArgumentException("Invalid encrypted file (missing or incomplete IV)")
                 }
+
+                val key = generateKey(config.password, salt)
 
                 // Decrypt file
                 val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")

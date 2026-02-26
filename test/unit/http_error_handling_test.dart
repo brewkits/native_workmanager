@@ -97,14 +97,14 @@ void main() {
         );
       });
 
-      test('should accept very long timeout', () {
+      test('should reject very long timeout (over 5 minutes)', () {
         expect(
           () => NativeWorker.httpRequest(
             url: 'https://example.com',
             method: HttpMethod.get,
             timeout: const Duration(hours: 1),
           ),
-          returnsNormally,
+          throwsArgumentError,
         );
       });
     });
@@ -228,15 +228,15 @@ void main() {
         }
       });
 
-      test('should require checksumAlgorithm when expectedChecksum provided', () {
+      test('should accept expectedChecksum without explicit checksumAlgorithm (uses default SHA-256)', () {
+        // checksumAlgorithm defaults to 'SHA-256', so omitting it is valid
         expect(
           () => NativeWorker.httpDownload(
             url: 'https://example.com/file.zip',
             savePath: '/downloads/file.zip',
             expectedChecksum: 'abc123',
-            // checksumAlgorithm missing
           ),
-          throwsArgumentError,
+          returnsNormally,
         );
       });
 

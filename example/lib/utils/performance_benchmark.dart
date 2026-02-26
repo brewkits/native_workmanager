@@ -27,6 +27,7 @@ class PerformanceBenchmark {
       debugPrint('❌ Benchmark error: $e');
     }
 
+
     debugPrint('✅ Benchmarks completed');
     return results;
   }

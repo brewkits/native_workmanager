@@ -1,3 +1,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-  package="dev.brewkits.native_workmanager">
+    xmlns:tools="http://schemas.android.com/tools"
+    package="dev.brewkits.native_workmanager">
+
+    <!-- Required for isHeavyTask=true (KmpHeavyWorker foreground service) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Required on Android 14+ (API 34+) for typed foreground services -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <application>
+        <!-- Declare foreground service type for WorkManager's SystemForegroundService.
+             Required on Android 14+ (API 34+) when using isHeavyTask=true.
+             If your app needs a different type, override with tools:node="replace". -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+    </application>
 </manifest>

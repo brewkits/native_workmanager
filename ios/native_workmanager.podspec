@@ -25,10 +25,10 @@ Features:
   s.source_files     = 'native_workmanager/Sources/native_workmanager/**/*.{swift,h,m}'
   s.dependency 'Flutter'
   s.dependency 'ZIPFoundation', '~> 0.9'
-  s.platform         = :ios, '13.0'
+  s.platform         = :ios, '14.0'
 
   # Ensure Swift files are included
-  s.ios.deployment_target = '13.0'
+  s.ios.deployment_target = '14.0'
 
   # Flutter.framework does not contain a i386 slice.
   s.pod_target_xcconfig = {

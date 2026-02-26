@@ -59,6 +59,7 @@ class CryptoWorker: IosWorker {
     private static let pbkdf2Iterations = 100_000
     private static let aesKeySize = 32  // 256 bits
     private static let nonceSize = 12   // GCM nonce size
+    private static let saltSize = 16   // Random salt prepended to encrypted file
 
     struct Config: Codable {
         let operation: String            // "hash", "encrypt", "decrypt"
@@ -202,9 +203,19 @@ class CryptoWorker: IosWorker {
 
         print("CryptoWorker: Encrypting: \(inputURL.lastPathComponent) → \(outputURL.lastPathComponent)")
 
+        // ✅ SECURITY: Validate file size before loading into RAM (AES-GCM is not streaming)
+        guard SecurityValidator.validateFileSize(inputURL) else {
+            print("CryptoWorker: Error - Input file exceeds size limit for encryption")
+            return .failure(message: "Input file exceeds size limit for encryption (max 100MB)")
+        }
+
         do {
-            // Generate encryption key from password
-            let salt = "native_workmanager_salt".data(using: .utf8)!
+            // Generate random salt (unique per encryption — defeats rainbow tables)
+            var saltBytes = [UInt8](repeating: 0, count: CryptoWorker.saltSize)
+            guard SecRandomCopyBytes(kSecRandomDefault, CryptoWorker.saltSize, &saltBytes) == errSecSuccess else {
+                throw NSError(domain: "CryptoWorker", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to generate random salt"])
+            }
+            let salt = Data(saltBytes)
             let key = try generateKey(password: password, salt: salt)
 
             // Read input file
@@ -213,11 +224,11 @@ class CryptoWorker: IosWorker {
             // Encrypt data using AES-GCM
             let sealedBox = try AES.GCM.seal(inputData, using: key)
 
-            // Write nonce + ciphertext + tag to output
+            // Write salt + (nonce + ciphertext + tag) to output
             guard let combined = sealedBox.combined else {
                 throw NSError(domain: "CryptoWorker", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to get combined data"])
             }
-            try combined.write(to: outputURL)
+            try (salt + combined).write(to: outputURL)
 
             let inputSize = try FileManager.default.attributesOfItem(atPath: filePath)[.size] as? Int64 ?? 0
             let outputSize = try FileManager.default.attributesOfItem(atPath: outputPath)[.size] as? Int64 ?? 0
@@ -277,16 +288,26 @@ class CryptoWorker: IosWorker {
 
         print("CryptoWorker: Decrypting: \(inputURL.lastPathComponent) → \(outputURL.lastPathComponent)")
 
-        do {
-            // Generate decryption key from password
-            let salt = "native_workmanager_salt".data(using: .utf8)!
-            let key = try generateKey(password: password, salt: salt)
+        // ✅ SECURITY: Validate file size before loading into RAM (AES-GCM is not streaming)
+        guard SecurityValidator.validateFileSize(inputURL) else {
+            print("CryptoWorker: Error - Encrypted file exceeds size limit for decryption")
+            return .failure(message: "Encrypted file exceeds size limit for decryption (max 100MB)")
+        }
 
-            // Read encrypted file
+        do {
+            // Read encrypted file: [salt(16)][nonce(12)+ciphertext+tag(16)]
             let encryptedData = try Data(contentsOf: inputURL)
+            guard encryptedData.count > CryptoWorker.saltSize else {
+                throw NSError(domain: "CryptoWorker", code: -1,
+                              userInfo: [NSLocalizedDescriptionKey: "Invalid encrypted file (too short)"])
+            }
+            let salt = encryptedData.prefix(CryptoWorker.saltSize)
+            let cipherData = encryptedData.dropFirst(CryptoWorker.saltSize)
+
+            let key = try generateKey(password: password, salt: Data(salt))
 
             // Decrypt data using AES-GCM
-            let sealedBox = try AES.GCM.SealedBox(combined: encryptedData)
+            let sealedBox = try AES.GCM.SealedBox(combined: cipherData)
             let decryptedData = try AES.GCM.open(sealedBox, using: key)
 
             // Write decrypted data to output

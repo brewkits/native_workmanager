@@ -254,15 +254,18 @@ class HttpUploadWorker: IosWorker {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = config.timeout
-        request.setValue("multipart/form-data; boundary=\(HttpUploadWorker.boundary)",
-                        forHTTPHeaderField: "Content-Type")
 
-        // Add custom headers
+        // Add custom headers first so that Content-Type (set below) is applied last
+        // and cannot be overridden by user-supplied headers.
         if let headers = config.headers {
             for (key, value) in headers {
                 request.setValue(value, forHTTPHeaderField: key)
             }
         }
+
+        // Set multipart Content-Type AFTER custom headers — must include boundary.
+        request.setValue("multipart/form-data; boundary=\(HttpUploadWorker.boundary)",
+                        forHTTPHeaderField: "Content-Type")
 
         // Build multipart body
         var body = Data()

@@ -46,6 +46,9 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     // Task start times for debug mode
     private var taskStartTimes: [String: Date] = [:]
 
+    // Active task handles for cancellation support
+    private var activeTasks: [String: Task<Void, Never>] = [:]
+
     // Chain state manager for persistence
     private let chainStateManager = ChainStateManager()
 
@@ -75,6 +78,10 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         )
         progressChannel.setStreamHandler(ProgressStreamHandler(plugin: instance))
         instance.progressChannel = progressChannel
+
+        // Initialize KMPBridge at launch time (CRITICAL: BGTaskScheduler handlers must
+        // be registered before app finishes launching, not lazily on Dart's initialize())
+        KMPBridge.shared.initialize()
 
         // Register BGTaskScheduler handlers (iOS 13+)
         if #available(iOS 13.0, *) {
@@ -123,8 +130,9 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     // MARK: - Method Handlers
 
     private func handleInitialize(call: FlutterMethodCall, result: @escaping FlutterResult) {
-        // Initialize KMP WorkManager
-        KMPBridge.shared.initialize()
+        // Note: KMPBridge is already initialized at plugin registration time.
+        // KMPBridge.shared.initialize() is called in register(with:) to ensure
+        // BGTaskScheduler handlers are registered before app finishes launching.
 
         // Extract arguments
         if let args = call.arguments as? [String: Any] {
@@ -288,72 +296,77 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             return
         }
 
-        print("NativeWorkManager: Enqueue task '\(taskId)' with worker '\(workerClassName)' via KMP scheduler")
+        print("NativeWorkManager: Enqueue task '\(taskId)' with worker '\(workerClassName)' (direct execution)")
 
-        // Get KMP scheduler
-        guard let scheduler = KMPBridge.shared.getScheduler() else {
-            result(FlutterError(
-                code: "NOT_INITIALIZED",
-                message: "KMP WorkManager not initialized",
-                details: nil
-            ))
-            return
+        // Set initial task state and store tag atomically
+        let capturedTag = args["tag"] as? String
+        stateQueue.async(flags: .barrier) {
+            self.taskStates[taskId] = "pending"
+            if let tag = capturedTag {
+                self.taskTags[taskId] = tag
+                print("NativeWorkManager: Stored tag '\(tag)' for task '\(taskId)'")
+            }
         }
 
         // Extract parameters
+        let workerConfig = args["workerConfig"] as? [String: Any] ?? [:]
         let constraintsMap = args["constraints"] as? [String: Any]
-        let workerConfig = args["workerConfig"] as? [String: Any]
-        let policyString = args["existingPolicy"] as? String
-        let tag = args["tag"] as? String
+        let qos = constraintsMap?["qos"] as? String ?? "background"
 
-        // Store tag if provided
-        if let tag = tag {
-            taskTags[taskId] = tag
-            print("NativeWorkManager: Stored tag '\(tag)' for task '\(taskId)'")
-        }
+        // Parse trigger
+        let triggerType = triggerMap["type"] as? String ?? "oneTime"
+        let delayMs = (triggerMap["initialDelayMs"] as? NSNumber)?.int64Value ?? 0
 
-        // Set initial task state to pending (task is scheduled, not yet executing)
-        stateQueue.async(flags: .barrier) {
-            self.taskStates[taskId] = "pending"
-        }
+        // Accept immediately – iOS executes tasks directly (BGTaskScheduler doesn't fire
+        // during foreground execution or in the simulator without special simulation)
+        result("ACCEPTED")
 
-        // Convert workerConfig to JSON string for KMP
-        var inputJson: String? = nil
-        if let config = workerConfig,
-           let jsonData = try? JSONSerialization.data(withJSONObject: config),
-           let jsonString = String(data: jsonData, encoding: .utf8) {
-            inputJson = jsonString
-        }
+        // Launch async task (stored so it can be cancelled)
+        let taskHandle = Task { [weak self] in
+            guard let self = self else { return }
 
-        // Call KMP scheduler
-        KMPSchedulerBridge.enqueue(
-            scheduler: scheduler,
-            taskId: taskId,
-            triggerMap: triggerMap,
-            workerClassName: workerClassName,
-            constraintsMap: constraintsMap,
-            inputJson: inputJson,
-            policyString: policyString
-        ) { scheduleResult in
-            switch scheduleResult {
-            case .success(let schedResult):
-                let resultString = KMPSchedulerBridge.scheduleResultToString(schedResult)
-                print("✅ KMP Scheduler: Task '\(taskId)' enqueued with result: \(resultString)")
-                result(resultString)
-            case .failure(let error):
-                print("❌ KMP Scheduler: Failed to enqueue task '\(taskId)' - \(error)")
-                result(FlutterError(
-                    code: "ENQUEUE_FAILED",
-                    message: error.localizedDescription,
-                    details: nil
-                ))
+            // Apply initial delay if requested
+            if delayMs > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(delayMs) * 1_000_000)
+            }
+            guard !Task.isCancelled else { return }
+
+            if triggerType == "periodic" {
+                let intervalMs = (triggerMap["intervalMs"] as? NSNumber)?.int64Value ?? 900_000
+                // Execute first time immediately
+                _ = await self.executeWorkerSync(
+                    taskId: taskId,
+                    workerClassName: workerClassName,
+                    workerConfig: workerConfig,
+                    qos: qos
+                )
+                // Repeat until cancelled (simulates periodic behavior)
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: UInt64(intervalMs) * 1_000_000)
+                    guard !Task.isCancelled else { break }
+                    _ = await self.executeWorkerSync(
+                        taskId: taskId,
+                        workerClassName: workerClassName,
+                        workerConfig: workerConfig,
+                        qos: qos
+                    )
+                }
+            } else {
+                // One-time task
+                _ = await self.executeWorkerSync(
+                    taskId: taskId,
+                    workerClassName: workerClassName,
+                    workerConfig: workerConfig,
+                    qos: qos
+                )
             }
         }
-    }
 
-    // MARK: - Legacy Implementation (Removed in Phase 2)
-    // The old direct Swift worker execution has been replaced with KMP scheduler calls
-    // All background tasks are now scheduled through kmpworkmanager v2.3.0
+        // Store handle for cancellation
+        stateQueue.async(flags: .barrier) {
+            self.activeTasks[taskId] = taskHandle
+        }
+    }
 
 
     private func handleCancel(call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -363,56 +376,26 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             return
         }
 
-        print("NativeWorkManager: Cancel task \(taskId) via KMP scheduler")
+        print("NativeWorkManager: Cancel task \(taskId)")
 
-        // Get KMP scheduler
-        guard let scheduler = KMPBridge.shared.getScheduler() else {
-            // Fallback to legacy BGTaskScheduler if KMP not ready
-            if #available(iOS 13.0, *) {
-                BGTaskSchedulerManager.shared.cancelTask(taskId: taskId)
-            }
-            // Remove tag mapping
-            taskTags.removeValue(forKey: taskId)
-            result(nil)
-            return
-        }
-
-        // Cancel via KMP scheduler
-        scheduler.cancel(id: taskId)
-        // Remove tag mapping
-        taskTags.removeValue(forKey: taskId)
-        // Update task state
         stateQueue.async(flags: .barrier) {
+            self.activeTasks[taskId]?.cancel()
+            self.activeTasks.removeValue(forKey: taskId)
             self.taskStates[taskId] = "cancelled"
+            self.taskTags.removeValue(forKey: taskId)
         }
-        print("✅ KMP Scheduler: Task '\(taskId)' cancelled")
         result(nil)
     }
 
     private func handleCancelAll(result: @escaping FlutterResult) {
-        print("NativeWorkManager: Cancel all tasks via KMP scheduler")
+        print("NativeWorkManager: Cancel all tasks")
 
-        // Get KMP scheduler
-        guard let scheduler = KMPBridge.shared.getScheduler() else {
-            // Fallback to legacy BGTaskScheduler if KMP not ready
-            if #available(iOS 13.0, *) {
-                BGTaskSchedulerManager.shared.cancelAllTasks()
-            }
-            // Clear all tag mappings
-            taskTags.removeAll()
-            result(nil)
-            return
-        }
-
-        // Cancel all via KMP scheduler
-        scheduler.cancelAll()
-        // Clear all tag mappings
-        taskTags.removeAll()
-        // Clear all task states
         stateQueue.async(flags: .barrier) {
+            for (_, task) in self.activeTasks { task.cancel() }
+            self.activeTasks.removeAll()
             self.taskStates.removeAll()
+            self.taskTags.removeAll()
         }
-        print("✅ KMP Scheduler: All tasks cancelled")
         result(nil)
     }
 
@@ -423,34 +406,20 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             return
         }
 
-        // Find all tasks with this tag
-        let tasksToCancel = taskTags.filter { $0.value == tag }.map { $0.key }
-
+        // Read taskTags under a shared lock, then cancel under a barrier lock
+        let tasksToCancel = stateQueue.sync {
+            taskTags.filter { $0.value == tag }.map { $0.key }
+        }
         print("NativeWorkManager: Canceling \(tasksToCancel.count) tasks with tag '\(tag)'")
 
-        // Get KMP scheduler
-        guard let scheduler = KMPBridge.shared.getScheduler() else {
-            // Fallback to legacy BGTaskScheduler if KMP not ready
-            if #available(iOS 13.0, *) {
-                for taskId in tasksToCancel {
-                    BGTaskSchedulerManager.shared.cancelTask(taskId: taskId)
-                    taskTags.removeValue(forKey: taskId)
-                }
-            }
-            result(nil)
-            return
-        }
-
-        // Cancel each task
-        for taskId in tasksToCancel {
-            scheduler.cancel(id: taskId)
-            taskTags.removeValue(forKey: taskId)
-            // Update task state
-            stateQueue.async(flags: .barrier) {
+        stateQueue.async(flags: .barrier) {
+            for taskId in tasksToCancel {
+                self.activeTasks[taskId]?.cancel()
+                self.activeTasks.removeValue(forKey: taskId)
                 self.taskStates[taskId] = "cancelled"
+                self.taskTags.removeValue(forKey: taskId)
             }
         }
-
         result(nil)
     }
 
@@ -461,14 +430,18 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             return
         }
 
-        // Find all tasks with this tag
-        let tasks = taskTags.filter { $0.value == tag }.map { $0.key }
+        // Find all tasks with this tag (shared read lock)
+        let tasks = stateQueue.sync {
+            taskTags.filter { $0.value == tag }.map { $0.key }
+        }
         result(tasks)
     }
 
     private func handleGetAllTags(result: @escaping FlutterResult) {
-        // Get all unique tags
-        let tags = Array(Set(taskTags.values))
+        // Get all unique tags (shared read lock)
+        let tags = stateQueue.sync {
+            Array(Set(taskTags.values))
+        }
         result(tags)
     }
 

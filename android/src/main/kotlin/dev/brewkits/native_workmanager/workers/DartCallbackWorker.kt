@@ -107,7 +107,8 @@ class DartCallbackWorkerWrapper(
 
         } catch (e: Exception) {
             Log.e(TAG, "Error in DartCallbackWorker", e)
-            WorkerResult.Failure(e.message ?: "Unknown error", shouldRetry = true)
+            // shouldRetry = false: emit a definitive failure event instead of retrying forever
+            WorkerResult.Failure(e.message ?: "Unknown error", shouldRetry = false)
         }
     }
 }

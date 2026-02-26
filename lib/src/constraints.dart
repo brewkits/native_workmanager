@@ -1173,17 +1173,21 @@ class Constraints {
         ),
         backoffDelayMs: map['backoffDelayMs'] as int? ?? 30000,
         systemConstraints: (map['systemConstraints'] as List<dynamic>?)
-                ?.map((name) => SystemConstraint.values
-                    .firstWhere((e) => e.name == name))
+                ?.map((name) => SystemConstraint.values.where(
+                      (e) => e.name == name,
+                    ).firstOrNull)
+                .whereType<SystemConstraint>()
                 .toSet() ??
             {},
         bgTaskType: map['bgTaskType'] != null
-            ? BGTaskType.values
-                .firstWhere((e) => e.name == map['bgTaskType'])
+            ? BGTaskType.values.where(
+                (e) => e.name == map['bgTaskType'],
+              ).firstOrNull
             : null,
         foregroundServiceType: map['foregroundServiceType'] != null
-            ? ForegroundServiceType.values
-                .firstWhere((e) => e.name == map['foregroundServiceType'])
+            ? ForegroundServiceType.values.where(
+                (e) => e.name == map['foregroundServiceType'],
+              ).firstOrNull
             : null,
       );
 

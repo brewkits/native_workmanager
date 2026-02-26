@@ -500,38 +500,24 @@ void main() {
   });
 
   group('Error Scenario Validation', () {
-    test('should validate empty taskId', () {
-      // Simulate what enqueue() validation does
-      final taskId = '';
-      expect(taskId.isEmpty, isTrue);
+    test('periodic trigger serializes interval correctly', () {
+      // Verify the trigger DOES serialize correctly before enqueue() validates it
+      final trigger = TaskTrigger.periodic(const Duration(minutes: 10));
+      final map = trigger.toMap();
+      expect(map['type'], equals('periodic'));
+      // The interval is serialized faithfully — enqueue() is responsible for rejecting < 15min
+      expect(map['intervalMs'], equals(const Duration(minutes: 10).inMilliseconds));
     });
 
-    test('should validate empty tag', () {
-      // Simulate tag validation
-      final tag = '';
-      expect(tag.isEmpty, isTrue);
-
-      final validTag = 'my-tag';
-      expect(validTag.isEmpty, isFalse);
-    });
-
-    test('should validate periodic interval minimum', () {
-      // Simulate periodic trigger validation
-      final validInterval = Duration(minutes: 15);
-      final invalidInterval = Duration(minutes: 10);
-
-      expect(validInterval >= const Duration(minutes: 15), isTrue);
-      expect(invalidInterval >= const Duration(minutes: 15), isFalse);
-    });
-
-    test('should validate contentUri trigger requires valid URI', () {
-      final validUri = Uri.parse('content://media/external/images/media');
-      expect(validUri.scheme, 'content');
-      expect(validUri.host, 'media');
-
-      // Invalid URI (no scheme)
-      final invalidUri = Uri.parse('not-a-valid-content-uri');
-      expect(invalidUri.scheme, '');
+    test('contentUri trigger serializes valid URI scheme', () {
+      final trigger = TaskTrigger.contentUri(
+        uri: Uri.parse('content://media/external/images/media'),
+        triggerForDescendants: true,
+      );
+      final map = trigger.toMap();
+      expect(map['type'], equals('contentUri'));
+      expect(map['uriString'], startsWith('content://'));
+      expect(map['triggerForDescendants'], isTrue);
     });
 
     test('should validate TaskChainBuilder requires non-empty tasks', () {

@@ -15,7 +15,7 @@ void main() {
           .setMockMethodCallHandler(channel, (MethodCall call) async {
         switch (call.method) {
           case 'initialize':
-            return true;
+            return null;
           case 'enqueue':
             // Verify backoffPolicy is passed correctly
             final args = call.arguments as Map<dynamic, dynamic>;
@@ -25,7 +25,7 @@ void main() {
               expect(constraints, containsPair('backoffPolicy', anything));
               expect(constraints, containsPair('backoffDelayMs', anything));
             }
-            return true;
+            return 'accepted'; // invokeMethod<String>
           default:
             return null;
         }
@@ -105,7 +105,7 @@ void main() {
           .setMockMethodCallHandler(channel, (MethodCall call) async {
         switch (call.method) {
           case 'initialize':
-            return true;
+            return null;
           case 'enqueue':
             // Verify ContentUri trigger is passed correctly
             final args = call.arguments as Map<dynamic, dynamic>;
@@ -115,7 +115,7 @@ void main() {
               expect(trigger, containsPair('uriString', anything));
               expect(trigger, containsPair('triggerForDescendants', anything));
             }
-            return true;
+            return 'accepted'; // invokeMethod<String>
           default:
             return null;
         }
@@ -136,7 +136,10 @@ void main() {
           uri: Uri.parse('content://media/external/images/media'),
           triggerForDescendants: true,
         ),
-        worker: DartWorker(callbackId: 'testCallback'),
+        worker: HttpRequestWorker(
+          url: 'https://api.example.com/data',
+          method: HttpMethod.get,
+        ),
       );
 
       // Test passes if no exception thrown
@@ -151,7 +154,10 @@ void main() {
           uri: Uri.parse('content://com.android.contacts/contacts'),
           triggerForDescendants: false,
         ),
-        worker: DartWorker(callbackId: 'testCallback'),
+        worker: HttpRequestWorker(
+          url: 'https://api.example.com/data',
+          method: HttpMethod.get,
+        ),
       );
 
       // Test passes if no exception thrown
@@ -166,7 +172,10 @@ void main() {
           uri: Uri.parse('content://media/external/video/media'),
           triggerForDescendants: true,
         ),
-        worker: DartWorker(callbackId: 'testCallback'),
+        worker: HttpRequestWorker(
+          url: 'https://api.example.com/data',
+          method: HttpMethod.get,
+        ),
         constraints: const Constraints(
           requiresNetwork: true,
           requiresCharging: true,
@@ -183,10 +192,10 @@ void main() {
           .setMockMethodCallHandler(channel, (MethodCall call) async {
         switch (call.method) {
           case 'initialize':
-            return true;
+            return null;
           case 'enqueue':
           case 'enqueueChain':
-            return true;
+            return 'accepted'; // invokeMethod<String>
           default:
             return null;
         }
@@ -216,7 +225,10 @@ void main() {
       ).then(
         TaskRequest(
           id: 'chain-step-2',
-          worker: DartWorker(callbackId: 'processData'),
+          worker: HttpRequestWorker(
+          url: 'https://api.example.com/process',
+          method: HttpMethod.post,
+        ),
           constraints: const Constraints(
             backoffPolicy: BackoffPolicy.linear,
             backoffDelayMs: 60000,
@@ -259,7 +271,10 @@ void main() {
           uri: Uri.parse('content://media/external/images/media'),
           triggerForDescendants: true,
         ),
-        worker: DartWorker(callbackId: 'fullFeatureCallback'),
+        worker: HttpRequestWorker(
+          url: 'https://api.example.com/full-feature',
+          method: HttpMethod.post,
+        ),
         constraints: const Constraints(
           requiresNetwork: true,
           requiresCharging: true,
@@ -280,13 +295,13 @@ void main() {
           .setMockMethodCallHandler(channel, (MethodCall call) async {
         switch (call.method) {
           case 'initialize':
-            return true;
+            return null;
           case 'enqueue':
             // Simulate task completion event after delay
             Future.delayed(const Duration(milliseconds: 100), () {
               // Would normally send event via EventChannel
             });
-            return true;
+            return 'accepted'; // invokeMethod<String>
           default:
             return null;
         }
@@ -322,6 +337,25 @@ void main() {
   });
 
   group('Error Handling Integration Tests', () {
+    setUp(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (MethodCall call) async {
+        switch (call.method) {
+          case 'initialize':
+            return null;
+          case 'enqueue':
+            return 'accepted'; // invokeMethod<String>
+          default:
+            return null;
+        }
+      });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
     test('invalid backoffDelayMs throws or adjusts', () async {
       await NativeWorkManager.initialize();
 
@@ -350,7 +384,10 @@ void main() {
       await NativeWorkManager.enqueue(
         taskId: 'test-invalid-uri',
         trigger: TaskTrigger.contentUri(uri: invalidUri),
-        worker: DartWorker(callbackId: 'testCallback'),
+        worker: HttpRequestWorker(
+          url: 'https://api.example.com/data',
+          method: HttpMethod.get,
+        ),
       );
 
       // Platform layer should handle validation

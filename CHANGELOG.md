@@ -80,9 +80,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Example app: Stale version strings** — updated to v1.0.5
 
+- **Android: `CancellationException` silently swallowed in Flow-collection coroutines** (`NativeWorkmanagerPlugin.kt`)
+  - **Root cause:** Three `catch (e: Exception)` blocks in `listenForProgress`, `listenForEvents`, and `observeWorkCompletion` caught `kotlinx.coroutines.CancellationException` (a subtype of `Exception`), preventing structured concurrency from propagating coroutine cancellation
+  - **Impact:** Coroutines leaked when the Flutter plugin was detached (e.g., hot reload, app restart); could cause event-sink callbacks after disposal
+  - **Fix:** Added `catch (e: kotlinx.coroutines.CancellationException) { throw e }` before the generic `catch (e: Exception)` block in all three locations
+
+- **Android: HttpDownloadWorker deletes temp file on network error, breaking resume** (`HttpDownloadWorker.kt`)
+  - **Root cause:** The `catch (e: Exception)` block unconditionally called `tempFile.delete()`, destroying the partial download that resume logic depends on
+  - **Impact:** Resume downloads (`enableResume = true`) always restarted from byte 0 on any network error, wasting bandwidth
+  - **Fix:** Removed the unconditional temp-file deletion; the file is now preserved so the next retry can use the `Range: bytes=N-` header to resume
+
+- **iOS: `CryptoWorker` loads arbitrarily large files into RAM before size check** (`CryptoWorker.swift`)
+  - **Root cause:** `Data(contentsOf: inputURL)` was called before `SecurityValidator.validateFileSize()`, so large files caused an OOM crash rather than a clean error
+  - **Fix:** Moved `validateFileSize()` guard to run before reading the file; added random salt generation (`SecRandomCopyBytes`) replacing the hardcoded string salt, improving encryption security
+
+- **Android: `ImageProcessWorker` uses `min()` without explicit import** (`ImageProcessWorker.kt`)
+  - **Root cause:** `min(widthRatio, heightRatio)` without an explicit `import kotlin.math.min` could resolve to `java.lang.Math.min` in some Kotlin compiler configurations, producing a compile warning or error
+  - **Fix:** Changed to `maxOf(1, min(widthRatio, heightRatio))` using Kotlin's built-in `maxOf`; the `max(1, …)` also prevents `sampleSize = 0` when one image dimension already fits within the requested bounds
+
 ### Added
 - **Device integration test suite** (`example/integration_test/device_integration_test.dart`)
   - Covers all trigger types, ExistingPolicy (REPLACE/KEEP), all 11 workers, chains, tags, cancellation, events and progress streams
+  - **GROUP 9 — DartWorker constraint & delay enforcement** — reproduces and verifies the fix for issue #1: `requiresNetwork` and `initialDelay` are now correctly applied to the WorkManager `WorkRequest` for all task types
   - Run with: `flutter test integration_test/device_integration_test.dart --timeout=none`
 
 ---

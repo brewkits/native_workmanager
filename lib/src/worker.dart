@@ -216,7 +216,12 @@ class NativeWorker {
   }) {
     _validateUrl(url);
 
-    // Validate timeout is reasonable for background tasks
+    // Validate timeout
+    if (timeout.inMilliseconds <= 0) {
+      throw ArgumentError(
+        'Timeout must be positive: ${timeout.inMilliseconds}ms',
+      );
+    }
     if (timeout.inMinutes > 5) {
       throw ArgumentError(
         'Timeout too long: ${timeout.inMinutes} minutes\n'
