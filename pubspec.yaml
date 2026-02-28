@@ -1,13 +1,20 @@
 name: native_workmanager
 description: "Background task manager for Flutter using platform-native APIs. Zero Flutter Engine overhead for I/O operations."
-version: 1.0.5
+version: 1.0.6
 homepage: https://github.com/brewkits/native_workmanager
 repository: https://github.com/brewkits/native_workmanager
 issue_tracker: https://github.com/brewkits/native_workmanager/issues
 
+topics:
+  - background
+  - workmanager
+  - networking
+  - files
+  - cryptography
+
 environment:
-  sdk: '>=3.10.0 <4.0.0'
-  flutter: '>=3.3.0'
+  sdk: '>=3.6.0 <4.0.0'
+  flutter: '>=3.27.0'
 
 dependencies:
   flutter:

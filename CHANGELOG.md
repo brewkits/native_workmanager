@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.6] - 2026-02-28
+
+### Fixed
+
+- **Android: Thread safety — `taskTags`, `taskStatuses`, `taskStartTimes` replaced with `ConcurrentHashMap`** (`NativeWorkmanagerPlugin.kt`)
+  - **Root cause:** All three maps used `mutableMapOf()` (`LinkedHashMap` under the hood), which is not thread-safe. Multiple coroutines launched from the plugin's `CoroutineScope` could read and write concurrently, causing silent data corruption or `ConcurrentModificationException` under load
+  - **Fix:** Replaced with `java.util.concurrent.ConcurrentHashMap` which provides lock-free reads and segment-level locking for writes
+
+- **iOS: Memory safety — `onTaskComplete` closure captures `instance` weakly** (`NativeWorkmanagerPlugin.swift`)
+  - **Root cause:** `BGTaskSchedulerManager.shared.onTaskComplete` held a strong reference to the plugin instance via an implicit capture; the adjacent `progressDelegate` closure already used `[weak instance]` correctly but this one did not
+  - **Fix:** Added `[weak instance]` capture and optional-chained the call site (`instance?.emitTaskEvent(...)`)
+
+### Changed
+
+- **pub.dev: Added `topics`** — `background`, `workmanager`, `networking`, `files`, `cryptography` for better discoverability
+- **SDK constraint tightened** — `sdk: '>=3.6.0 <4.0.0'` and `flutter: '>=3.27.0'` (was `>=3.10.0` / `>=3.3.0`; stricter constraint matches actual minimum required APIs and fixes pub.dev static analysis)
+- **`analysis_options.yaml` — added lint rules**: `cancel_subscriptions`, `close_sinks`, `avoid_returning_null_for_future`, `avoid_void_async`, `unawaited_futures`, `always_declare_return_types`, `avoid_relative_lib_imports`; added `missing_required_param: error` and `missing_return: error` analyzer settings
+
+---
+
 ## [1.0.5] - 2026-02-22
 
 ### Added

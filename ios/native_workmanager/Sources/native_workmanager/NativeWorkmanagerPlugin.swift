@@ -89,8 +89,8 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             InfoPlistValidator.printSetupGuideIfNeeded()
 
             BGTaskSchedulerManager.shared.registerHandlers()
-            BGTaskSchedulerManager.shared.onTaskComplete = { taskId, success, message in
-                instance.emitTaskEvent(taskId: taskId, success: success, message: message)
+            BGTaskSchedulerManager.shared.onTaskComplete = { [weak instance] taskId, success, message in
+                instance?.emitTaskEvent(taskId: taskId, success: success, message: message)
             }
 
             // Setup progress delegate for BackgroundSessionManager

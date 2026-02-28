@@ -17,6 +17,7 @@ import androidx.work.WorkManager
 import dev.brewkits.kmpworkmanager.background.data.KmpHeavyWorker
 import dev.brewkits.kmpworkmanager.background.data.KmpWorker
 import dev.brewkits.kmpworkmanager.background.domain.*
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import dev.brewkits.native_workmanager.engine.FlutterEngineManager
 import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
@@ -70,17 +71,17 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
     private val scheduler: BackgroundTaskScheduler by inject()
     // TaskEventBus is an object singleton, accessed directly (not via Koin)
 
-    // Tag storage: taskId -> tag mapping
-    private val taskTags = mutableMapOf<String, String>()
+    // Tag storage: taskId -> tag mapping (ConcurrentHashMap for thread safety across coroutines)
+    private val taskTags = ConcurrentHashMap<String, String>()
 
-    // Task status tracking: taskId -> status string
-    private val taskStatuses = mutableMapOf<String, String>()
+    // Task status tracking: taskId -> status string (ConcurrentHashMap for thread safety)
+    private val taskStatuses = ConcurrentHashMap<String, String>()
 
     // Debug mode flag
     private var debugMode = false
 
-    // Task start times for debug mode
-    private val taskStartTimes = mutableMapOf<String, Long>()
+    // Task start times for debug mode (ConcurrentHashMap for thread safety)
+    private val taskStartTimes = ConcurrentHashMap<String, Long>()
 
     companion object {
         private const val TAG = "NativeWorkmanagerPlugin"

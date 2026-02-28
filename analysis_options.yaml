@@ -1,4 +1,19 @@
 include: package:flutter_lints/flutter.yaml
 
-# Additional information about this file can be found at
-# https://dart.dev/guides/language/analysis-options
+analyzer:
+  errors:
+    missing_required_param: error
+    missing_return: error
+  exclude:
+    - example/**
+    - test/**
+
+linter:
+  rules:
+    - cancel_subscriptions
+    - close_sinks
+    - avoid_returning_null_for_future
+    - avoid_void_async
+    - unawaited_futures
+    - always_declare_return_types
+    - avoid_relative_lib_imports
