@@ -673,14 +673,24 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         return await withCheckedContinuation { (continuation: CheckedContinuation<WorkerResult, Never>) in
             DispatchQueue.global(qos: qosClass).async {
                 Task {
-                    // Convert worker config to JSON string
-                    guard let jsonData = try? JSONSerialization.data(withJSONObject: workerConfig),
-                          let inputJson = String(data: jsonData, encoding: .utf8) else {
-                        print("NativeWorkManager: Error serializing worker config")
-                        let result = WorkerResult.failure(message: "Config serialization failed")
-                        self.emitTaskEvent(taskId: taskId, success: false, message: result.message)
-                        continuation.resume(returning: result)
-                        return
+                    // Custom workers (NativeWorker.custom) store user data under the
+                    // "input" key as a pre-encoded JSON string. Pass that directly to
+                    // doWork() so the worker reads its own fields without knowing the
+                    // outer workerConfig structure — consistent with Android behavior.
+                    // Built-in workers have no "input" key, so they receive the full config.
+                    let inputJson: String
+                    if let nestedInput = workerConfig["input"] as? String {
+                        inputJson = nestedInput
+                    } else {
+                        guard let jsonData = try? JSONSerialization.data(withJSONObject: workerConfig),
+                              let configJson = String(data: jsonData, encoding: .utf8) else {
+                            print("NativeWorkManager: Error serializing worker config")
+                            let result = WorkerResult.failure(message: "Config serialization failed")
+                            self.emitTaskEvent(taskId: taskId, success: false, message: result.message)
+                            continuation.resume(returning: result)
+                            return
+                        }
+                        inputJson = configJson
                     }
 
                     // Create worker

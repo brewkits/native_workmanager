@@ -1,6 +1,7 @@
 package dev.brewkits.native_workmanager
 
 import android.content.Context
+import android.util.Log
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
 import dev.brewkits.native_workmanager.workers.CryptoWorker
@@ -81,7 +82,11 @@ class SimpleAndroidWorkerFactory(
             "ImageProcessWorker" -> ImageProcessWorker()
             "CryptoWorker" -> CryptoWorker()
             "FileSystemWorker" -> FileSystemWorker()
-            else -> null
+            else -> {
+                Log.e("SimpleAndroidWorkerFactory", "Unknown worker class: '$workerClassName'. " +
+                    "Register it via SimpleAndroidWorkerFactory.setUserFactory() in MainActivity.")
+                null
+            }
         }
     }
 }

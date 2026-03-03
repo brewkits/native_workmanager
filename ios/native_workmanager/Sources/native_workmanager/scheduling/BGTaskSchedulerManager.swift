@@ -277,10 +277,21 @@ class BGTaskSchedulerManager {
                     }
 
                     do {
-                        let configData = try JSONEncoder().encode(taskInfo.workerConfig)
-                        let configJson = String(data: configData, encoding: .utf8)
+                        // Custom workers (via NativeWorker.custom) store user data under the
+                        // "input" key as a pre-encoded JSON string. Pass that directly to
+                        // doWork() so the worker can parse it without knowing the outer
+                        // workerConfig structure — matching Android's doWork(input:) behavior.
+                        // Built-in workers have no "input" key, so they receive the full config.
+                        let inputForWorker: String?
+                        if let inputAnyCodable = taskInfo.workerConfig["input"],
+                           let inputString = inputAnyCodable.value as? String {
+                            inputForWorker = inputString
+                        } else {
+                            let configData = try JSONEncoder().encode(taskInfo.workerConfig)
+                            inputForWorker = String(data: configData, encoding: .utf8)
+                        }
 
-                        let result = try await worker.doWork(input: configJson)
+                        let result = try await worker.doWork(input: inputForWorker)
                         print("BGTaskSchedulerManager: Worker execution \(result.success ? "succeeded" : "failed")")
 
                         // Remove from pending tasks on success
