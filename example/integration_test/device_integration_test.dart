@@ -1,6 +1,6 @@
 // ignore_for_file: avoid_print
 // ============================================================
-// Native WorkManager v1.0.4 – DEVICE INTEGRATION TESTS
+// Native WorkManager v1.0.6 – DEVICE INTEGRATION TESTS
 // ============================================================
 //
 // Run on a real device or emulator (NOT unit/mock tests):
@@ -16,6 +16,7 @@
 //   ✅ ExistingPolicy              (REPLACE, KEEP)
 //   ✅ All constraints             (network, charging, heavy, backoff, systemConstraints)
 //   ✅ All 11 workers              (HTTP, File, Image, Crypto, DartWorker)
+//   ✅ Custom native workers       (success, missing input, unknown className)
 //   ✅ Task chains                 (sequential A→B→C)
 //   ✅ Tags                        (assign, query, cancelByTag)
 //   ✅ Events & Progress streams
@@ -1193,6 +1194,103 @@ void main() {
         reason: '[CONTROL] HttpRequestWorker fired after only ${elapsedMs}ms '
             '— delay was IGNORED. Bug is NOT DartWorker-specific.',
       );
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════
+  // GROUP 10 – Custom Native Workers
+  // Verifies the extensibility feature end-to-end on real device.
+  // ImageCompressWorker is registered in:
+  //   Android → example/android/.../MainActivity.kt
+  //   iOS     → example/ios/Runner/AppDelegate.swift
+  // These tests run the REAL native worker, not a simulation.
+  // ════════════════════════════════════════════════════════════
+  group('Custom Native Workers', () {
+    // Uses _minimalPng (defined at top of file) — a verified valid 1×1 PNG.
+    // UIImage and BitmapFactory both support PNG input; the worker outputs JPEG.
+
+    testWidgets(
+        'ImageCompressWorker – compresses image and creates output file',
+        (tester) async {
+      final id = _id('custom_compress_ok');
+      final inputPath = '${tmpDir.path}/custom_input.png';
+      final outputPath = '${tmpDir.path}/custom_compressed.jpg';
+
+      await File(inputPath).writeAsBytes(_minimalPng);
+
+      final future = _waitEvent(id, timeout: const Duration(seconds: 45));
+
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(),
+        worker: NativeWorker.custom(
+          className: 'ImageCompressWorker',
+          input: {
+            'inputPath': inputPath,
+            'outputPath': outputPath,
+            'quality': 80,
+          },
+        ),
+      );
+
+      final event = await future;
+      expect(event, isNotNull,
+          reason: 'Must receive a completion event from ImageCompressWorker');
+      expect(event!.success, isTrue,
+          reason: 'ImageCompressWorker must succeed with a valid image');
+      expect(File(outputPath).existsSync(), isTrue,
+          reason: 'Output file must be created on disk after compression');
+    });
+
+    testWidgets(
+        'ImageCompressWorker – fails gracefully when input file is missing',
+        (tester) async {
+      final id = _id('custom_compress_no_input');
+      final outputPath = '${tmpDir.path}/custom_missing_out.jpg';
+
+      final future = _waitEvent(id, timeout: const Duration(seconds: 30));
+
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(),
+        worker: NativeWorker.custom(
+          className: 'ImageCompressWorker',
+          input: {
+            'inputPath': '/nonexistent/path/does_not_exist.jpg',
+            'outputPath': outputPath,
+            'quality': 80,
+          },
+        ),
+      );
+
+      final event = await future;
+      expect(event, isNotNull,
+          reason: 'Worker must emit a completion event, not hang');
+      expect(event!.success, isFalse,
+          reason: 'Worker must return failure when input file does not exist');
+    });
+
+    testWidgets(
+        'Custom worker – unregistered className emits failure event (no crash)',
+        (tester) async {
+      final id = _id('custom_unknown_class');
+
+      final future = _waitEvent(id, timeout: const Duration(seconds: 30));
+
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(),
+        worker: NativeWorker.custom(
+          className: 'ThisWorkerIsNotRegistered_xyz123',
+          input: {'key': 'value'},
+        ),
+      );
+
+      final event = await future;
+      expect(event, isNotNull,
+          reason: 'Unknown worker must emit a completion event, not hang');
+      expect(event!.success, isFalse,
+          reason: 'Unknown className must produce a failure, not silently succeed');
     });
   });
 }

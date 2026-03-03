@@ -21,6 +21,7 @@ Schedule background tasks that survive app restarts, reboots, and force-quits. N
 | Constraints enforced (network, charging…) | ✅ | ✅ fixed in v1.0.5 |
 | Periodic tasks that actually repeat | ✅ | ✅ fixed in v1.0.5 |
 | Dart callbacks for custom logic | ✅ | ✅ |
+| Custom Kotlin/Swift workers (no fork) | ❌ | ✅ |
 
 ---
 
@@ -78,7 +79,50 @@ await NativeWorkManager.enqueue(
 | `cryptoDecrypt` | AES-256-GCM decrypt |
 | `hashFile` | MD5, SHA-1, SHA-256, SHA-512 |
 
-Extend with your own Kotlin/Swift workers — [guide →](doc/use-cases/07-custom-native-workers.md)
+---
+
+## Custom Native Workers
+
+Extend with your own Kotlin or Swift workers — no forking, no MethodChannel boilerplate. Runs on native thread, zero Flutter Engine overhead.
+
+```kotlin
+// Android — implement AndroidWorker
+class EncryptWorker : AndroidWorker {
+    override suspend fun doWork(input: String?): WorkerResult {
+        val path = Json.parseToJsonElement(input!!).jsonObject["path"]!!.jsonPrimitive.content
+        // Android Keystore, Room, TensorFlow Lite — any native API
+        return WorkerResult.Success()
+    }
+}
+// Register in MainActivity.kt (once):
+// SimpleAndroidWorkerFactory.setUserFactory { name -> if (name == "EncryptWorker") EncryptWorker() else null }
+```
+
+```swift
+// iOS — implement IosWorker
+class EncryptWorker: IosWorker {
+    func doWork(input: String?) async throws -> WorkerResult {
+        // CryptoKit, Core Data, Core ML — any native API
+        return .success()
+    }
+}
+// Register in AppDelegate.swift (once):
+// IosWorkerFactory.registerWorker(className: "EncryptWorker") { EncryptWorker() }
+```
+
+```dart
+// Dart — identical call on both platforms
+await NativeWorkManager.enqueue(
+  taskId: 'encrypt-file',
+  trigger: TaskTrigger.oneTime(),
+  worker: NativeWorker.custom(
+    className: 'EncryptWorker',
+    input: {'path': '/data/document.pdf'},
+  ),
+);
+```
+
+[Full guide →](doc/use-cases/07-custom-native-workers.md) · [Architecture →](doc/EXTENSIBILITY.md)
 
 ---
 

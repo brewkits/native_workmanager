@@ -34,6 +34,7 @@ package com.yourapp.workers
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -41,22 +42,22 @@ import java.io.File
 import java.io.FileOutputStream
 
 class ImageCompressWorker : AndroidWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?): WorkerResult {
         try {
             // Parse JSON input
             val json = Json.parseToJsonElement(input ?: "{}")
             val config = json.jsonObject
 
             val inputPath = config["inputPath"]?.jsonPrimitive?.content
-                ?: return false
+                ?: return WorkerResult.Failure("inputPath is required")
             val outputPath = config["outputPath"]?.jsonPrimitive?.content
-                ?: return false
+                ?: return WorkerResult.Failure("outputPath is required")
             val quality = config["quality"]?.jsonPrimitive?.content?.toIntOrNull()
                 ?: 85
 
             // Load image
             val bitmap = BitmapFactory.decodeFile(inputPath)
-                ?: return false
+                ?: return WorkerResult.Failure("Failed to load image at: $inputPath")
 
             // Compress and save
             val outputFile = File(outputPath)
@@ -67,11 +68,10 @@ class ImageCompressWorker : AndroidWorker {
             }
 
             bitmap.recycle()
-            return true
+            return WorkerResult.Success()
 
         } catch (e: Exception) {
-            println("ImageCompressWorker error: ${e.message}")
-            return false
+            return WorkerResult.Failure("ImageCompressWorker error: ${e.message}")
         }
     }
 }
@@ -86,37 +86,40 @@ import Foundation
 import UIKit
 
 class ImageCompressWorker: IosWorker {
-    func doWork(input: String?) async throws -> Bool {
+    func doWork(input: String?) async throws -> WorkerResult {
         // Parse JSON input
         guard let inputString = input,
               let data = inputString.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let inputPath = json["inputPath"] as? String,
               let outputPath = json["outputPath"] as? String else {
-            return false
+            return .failure(message: "Missing required input parameters")
         }
 
         let quality = json["quality"] as? Double ?? 0.85
 
         // Load image
         guard let image = UIImage(contentsOfFile: inputPath) else {
-            return false
+            return .failure(message: "Failed to load image at: \(inputPath)")
         }
 
         // Compress
         guard let compressedData = image.jpegData(compressionQuality: quality) else {
-            return false
+            return .failure(message: "Failed to compress image")
         }
 
         // Save
         let outputURL = URL(fileURLWithPath: outputPath)
-        try? FileManager.default.createDirectory(
+        try FileManager.default.createDirectory(
             at: outputURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
         try compressedData.write(to: outputURL)
 
-        return true
+        return .success(
+            message: "Compressed successfully",
+            data: ["outputPath": outputPath, "size": compressedData.count]
+        )
     }
 }
 ```
@@ -134,10 +137,10 @@ import dev.brewkits.native_workmanager.SimpleAndroidWorkerFactory
 import com.yourapp.workers.ImageCompressWorker
 
 class MainActivity: FlutterActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
 
-        // Register custom workers BEFORE Flutter engine starts
+        // Register custom workers here — runs before any task can be scheduled
         SimpleAndroidWorkerFactory.setUserFactory(object : AndroidWorkerFactory {
             override fun createWorker(workerClassName: String): AndroidWorker? {
                 return when (workerClassName) {
@@ -158,8 +161,9 @@ In `ios/Runner/AppDelegate.swift`:
 ```swift
 import UIKit
 import Flutter
+import native_workmanager
 
-@UIApplicationMain
+@main
 @objc class AppDelegate: FlutterAppDelegate {
     override func application(
         _ application: UIApplication,
@@ -234,16 +238,18 @@ Future<void> compressCameraRoll() async {
 **Android:**
 ```kotlin
 class EncryptionWorker : AndroidWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?): WorkerResult {
         val json = Json.parseToJsonElement(input ?: "{}").jsonObject
-        val filePath = json["filePath"]?.jsonPrimitive?.content ?: return false
-        val password = json["password"]?.jsonPrimitive?.content ?: return false
+        val filePath = json["filePath"]?.jsonPrimitive?.content
+            ?: return WorkerResult.Failure("filePath is required")
+        val password = json["password"]?.jsonPrimitive?.content
+            ?: return WorkerResult.Failure("password is required")
 
         // Use Android Keystore for encryption
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         // ... encrypt file with cipher
 
-        return true
+        return WorkerResult.Success()
     }
 }
 ```
@@ -251,19 +257,19 @@ class EncryptionWorker : AndroidWorker {
 **iOS:**
 ```swift
 class EncryptionWorker: IosWorker {
-    func doWork(input: String?) async throws -> Bool {
+    func doWork(input: String?) async throws -> WorkerResult {
         guard let inputString = input,
               let data = inputString.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let filePath = json["filePath"] as? String,
               let password = json["password"] as? String else {
-            return false
+            return .failure(message: "Missing required parameters")
         }
 
         // Use iOS CryptoKit for encryption
         // ... encrypt file
 
-        return true
+        return .success()
     }
 }
 ```
@@ -272,9 +278,10 @@ class EncryptionWorker: IosWorker {
 
 ```kotlin
 class BatchInsertWorker(private val database: AppDatabase) : AndroidWorker {
-    override suspend fun doWork(input: String?): Boolean {
+    override suspend fun doWork(input: String?): WorkerResult {
         val json = Json.parseToJsonElement(input ?: "{}").jsonObject
-        val itemsArray = json["items"]?.jsonArray ?: return false
+        val itemsArray = json["items"]?.jsonArray
+            ?: return WorkerResult.Failure("items array is required")
 
         // Parse items
         val items = itemsArray.map { element ->
@@ -288,7 +295,7 @@ class BatchInsertWorker(private val database: AppDatabase) : AndroidWorker {
 
         // Batch insert using Room
         database.itemDao().insertAll(items)
-        return true
+        return WorkerResult.Success()
     }
 }
 ```
@@ -314,7 +321,7 @@ class ImageCompressWorkerTest {
         """
 
         val result = worker.doWork(input)
-        assertTrue(result)
+        assertTrue(result.success)
         assertTrue(File("/sdcard/compressed.jpg").exists())
     }
 }
@@ -356,20 +363,18 @@ void main() {
 ### 1. Input Validation
 
 ```kotlin
-override suspend fun doWork(input: String?): Boolean {
-    if (input == null || input.isEmpty()) {
-        Log.e("Worker", "Input is null or empty")
-        return false
+override suspend fun doWork(input: String?): WorkerResult {
+    if (input.isNullOrEmpty()) {
+        return WorkerResult.Failure("Input is null or empty")
     }
 
-    try {
+    return try {
         val json = Json.parseToJsonElement(input).jsonObject
-        // Validate required fields
         require(json.containsKey("inputPath")) { "inputPath is required" }
         // ... continue
+        WorkerResult.Success()
     } catch (e: Exception) {
-        Log.e("Worker", "Invalid input: ${e.message}")
-        return false
+        WorkerResult.Failure("Invalid input: ${e.message}")
     }
 }
 ```
@@ -377,14 +382,14 @@ override suspend fun doWork(input: String?): Boolean {
 ### 2. Error Handling
 
 ```swift
-func doWork(input: String?) async throws -> Bool {
+func doWork(input: String?) async throws -> WorkerResult {
     do {
         // Your work here
-        return true
-    } catch let error as NSError {
+        return .success()
+    } catch {
+        // Log and return failure — don't rethrow
         print("Worker error: \(error.localizedDescription)")
-        // Don't throw - return false instead
-        return false
+        return .failure(message: error.localizedDescription)
     }
 }
 ```
@@ -392,15 +397,18 @@ func doWork(input: String?) async throws -> Bool {
 ### 3. Resource Cleanup
 
 ```kotlin
-override suspend fun doWork(input: String?): Boolean {
+override suspend fun doWork(input: String?): WorkerResult {
     var bitmap: Bitmap? = null
     var outputStream: FileOutputStream? = null
 
-    try {
+    return try {
         bitmap = BitmapFactory.decodeFile(inputPath)
+            ?: return WorkerResult.Failure("Failed to load image")
         outputStream = FileOutputStream(outputPath)
         bitmap.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
-        return true
+        WorkerResult.Success()
+    } catch (e: Exception) {
+        WorkerResult.Failure("Compression failed: ${e.message}")
     } finally {
         bitmap?.recycle()
         outputStream?.close()
@@ -418,8 +426,8 @@ override suspend fun doWork(input: String?): Boolean {
 
 ## Common Pitfalls
 
-❌ **Don't** forget to register worker before `initialize()`
-❌ **Don't** throw exceptions from `doWork()` (return false instead)
+❌ **Don't** forget to register workers in `configureFlutterEngine()` (Android) or `application(_:didFinishLaunchingWithOptions:)` (iOS)
+❌ **Don't** throw exceptions from `doWork()` — return `.failure(message:)` instead
 ❌ **Don't** block on main thread (workers already run in background)
 ❌ **Don't** use instance methods as factories (use static/top-level)
 ✅ **Do** validate input thoroughly
@@ -443,7 +451,7 @@ override suspend fun doWork(input: String?): Boolean {
 
 ## Example App
 
-See [`example/lib/tabs/custom_workers_tab.dart`](../../example/lib/tabs/custom_workers_tab.dart) for a complete working example with image compression and encryption workers.
+See [`example/lib/pages/comprehensive_demo_page.dart`](../../example/lib/pages/comprehensive_demo_page.dart) (Custom Workers tab) for a working demo using `ImageCompressWorker` on both Android and iOS.
 
 ---
 

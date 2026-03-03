@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.7] - 2026-03-04
+
+### Fixed
+
+- **iOS: Custom workers silently failed — input data never reached `doWork()`** (`NativeWorkmanagerPlugin.swift`, `BGTaskSchedulerManager.swift`)
+  - **Root cause:** `CustomNativeWorker.toMap()` encodes user input under the `"input"` key as a pre-serialised JSON string. `executeWorkerSync()` (the real iOS execution path for all foreground tasks) was passing the full `workerConfig` to `doWork()`, so workers received outer wrapper fields (`workerType`, `className`, `input`) instead of their own parameters (`inputPath`, `quality`, …). All custom-worker invocations silently returned failure since the initial implementation.
+  - **Fix:** Extract `workerConfig["input"] as? String` when present and pass that directly to `doWork()`; fall back to full config for built-in workers (which have no `"input"` key). Applied consistently to both the foreground path (`executeWorkerSync`) and the background path (`BGTaskSchedulerManager.executeWorker`).
+
+### Improved
+
+- **`doc/use-cases/07-custom-native-workers.md`** — Corrected return types throughout (`Boolean`/`Bool` → `WorkerResult`), updated Android registration hook to `configureFlutterEngine`, updated iOS AppDelegate to `@main` + `import native_workmanager`, fixed broken file reference, aligned all code examples with the actual public API.
+- **`README.md`** — Added "Custom Kotlin/Swift workers (no fork)" row to feature comparison table; added full custom-worker showcase section with Kotlin, Swift, and Dart examples.
+- **Demo app** — Custom Workers tab now exercises real `NativeWorker.custom()` calls against `ImageCompressWorker` instead of placeholder `DartWorker` stubs.
+- **Integration tests** — Added Group 10 "Custom Native Workers" (3 tests: success path, graceful failure on missing input, unknown-class error event). Total passing tests: 32.
+- **`SimpleAndroidWorkerFactory`** — Unknown worker class now logs a clear `Log.e` message pointing to `setUserFactory()` instead of silently returning `null`.
+
+---
+
 ## [1.0.6] - 2026-02-28
 
 ### Fixed

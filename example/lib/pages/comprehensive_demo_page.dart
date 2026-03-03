@@ -1204,6 +1204,21 @@ class _CustomWorkersTab extends StatelessWidget {
 
   const _CustomWorkersTab({required this.onResult});
 
+  // Minimal valid 1×1 red pixel PNG — used to give ImageCompressWorker a real
+  // file to process. UIImage (iOS) and BitmapFactory (Android) both support PNG
+  // input; the worker re-encodes the result as JPEG.
+  static const List<int> _kMinimalPng = [
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
+    0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // 1×1
+    0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, // RGB, CRC
+    0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, // IDAT
+    0x54, 0x78, 0xDA, 0x63, 0xF8, 0xCF, 0xC0, 0x00, // zlib data
+    0x00, 0x03, 0x01, 0x01, 0x00, 0xF7, 0x03, 0x41, // Adler-32 + CRC
+    0x43, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, // IEND
+    0x44, 0xAE, 0x42, 0x60, 0x82,                   // IEND CRC
+  ];
+
   @override
   Widget build(BuildContext context) {
     return ListView(
@@ -1235,47 +1250,78 @@ DartWorker(
 
         _DemoCard(
           title: '2. Custom Native Worker (Kotlin)',
-          description: 'Write your own Kotlin worker for Android',
+          description: 'ImageCompressWorker registered in MainActivity.kt — runs real Kotlin code',
           icon: Icons.android,
           code: '''
+// Kotlin: class ImageCompressWorker : AndroidWorker {
+//   override suspend fun doWork(input: String?): WorkerResult { ... }
+// }
+// Registered in MainActivity.kt via SimpleAndroidWorkerFactory.setUserFactory(...)
 NativeWorker.custom(
-  className: 'MyCustomWorker',
-  input: {'key': 'value'},
-)
-// Implement in Kotlin:
-// class MyCustomWorker : AndroidWorker''',
+  className: 'ImageCompressWorker',
+  input: {
+    'inputPath': '/tmp/nwm_demo.png',
+    'outputPath': '/tmp/nwm_demo_out.jpg',
+    'quality': 80,
+  },
+)''',
           onRun: () async {
-            // NOTE: In this demo app, MyCustomWorker is not actually implemented in Native.
-            // We substitute it with DartWorker to simulate a successful run for demo purposes,
-            // otherwise it would throw "Worker factory returned null" and crash/fail.
+            final tmpDir = Directory.systemTemp.path;
+            final inputPath = '$tmpDir/nwm_demo.png';
+            final outputPath = '$tmpDir/nwm_kotlin_compressed.jpg';
+            // Write a minimal valid JPEG so the worker has a real file to process
+            await File(inputPath).writeAsBytes(_kMinimalPng);
             await NativeWorkManager.enqueue(
-              taskId: 'comprehensive-custom-kotlin',
+              taskId: 'custom-kotlin-${DateTime.now().millisecondsSinceEpoch}',
               trigger: TaskTrigger.oneTime(),
-              worker: DartWorker(callbackId: 'customTask'), // Simulated
+              worker: NativeWorker.custom(
+                className: 'ImageCompressWorker',
+                input: {
+                  'inputPath': inputPath,
+                  'outputPath': outputPath,
+                  'quality': 80,
+                },
+              ),
             );
-            onResult('🤖 Custom Kotlin Worker scheduled (Simulated)');
+            onResult('ImageCompressWorker (Kotlin) enqueued — real native worker');
           },
         ),
 
         _DemoCard(
           title: '3. Custom Native Worker (Swift)',
-          description: 'Write your own Swift worker for iOS',
+          description: 'ImageCompressWorker registered in AppDelegate.swift — runs real Swift code',
           icon: Icons.apple,
           code: '''
+// Swift: class ImageCompressWorker: IosWorker {
+//   func doWork(input: String?) async throws -> WorkerResult { ... }
+// }
+// Registered in AppDelegate.swift via IosWorkerFactory.registerWorker(...)
 NativeWorker.custom(
-  className: 'MyCustomWorker',
-  input: {'key': 'value'},
-)
-// Implement in Swift:
-// class MyCustomWorker: IosWorker''',
+  className: 'ImageCompressWorker',
+  input: {
+    'inputPath': '/tmp/nwm_demo.png',
+    'outputPath': '/tmp/nwm_demo_out.jpg',
+    'quality': 60,
+  },
+)''',
           onRun: () async {
-            // NOTE: Simulated for demo stability
+            final tmpDir = Directory.systemTemp.path;
+            final inputPath = '$tmpDir/nwm_demo.png';
+            final outputPath = '$tmpDir/nwm_swift_compressed.jpg';
+            await File(inputPath).writeAsBytes(_kMinimalPng);
             await NativeWorkManager.enqueue(
-              taskId: 'comprehensive-custom-swift',
+              taskId: 'custom-swift-${DateTime.now().millisecondsSinceEpoch}',
               trigger: TaskTrigger.oneTime(),
-              worker: DartWorker(callbackId: 'customTask'), // Simulated
+              worker: NativeWorker.custom(
+                className: 'ImageCompressWorker',
+                input: {
+                  'inputPath': inputPath,
+                  'outputPath': outputPath,
+                  'quality': 60,
+                },
+              ),
             );
-            onResult('🍎 Custom Swift Worker scheduled (Simulated)');
+            onResult('ImageCompressWorker (Swift) enqueued — real native worker');
           },
         ),
       ],
