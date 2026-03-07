@@ -333,6 +333,13 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
             if triggerType == "periodic" {
                 let intervalMs = (triggerMap["intervalMs"] as? NSNumber)?.int64Value ?? 900_000
+                // KNOWN LIMITATION (C2): iOS periodic tasks run in-process.
+                // They repeat correctly while the app is open (foreground or active background
+                // session), but are NOT re-scheduled by the OS after the app is killed.
+                // Android WorkManager re-schedules workers across kills — iOS does not.
+                // For true background periodic work on iOS, integrate BGAppRefreshTask
+                // in AppDelegate and call NativeWorkManager.enqueue() from its handler.
+                print("NativeWorkManager: [iOS] Periodic task '\(taskId)' started — NOTE: only runs while app is active. For true background recurrence, use BGAppRefreshTask.")
                 // Execute first time immediately
                 _ = await self.executeWorkerSync(
                     taskId: taskId,
@@ -340,7 +347,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                     workerConfig: workerConfig,
                     qos: qos
                 )
-                // Repeat until cancelled (simulates periodic behavior)
+                // Repeat until cancelled (simulates periodic behavior while app is active)
                 while !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: UInt64(intervalMs) * 1_000_000)
                     guard !Task.isCancelled else { break }
@@ -472,190 +479,181 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         let constraintsMap = args["constraints"] as? [String: Any]
         let qos = constraintsMap?["qos"] as? String ?? "background"
 
-        print("NativeWorkManager: Enqueue chain '\(chainName ?? "unnamed")' with \(stepsData.count) steps")
+        // FIX C1: Use chainName (or a UUID) as the cancel key so callers can
+        // cancel("myChain") and the Task handle is found in activeTasks.
+        let chainCancelId = chainName ?? "chain_\(UUID().uuidString)"
 
-        // Platform Limitation: iOS uses direct execution for chains
-        // Currently iOS executes chains directly while Android uses KMP scheduler.
-        // This works correctly and provides the same end-user behavior (sequential/parallel execution),
-        // but iOS bypasses KMP's scheduling logic (constraints, persistence, retry).
-        //
-        // Rationale: KMP framework doesn't expose chain API (beginWith/then/enqueue) to iOS bridge.
-        // Adding this would require extending KMPSchedulerBridge with TaskChain support.
-        //
-        // Status: This is an acceptable platform-specific implementation difference.
-        // See: https://github.com/brewkits/native_workmanager/issues/16
+        print("NativeWorkManager: Enqueue chain '\(chainName ?? "unnamed")' with \(stepsData.count) steps [cancelId: \(chainCancelId)]")
 
-        // Execute chain steps sequentially (direct execution approach)
-        workerQueue.async { [weak self] in
-            self?.executeChain(
+        // FIX M1: Return ACCEPTED immediately (non-blocking, consistent with Android).
+        // Chain completion / failure is delivered via emitTaskEvent on the EventChannel.
+        result("ACCEPTED")
+
+        // FIX C1: Create the Task and store the handle BEFORE it starts running so
+        // handleCancel can find and cancel it via activeTasks[chainCancelId].
+        let chainTask = Task { [weak self] in
+            guard let self = self else { return }
+            await self.executeChain(
+                chainCancelId: chainCancelId,
                 steps: stepsData,
                 chainName: chainName,
                 constraintsMap: constraintsMap,
-                qos: qos,
-                result: result
+                qos: qos
             )
+        }
+        stateQueue.async(flags: .barrier) {
+            self.activeTasks[chainCancelId] = chainTask
+            self.taskStates[chainCancelId] = "running"
         }
     }
 
     /// Execute a task chain sequentially.
     ///
-    /// **Platform Inconsistency Note:**
-    /// iOS executes chains by directly invoking workers, while Android uses KMP scheduler's
-    /// beginWith/then/enqueue API. This provides the same end result (sequential/parallel execution)
-    /// but bypasses KMP's scheduling logic (constraints, persistence, retry).
+    /// **Platform note:** iOS executes chains directly (in-process) while Android uses
+    /// WorkManager. Completion and failures are reported via emitTaskEvent so the Dart
+    /// side receives them through the existing EventChannel — same as individual tasks.
     ///
-    /// **Why:**
-    /// KMP framework doesn't currently expose chain API to iOS bridge. This would require
-    /// extending KMPSchedulerBridge with TaskChain support.
-    ///
-    /// **Impact:**
-    /// - ✅ Chains work correctly on iOS
-    /// - ✅ Sequential and parallel execution respected
-    /// - ❌ Constraints may not be enforced as strictly
-    /// - ❌ Chain persistence differs from Android
-    ///
-    /// **Future Work:**
-    /// See GitHub issue #16 for plan to add KMP chain support to iOS.
+    /// **Cancellation:** store the Task handle in activeTasks[chainCancelId] before this
+    /// runs (done by handleEnqueueChain). Calling cancel(chainCancelId) will set
+    /// Task.isCancelled; this function checks it between every step.
     private func executeChain(
+        chainCancelId: String,
         steps: [[Any]],
         chainName: String?,
         constraintsMap: [String: Any]?,
-        qos: String,
-        result: @escaping FlutterResult
-    ) {
-        Task {
-            // Generate unique chain ID
-            let chainId = "\(chainName ?? "chain")_\(UUID().uuidString)"
+        qos: String
+    ) async {
+        // Generate a unique internal chain ID for state persistence.
+        let chainId = "\(chainName ?? "chain")_\(UUID().uuidString)"
 
-            // Create initial chain state
+        // Create initial chain state
+        do {
+            let initialState = try ChainStateManager.createInitialState(
+                chainId: chainId,
+                chainName: chainName,
+                stepsData: steps
+            )
+            try await chainStateManager.saveChainState(initialState)
+            print("NativeWorkManager: Created chain state '\(chainId)'")
+        } catch {
+            print("NativeWorkManager: Failed to create chain state: \(error)")
+            // Continue anyway - state is optional enhancement
+        }
+
+        // Execute chain steps
+        for (stepIndex, stepData) in steps.enumerated() {
+            // FIX C1: Honour cancellation between steps.
+            guard !Task.isCancelled else {
+                print("NativeWorkManager: Chain '\(chainCancelId)' cancelled at step \(stepIndex + 1)")
+                try? await chainStateManager.markChainFailed(chainId: chainId)
+                stateQueue.async(flags: .barrier) {
+                    self.activeTasks.removeValue(forKey: chainCancelId)
+                    self.taskStates[chainCancelId] = "cancelled"
+                }
+                emitTaskEvent(taskId: chainCancelId, success: false, message: "Chain cancelled")
+                return
+            }
+
+            print("NativeWorkManager: Chain '\(chainName ?? "unnamed")' - Step \(stepIndex + 1)/\(steps.count)")
+
+            // Parse tasks in this step
+            guard let stepTasks = stepData as? [[String: Any]] else {
+                try? await chainStateManager.markChainFailed(chainId: chainId)
+                stateQueue.async(flags: .barrier) {
+                    self.activeTasks.removeValue(forKey: chainCancelId)
+                    self.taskStates[chainCancelId] = "failed"
+                }
+                emitTaskEvent(taskId: chainCancelId, success: false,
+                              message: "Step \(stepIndex) has invalid format")
+                return
+            }
+
+            // Get previous step's result for data flow
+            let previousStepData = try? await chainStateManager.getPreviousStepResult(
+                chainId: chainId,
+                currentStepIndex: stepIndex
+            )
+
+            // Execute tasks in parallel (if multiple tasks in step)
+            var stepSucceeded = false
+            var stepResultData: [String: Any]? = nil
+
+            await withTaskGroup(of: WorkerResult.self) { group in
+                for taskData in stepTasks {
+                    guard let taskId = taskData["id"] as? String,
+                          let workerClassName = taskData["workerClassName"] as? String,
+                          var workerConfig = taskData["workerConfig"] as? [String: Any] else {
+                        continue
+                    }
+
+                    // Merge previous step's output into current step's input
+                    if let previousData = previousStepData {
+                        print("NativeWorkManager: Merging \(previousData.count) keys from previous step into '\(taskId)'")
+                        workerConfig.merge(previousData) { (current, _) in current }
+                    }
+
+                    group.addTask {
+                        await self.executeWorkerSync(
+                            taskId: taskId,
+                            workerClassName: workerClassName,
+                            workerConfig: workerConfig,
+                            qos: qos
+                        )
+                    }
+                }
+
+                var allSucceeded = true
+                for await taskResult in group {
+                    if !taskResult.success {
+                        allSucceeded = false
+                    } else if let data = taskResult.data {
+                        // Last successful task's data wins (same as Android WorkManager)
+                        stepResultData = data
+                    }
+                }
+                stepSucceeded = allSucceeded
+            }
+
+            // If step failed, stop the chain and report via EventChannel
+            if !stepSucceeded {
+                try? await chainStateManager.markChainFailed(chainId: chainId)
+                stateQueue.async(flags: .barrier) {
+                    self.activeTasks.removeValue(forKey: chainCancelId)
+                    self.taskStates[chainCancelId] = "failed"
+                }
+                emitTaskEvent(taskId: chainCancelId, success: false,
+                              message: "Chain step \(stepIndex + 1) failed")
+                return
+            }
+
+            // Step completed - save result data and advance progress
             do {
-                let initialState = try ChainStateManager.createInitialState(
+                try await chainStateManager.saveStepResult(
                     chainId: chainId,
-                    chainName: chainName,
-                    stepsData: steps
+                    stepIndex: stepIndex,
+                    resultData: stepResultData
                 )
-                try await chainStateManager.saveChainState(initialState)
-                print("NativeWorkManager: Created chain state '\(chainId)'")
+                try await chainStateManager.advanceToNextStep(chainId: chainId)
+                print("NativeWorkManager: Chain '\(chainId)' progress saved (\(stepIndex + 1)/\(steps.count))")
             } catch {
-                print("NativeWorkManager: Failed to create chain state: \(error)")
-                // Continue anyway - state is optional enhancement
-            }
-
-            // Execute chain steps
-            for (stepIndex, stepData) in steps.enumerated() {
-                print("NativeWorkManager: Chain '\(chainName ?? "unnamed")' - Step \(stepIndex + 1)/\(steps.count)")
-
-                // Parse tasks in this step
-                guard let stepTasks = stepData as? [[String: Any]] else {
-                    // Mark chain as failed
-                    try? await chainStateManager.markChainFailed(chainId: chainId)
-
-                    DispatchQueue.main.async {
-                        result(FlutterError(
-                            code: "INVALID_STEP",
-                            message: "Step \(stepIndex) has invalid format",
-                            details: nil
-                        ))
-                    }
-                    return
-                }
-
-                // Get previous step's result for data flow
-                let previousStepData = try? await chainStateManager.getPreviousStepResult(
-                    chainId: chainId,
-                    currentStepIndex: stepIndex
-                )
-
-                // Execute tasks in parallel (if multiple tasks in step)
-                var stepSucceeded = false
-                var stepResultData: [String: Any]? = nil
-
-                await withTaskGroup(of: WorkerResult.self) { group in
-                    for taskData in stepTasks {
-                        guard let taskId = taskData["id"] as? String,
-                              let workerClassName = taskData["workerClassName"] as? String,
-                              var workerConfig = taskData["workerConfig"] as? [String: Any] else {
-                            continue
-                        }
-
-                        // 🔗 Merge previous step's output into current step's input
-                        if let previousData = previousStepData {
-                            print("NativeWorkManager: Merging \(previousData.count) keys from previous step into '\(taskId)'")
-                            workerConfig.merge(previousData) { (current, _) in current }
-                        }
-
-                        group.addTask {
-                            await self.executeWorkerSync(
-                                taskId: taskId,
-                                workerClassName: workerClassName,
-                                workerConfig: workerConfig,
-                                qos: qos
-                            )
-                        }
-                    }
-
-                    // Wait for all tasks in this step to complete
-                    var allSucceeded = true
-                    for await taskResult in group {
-                        if !taskResult.success {
-                            allSucceeded = false
-                        } else {
-                            // Capture result data from successful task
-                            // If multiple tasks, last one's data wins (same as Android WorkManager)
-                            if let data = taskResult.data {
-                                stepResultData = data
-                            }
-                        }
-                    }
-
-                    stepSucceeded = allSucceeded
-                }
-
-                // If step failed, stop the chain
-                if !stepSucceeded {
-                    // Mark chain as failed and remove state
-                    try? await chainStateManager.markChainFailed(chainId: chainId)
-
-                    DispatchQueue.main.async {
-                        result(FlutterError(
-                            code: "CHAIN_FAILED",
-                            message: "Chain step \(stepIndex + 1) failed",
-                            details: nil
-                        ))
-                    }
-                    return
-                }
-
-                // ✅ Step completed - save result data and progress
-                do {
-                    // Save result data first (for data flow to next step)
-                    try await chainStateManager.saveStepResult(
-                        chainId: chainId,
-                        stepIndex: stepIndex,
-                        resultData: stepResultData
-                    )
-
-                    // Then advance to next step
-                    try await chainStateManager.advanceToNextStep(chainId: chainId)
-                    print("NativeWorkManager: Chain '\(chainId)' progress saved (\(stepIndex + 1)/\(steps.count))")
-                } catch {
-                    print("NativeWorkManager: Failed to save chain progress: \(error)")
-                    // Continue anyway - state is optional
-                }
-            }
-
-            // All steps completed
-            do {
-                try await chainStateManager.markChainCompleted(chainId: chainId)
-                print("NativeWorkManager: Chain '\(chainName ?? "unnamed")' completed and state saved")
-            } catch {
-                print("NativeWorkManager: Failed to mark chain completed: \(error)")
-            }
-
-            DispatchQueue.main.async {
-                result("ACCEPTED")
+                print("NativeWorkManager: Failed to save chain progress: \(error)")
+                // Continue anyway - state is optional
             }
         }
+
+        // All steps completed
+        do {
+            try await chainStateManager.markChainCompleted(chainId: chainId)
+            print("NativeWorkManager: Chain '\(chainName ?? "unnamed")' completed")
+        } catch {
+            print("NativeWorkManager: Failed to mark chain completed: \(error)")
+        }
+
+        stateQueue.async(flags: .barrier) {
+            self.activeTasks.removeValue(forKey: chainCancelId)
+            self.taskStates[chainCancelId] = "completed"
+        }
+        emitTaskEvent(taskId: chainCancelId, success: true, message: "Chain completed")
     }
 
     /// Execute a worker synchronously and return success status.
@@ -666,11 +664,35 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         qos: String = "background"
     ) async -> WorkerResult {
         print("NativeWorkManager: Executing task '\(taskId)' in chain with QoS: \(qos)...")
+        // Record start time for debug notification timing
+        stateQueue.async(flags: .barrier) {
+            self.taskStartTimes[taskId] = Date()
+        }
 
         // Map QoS string to DispatchQoS
         let qosClass = mapQoS(qos)
 
         return await withCheckedContinuation { (continuation: CheckedContinuation<WorkerResult, Never>) in
+            // Special case: DartCallbackWorker — invoke executeDartCallback on the main
+            // method channel instead of using FlutterEngineManager (which requires AOT/release
+            // mode via FlutterCallbackCache). This path works in debug mode (integration tests)
+            // and whenever the app is in the foreground.
+            if workerClassName == "DartCallbackWorker" {
+                Task {
+                    let result = await self.executeDartWorkerViaMethodChannel(
+                        workerConfig: workerConfig,
+                        taskId: taskId
+                    )
+                    if result.success {
+                        self.emitTaskEvent(taskId: taskId, success: true, message: result.message, resultData: result.data)
+                    } else {
+                        self.emitTaskEvent(taskId: taskId, success: false, message: result.message ?? "DartWorker failed")
+                    }
+                    continuation.resume(returning: result)
+                }
+                return
+            }
+
             DispatchQueue.global(qos: qosClass).async {
                 Task {
                     // Custom workers (NativeWorker.custom) store user data under the
@@ -720,6 +742,70 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                         let result = WorkerResult.failure(message: error.localizedDescription)
                         self.emitTaskEvent(taskId: taskId, success: false, message: result.message)
                         continuation.resume(returning: result)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Execute a DartCallbackWorker by invoking `executeDartCallback` on the main Flutter
+    /// method channel (Native → Dart call).
+    ///
+    /// **Why this approach?**
+    /// `FlutterEngineManager` launches a secondary engine and uses `FlutterCallbackCache` to
+    /// look up the callback entry point. `FlutterCallbackCache` only works in AOT (release)
+    /// mode — it returns `nil` in debug/JIT mode, causing ALL DartWorker calls to fail during
+    /// integration tests. By invoking `executeDartCallback` on the existing main method channel,
+    /// we reuse the already-initialized Dart isolate, which works in any build mode.
+    ///
+    /// **Fallback:** When `methodChannel` is nil (killed-app background execution), we fall
+    /// back to `FlutterEngineManager` which works in release builds where AOT is active.
+    private func executeDartWorkerViaMethodChannel(
+        workerConfig: [String: Any],
+        taskId: String
+    ) async -> WorkerResult {
+        guard let callbackId = workerConfig["callbackId"] as? String else {
+            return WorkerResult.failure(message: "DartCallbackWorker: missing callbackId in config")
+        }
+        let input = workerConfig["input"] as? String
+
+        guard let channel = methodChannel else {
+            // No main channel (app was killed) — fall back to FlutterEngineManager.
+            // This path requires AOT (release build); FlutterCallbackCache returns nil in debug.
+            let handleValue = workerConfig["callbackHandle"]
+            guard let callbackHandle = (handleValue as? NSNumber)?.int64Value
+                                    ?? (handleValue as? Int64) else {
+                return WorkerResult.failure(message: "DartCallbackWorker: missing callbackHandle for background execution")
+            }
+            print("DartCallbackWorker: No main channel — using FlutterEngineManager for '\(callbackId)'")
+            do {
+                let success = try await FlutterEngineManager.shared.executeDartCallback(
+                    callbackHandle: callbackHandle, input: input)
+                return success ? .success(message: "Callback returned true")
+                               : .failure(message: "Callback returned false")
+            } catch {
+                return WorkerResult.failure(message: "DartCallbackWorker: \(error.localizedDescription)")
+            }
+        }
+
+        print("DartCallbackWorker: Executing '\(callbackId)' via main method channel")
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                channel.invokeMethod("executeDartCallback", arguments: [
+                    "callbackId": callbackId,
+                    "input": input as Any
+                ]) { result in
+                    if let success = result as? Bool {
+                        continuation.resume(returning: success
+                            ? .success(message: "Callback returned true")
+                            : .failure(message: "Callback returned false"))
+                    } else if let flutterError = result as? FlutterError {
+                        continuation.resume(returning: .failure(
+                            message: "Callback error: \(flutterError.message ?? "unknown")"))
+                    } else {
+                        // nil result = no callback executor registered
+                        continuation.resume(returning: .failure(
+                            message: "No callback executor — call NativeWorkManager.initialize(dartWorkers:)"))
                     }
                 }
             }
@@ -808,12 +894,14 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     }
 
     private func showDebugNotification(taskId: String, success: Bool, message: String?) {
-        let startTime = taskStartTimes[taskId]
+        // FIX H3: Read and remove taskStartTimes under the state lock to prevent data races.
+        // emitTaskEvent (which calls this) can be called from multiple threads.
+        let startTime: Date? = stateQueue.sync { taskStartTimes[taskId] }
+        stateQueue.async(flags: .barrier) { self.taskStartTimes.removeValue(forKey: taskId) }
         let executionTime: String
         if let startTime = startTime {
             let elapsed = Date().timeIntervalSince(startTime)
             executionTime = String(format: "%.0fms", elapsed * 1000)
-            taskStartTimes.removeValue(forKey: taskId)
         } else {
             executionTime = "N/A"
         }

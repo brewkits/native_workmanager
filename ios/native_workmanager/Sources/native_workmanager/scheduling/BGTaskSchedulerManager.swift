@@ -148,13 +148,15 @@ class BGTaskSchedulerManager {
 
         if isHeavyTask {
             // Heavy task: Use BGProcessingTask (60s limit, supports network/power constraints)
-            let processingRequest = BGProcessingTaskRequest(identifier: BGTaskSchedulerManager.defaultTaskIdentifier)
+            // Use the provided identifier (must be registered in Info.plist)
+            let processingRequest = BGProcessingTaskRequest(identifier: identifier)
             processingRequest.requiresNetworkConnectivity = requiresNetwork
             processingRequest.requiresExternalPower = requiresExternalPower
             request = processingRequest
-            print("BGTaskSchedulerManager: Using BGProcessingTask for heavy task")
+            print("BGTaskSchedulerManager: Using BGProcessingTask for heavy task with identifier '\(identifier)'")
         } else {
             // Normal task: Use BGAppRefreshTask (30s limit, no constraints support)
+            // Use refreshTaskIdentifier regardless of provided identifier (BGAppRefreshTask constraint)
             request = BGAppRefreshTaskRequest(identifier: BGTaskSchedulerManager.refreshTaskIdentifier)
             print("BGTaskSchedulerManager: Using BGAppRefreshTask for normal task")
         }

@@ -191,12 +191,22 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   ScheduleResult _parseScheduleResult(String? result) {
     if (result == null) return ScheduleResult.accepted;
 
-    return switch (result.toLowerCase()) {
-      'accepted' => ScheduleResult.accepted,
-      'rejected_os_policy' || 'rejectedospolicy' => ScheduleResult.rejectedOsPolicy,
-      'throttled' => ScheduleResult.throttled,
-      _ => ScheduleResult.accepted,
-    };
+    final lower = result.toLowerCase();
+    if (lower == 'accepted') return ScheduleResult.accepted;
+    if (lower == 'rejected_os_policy' || lower == 'rejectedospolicy') {
+      return ScheduleResult.rejectedOsPolicy;
+    }
+    if (lower == 'throttled') return ScheduleResult.throttled;
+
+    // FIX L1: Log unknown values instead of silently treating them as accepted.
+    // This surfaces native-side bugs (e.g. typos, new values) during development.
+    developer.log(
+      'NativeWorkManager: Unrecognised schedule result "$result" — defaulting to accepted. '
+      'This may indicate a platform bug or version mismatch.',
+      name: 'NativeWorkManager',
+      level: 900, // WARNING
+    );
+    return ScheduleResult.accepted;
   }
 
   /// Dispose resources.

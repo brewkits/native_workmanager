@@ -290,29 +290,46 @@ enum SecurityValidator {
     ///   - targetURL: Directory where file will be written (default: temp directory)
     /// - Returns: true if sufficient space available, false otherwise
     static func hasEnoughDiskSpace(requiredBytes: Int64, targetURL: URL? = nil) -> Bool {
-        let targetPath = targetURL?.path ?? NSTemporaryDirectory()
+        // FIX M2 (improved): Use the deepest existing ancestor of targetURL so that
+        // attributesOfFileSystem() works even when the destination file/dir doesn't exist yet
+        // (a common case for downloads). Falls back to NSTemporaryDirectory if needed.
+        var checkPath = NSTemporaryDirectory()
+        if let url = targetURL {
+            var probe = url
+            while probe.path != "/" {
+                if FileManager.default.fileExists(atPath: probe.path) {
+                    checkPath = probe.path
+                    break
+                }
+                probe = probe.deletingLastPathComponent()
+            }
+        }
 
         do {
-            let attributes = try FileManager.default.attributesOfFileSystem(forPath: targetPath)
+            let attributes = try FileManager.default.attributesOfFileSystem(forPath: checkPath)
             guard let freeSpace = attributes[.systemFreeSize] as? Int64 else {
-                print("SecurityValidator: Cannot determine free disk space")
-                return true  // Fail-open: allow operation if check fails
+                print("SecurityValidator: Cannot determine free disk space at '\(checkPath)'")
+                return true  // Cannot check — allow and let the OS report the actual error
             }
 
-            // Add 20% safety margin + 50MB minimum free space
-            let requiredWithMargin = Int64(Double(requiredBytes) * 1.2) + (50 * 1024 * 1024)
+            // Add 20% safety margin (matches Android's formula — no artificial minimum
+            // to avoid false failures for small downloads on storage-constrained devices)
+            let requiredWithMargin = Int64(Double(requiredBytes) * 1.2)
 
             if freeSpace < requiredWithMargin {
                 let availableMB = freeSpace / 1024 / 1024
-                let requiredMB = requiredWithMargin / 1024 / 1024
-                print("SecurityValidator: Insufficient disk space: \(availableMB)MB available, \(requiredMB)MB needed")
+                let requiredKB = requiredWithMargin / 1024
+                print("SecurityValidator: Insufficient disk space: \(availableMB)MB available, \(requiredKB)KB needed")
                 return false
             }
 
             return true
         } catch {
-            print("SecurityValidator: Cannot check disk space: \(error)")
-            return true  // Fail-open: allow operation if check fails
+            // Cannot query disk space (older OS, unexpected path, permissions).
+            // Log clearly and fail-open: the OS will raise a genuine error if the
+            // write truly fails due to disk full (NSFileWriteOutOfSpaceError).
+            print("SecurityValidator: Cannot check disk space at '\(checkPath)': \(error) — allowing operation (OS will surface actual disk-full errors)")
+            return true
         }
     }
 

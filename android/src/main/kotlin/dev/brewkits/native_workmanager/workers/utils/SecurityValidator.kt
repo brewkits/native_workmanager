@@ -72,6 +72,43 @@ object SecurityValidator {
     // MARK: - File Path Validation
 
     /**
+     * Validate a file path without requiring app context (no allowedDirs needed).
+     *
+     * Resolves the canonical path (handles ".." and symlinks) and blocks access
+     * to restricted OS directories. Use this in workers that do not have a Context.
+     * For stricter sandbox enforcement pass allowedDirs to [validateFilePath].
+     *
+     * FIX H1: Workers previously used `contains("..")` which is bypassable via
+     * URL-encoded sequences or symlinks. This method uses File.canonicalPath which
+     * the JVM resolves via the OS, defeating those bypasses.
+     *
+     * @param path File path to validate
+     * @return true if path is safe, false otherwise
+     */
+    fun validateFilePathSafe(path: String): Boolean {
+        try {
+            if (path.isEmpty() || !path.startsWith("/")) {
+                Log.e(TAG, "File path must be non-empty and absolute (start with /)")
+                return false
+            }
+            val canonical = File(path).canonicalPath
+            // Block read/write to OS-owned directories regardless of how the path
+            // was constructed. This catches symlink escapes into system space.
+            val blockedPrefixes = listOf("/proc", "/sys", "/etc", "/system", "/vendor", "/dev", "/root")
+            for (blocked in blockedPrefixes) {
+                if (canonical.startsWith(blocked)) {
+                    Log.e(TAG, "File path '$canonical' points to restricted system directory '$blocked'")
+                    return false
+                }
+            }
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Cannot resolve canonical path for '$path': ${e.message}")
+            return false
+        }
+    }
+
+    /**
      * Validate file path is within app sandbox.
      *
      * Prevents path traversal attacks by ensuring the resolved path
@@ -286,8 +323,12 @@ object SecurityValidator {
 
             return true
         } catch (e: Exception) {
-            Log.e(TAG, "Cannot check disk space: ${e.message}")
-            return true // Allow operation if check fails
+            // FIX M2: Fail-closed on disk space check errors.
+            // Previously this returned true (fail-open) meaning an exception (e.g.
+            // permission denied, unmounted volume) silently bypassed the check and
+            // could allow disk-filling operations to proceed unchecked.
+            Log.e(TAG, "Cannot check disk space for '${targetDir.absolutePath}': ${e.message} — refusing operation")
+            return false
         }
     }
 }

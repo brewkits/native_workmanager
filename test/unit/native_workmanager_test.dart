@@ -122,7 +122,7 @@ void main() {
       expect(event.timestamp, isNotNull); // Falls back to DateTime.now()
     });
 
-    test('should support equality based on taskId, success, timestamp', () {
+    test('should support equality based on taskId, success, message, timestamp', () {
       final timestamp = DateTime(2026, 2, 1, 12, 0);
       final event1 = TaskEvent(
         taskId: 'task-1',
@@ -130,13 +130,21 @@ void main() {
         message: 'msg-A',
         timestamp: timestamp,
       );
+      // Same message → equal (fix L6: message is now part of equality)
       final event2 = TaskEvent(
         taskId: 'task-1',
         success: true,
-        message: 'msg-B', // Different message, but equals ignores it
+        message: 'msg-A',
         timestamp: timestamp,
       );
+      // Different message → NOT equal (fix L6: was incorrectly equal before)
       final event3 = TaskEvent(
+        taskId: 'task-1',
+        success: true,
+        message: 'msg-B',
+        timestamp: timestamp,
+      );
+      final event4 = TaskEvent(
         taskId: 'task-2',
         success: true,
         timestamp: timestamp,
@@ -144,6 +152,7 @@ void main() {
 
       expect(event1, equals(event2));
       expect(event1, isNot(equals(event3)));
+      expect(event1, isNot(equals(event4)));
     });
 
     test('should support hashCode', () {

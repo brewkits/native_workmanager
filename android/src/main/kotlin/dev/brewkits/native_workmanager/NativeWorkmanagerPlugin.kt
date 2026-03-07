@@ -49,7 +49,7 @@ import org.koin.core.context.startKoin
 /**
  * Native WorkManager Flutter Plugin for Android.
  *
- * Uses kmpworkmanager v2.3.3 from Maven Central as the core engine.
+ * Uses kmpworkmanager v2.3.6 from Maven Central as the core engine.
  * This ensures compatibility with Pro/Enterprise versions.
  */
 class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent {
@@ -158,7 +158,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                 GlobalContext.get().loadModules(listOf(kmpModule))
             }
             isKoinInitialized = true
-            Log.d(TAG, "✅ Koin initialized with kmpworkmanager v2.3.3 from Maven Central")
+            Log.d(TAG, "✅ Koin initialized with kmpworkmanager v2.3.6 from Maven Central")
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to initialize Koin", e)
         }
@@ -397,6 +397,8 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                         result.success("THROTTLED")
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e  // Re-throw so coroutine cancellation propagates normally
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Enqueue error", e)
                 result.error("ENQUEUE_ERROR", e.message, null)
@@ -411,8 +413,9 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                     ?: return@launch result.error("INVALID_ARGS", "taskId required", null)
 
                 scheduler.cancel(taskId)
-                // Remove tag mapping
+                // Remove tag mapping and update status
                 taskTags.remove(taskId)
+                taskStatuses[taskId] = "cancelled"
                 result.success(null)
             } catch (e: Exception) {
                 result.error("CANCEL_ERROR", e.message, null)
@@ -450,6 +453,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                     try {
                         scheduler.cancel(taskId)
                         taskTags.remove(taskId)
+                        taskStatuses[taskId] = "cancelled"
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to cancel task $taskId: ${e.message}")
                     }
@@ -553,8 +557,13 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
         val workerClassName = taskData["workerClassName"] as? String ?: ""
         @Suppress("UNCHECKED_CAST")
         val workerConfig = taskData["workerConfig"] as? Map<String, Any?>
+        // Custom workers (NativeWorker.custom) carry user data under "input" key as a
+        // pre-encoded JSON string. Pass that directly so the custom worker receives its
+        // own fields — matching handleEnqueue and iOS executeWorkerSync behaviour.
+        // Built-in workers receive the full config enriched with __taskId for progress.
         val inputJson: String? = when {
             workerConfig == null -> null
+            workerConfig["workerType"] == "custom" -> workerConfig["input"] as? String
             else -> {
                 val enrichedConfig = workerConfig.toMutableMap()
                 if (taskId.isNotEmpty()) enrichedConfig["__taskId"] = taskId
@@ -629,6 +638,11 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                             else -> {}
                         }
                     }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // FIX M7: Always rethrow CancellationException so coroutine cancellation
+                // propagates correctly. Catching it as Exception swallows scope cancellation
+                // and prevents the coroutine from stopping when the plugin detaches.
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Error observing chain step $taskId", e)
             }
@@ -785,30 +799,6 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                 Log.e(TAG, "❌ Failed to observe work completion for $taskId", e)
             }
         }
-    }
-
-    private fun toTaskRequest(taskData: Map<String, Any?>): TaskRequest {
-        val taskId = taskData["id"] as? String ?: ""
-        val workerClassName = taskData["workerClassName"] as? String ?: ""
-        @Suppress("UNCHECKED_CAST")
-        val workerConfig = taskData["workerConfig"] as? Map<String, Any?>
-        val inputJson: String? = when {
-            workerConfig == null -> null
-            workerConfig["workerType"] == "custom" -> workerConfig["input"] as? String
-            else -> {
-                // Inject __taskId so workers can report progress via ProgressReporter
-                val enrichedConfig = workerConfig.toMutableMap()
-                if (taskId.isNotEmpty()) enrichedConfig["__taskId"] = taskId
-                toJson(enrichedConfig)
-            }
-        }
-        @Suppress("UNCHECKED_CAST")
-        val constraintsMap = taskData["constraints"] as? Map<String, Any?>
-        return TaskRequest(
-            workerClassName = workerClassName,
-            inputJson = inputJson,
-            constraints = parseConstraints(constraintsMap)
-        )
     }
 
     /**
@@ -1083,5 +1073,10 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
         eventSink = null
         progressSink = null
         scope.cancel()
+        // FIX H2: Reset the static initialization flag so the next attach (e.g. hot restart)
+        // goes through initializeKoin() again and re-loads modules into the Koin context.
+        // Without this, a hot restart reuses the stale flag and skips module loading,
+        // which can leave injected dependencies pointing at a dead context.
+        isKoinInitialized = false
     }
 }

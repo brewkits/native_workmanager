@@ -129,9 +129,10 @@ class CryptoWorker : AndroidWorker {
         return when {
             config.filePath != null -> {
                 // Hash file
-                if (config.filePath.contains("..") || !config.filePath.startsWith("/")) {
-                    Log.e(TAG, "Error - Invalid file path")
-                    return WorkerResult.Failure("Invalid file path (path traversal attempt)")
+                // FIX H1: canonical-path check (replaces weak contains(".."))
+                if (!SecurityValidator.validateFilePathSafe(config.filePath)) {
+                    Log.e(TAG, "Error - Invalid or unsafe file path")
+                    return WorkerResult.Failure("Invalid or unsafe file path")
                 }
 
                 val file = File(config.filePath)
@@ -198,10 +199,10 @@ class CryptoWorker : AndroidWorker {
             return WorkerResult.Failure("password required for encrypt operation")
         }
 
-        // ✅ SECURITY: Validate paths
-        if (config.filePath.contains("..") || !config.filePath.startsWith("/")) {
-            Log.e(TAG, "Error - Invalid input file path")
-            return WorkerResult.Failure("Invalid input file path (path traversal attempt)")
+        // FIX H1: canonical-path checks (replace weak contains(".."))
+        if (!SecurityValidator.validateFilePathSafe(config.filePath)) {
+            Log.e(TAG, "Error - Invalid or unsafe input file path")
+            return WorkerResult.Failure("Invalid or unsafe input file path")
         }
 
         val inputFile = File(config.filePath)
@@ -212,9 +213,9 @@ class CryptoWorker : AndroidWorker {
 
         // Determine output path
         val outputPath = config.outputPath ?: "${config.filePath}.enc"
-        if (outputPath.contains("..") || !outputPath.startsWith("/")) {
-            Log.e(TAG, "Error - Invalid output file path")
-            return WorkerResult.Failure("Invalid output file path (path traversal attempt)")
+        if (!SecurityValidator.validateFilePathSafe(outputPath)) {
+            Log.e(TAG, "Error - Invalid or unsafe output file path")
+            return WorkerResult.Failure("Invalid or unsafe output file path")
         }
 
         val outputFile = File(outputPath)
@@ -286,10 +287,10 @@ class CryptoWorker : AndroidWorker {
             return WorkerResult.Failure("password required for decrypt operation")
         }
 
-        // ✅ SECURITY: Validate paths
-        if (config.filePath.contains("..") || !config.filePath.startsWith("/")) {
-            Log.e(TAG, "Error - Invalid input file path")
-            return WorkerResult.Failure("Invalid input file path (path traversal attempt)")
+        // FIX H1: canonical-path checks (replace weak contains(".."))
+        if (!SecurityValidator.validateFilePathSafe(config.filePath)) {
+            Log.e(TAG, "Error - Invalid or unsafe input file path")
+            return WorkerResult.Failure("Invalid or unsafe input file path")
         }
 
         val inputFile = File(config.filePath)
@@ -300,9 +301,9 @@ class CryptoWorker : AndroidWorker {
 
         // Determine output path
         val outputPath = config.outputPath ?: config.filePath.removeSuffix(".enc")
-        if (outputPath.contains("..") || !outputPath.startsWith("/")) {
-            Log.e(TAG, "Error - Invalid output file path")
-            return WorkerResult.Failure("Invalid output file path (path traversal attempt)")
+        if (!SecurityValidator.validateFilePathSafe(outputPath)) {
+            Log.e(TAG, "Error - Invalid or unsafe output file path")
+            return WorkerResult.Failure("Invalid or unsafe output file path")
         }
 
         val outputFile = File(outputPath)

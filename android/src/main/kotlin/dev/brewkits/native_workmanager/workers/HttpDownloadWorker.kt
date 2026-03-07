@@ -111,10 +111,12 @@ class HttpDownloadWorker : AndroidWorker {
         val destinationFile = File(config.savePath)
         val tempFile = File(config.savePath + ".tmp")
 
-        // ✅ SECURITY: Basic path validation (check for path traversal attempts)
-        if (config.savePath.contains("..") || !config.savePath.startsWith("/")) {
-            Log.e(TAG, "Error - Invalid file path (path traversal attempt)")
-            return@withContext WorkerResult.Failure("Invalid file path (path traversal attempt)")
+        // FIX H1: Use canonical-path validation instead of the weak contains("..")
+        // string check. File.canonicalPath resolves symlinks and ".." at the OS level,
+        // defeating URL-encoded paths and symlink-based escapes.
+        if (!SecurityValidator.validateFilePathSafe(config.savePath)) {
+            Log.e(TAG, "Error - Invalid or unsafe save path")
+            return@withContext WorkerResult.Failure("Invalid or unsafe save path")
         }
 
         // Create parent directory if needed

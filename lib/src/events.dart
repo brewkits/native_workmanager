@@ -514,15 +514,19 @@ class TaskEvent {
   final DateTime timestamp;
 
   /// Create from platform channel map.
+  ///
+  /// FIX M5: Uses null-safe access on every field. A version mismatch between
+  /// native and Dart (or a platform bug) could send null for required fields;
+  /// an unchecked cast would throw and close the EventChannel stream silently.
   factory TaskEvent.fromMap(Map<String, dynamic> map) => TaskEvent(
-        taskId: map['taskId'] as String,
-        success: map['success'] as bool,
+        taskId: (map['taskId'] as String?) ?? '',
+        success: (map['success'] as bool?) ?? false,
         message: map['message'] as String?,
         resultData: map['resultData'] != null
             ? Map<String, dynamic>.from(map['resultData'] as Map)
             : null,
         timestamp: map['timestamp'] != null
-            ? DateTime.fromMillisecondsSinceEpoch(map['timestamp'] as int)
+            ? DateTime.fromMillisecondsSinceEpoch((map['timestamp'] as num).toInt())
             : DateTime.now(),
       );
 
@@ -541,10 +545,12 @@ class TaskEvent {
       other is TaskEvent &&
           taskId == other.taskId &&
           success == other.success &&
+          message == other.message &&
           timestamp == other.timestamp;
 
+  // FIX L6: Include message in hashCode to match the updated == operator.
   @override
-  int get hashCode => Object.hash(taskId, success, timestamp);
+  int get hashCode => Object.hash(taskId, success, message, timestamp);
 
   @override
   String toString() => 'TaskEvent('
@@ -791,12 +797,14 @@ class TaskProgress {
   final int? totalSteps;
 
   /// Create from platform channel map.
+  ///
+  /// FIX M5: Null-safe access prevents crash if platform omits a required field.
   factory TaskProgress.fromMap(Map<String, dynamic> map) => TaskProgress(
-        taskId: map['taskId'] as String,
-        progress: map['progress'] as int,
+        taskId: (map['taskId'] as String?) ?? '',
+        progress: (map['progress'] as num?)?.toInt() ?? 0,
         message: map['message'] as String?,
-        currentStep: map['currentStep'] as int?,
-        totalSteps: map['totalSteps'] as int?,
+        currentStep: (map['currentStep'] as num?)?.toInt(),
+        totalSteps: (map['totalSteps'] as num?)?.toInt(),
       );
 
   /// Convert to map.
