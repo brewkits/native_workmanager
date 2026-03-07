@@ -214,17 +214,18 @@ class HttpDownloadWorker : AndroidWorker {
                 }
 
                 // ✅ PROGRESS: Wrap response body for progress tracking
+                val rawBody = response.body
+                if (rawBody == null) {
+                    Log.e(TAG, "Error - No response body")
+                    return@withContext WorkerResult.Failure("No response body")
+                }
                 val progressBody = ProgressResponseBody(
-                    responseBody = response.body!!,
+                    responseBody = rawBody,
                     taskId = taskId,
                     fileName = destinationFile.name
                 )
 
                 val inputStream = progressBody.byteStream()
-                if (inputStream == null) {
-                    Log.e(TAG, "Error - No response body")
-                    return@withContext WorkerResult.Failure("No response body")
-                }
 
                 // Capture content type and final URL
                 val contentType = response.header("Content-Type")

@@ -20,9 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Root cause:** The v1.0.7 disk-space check added a fixed `50 * 1024 * 1024` (50 MB) minimum to `hasEnoughDiskSpace()`. A 292-byte download from `jsonplaceholder.typicode.com/posts/1` required ~50 MB free, causing false failures on storage-constrained devices.
   - **Fix:** Removed the 50 MB constant. Formula now matches Android: `requiredWithMargin = bytes × 1.2`.
 
-- **Security: Path traversal hardening** (`SecurityValidator.kt` Android, `SecurityValidator.swift` iOS)
-  - Android: Replaced `contains("..")` string check (bypassable via URL encoding) with `File.canonicalPath` comparison against an allowed-prefix allowlist.
-  - Applied in `HttpDownloadWorker` and `CryptoWorker` on Android.
+- **Security: Path traversal hardening across all Android workers** (`SecurityValidator.kt`)
+  - Replaced `contains("..")` string checks (bypassable via URL encoding and symlink traversal) with `File.canonicalPath` against a blocked-prefix allowlist throughout all Android workers: `HttpDownloadWorker`, `HttpUploadWorker`, `FileDecompressionWorker`, `FileSystemWorker` (copy/move/mkdir), `ImageProcessWorker`, `FileCompressionWorker`, and `CryptoWorker`.
 
 - **iOS: Chain cancel — task handle not stored before execution** (`NativeWorkmanagerPlugin.swift`)
   - `handleEnqueueChain` now creates the `Task` handle and stores it in `activeTasks[chainCancelId]` before the chain starts, so `cancel(chainName)` finds and cancels it correctly (C1 fix).
@@ -40,6 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Dart: `TaskEvent.operator==` ignored `message` field** (`events.dart`)
   - Two events with identical `taskId`/`success`/`timestamp` but different `message` were wrongly considered equal. Added `message == other.message` to `==` and `hashCode` (L6 fix).
+
+- **Dart: DartWorker callback received wrong input format** (`method_channel.dart`, `native_work_manager.dart`)
+  - `_executeDartCallback` in `method_channel.dart` was wrapping the raw JSON string as `{'raw': inputJson}` instead of parsing it. Callbacks received `{'raw': '{"key":"value"}'}` instead of `{'key': 'value'}`. Fixed by JSON-decoding the input before passing to the callback executor. The paired `{'raw': ...}` unwrap in `native_work_manager.dart` was also removed since it is no longer needed.
+
+- **Android: `HttpDownloadWorker` force-unwrap NPE** (`HttpDownloadWorker.kt`)
+  - `response.body!!` on line 218 could throw `NullPointerException` if OkHttp returned a null body. Added an explicit null check; returns `WorkerResult.Failure("No response body")` instead of crashing.
 
 ### Improved
 

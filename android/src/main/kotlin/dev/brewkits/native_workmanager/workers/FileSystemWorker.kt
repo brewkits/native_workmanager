@@ -103,9 +103,9 @@ class FileSystemWorker : AndroidWorker {
             return WorkerResult.Failure("Destination already exists: $destinationPath (set overwrite=true to replace)")
         }
 
-        // Path traversal protection: reject paths containing ..
-        if (sourcePath.contains("..") || destinationPath.contains("..")) {
-            return WorkerResult.Failure("Path traversal detected: paths containing '..' are not allowed")
+        // FIX H1: Canonical-path check (replaces bypassable contains(".."))
+        if (!SecurityValidator.validateFilePathSafe(sourcePath) || !SecurityValidator.validateFilePathSafe(destinationPath)) {
+            return WorkerResult.Failure("Invalid or unsafe path")
         }
 
         return try {
@@ -153,9 +153,9 @@ class FileSystemWorker : AndroidWorker {
             return WorkerResult.Failure("Destination already exists: $destinationPath (set overwrite=true to replace)")
         }
 
-        // Path traversal protection: reject paths containing ..
-        if (sourcePath.contains("..") || destinationPath.contains("..")) {
-            return WorkerResult.Failure("Path traversal detected: paths containing '..' are not allowed")
+        // FIX H1: Canonical-path check (replaces bypassable contains(".."))
+        if (!SecurityValidator.validateFilePathSafe(sourcePath) || !SecurityValidator.validateFilePathSafe(destinationPath)) {
+            return WorkerResult.Failure("Invalid or unsafe path")
         }
 
         return try {
@@ -328,9 +328,9 @@ class FileSystemWorker : AndroidWorker {
             }
         }
 
-        // Path traversal protection: reject paths containing ..
-        if (path.contains("..")) {
-            return WorkerResult.Failure("Path traversal detected: paths containing '..' are not allowed")
+        // FIX H1: Canonical-path check (replaces bypassable contains(".."))
+        if (!SecurityValidator.validateFilePathSafe(path)) {
+            return WorkerResult.Failure("Invalid or unsafe path")
         }
 
         return try {

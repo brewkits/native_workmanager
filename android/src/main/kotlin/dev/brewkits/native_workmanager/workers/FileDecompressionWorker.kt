@@ -80,14 +80,14 @@ class FileDecompressionWorker : AndroidWorker {
             null
         }
 
-        // ✅ SECURITY: Validate paths
-        if (config.zipPath.contains("..") || !config.zipPath.startsWith("/")) {
-            Log.e(TAG, "Error - Invalid ZIP path (path traversal attempt)")
+        // FIX H1: Use canonical-path validation (replaces bypassable contains("..") check)
+        if (!SecurityValidator.validateFilePathSafe(config.zipPath)) {
+            Log.e(TAG, "Error - Invalid or unsafe ZIP path")
             return@withContext WorkerResult.Failure("Invalid ZIP path")
         }
 
-        if (config.targetDir.contains("..") || !config.targetDir.startsWith("/")) {
-            Log.e(TAG, "Error - Invalid target directory (path traversal attempt)")
+        if (!SecurityValidator.validateFilePathSafe(config.targetDir)) {
+            Log.e(TAG, "Error - Invalid or unsafe target directory")
             return@withContext WorkerResult.Failure("Invalid target directory")
         }
 

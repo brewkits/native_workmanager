@@ -224,9 +224,9 @@ class HttpUploadWorker : AndroidWorker {
         val validatedFiles = mutableListOf<Triple<File, String, String>>() // (File, fileName, mimeType)
 
         for (fileConfig in fileConfigs) {
-            // ✅ SECURITY: Basic path validation
-            if (fileConfig.filePath.contains("..") || !fileConfig.filePath.startsWith("/")) {
-                Log.e(TAG, "Error - Invalid file path (path traversal attempt): ${fileConfig.filePath}")
+            // FIX H1: Use canonical-path validation (replaces bypassable contains("..") check)
+            if (!SecurityValidator.validateFilePathSafe(fileConfig.filePath)) {
+                Log.e(TAG, "Error - Invalid or unsafe file path: ${fileConfig.filePath}")
                 return@withContext WorkerResult.Failure("Invalid file path: ${fileConfig.filePath}")
             }
 

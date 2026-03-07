@@ -95,6 +95,16 @@ class ImageProcessWorker : AndroidWorker {
                 null
             }
 
+            // FIX H1: Canonical-path validation (replaces missing path check)
+            if (!SecurityValidator.validateFilePathSafe(config.inputPath)) {
+                Log.e(TAG, "Invalid or unsafe input path")
+                return@withContext WorkerResult.Failure("Invalid or unsafe input path")
+            }
+            if (!SecurityValidator.validateFilePathSafe(config.outputPath)) {
+                Log.e(TAG, "Invalid or unsafe output path")
+                return@withContext WorkerResult.Failure("Invalid or unsafe output path")
+            }
+
             // Check input file exists
             val inputFile = File(config.inputPath)
             if (!inputFile.exists()) {

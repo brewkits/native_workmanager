@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:developer' as developer;
 
 import 'package:flutter/foundation.dart';
@@ -95,9 +96,16 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
     }
 
     Map<String, dynamic>? input;
-    if (inputJson != null) {
-      // Parse JSON input - will be handled by the callback
-      input = {'raw': inputJson};
+    if (inputJson != null && inputJson.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(inputJson);
+        if (decoded is Map) {
+          input = Map<String, dynamic>.from(decoded);
+        }
+      } catch (_) {
+        // Non-JSON scalar — wrap so callbacks always receive a Map
+        input = {'value': inputJson};
+      }
     }
 
     return _callbackExecutor!(callbackId, input);

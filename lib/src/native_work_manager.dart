@@ -315,18 +315,7 @@ class NativeWorkManager {
       throw StateError('No Dart worker registered for: $callbackId');
     }
 
-    // Parse JSON input if present
-    Map<String, dynamic>? parsedInput;
-    if (input != null && input['raw'] != null) {
-      try {
-        parsedInput =
-            jsonDecode(input['raw'] as String) as Map<String, dynamic>;
-      } catch (_) {
-        parsedInput = input;
-      }
-    }
-
-    return callback(parsedInput);
+    return callback(input);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
