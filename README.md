@@ -98,7 +98,7 @@ No third-party code. No Flutter Engine. Every worker runs natively in Kotlin (An
 // Fire-and-forget API ping
 NativeWorker.httpSync(
   url: 'https://api.example.com/heartbeat',
-  method: 'POST',
+  method: HttpMethod.post,
   headers: {'Authorization': 'Bearer $token'},
 )
 
@@ -110,11 +110,11 @@ NativeWorker.httpDownload(
   expectedChecksum: 'a3b2c1...',   // SHA-256 verified after download
 )
 
-// Multi-file upload with progress
+// Upload a file with additional form fields
 NativeWorker.httpUpload(
   url: 'https://api.example.com/photos',
-  files: ['/tmp/photo1.jpg', '/tmp/photo2.jpg'],
-  fields: {'albumId': '42'},
+  filePath: '/tmp/photo1.jpg',
+  additionalFields: {'albumId': '42'},
 )
 
 // Full request with response validation
@@ -143,9 +143,8 @@ NativeWorker.fileDecompress(
   deleteAfterExtract: true,
 )
 
-// Copy, move, delete, list, mkdir
-NativeWorker.fileSystem(
-  operation: FileOperation.move,
+// Move, copy, delete, list, mkdir
+NativeWorker.fileMove(
   sourcePath: '/tmp/raw.bin',
   destinationPath: '${docsDir.path}/processed.bin',
 )
@@ -168,9 +167,10 @@ NativeWorker.imageProcess(
 ### Crypto
 
 ```dart
-// AES-256-CBC encrypt (random PBKDF2 salt per file)
+// AES-256 encrypt (random IV + PBKDF2 key derivation)
 NativeWorker.cryptoEncrypt(
-  filePath: '${docsDir.path}/report.pdf',
+  inputPath: '${docsDir.path}/report.pdf',
+  outputPath: '${docsDir.path}/report.pdf.enc',
   password: 'secret',
 )
 
@@ -213,7 +213,7 @@ await NativeWorkManager.beginWith(
       algorithm: HashAlgorithm.sha256,
     ),
   ),
-).enqueue(chainName: 'update-model');
+).named('update-model').enqueue();
 ```
 
 Each step only runs if the previous one succeeded. If a step fails and exhausts retries, the chain stops and emits a failure event. See [Chain Processing guide →](doc/use-cases/06-chain-processing.md)
@@ -319,8 +319,8 @@ NativeWorkManager.events.listen((event) {
 
 // Download / upload progress
 NativeWorkManager.progress.listen((update) {
-  print('${update.taskId}: ${update.progress}% '
-        '(${update.bytesDownloaded}/${update.totalBytes} bytes)');
+  print('${update.taskId}: ${update.progress}%'
+        '${update.message != null ? " — ${update.message}" : ""}');
 });
 ```
 
@@ -332,10 +332,10 @@ NativeWorkManager.progress.listen((update) {
 // Run only on Wi-Fi while charging
 await NativeWorkManager.enqueue(
   taskId: 'heavy-backup',
-  trigger: TaskTrigger.oneTime(delay: Duration(minutes: 30)),
+  trigger: TaskTrigger.oneTime(Duration(minutes: 30)),
   worker: NativeWorker.httpUpload(
     url: 'https://backup.example.com/upload',
-    files: photoPaths,
+    filePath: backupPath,
   ),
   constraints: Constraints(
     requiresUnmeteredNetwork: true,   // Wi-Fi only
@@ -348,7 +348,7 @@ await NativeWorkManager.enqueue(
 await NativeWorkManager.cancelByTag('user-session');
 ```
 
-Available triggers: `oneTime`, `oneTime(delay:)`, `periodic(Duration)`, `exact`, `windowed`, `contentUri`, `batteryOkay`, `deviceIdle`.
+Available triggers: `oneTime()`, `oneTime(Duration)`, `periodic(Duration)`, `exact(DateTime)`, `windowed`, `contentUri`, `batteryOkay`, `batteryLow`, `deviceIdle`, `storageLow`.
 
 ---
 

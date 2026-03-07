@@ -51,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Integration tests:** 37/37 passing on both Android (Pixel 6 Pro, Android 16) and iOS (iPhone 6s Plus, iOS 15.8.6). All DartWorker tests now pass on iOS.
 - **Regression tests:** `test/unit/audit_bug_fixes_test.dart` — 33 new unit tests covering M5, L6, H1, C1 and round-trip serialisation.
 - **Version alignment:** `pubspec.yaml`, `native_workmanager.podspec`, and `android/build.gradle` all corrected to `1.0.8` (were accidentally set to `2.3.6` / `1.0.0`).
+- **README accuracy:** All code examples verified against actual Dart API. Fixed: `method: 'POST'` → `HttpMethod.post`, `files:[...]` → `filePath:` + `additionalFields:`, `cryptoEncrypt(filePath:)` → `inputPath:/outputPath:`, `TaskTrigger.oneTime(delay:)` → positional syntax, `NativeWorker.fileSystem()` → `NativeWorker.fileMove()`, `.enqueue(chainName:)` → `.named().enqueue()`, progress fields, triggers list.
 
 ---
 
