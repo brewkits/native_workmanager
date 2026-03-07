@@ -522,4 +522,4 @@ Background execution limits affect all apps. Native workers help by reducing ove
 
 ---
 
-**Last Updated:** February 2026 (v1.0.1)
+**Last Updated:** March 2026 (v1.0.8)

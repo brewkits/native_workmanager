@@ -180,14 +180,14 @@ NativeWorkManager.enqueue(
 
 ---
 
-## What's New in v1.0.5
+## What's New in v1.0.8
 
-- **Periodic tasks repeat correctly** — trigger type was hardcoded to OneTime (fixed)
-- **Constraints enforced** — `requiresNetwork`, `initialDelay`, etc. were silently ignored on Android (fixed)
-- **Chain resume preserves worker config** — all config was lost after app kill (fixed)
-- **Custom iOS worker registration** — `IosWorker` protocol is now `public` (fixed)
-- **HttpDownload resume** — partial downloads preserved on error so retries use `Range` header (fixed)
-- **Swift Package Manager support** — works with both SPM and CocoaPods
+- **iOS DartWorker now works in debug/test mode** — `FlutterCallbackCache` returns `nil` in JIT builds; fixed by invoking `executeDartCallback` on the existing main channel instead of a secondary engine
+- **iOS 37/37 integration tests** — all DartWorker, `isHeavyTask`, delay, and network constraint tests pass on real device
+- **Path traversal hardened** — Android workers now use `File.canonicalPath` comparison (replaces bypassable `contains("..")` check)
+- **Chain cancel, chain blocking, and data race fixes** — iOS chain cancel, non-blocking accept, and thread-safe `taskStartTimes`
+- **Null-safe `fromMap` deserialization** — `TaskEvent` and `TaskProgress` no longer throw on malformed platform data
+- **Version alignment** — `pubspec.yaml`, podspec, and `build.gradle` corrected to `1.0.8`
 
 [Full changelog →](CHANGELOG.md)
 

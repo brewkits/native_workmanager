@@ -192,9 +192,9 @@ await myTaskLogic();  // Test this works
 
 ### Q: Can I pass data between tasks in a chain?
 
-**A:** Currently, data passing between tasks is **not directly supported** in v1.0.0.
+**A:** Currently, data passing between tasks is **not directly supported** in v1.0.8.
 
-**Workaround (v1.0.0):**
+**Workaround (v1.0.8):**
 Use shared storage:
 
 ```dart

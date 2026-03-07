@@ -1,87 +1,74 @@
 # Documentation
 
-Welcome to native_workmanager documentation!
+native_workmanager v1.0.8 documentation index.
 
-## 📚 Documentation Files
-
-All documentation is organized in this directory for easy access.
-
-### Getting Started
+## Getting Started
 
 | File | Description |
 |------|-------------|
-| **[GETTING_STARTED.md](GETTING_STARTED.md)** | 3-minute quick start guide with copy-paste examples |
-| **[MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)** | Migrate from workmanager step-by-step |
+| [GETTING_STARTED.md](GETTING_STARTED.md) | 3-minute quick start with copy-paste examples |
+| [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) | Migrate from `workmanager` step-by-step |
 
-### Platform Guides
-
-| File | Description |
-|------|-------------|
-| **[IOS_BACKGROUND_LIMITS.md](IOS_BACKGROUND_LIMITS.md)** | iOS background execution limitations (30-second rule) |
-
-### Technical Documentation
+## Platform Guides
 
 | File | Description |
 |------|-------------|
-| **[API_REFERENCE.md](API_REFERENCE.md)** | Complete API documentation |
-| **[SECURITY.md](SECURITY.md)** | Security policy and how to report vulnerabilities |
-| **[FAQ.md](FAQ.md)** | Frequently asked questions |
+| [ANDROID_SETUP.md](ANDROID_SETUP.md) | Android minSdk 26+, ProGuard, permissions |
+| [IOS_BACKGROUND_LIMITS.md](IOS_BACKGROUND_LIMITS.md) | iOS 30-second rule, BGTaskScheduler, periodic limitations |
+| [PLATFORM_CONSISTENCY.md](PLATFORM_CONSISTENCY.md) | Cross-platform behavior differences and guarantees |
 
-### Subdirectories
+## API & Technical Reference
 
-```
-docs/
-├── integrations/   # Integration guides (dio, firebase, hive, sentry)
-├── use-cases/      # Real-world usage examples (8 examples)
-└── workers/        # Worker-specific documentation
-```
+| File | Description |
+|------|-------------|
+| [API_REFERENCE.md](API_REFERENCE.md) | Complete API documentation for all public types |
+| [EXTENSIBILITY.md](EXTENSIBILITY.md) | Writing custom Kotlin/Swift workers |
+| [SECURITY.md](SECURITY.md) | Security policy, path traversal, URL validation |
+| [PRODUCTION_GUIDE.md](PRODUCTION_GUIDE.md) | Production checklist, monitoring, reliability |
+| [FAQ.md](FAQ.md) | Frequently asked questions |
 
-## 🚀 Quick Start
+## Use Cases
 
-### New Users
+| File | Description |
+|------|-------------|
+| [use-cases/01-periodic-api-sync.md](use-cases/01-periodic-api-sync.md) | Periodic background sync |
+| [use-cases/02-file-upload-with-retry.md](use-cases/02-file-upload-with-retry.md) | Reliable file upload with backoff |
+| [use-cases/03-background-cleanup.md](use-cases/03-background-cleanup.md) | Scheduled cache/temp file cleanup |
+| [use-cases/04-photo-auto-backup.md](use-cases/04-photo-auto-backup.md) | Photo library backup workflow |
+| [use-cases/05-hybrid-workflow.md](use-cases/05-hybrid-workflow.md) | Mixing native workers with Dart callbacks |
+| [use-cases/06-chain-processing.md](use-cases/06-chain-processing.md) | Multi-step task chains (Download → Process → Upload) |
+| [use-cases/07-custom-native-workers.md](use-cases/07-custom-native-workers.md) | Writing and registering custom Kotlin/Swift workers |
 
-1. Start with **[../README.md](../README.md)** for overview
-2. Read **[GETTING_STARTED.md](GETTING_STARTED.md)** for quick start
-3. Check **[use-cases/](use-cases/)** for real-world examples
-4. Read **[IOS_BACKGROUND_LIMITS.md](IOS_BACKGROUND_LIMITS.md)** if targeting iOS
+## Worker Guides
 
-### Advanced Users
+| File | Description |
+|------|-------------|
+| [workers/CRYPTO_OPERATIONS.md](workers/CRYPTO_OPERATIONS.md) | AES-256 encryption, PBKDF2, file hashing |
+| [workers/FILE_SYSTEM.md](workers/FILE_SYSTEM.md) | Copy, move, delete, list, mkdir |
+| [workers/FILE_DECOMPRESSION.md](workers/FILE_DECOMPRESSION.md) | ZIP extraction with zip-slip/bomb protection |
+| [workers/IMAGE_PROCESSING.md](workers/IMAGE_PROCESSING.md) | Resize, compress, format conversion |
 
-1. **[API_REFERENCE.md](API_REFERENCE.md)** - Complete API docs
-2. **[workers/](workers/)** - Worker-specific guides
-3. **[use-cases/](use-cases/)** - Real-world examples
+## Integration Guides
 
-### Contributors
+| File | Description |
+|------|-------------|
+| [integrations/dio.md](integrations/dio.md) | Use Dio interceptors with native workers |
+| [integrations/firebase.md](integrations/firebase.md) | Firebase + background sync |
+| [integrations/hive.md](integrations/hive.md) | Hive database background operations |
+| [integrations/sentry.md](integrations/sentry.md) | Error tracking for background tasks |
 
-1. **[SECURITY.md](SECURITY.md)** - Report security issues
-2. **[../CONTRIBUTING.md](../CONTRIBUTING.md)** - Contributing guidelines
+## Internal / Analysis
 
-## 🔗 External Links
+| File | Description |
+|------|-------------|
+| [BUG_FIX_VERIFICATION.md](BUG_FIX_VERIFICATION.md) | WorkManager 2.10.0+ bug root cause & verification (v1.0.4) |
+| [SPM_ANALYSIS.md](SPM_ANALYSIS.md) | Swift Package Manager compatibility analysis |
 
-- [Main README](../README.md) - Package overview
-- [CHANGELOG](../CHANGELOG.md) - Version history
-- [Example App](../example/) - Working demos
+## Quick Navigation
 
-## 📝 Contributing
+- **[../README.md](../README.md)** — Package overview and feature table
+- **[../CHANGELOG.md](../CHANGELOG.md)** — Version history
+- **[../CONTRIBUTING.md](../CONTRIBUTING.md)** — Contributing guidelines
+- **[../example/](../example/)** — Working example app
 
-Documentation improvements welcome! See main [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines.
-
-### Where to Add Documentation
-
-- **Real-world examples** → `use-cases/`
-- **Integration guides** → `integrations/`
-- **Worker guides** → `workers/`
-- **Core documentation** → This directory
-
-## 📊 Statistics
-
-- **Getting Started:** 2 files
-- **Production Guides:** 3 files
-- **Technical Documentation:** 4 files
-- **Use Case Examples:** 8 files
-- **Integration Guides:** 4 files
-- **Worker Guides:** 4 files
-
-**Total:** 25+ documentation files
-
-Last updated: 2026-02-13
+Last updated: 2026-03-07 (v1.0.8)

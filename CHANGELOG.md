@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.8] - 2026-03-07
+
+### Fixed
+
+- **iOS: DartWorker always returned failure in debug/test mode** (`NativeWorkmanagerPlugin.swift`)
+  - **Root cause:** `FlutterCallbackCache.lookupCallbackInformation()` returns `nil` in debug/JIT builds (Flutter integration tests, Xcode debug runs). `FlutterEngineManager` used this cache to start a secondary engine, so it could never initialise — every `DartCallbackWorker` invocation silently failed.
+  - **Fix:** Added `executeDartWorkerViaMethodChannel()` in `NativeWorkmanagerPlugin`. When `DartCallbackWorker` is detected, the plugin invokes `executeDartCallback` directly on the existing main Flutter method channel (Native → Dart) instead of launching a secondary engine. This reuses the already-running Dart isolate and works in any build mode. Falls back to `FlutterEngineManager` when `methodChannel` is `nil` (killed-app background execution in release builds).
+  - **Impact:** iOS DartWorker tests went from 32/37 → **37/37** passing. `isHeavyTask` test (which uses DartWorker) also now passes.
+
+- **iOS: HttpDownloadWorker regression — false disk-space failure on small files** (`SecurityValidator.swift`)
+  - **Root cause:** The v1.0.7 disk-space check added a fixed `50 * 1024 * 1024` (50 MB) minimum to `hasEnoughDiskSpace()`. A 292-byte download from `jsonplaceholder.typicode.com/posts/1` required ~50 MB free, causing false failures on storage-constrained devices.
+  - **Fix:** Removed the 50 MB constant. Formula now matches Android: `requiredWithMargin = bytes × 1.2`.
+
+- **Security: Path traversal hardening** (`SecurityValidator.kt` Android, `SecurityValidator.swift` iOS)
+  - Android: Replaced `contains("..")` string check (bypassable via URL encoding) with `File.canonicalPath` comparison against an allowed-prefix allowlist.
+  - Applied in `HttpDownloadWorker` and `CryptoWorker` on Android.
+
+- **iOS: Chain cancel — task handle not stored before execution** (`NativeWorkmanagerPlugin.swift`)
+  - `handleEnqueueChain` now creates the `Task` handle and stores it in `activeTasks[chainCancelId]` before the chain starts, so `cancel(chainName)` finds and cancels it correctly (C1 fix).
+
+- **iOS: Chain execution was blocking** — `handleEnqueueChain` held `FlutterResult` open until the chain completed (M1 fix). Now returns `"ACCEPTED"` immediately; completion delivered via `emitTaskEvent` on the EventChannel.
+
+- **iOS: Data race on `taskStartTimes`** (`NativeWorkmanagerPlugin.swift`)
+  - Read and remove operations in `showDebugNotification` now use `stateQueue.sync` / `stateQueue.async(flags:.barrier)` to prevent concurrent access (H3 fix).
+
+- **Android: Hot restart skipped Koin module reload** (`NativeWorkmanagerPlugin.kt`)
+  - `isKoinInitialized` was never reset in `onDetachedFromEngine()`, so hot restart silently reused a stale Koin context (H2 fix).
+
+- **Dart: `TaskEvent.fromMap` and `TaskProgress.fromMap` null-safety** (`events.dart`)
+  - Replaced unsafe `as String` / `as int` casts with null-safe fallbacks: `(map['x'] as String?) ?? ''`, `(map['x'] as num?)?.toInt() ?? 0` (M5 fix).
+
+- **Dart: `TaskEvent.operator==` ignored `message` field** (`events.dart`)
+  - Two events with identical `taskId`/`success`/`timestamp` but different `message` were wrongly considered equal. Added `message == other.message` to `==` and `hashCode` (L6 fix).
+
+### Improved
+
+- **Integration tests:** 37/37 passing on both Android (Pixel 6 Pro, Android 16) and iOS (iPhone 6s Plus, iOS 15.8.6). All DartWorker tests now pass on iOS.
+- **Regression tests:** `test/unit/audit_bug_fixes_test.dart` — 33 new unit tests covering M5, L6, H1, C1 and round-trip serialisation.
+- **Version alignment:** `pubspec.yaml`, `native_workmanager.podspec`, and `android/build.gradle` all corrected to `1.0.8` (were accidentally set to `2.3.6` / `1.0.0`).
+
+---
+
 ## [1.0.7] - 2026-03-04
 
 ### Fixed

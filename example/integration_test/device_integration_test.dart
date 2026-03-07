@@ -1,6 +1,6 @@
 // ignore_for_file: avoid_print
 // ============================================================
-// Native WorkManager v1.0.6 – DEVICE INTEGRATION TESTS
+// Native WorkManager v1.0.8 – DEVICE INTEGRATION TESTS
 // ============================================================
 //
 // Run on a real device or emulator (NOT unit/mock tests):
@@ -373,7 +373,7 @@ void main() {
           reason: 'Task with requiresNetwork must run on networked device');
     });
 
-    testWidgets('isHeavyTask=true – runs as foreground service (Android)',
+    testWidgets('isHeavyTask=true – runs as foreground service (Android) / DartWorker (iOS)',
         (tester) async {
       final id = _id('constraint_heavy');
       final future = _waitEvent(id, timeout: const Duration(seconds: 45));
