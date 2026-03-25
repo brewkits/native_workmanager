@@ -16,6 +16,9 @@ final class HttpDownloadWorker extends Worker {
     this.expectedChecksum,
     this.checksumAlgorithm = 'SHA-256',
     this.useBackgroundSession = false,
+    this.showNotification = false,
+    this.notificationTitle,
+    this.notificationBody,
   });
 
   /// The URL to download from.
@@ -60,6 +63,31 @@ final class HttpDownloadWorker extends Worker {
   ///
   /// Default: `'SHA-256'`
   final String checksumAlgorithm;
+
+  /// Show a system notification with download progress.
+  ///
+  /// When `true`, the native side shows a persistent notification while the
+  /// download is in progress and a completion/failure notification when done.
+  ///
+  /// **Android:** Uses a low-priority notification channel with a Cancel button.
+  /// Requires `POST_NOTIFICATIONS` permission on Android 13+ (API 33+).
+  ///
+  /// **iOS:** Uses `UNUserNotificationCenter`. Progress updates are best-effort
+  /// (iOS suspends the app during background downloads). The completion
+  /// notification is always shown.
+  ///
+  /// Default: `false`
+  final bool showNotification;
+
+  /// Title for the progress notification.
+  ///
+  /// Defaults to the file name derived from [url] on the native side.
+  final String? notificationTitle;
+
+  /// Body text for the progress notification.
+  ///
+  /// Defaults to the download URL on the native side.
+  final String? notificationBody;
 
   /// Use background URLSession for downloads (iOS only).
   ///
@@ -108,5 +136,8 @@ final class HttpDownloadWorker extends Worker {
         if (expectedChecksum != null) 'expectedChecksum': expectedChecksum,
         'checksumAlgorithm': checksumAlgorithm,
         'useBackgroundSession': useBackgroundSession,
+        'showNotification': showNotification,
+        if (notificationTitle != null) 'notificationTitle': notificationTitle,
+        if (notificationBody != null) 'notificationBody': notificationBody,
       };
 }

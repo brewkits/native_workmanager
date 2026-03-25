@@ -15,5 +15,14 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+
+        <!-- BroadcastReceiver for the Cancel button in download progress notifications. -->
+        <receiver
+            android:name="dev.brewkits.native_workmanager.notification.NotificationCancelReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="dev.brewkits.native_workmanager.CANCEL_DOWNLOAD" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

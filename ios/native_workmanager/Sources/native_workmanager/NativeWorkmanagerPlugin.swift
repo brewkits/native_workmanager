@@ -52,6 +52,17 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     // Chain state manager for persistence
     private let chainStateManager = ChainStateManager()
 
+    // Persistent SQLite task store (available on iOS 13+)
+    @available(iOS 13.0, *)
+    private var taskStore: TaskStore? { TaskStore.shared }
+
+    // Notification title per taskId for download notification feature
+    private var taskNotifTitles: [String: String] = [:]
+
+    // Concurrency limiter — prevents simultaneous network saturation.
+    // Replaced in handleInitialize when maxConcurrentTasks is provided.
+    private var concurrencyLimiter = ConcurrencyLimiter(max: 4)
+
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = NativeWorkmanagerPlugin()
 
@@ -97,9 +108,23 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             BackgroundSessionManager.shared.progressDelegate = { [weak instance] taskId, progress in
                 instance?.emitProgress(taskId: taskId, progress: Int(progress), message: nil)
             }
+
+            // Handle downloads that completed while app was killed (background relaunch).
+            // The OS relaunches the app and delivers the result via URLSession delegate;
+            // since downloadHandlers is empty after a kill, we forward the result here.
+            BackgroundSessionManager.shared.relaunchCompletionDelegate = { [weak instance] taskId, result in
+                switch result {
+                case .success:
+                    instance?.emitTaskEvent(taskId: taskId, success: true,
+                                            message: "Download completed (background relaunch)")
+                case .failure(let error):
+                    instance?.emitTaskEvent(taskId: taskId, success: false,
+                                            message: error.localizedDescription)
+                }
+            }
         }
 
-        print("NativeWorkmanagerPlugin: Registered")
+        NativeLogger.d("Plugin registered")
     }
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -122,6 +147,12 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             handleGetTaskStatus(call: call, result: result)
         case "enqueueChain":
             handleEnqueueChain(call: call, result: result)
+        case "pause":
+            handlePause(call: call, result: result)
+        case "resume":
+            handleResume(call: call, result: result)
+        case "allTasks":
+            handleAllTasks(result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -139,17 +170,28 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             // Extract callback handle if provided (for Dart workers)
             if let callbackHandle = args["callbackHandle"] as? Int64 {
                 FlutterEngineManager.shared.setCallbackHandle(callbackHandle)
-                print("NativeWorkManager: Initialized with Dart callback handle: \(callbackHandle)")
+                NativeLogger.d("Initialized with Dart callback handle: \(callbackHandle)")
             }
 
-            // Extract debug mode
+            // Extract debug mode and wire up the centralised logger.
             debugMode = args["debugMode"] as? Bool ?? false
-            if debugMode && isDebugBuild() {
-                print("✅ Debug mode enabled - notifications will show for all task events")
+            NativeLogger.enabled = debugMode && isDebugBuild()
+            if NativeLogger.enabled {
+                NativeLogger.d("Debug mode enabled - notifications will show for all task events")
                 requestNotificationPermissions()
             }
+
+            // Apply maxConcurrentTasks limit (default 4).
+            let maxConcurrent = args["maxConcurrentTasks"] as? Int ?? 4
+            concurrencyLimiter = ConcurrencyLimiter(max: maxConcurrent)
+            NativeLogger.d("maxConcurrentTasks=\(maxConcurrent)")
         } else {
-            print("NativeWorkManager: Initialized (KMP native workers)")
+            NativeLogger.d("Initialized (KMP native workers)")
+        }
+
+        // Initialize download notification permission (required for showNotification feature)
+        if #available(iOS 13.0, *) {
+            DownloadNotificationManager.requestPermission()
         }
 
         // ✅ NEW: Resume incomplete chains and cleanup old states
@@ -162,7 +204,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
     /// Resume incomplete chains that were interrupted by app kill
     private func resumePendingChains() async {
-        print("NativeWorkManager: Checking for pending chains to resume...")
+        NativeLogger.d("Checking for pending chains to resume...")
 
         do {
             // Cleanup old/completed chains first
@@ -172,21 +214,21 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             let resumableChains = try await chainStateManager.loadResumableChains()
 
             if resumableChains.isEmpty {
-                print("NativeWorkManager: No pending chains to resume")
+                NativeLogger.d("No pending chains to resume")
                 return
             }
 
-            print("NativeWorkManager: Found \(resumableChains.count) chain(s) to resume")
+            NativeLogger.d("Found \(resumableChains.count) chain(s) to resume")
 
             // Resume each chain
             for chainState in resumableChains {
-                print("NativeWorkManager: Resuming chain '\(chainState.chainId)'")
-                print("  Progress: Step \(chainState.currentStep + 1)/\(chainState.totalSteps)")
+                NativeLogger.d("Resuming chain '\(chainState.chainId)'")
+                NativeLogger.d("  Progress: Step \(chainState.currentStep + 1)/\(chainState.totalSteps)")
 
                 await resumeChain(chainState: chainState)
             }
         } catch {
-            print("NativeWorkManager: Error resuming chains: \(error)")
+            NativeLogger.d("Error resuming chains: \(error)")
         }
     }
 
@@ -196,12 +238,12 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         let startStep = chainState.currentStep
         let steps = chainState.steps
 
-        print("NativeWorkManager: Resuming chain '\(chainId)' from step \(startStep + 1)")
+        NativeLogger.d("Resuming chain '\(chainId)' from step \(startStep + 1)")
 
         // Execute remaining steps
         for stepIndex in startStep..<steps.count {
             let stepTasks = steps[stepIndex]
-            print("NativeWorkManager: Chain '\(chainId)' - Step \(stepIndex + 1)/\(steps.count)")
+            NativeLogger.d("Chain '\(chainId)' - Step \(stepIndex + 1)/\(steps.count)")
 
             // Get previous step's result for data flow
             let previousStepData = try? await chainStateManager.getPreviousStepResult(
@@ -225,7 +267,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
                     // 🔗 Merge previous step's output into current step's input
                     if let previousData = previousStepData {
-                        print("NativeWorkManager: Merging \(previousData.count) keys from previous step into '\(taskId)'")
+                        NativeLogger.d("Merging \(previousData.count) keys from previous step into '\(taskId)'")
                         workerConfig.merge(previousData) { (current, _) in current }
                     }
 
@@ -256,7 +298,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
             // If step failed, stop and mark as failed
             if !stepSucceeded {
-                print("NativeWorkManager: Chain '\(chainId)' failed at step \(stepIndex + 1)")
+                NativeLogger.d("Chain '\(chainId)' failed at step \(stepIndex + 1)")
                 try? await chainStateManager.markChainFailed(chainId: chainId)
                 return
             }
@@ -272,18 +314,18 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
                 // Then advance to next step
                 try await chainStateManager.advanceToNextStep(chainId: chainId)
-                print("NativeWorkManager: Chain '\(chainId)' progress saved (\(stepIndex + 1)/\(steps.count))")
+                NativeLogger.d("Chain '\(chainId)' progress saved (\(stepIndex + 1)/\(steps.count))")
             } catch {
-                print("NativeWorkManager: Failed to save chain progress: \(error)")
+                NativeLogger.d("Failed to save chain progress: \(error)")
             }
         }
 
         // All steps completed
         do {
             try await chainStateManager.markChainCompleted(chainId: chainId)
-            print("NativeWorkManager: Chain '\(chainId)' resumed and completed successfully")
+            NativeLogger.d("Chain '\(chainId)' resumed and completed successfully")
         } catch {
-            print("NativeWorkManager: Failed to mark chain completed: \(error)")
+            NativeLogger.d("Failed to mark chain completed: \(error)")
         }
     }
 
@@ -296,7 +338,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             return
         }
 
-        print("NativeWorkManager: Enqueue task '\(taskId)' with worker '\(workerClassName)' (direct execution)")
+        NativeLogger.d("Enqueue task '\(taskId)' with worker '\(workerClassName)' (direct execution)")
 
         // Set initial task state and store tag atomically
         let capturedTag = args["tag"] as? String
@@ -304,7 +346,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             self.taskStates[taskId] = "pending"
             if let tag = capturedTag {
                 self.taskTags[taskId] = tag
-                print("NativeWorkManager: Stored tag '\(tag)' for task '\(taskId)'")
+                NativeLogger.d("Stored tag '\(tag)' for task '\(taskId)'")
             }
         }
 
@@ -321,8 +363,42 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         // during foreground execution or in the simulator without special simulation)
         result("ACCEPTED")
 
+        // Persist task to SQLite store and capture notification title if requested
+        if #available(iOS 13.0, *) {
+            let workerConfigForStore = workerConfig
+            let tagForStore = capturedTag
+            let configJson: String? = {
+                guard let data = try? JSONSerialization.data(withJSONObject: workerConfigForStore),
+                      let s = String(data: data, encoding: .utf8) else { return nil }
+                return s
+            }()
+            taskStore?.upsert(
+                taskId: taskId,
+                tag: tagForStore,
+                status: "pending",
+                workerClassName: workerClassName,
+                workerConfig: configJson
+            )
+            if workerConfigForStore["showNotification"] as? Bool == true {
+                let url = workerConfigForStore["url"] as? String ?? ""
+                let fileNameFromUrl = url.components(separatedBy: "/").last
+                let title: String = (workerConfigForStore["notificationTitle"] as? String)
+                    ?? (fileNameFromUrl.flatMap { $0.isEmpty ? nil : $0 } ?? taskId)
+                stateQueue.async(flags: .barrier) {
+                    self.taskNotifTitles[taskId] = title
+                }
+            }
+        }
+
         // Launch async task (stored so it can be cancelled)
         let taskHandle = Task { [weak self] in
+            // Always remove from activeTasks when done — covers success, failure, and
+            // system-cancel paths that would otherwise leave a stale entry (memory leak).
+            defer {
+                self?.stateQueue.async(flags: .barrier) {
+                    self?.activeTasks.removeValue(forKey: taskId)
+                }
+            }
             guard let self = self else { return }
 
             // Apply initial delay if requested
@@ -339,7 +415,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                 // Android WorkManager re-schedules workers across kills — iOS does not.
                 // For true background periodic work on iOS, integrate BGAppRefreshTask
                 // in AppDelegate and call NativeWorkManager.enqueue() from its handler.
-                print("NativeWorkManager: [iOS] Periodic task '\(taskId)' started — NOTE: only runs while app is active. For true background recurrence, use BGAppRefreshTask.")
+                NativeLogger.d("[iOS] Periodic task '\(taskId)' started — NOTE: only runs while app is active. For true background recurrence, use BGAppRefreshTask.")
                 // Execute first time immediately
                 _ = await self.executeWorkerSync(
                     taskId: taskId,
@@ -376,6 +452,140 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     }
 
 
+    private func handlePause(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let taskId = args["taskId"] as? String else {
+            result(FlutterError(code: "INVALID_ARGS", message: "taskId is required", details: nil))
+            return
+        }
+
+        NativeLogger.d("Pause task \(taskId)")
+
+        // Try pausing via BackgroundSessionManager (download tasks using background session)
+        if #available(iOS 13.0, *) {
+            BackgroundSessionManager.shared.pause(taskId: taskId) { [weak self] didPause in
+                guard let self = self else { return }
+                // Whether or not resume data was saved, cancel the in-process Swift Task
+                self.stateQueue.async(flags: .barrier) {
+                    self.activeTasks[taskId]?.cancel()
+                    self.activeTasks.removeValue(forKey: taskId)
+                    self.taskStates[taskId] = "paused"
+                    self.taskNotifTitles.removeValue(forKey: taskId)
+                }
+                self.taskStore?.updateStatus(taskId: taskId, status: "paused")
+                if !didPause {
+                    NativeLogger.d("Pause for '\(taskId)': no resume data — will restart on resume")
+                }
+            }
+        } else {
+            // iOS < 13: just cancel the task handle
+            stateQueue.async(flags: .barrier) {
+                self.activeTasks[taskId]?.cancel()
+                self.activeTasks.removeValue(forKey: taskId)
+                self.taskStates[taskId] = "paused"
+            }
+        }
+        result(nil)
+    }
+
+    private func handleResume(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let taskId = args["taskId"] as? String else {
+            result(FlutterError(code: "INVALID_ARGS", message: "taskId is required", details: nil))
+            return
+        }
+
+        NativeLogger.d("Resume task \(taskId)")
+
+        guard #available(iOS 13.0, *) else {
+            result(FlutterError(code: "UNSUPPORTED", message: "resume() requires iOS 13+", details: nil))
+            return
+        }
+
+        // Look up the paused task from the store
+        guard let record = taskStore?.task(taskId: taskId) else {
+            result(FlutterError(code: "NOT_FOUND", message: "Task '\(taskId)' not found in store", details: nil))
+            return
+        }
+
+        guard record.status == "paused" else {
+            result(FlutterError(code: "INVALID_STATE",
+                                message: "Task '\(taskId)' is not paused (status: \(record.status))",
+                                details: nil))
+            return
+        }
+
+        // Check if BackgroundSessionManager has resume data
+        let hasResumeData = BackgroundSessionManager.shared.hasResumeData(forTaskId: taskId)
+
+        if hasResumeData {
+            // Resume the background URLSession download from where it left off.
+            // The completion block fires when the download *finishes* (success) or fails.
+            _ = BackgroundSessionManager.shared.resumeDownload(with: nil, taskId: taskId) { [weak self] resumeResult in
+                guard let self = self else { return }
+                switch resumeResult {
+                case .success:
+                    // Download completed successfully
+                    NativeLogger.d("Task '\(taskId)' resumed and completed via background session")
+                    self.emitTaskEvent(taskId: taskId, success: true, message: "Download completed (resume)")
+                case .failure(let error):
+                    NativeLogger.e("Resume for '\(taskId)' failed: \(error.localizedDescription)")
+                    self.emitTaskEvent(taskId: taskId, success: false,
+                                       message: "Resume failed: \(error.localizedDescription)")
+                }
+            }
+            // Update state to running immediately (download is in progress)
+            stateQueue.async(flags: .barrier) {
+                self.taskStates[taskId] = "running"
+            }
+            taskStore?.updateStatus(taskId: taskId, status: "running")
+            result(nil)
+        } else {
+            // No resume data — re-execute the worker from scratch using the stored config
+            guard let configJson = record.workerConfig,
+                  let configData = configJson.data(using: .utf8),
+                  let workerConfig = try? JSONSerialization.jsonObject(with: configData) as? [String: Any] else {
+                result(FlutterError(code: "CONFIG_ERROR", message: "Cannot parse stored config for '\(taskId)'", details: nil))
+                return
+            }
+
+            taskStore?.updateStatus(taskId: taskId, status: "pending")
+            stateQueue.async(flags: .barrier) {
+                self.taskStates[taskId] = "pending"
+            }
+
+            let workerClassName = record.workerClassName
+            let taskHandle = Task { [weak self] in
+                defer {
+                    self?.stateQueue.async(flags: .barrier) {
+                        self?.activeTasks.removeValue(forKey: taskId)
+                    }
+                }
+                guard let self = self else { return }
+                _ = await self.executeWorkerSync(
+                    taskId: taskId,
+                    workerClassName: workerClassName,
+                    workerConfig: workerConfig,
+                    qos: "background"
+                )
+            }
+            stateQueue.async(flags: .barrier) {
+                self.activeTasks[taskId] = taskHandle
+            }
+            result(nil)
+        }
+    }
+
+    private func handleAllTasks(result: @escaping FlutterResult) {
+        guard #available(iOS 13.0, *) else {
+            result([])
+            return
+        }
+        let records = taskStore?.allTasks() ?? []
+        let maps = records.map { $0.toFlutterMap() }
+        result(maps)
+    }
+
     private func handleCancel(call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any],
               let taskId = args["taskId"] as? String else {
@@ -383,19 +593,24 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             return
         }
 
-        print("NativeWorkManager: Cancel task \(taskId)")
+        NativeLogger.d("Cancel task \(taskId)")
+
+        if #available(iOS 13.0, *) {
+            taskStore?.updateStatus(taskId: taskId, status: "cancelled")
+        }
 
         stateQueue.async(flags: .barrier) {
             self.activeTasks[taskId]?.cancel()
             self.activeTasks.removeValue(forKey: taskId)
             self.taskStates[taskId] = "cancelled"
             self.taskTags.removeValue(forKey: taskId)
+            self.taskNotifTitles.removeValue(forKey: taskId)
         }
         result(nil)
     }
 
     private func handleCancelAll(result: @escaping FlutterResult) {
-        print("NativeWorkManager: Cancel all tasks")
+        NativeLogger.d("Cancel all tasks")
 
         stateQueue.async(flags: .barrier) {
             for (_, task) in self.activeTasks { task.cancel() }
@@ -417,7 +632,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         let tasksToCancel = stateQueue.sync {
             taskTags.filter { $0.value == tag }.map { $0.key }
         }
-        print("NativeWorkManager: Canceling \(tasksToCancel.count) tasks with tag '\(tag)'")
+        NativeLogger.d("Canceling \(tasksToCancel.count) tasks with tag '\(tag)'")
 
         stateQueue.async(flags: .barrier) {
             for taskId in tasksToCancel {
@@ -483,7 +698,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         // cancel("myChain") and the Task handle is found in activeTasks.
         let chainCancelId = chainName ?? "chain_\(UUID().uuidString)"
 
-        print("NativeWorkManager: Enqueue chain '\(chainName ?? "unnamed")' with \(stepsData.count) steps [cancelId: \(chainCancelId)]")
+        NativeLogger.d("Enqueue chain '\(chainName ?? "unnamed")' with \(stepsData.count) steps [cancelId: \(chainCancelId)]")
 
         // FIX M1: Return ACCEPTED immediately (non-blocking, consistent with Android).
         // Chain completion / failure is delivered via emitTaskEvent on the EventChannel.
@@ -492,6 +707,11 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         // FIX C1: Create the Task and store the handle BEFORE it starts running so
         // handleCancel can find and cancel it via activeTasks[chainCancelId].
         let chainTask = Task { [weak self] in
+            defer {
+                self?.stateQueue.async(flags: .barrier) {
+                    self?.activeTasks.removeValue(forKey: chainCancelId)
+                }
+            }
             guard let self = self else { return }
             await self.executeChain(
                 chainCancelId: chainCancelId,
@@ -534,9 +754,9 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                 stepsData: steps
             )
             try await chainStateManager.saveChainState(initialState)
-            print("NativeWorkManager: Created chain state '\(chainId)'")
+            NativeLogger.d("Created chain state '\(chainId)'")
         } catch {
-            print("NativeWorkManager: Failed to create chain state: \(error)")
+            NativeLogger.d("Failed to create chain state: \(error)")
             // Continue anyway - state is optional enhancement
         }
 
@@ -544,7 +764,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         for (stepIndex, stepData) in steps.enumerated() {
             // FIX C1: Honour cancellation between steps.
             guard !Task.isCancelled else {
-                print("NativeWorkManager: Chain '\(chainCancelId)' cancelled at step \(stepIndex + 1)")
+                NativeLogger.d("Chain '\(chainCancelId)' cancelled at step \(stepIndex + 1)")
                 try? await chainStateManager.markChainFailed(chainId: chainId)
                 stateQueue.async(flags: .barrier) {
                     self.activeTasks.removeValue(forKey: chainCancelId)
@@ -554,7 +774,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                 return
             }
 
-            print("NativeWorkManager: Chain '\(chainName ?? "unnamed")' - Step \(stepIndex + 1)/\(steps.count)")
+            NativeLogger.d("Chain '\(chainName ?? "unnamed")' - Step \(stepIndex + 1)/\(steps.count)")
 
             // Parse tasks in this step
             guard let stepTasks = stepData as? [[String: Any]] else {
@@ -588,7 +808,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
                     // Merge previous step's output into current step's input
                     if let previousData = previousStepData {
-                        print("NativeWorkManager: Merging \(previousData.count) keys from previous step into '\(taskId)'")
+                        NativeLogger.d("Merging \(previousData.count) keys from previous step into '\(taskId)'")
                         workerConfig.merge(previousData) { (current, _) in current }
                     }
 
@@ -626,7 +846,11 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                 return
             }
 
-            // Step completed - save result data and advance progress
+            // Step completed - save result data and advance progress.
+            // A transient I/O hiccup (e.g. filesystem busy) can cause a one-off
+            // failure, so we retry once after a short pause before giving up.
+            // Silently continuing on failure would desync the chain state and
+            // cause future steps to start from the wrong index.
             do {
                 try await chainStateManager.saveStepResult(
                     chainId: chainId,
@@ -634,19 +858,41 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                     resultData: stepResultData
                 )
                 try await chainStateManager.advanceToNextStep(chainId: chainId)
-                print("NativeWorkManager: Chain '\(chainId)' progress saved (\(stepIndex + 1)/\(steps.count))")
+                NativeLogger.d("Chain '\(chainId)' progress saved (\(stepIndex + 1)/\(steps.count))")
             } catch {
-                print("NativeWorkManager: Failed to save chain progress: \(error)")
-                // Continue anyway - state is optional
+                NativeLogger.w("Chain '\(chainId)' state save failed, retrying in 200ms: \(error)")
+                do {
+                    try await Task.sleep(nanoseconds: 200_000_000) // 200 ms
+                    try await chainStateManager.saveStepResult(
+                        chainId: chainId,
+                        stepIndex: stepIndex,
+                        resultData: stepResultData
+                    )
+                    try await chainStateManager.advanceToNextStep(chainId: chainId)
+                    NativeLogger.d("Chain '\(chainId)' progress saved after retry (\(stepIndex + 1)/\(steps.count))")
+                } catch {
+                    NativeLogger.e("Chain '\(chainId)' state persistence failed after retry: \(error)")
+                    try? await chainStateManager.markChainFailed(chainId: chainId)
+                    stateQueue.async(flags: .barrier) {
+                        self.activeTasks.removeValue(forKey: chainCancelId)
+                        self.taskStates[chainCancelId] = "failed"
+                    }
+                    emitTaskEvent(
+                        taskId: chainCancelId,
+                        success: false,
+                        message: "Chain aborted: state persistence failed (disk full?). Step \(stepIndex + 1)/\(steps.count)"
+                    )
+                    return
+                }
             }
         }
 
         // All steps completed
         do {
             try await chainStateManager.markChainCompleted(chainId: chainId)
-            print("NativeWorkManager: Chain '\(chainName ?? "unnamed")' completed")
+            NativeLogger.d("Chain '\(chainName ?? "unnamed")' completed")
         } catch {
-            print("NativeWorkManager: Failed to mark chain completed: \(error)")
+            NativeLogger.d("Failed to mark chain completed: \(error)")
         }
 
         stateQueue.async(flags: .barrier) {
@@ -656,14 +902,30 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         emitTaskEvent(taskId: chainCancelId, success: true, message: "Chain completed")
     }
 
-    /// Execute a worker synchronously and return success status.
+    /// Execute a worker synchronously, respecting the concurrency limit.
+    ///
+    /// Acquires a slot from [concurrencyLimiter] before running and releases it
+    /// when the worker finishes, ensuring at most `maxConcurrentTasks` workers
+    /// run in parallel across both direct enqueue and chain execution paths.
     private func executeWorkerSync(
         taskId: String,
         workerClassName: String,
         workerConfig: [String: Any],
         qos: String = "background"
     ) async -> WorkerResult {
-        print("NativeWorkManager: Executing task '\(taskId)' in chain with QoS: \(qos)...")
+        await concurrencyLimiter.acquire()
+        let result = await _executeWorker(taskId: taskId, workerClassName: workerClassName, workerConfig: workerConfig, qos: qos)
+        await concurrencyLimiter.release()
+        return result
+    }
+
+    private func _executeWorker(
+        taskId: String,
+        workerClassName: String,
+        workerConfig: [String: Any],
+        qos: String = "background"
+    ) async -> WorkerResult {
+        NativeLogger.d("Executing task '\(taskId)' in chain with QoS: \(qos)...")
         // Record start time for debug notification timing
         stateQueue.async(flags: .barrier) {
             self.taskStartTimes[taskId] = Date()
@@ -706,7 +968,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                     } else {
                         guard let jsonData = try? JSONSerialization.data(withJSONObject: workerConfig),
                               let configJson = String(data: jsonData, encoding: .utf8) else {
-                            print("NativeWorkManager: Error serializing worker config")
+                            NativeLogger.d("Error serializing worker config")
                             let result = WorkerResult.failure(message: "Config serialization failed")
                             self.emitTaskEvent(taskId: taskId, success: false, message: result.message)
                             continuation.resume(returning: result)
@@ -717,7 +979,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
                     // Create worker
                     guard let worker = IosWorkerFactory.createWorker(className: workerClassName) else {
-                        print("NativeWorkManager: Unknown worker class: \(workerClassName)")
+                        NativeLogger.d("Unknown worker class: \(workerClassName)")
                         let result = WorkerResult.failure(message: "Unknown worker class")
                         self.emitTaskEvent(taskId: taskId, success: false, message: result.message)
                         continuation.resume(returning: result)
@@ -729,16 +991,16 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                         let result = try await worker.doWork(input: inputJson)
 
                         if result.success {
-                            print("NativeWorkManager: Task '\(taskId)' completed successfully")
+                            NativeLogger.d("Task '\(taskId)' completed successfully")
                             self.emitTaskEvent(taskId: taskId, success: true, message: result.message, resultData: result.data)
                         } else {
-                            print("NativeWorkManager: Task '\(taskId)' failed")
+                            NativeLogger.d("Task '\(taskId)' failed")
                             self.emitTaskEvent(taskId: taskId, success: false, message: result.message ?? "Worker returned failure", resultData: result.data)
                         }
 
                         continuation.resume(returning: result)
                     } catch {
-                        print("NativeWorkManager: Task '\(taskId)' error: \(error.localizedDescription)")
+                        NativeLogger.d("Task '\(taskId)' error: \(error.localizedDescription)")
                         let result = WorkerResult.failure(message: error.localizedDescription)
                         self.emitTaskEvent(taskId: taskId, success: false, message: result.message)
                         continuation.resume(returning: result)
@@ -777,7 +1039,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                                     ?? (handleValue as? Int64) else {
                 return WorkerResult.failure(message: "DartCallbackWorker: missing callbackHandle for background execution")
             }
-            print("DartCallbackWorker: No main channel — using FlutterEngineManager for '\(callbackId)'")
+            NativeLogger.d("DartCallbackWorker: No main channel — using FlutterEngineManager for '\(callbackId)'")
             do {
                 let success = try await FlutterEngineManager.shared.executeDartCallback(
                     callbackHandle: callbackHandle, input: input)
@@ -788,7 +1050,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             }
         }
 
-        print("DartCallbackWorker: Executing '\(callbackId)' via main method channel")
+        NativeLogger.d("DartCallbackWorker: Executing '\(callbackId)' via main method channel")
         return await withCheckedContinuation { continuation in
             DispatchQueue.main.async {
                 channel.invokeMethod("executeDartCallback", arguments: [
@@ -820,6 +1082,32 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             self.taskStates[taskId] = success ? "completed" : "failed"
         }
 
+        // Persist status change to SQLite store
+        if #available(iOS 13.0, *) {
+            let resultJson: String? = resultData.flatMap { data in
+                (try? JSONSerialization.data(withJSONObject: data))
+                    .flatMap { String(data: $0, encoding: .utf8) }
+            }
+            taskStore?.updateStatus(
+                taskId: taskId,
+                status: success ? "completed" : "failed",
+                resultData: resultJson
+            )
+
+            // Show download completion/failure notification if enabled for this task
+            let notifTitle: String? = stateQueue.sync { taskNotifTitles[taskId] }
+            if let title = notifTitle {
+                stateQueue.async(flags: .barrier) {
+                    self.taskNotifTitles.removeValue(forKey: taskId)
+                }
+                if success {
+                    DownloadNotificationManager.showCompleted(taskId: taskId, title: title, fileName: nil)
+                } else {
+                    DownloadNotificationManager.showFailed(taskId: taskId, title: title, error: message ?? "Download failed")
+                }
+            }
+        }
+
         // Show debug notification if enabled
         if debugMode && isDebugBuild() {
             showDebugNotification(taskId: taskId, success: success, message: message)
@@ -844,6 +1132,19 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     }
 
     func emitProgress(taskId: String, progress: Int, message: String?) {
+        // Show download progress notification if enabled for this task
+        if #available(iOS 13.0, *) {
+            let notifTitle: String? = stateQueue.sync { taskNotifTitles[taskId] }
+            if let title = notifTitle {
+                DownloadNotificationManager.showProgress(
+                    taskId: taskId,
+                    title: title,
+                    progress: Double(progress),
+                    message: message
+                )
+            }
+        }
+
         // FlutterEventSink must be called on the main thread
         DispatchQueue.main.async {
             self.progressSink?([
@@ -886,9 +1187,9 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
             if granted {
-                print("✅ Notification permissions granted for debug mode")
+                NativeLogger.d("Notification permissions granted for debug mode")
             } else if let error = error {
-                print("⚠️ Notification permissions denied: \(error.localizedDescription)")
+                NativeLogger.w("Notification permissions denied: \(error.localizedDescription)")
             }
         }
     }
@@ -925,7 +1226,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
-                print("Error showing debug notification: \(error.localizedDescription)")
+                NativeLogger.e("Error showing debug notification: \(error.localizedDescription)")
             }
         }
     }
@@ -949,7 +1250,7 @@ extension NativeWorkmanagerPlugin: FlutterStreamHandler {
         Task { [weak self] in
             guard let self = self else { return }
             // Placeholder - actual events come through native callbacks
-            print("EventSink registered - listening for task events")
+            NativeLogger.d("EventSink registered - listening for task events")
         }
         return nil
     }
@@ -972,13 +1273,13 @@ private class ProgressStreamHandler: NSObject, FlutterStreamHandler {
     func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         // Set progress sink on plugin
         plugin?.progressSink = events
-        print("ProgressStreamHandler: Progress sink registered - listening for progress updates")
+        NativeLogger.d("ProgressStreamHandler: Progress sink registered")
         return nil
     }
 
     func onCancel(withArguments arguments: Any?) -> FlutterError? {
         plugin?.progressSink = nil
-        print("ProgressStreamHandler: Progress sink cancelled")
+        NativeLogger.d("ProgressStreamHandler: Progress sink cancelled")
         return nil
     }
 }

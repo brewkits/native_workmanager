@@ -155,10 +155,14 @@ class BGTaskSchedulerManager {
             request = processingRequest
             print("BGTaskSchedulerManager: Using BGProcessingTask for heavy task with identifier '\(identifier)'")
         } else {
-            // Normal task: Use BGAppRefreshTask (30s limit, no constraints support)
-            // Use refreshTaskIdentifier regardless of provided identifier (BGAppRefreshTask constraint)
-            request = BGAppRefreshTaskRequest(identifier: BGTaskSchedulerManager.refreshTaskIdentifier)
-            print("BGTaskSchedulerManager: Using BGAppRefreshTask for normal task")
+            // Normal task: Use BGAppRefreshTask (30s limit, no network/power constraints).
+            // Use the provided identifier — the caller is responsible for registering it
+            // in Info.plist as a BGAppRefreshTask identifier. Silently substituting
+            // refreshTaskIdentifier here meant that tasks scheduled with a custom
+            // identifier would silently execute under a different BGTask slot, making
+            // per-task scheduling impossible.
+            request = BGAppRefreshTaskRequest(identifier: identifier)
+            print("BGTaskSchedulerManager: Using BGAppRefreshTask with identifier '\(identifier)'")
         }
 
         request.earliestBeginDate = earliestBeginDate

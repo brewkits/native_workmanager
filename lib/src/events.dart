@@ -1,5 +1,61 @@
 import 'package:flutter/foundation.dart';
 
+/// Record from the persistent task store.
+@immutable
+class TaskRecord {
+  const TaskRecord({
+    required this.taskId,
+    this.tag,
+    required this.status,
+    required this.workerClassName,
+    this.resultData,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String taskId;
+  final String? tag;
+
+  /// Status string: pending / running / completed / failed / cancelled / paused
+  final String status;
+
+  final String workerClassName;
+
+  /// Optional result data (null or decoded from JSON stored by the native side).
+  final Map<String, dynamic>? resultData;
+
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  factory TaskRecord.fromMap(Map<String, dynamic> m) => TaskRecord(
+        taskId: m['taskId'] as String,
+        tag: m['tag'] as String?,
+        status: m['status'] as String? ?? 'unknown',
+        workerClassName: m['workerClassName'] as String? ?? '',
+        resultData: m['resultData'] != null
+            ? Map<String, dynamic>.from(m['resultData'] as Map)
+            : null,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(
+            (m['createdAt'] as num).toInt()),
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(
+            (m['updatedAt'] as num).toInt()),
+      );
+
+  Map<String, dynamic> toMap() => {
+        'taskId': taskId,
+        'tag': tag,
+        'status': status,
+        'workerClassName': workerClassName,
+        'resultData': resultData,
+        'createdAt': createdAt.millisecondsSinceEpoch,
+        'updatedAt': updatedAt.millisecondsSinceEpoch,
+      };
+
+  @override
+  String toString() => 'TaskRecord(taskId: $taskId, status: $status, '
+      'workerClassName: $workerClassName, tag: $tag)';
+}
+
 /// Result of scheduling a task.
 ///
 /// Returned by [NativeWorkManager.enqueue] to indicate whether the OS

@@ -237,6 +237,7 @@ class NativeWorkManager {
   static Future<void> initialize({
     Map<String, DartWorkerCallback>? dartWorkers,
     bool debugMode = false,
+    int maxConcurrentTasks = 4,
   }) async {
     if (_initialized) return;
 
@@ -288,10 +289,11 @@ class NativeWorkManager {
       )?.toRawHandle();
     }
 
-    // Initialize platform with optional callback handle and debug mode
+    // Initialize platform with config.
     await NativeWorkManagerPlatform.instance.initialize(
       callbackHandle: callbackHandle,
       debugMode: debugMode,
+      maxConcurrentTasks: maxConcurrentTasks,
     );
 
     _initialized = true;
@@ -860,6 +862,61 @@ class NativeWorkManager {
   static Future<TaskStatus?> getTaskStatus(String taskId) async {
     _checkInitialized();
     return NativeWorkManagerPlatform.instance.getTaskStatus(taskId);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PAUSE / RESUME
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Pause a running download task.
+  ///
+  /// On **Android**, pausing cancels the WorkManager job but preserves the
+  /// partial `.tmp` file so that a subsequent [resume] call can re-enqueue
+  /// the worker and OkHttp will send a `Range:` header to resume from the
+  /// last downloaded byte. The task is stored in the SQLite task store with
+  /// status `"paused"`.
+  ///
+  /// On **iOS**, the underlying `URLSessionDownloadTask` is cancelled with
+  /// resume data. If resume data is available, [resume] will call
+  /// `resumeDownload(with:)` to continue from where it left off. If not
+  /// (e.g. the download had not yet started), [resume] re-starts from scratch
+  /// using the config saved in the task store.
+  ///
+  /// **Note:** Only `HttpDownloadWorker` tasks support pause/resume. For other
+  /// worker types the call is a no-op on the native side.
+  static Future<void> pause(String taskId) async {
+    _checkInitialized();
+    return NativeWorkManagerPlatform.instance.pauseTask(taskId);
+  }
+
+  /// Resume a previously paused download task.
+  ///
+  /// The task must have been paused via [pause] before calling this method.
+  /// See [pause] for platform-specific behaviour.
+  static Future<void> resume(String taskId) async {
+    _checkInitialized();
+    return NativeWorkManagerPlatform.instance.resumeTask(taskId);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TASK STORE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Return all tasks from the persistent SQLite task store, newest first.
+  ///
+  /// Each [TaskRecord] contains the task ID, tag, current status, worker class
+  /// name, and timestamps. The store is updated automatically when tasks are
+  /// enqueued, completed, failed, cancelled, or paused.
+  ///
+  /// ```dart
+  /// final tasks = await NativeWorkManager.allTasks();
+  /// for (final t in tasks) {
+  ///   print('${t.taskId}: ${t.status}');
+  /// }
+  /// ```
+  static Future<List<TaskRecord>> allTasks() async {
+    _checkInitialized();
+    return NativeWorkManagerPlatform.instance.allTasks();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

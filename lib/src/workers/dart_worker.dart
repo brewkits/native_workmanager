@@ -14,6 +14,33 @@ typedef DartWorkerCallback = Future<bool> Function(Map<String, dynamic>? input);
 /// which uses more resources (~50MB RAM) but gives you full access to Dart/Flutter
 /// APIs, packages, and local databases.
 ///
+/// ---
+/// ## ⚠️ WARNING — Resource Cost
+///
+/// Every `DartWorker` task **boots a Flutter Engine** in the background:
+///
+/// | Resource | DartWorker | NativeWorker |
+/// |----------|------------|--------------|
+/// | RAM      | ~50 MB     | ~2 MB        |
+/// | CPU startup | ~500–1000 ms cold / ~100 ms warm | < 100 ms |
+/// | Battery  | High (JIT/AOT warm-up) | Low |
+///
+/// **Practical limits:**
+/// - Running 3+ DartWorker tasks concurrently can push total background RAM
+///   above 150 MB, risking OS termination on low-memory devices.
+/// - On iOS, background execution time is strictly budgeted (~30 s for
+///   `BGAppRefreshTask`, ~minutes for `BGProcessingTask`). Engine startup
+///   alone can consume a significant portion of that budget.
+///
+/// **Use [NativeWorker] instead whenever possible.** Only reach for
+/// `DartWorker` when you genuinely need Dart/Flutter APIs (e.g. sqflite,
+/// Hive, custom Dart packages) in the background.
+///
+/// **Set `autoDispose: true`** on infrequent tasks to free the ~50 MB RAM
+/// immediately after the callback returns, at the cost of a cold-start
+/// penalty on the next execution.
+/// ---
+///
 /// **Resource Cost:** Starts Flutter Engine (~50MB RAM vs ~2MB for NativeWorker)
 /// **Flexibility:** Full Dart/Flutter API access
 /// **Use Case:** Complex logic, database access, response processing

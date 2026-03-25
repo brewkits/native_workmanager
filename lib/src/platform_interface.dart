@@ -30,7 +30,15 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
   ///
   /// [debugMode] - Enable debug notifications for task events.
   /// Only works in debug builds.
-  Future<void> initialize({int? callbackHandle, bool debugMode = false}) {
+  ///
+  /// [maxConcurrentTasks] - Maximum number of worker tasks that may run
+  /// simultaneously. Defaults to 4. On iOS this is enforced by a semaphore
+  /// in the plugin; on Android WorkManager's own thread pool handles it.
+  Future<void> initialize({
+    int? callbackHandle,
+    bool debugMode = false,
+    int maxConcurrentTasks = 4,
+  }) {
     throw UnimplementedError('initialize() has not been implemented.');
   }
 
@@ -89,6 +97,21 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
   /// Stream of task progress updates.
   Stream<TaskProgress> get progress {
     throw UnimplementedError('progress has not been implemented.');
+  }
+
+  /// Pause a running task (best-effort; saves resume data where possible).
+  Future<void> pauseTask(String taskId) {
+    throw UnimplementedError('pauseTask() has not been implemented.');
+  }
+
+  /// Resume a previously paused task.
+  Future<void> resumeTask(String taskId) {
+    throw UnimplementedError('resumeTask() has not been implemented.');
+  }
+
+  /// Return all tasks from the persistent task store.
+  Future<List<TaskRecord>> allTasks() {
+    throw UnimplementedError('allTasks() has not been implemented.');
   }
 
   /// Set the Dart callback executor.

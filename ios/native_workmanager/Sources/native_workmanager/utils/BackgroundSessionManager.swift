@@ -42,6 +42,10 @@ public class BackgroundSessionManager: NSObject {
     private override init() {
         super.init()
         self.session = createBackgroundSession()
+        // Reconnect in-memory taskIdMap using persisted URL→taskId mappings.
+        // Required when the OS relaunches the app to deliver background-session callbacks
+        // after the app was terminated mid-download.
+        restoreTaskIdMappings()
     }
 
     // MARK: - Properties
@@ -65,14 +69,60 @@ public class BackgroundSessionManager: NSObject {
     /// Thread-safe access to handlers and maps
     private let queue = DispatchQueue(label: "dev.brewkits.background_session_manager", attributes: .concurrent)
 
-    /// Background completion handler from AppDelegate
-    public var backgroundCompletionHandler: (() -> Void)?
+    /// Background completion handlers keyed by session identifier.
+    ///
+    /// iOS may deliver `urlSessionDidFinishEvents` for any session that was
+    /// active when the app was last terminated, so we must store one handler
+    /// per session identifier — not a single overwriting var.
+    ///
+    /// The backward-compatible computed property below exposes the single-session
+    /// API that AppDelegate already uses; multi-session callers can call
+    /// `setBackgroundCompletionHandler(_:for:)` directly.
+    private var backgroundCompletionHandlers: [String: () -> Void] = [:]
+
+    /// Backward-compatible access for the default session identifier.
+    public var backgroundCompletionHandler: (() -> Void)? {
+        get { queue.sync { backgroundCompletionHandlers[sessionIdentifier] } }
+        set {
+            queue.async(flags: .barrier) {
+                if let h = newValue {
+                    self.backgroundCompletionHandlers[self.sessionIdentifier] = h
+                } else {
+                    self.backgroundCompletionHandlers.removeValue(forKey: self.sessionIdentifier)
+                }
+            }
+        }
+    }
+
+    /// Register a completion handler for a specific session identifier.
+    /// AppDelegate should call this from `handleEventsForBackgroundURLSession`.
+    public func setBackgroundCompletionHandler(_ handler: @escaping () -> Void, for identifier: String) {
+        queue.async(flags: .barrier) {
+            self.backgroundCompletionHandlers[identifier] = handler
+        }
+    }
 
     /// Progress delegate for reporting download/upload progress to Flutter
     public var progressDelegate: ((String, Double) -> Void)?
 
     /// Resume data storage for failed downloads (taskId -> resumeData)
     private var resumeDataStorage: [String: Data] = [:]
+
+    // MARK: - Background Relaunch Support
+
+    /// Called when a download completes in a background-relaunch scenario — the app was
+    /// killed while URLSession was active and OS relaunched it to deliver the result.
+    /// The plugin sets this to forward the event to Flutter via emitTaskEvent.
+    public var relaunchCompletionDelegate: ((String, Result<URL, Error>) -> Void)?
+
+    // UserDefaults keys for persisted task registry (survives app termination).
+    private let destRegistryKey = "NativeWorkManager.BGSession.destinations" // [taskId: destPath]
+    private let urlRegistryKey  = "NativeWorkManager.BGSession.urls"         // [urlString: taskId]
+
+    /// Last progress emit time per task — used to throttle rapid URLSession callbacks.
+    /// Prevents flooding the Flutter bridge when downloading large files in small chunks.
+    private var lastProgressTimes: [String: Date] = [:]
+    private let progressThrottleInterval: TimeInterval = 0.1 // 100ms
 
     // MARK: - Session Creation
 
@@ -93,6 +143,49 @@ public class BackgroundSessionManager: NSObject {
         config.timeoutIntervalForResource = 7 * 24 * 60 * 60 // 7 days max
 
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
+    }
+
+    // MARK: - Persistence Helpers
+
+    /// Persist a pending download so it can be recovered after app relaunch.
+    private func persistDownloadTask(taskId: String, destinationPath: String, urlString: String) {
+        var dests = UserDefaults.standard.dictionary(forKey: destRegistryKey) as? [String: String] ?? [:]
+        var urls  = UserDefaults.standard.dictionary(forKey: urlRegistryKey)  as? [String: String] ?? [:]
+        dests[taskId]   = destinationPath
+        urls[urlString] = taskId
+        UserDefaults.standard.set(dests, forKey: destRegistryKey)
+        UserDefaults.standard.set(urls,  forKey: urlRegistryKey)
+    }
+
+    /// Remove a task from the persistent registry (called in cleanup).
+    private func removePersistedTask(taskId: String) {
+        var dests = UserDefaults.standard.dictionary(forKey: destRegistryKey) as? [String: String] ?? [:]
+        // Find and remove the url → taskId entry too
+        var urls = UserDefaults.standard.dictionary(forKey: urlRegistryKey) as? [String: String] ?? [:]
+        urls = urls.filter { $0.value != taskId }
+        dests.removeValue(forKey: taskId)
+        UserDefaults.standard.set(dests, forKey: destRegistryKey)
+        UserDefaults.standard.set(urls,  forKey: urlRegistryKey)
+    }
+
+    /// On init after a relaunch, enumerate the surviving URLSession tasks and reconnect
+    /// `taskIdMap` using the persisted URL → taskId mapping so that delegate callbacks
+    /// can resolve the correct taskId without the in-memory dictionary.
+    private func restoreTaskIdMappings() {
+        let urlRegistry = UserDefaults.standard.dictionary(forKey: urlRegistryKey) as? [String: String] ?? [:]
+        guard !urlRegistry.isEmpty else { return }
+
+        session.getAllTasks { [weak self] tasks in
+            guard let self = self else { return }
+            self.queue.async(flags: .barrier) {
+                for task in tasks {
+                    guard let urlStr = task.originalRequest?.url?.absoluteString,
+                          let taskId = urlRegistry[urlStr] else { continue }
+                    self.taskIdMap[task.taskIdentifier] = taskId
+                    NSLog("BackgroundSessionManager: Restored mapping for '\(taskId)' after relaunch")
+                }
+            }
+        }
     }
 
     // MARK: - Download API
@@ -127,6 +220,9 @@ public class BackgroundSessionManager: NSObject {
             self.taskIdMap[task.taskIdentifier] = taskId
         }
 
+        // Persist task info so it can be recovered if the app is killed.
+        persistDownloadTask(taskId: taskId, destinationPath: destination.path, urlString: url.absoluteString)
+
         // Start download
         task.resume()
 
@@ -137,17 +233,31 @@ public class BackgroundSessionManager: NSObject {
     /// Resume a paused/failed download from partial data.
     ///
     /// - Parameters:
-    ///   - resumeData: Resume data from previous download attempt
+    ///   - resumeData: Resume data from previous download attempt. If `nil`,
+    ///     the resume data previously stored by `pause(taskId:completion:)` is used.
     ///   - taskId: Unique task identifier
     ///   - completion: Called when download completes or fails
-    /// - Returns: URLSessionDownloadTask instance (already resumed)
+    /// - Returns: URLSessionDownloadTask instance (already resumed), or nil if no resume data available.
     @discardableResult
     func resumeDownload(
-        with resumeData: Data,
+        with resumeData: Data?,
         taskId: String,
         completion: @escaping (Result<URL, Error>) -> Void
-    ) -> URLSessionDownloadTask {
-        let task = session.downloadTask(withResumeData: resumeData)
+    ) -> URLSessionDownloadTask? {
+        let data: Data? = resumeData ?? queue.sync { resumeDataStorage[taskId] }
+        guard let effectiveData = data else {
+            NSLog("BackgroundSessionManager: No resume data for \(taskId)")
+            completion(.failure(NSError(domain: "BackgroundSessionManager", code: -1,
+                                       userInfo: [NSLocalizedDescriptionKey: "No resume data available"])))
+            return nil
+        }
+
+        // Clear stored resume data now that we are using it
+        queue.async(flags: .barrier) {
+            self.resumeDataStorage.removeValue(forKey: taskId)
+        }
+
+        let task = session.downloadTask(withResumeData: effectiveData)
 
         queue.async(flags: .barrier) {
             self.downloadHandlers[taskId] = completion
@@ -241,12 +351,42 @@ public class BackgroundSessionManager: NSObject {
         }
     }
 
+    /// Returns `true` if resume data is stored for the given task.
+    public func hasResumeData(forTaskId taskId: String) -> Bool {
+        return queue.sync { resumeDataStorage[taskId] != nil }
+    }
+
     /// Clear resume data for a task.
     ///
     /// - Parameter taskId: The task identifier
     public func clearResumeData(taskId: String) {
         queue.async(flags: .barrier) {
             self.resumeDataStorage.removeValue(forKey: taskId)
+        }
+    }
+
+    /// Pause a background download by cancelling with resume data.
+    ///
+    /// The resume data is stored in `resumeDataStorage` keyed by taskId.
+    /// Call `resumeDownload(with:taskId:completion:)` to restart.
+    public func pause(taskId: String, completion: @escaping (Bool) -> Void) {
+        session.getAllTasks { tasks in
+            guard let task = tasks.first(where: { self.taskIdMap[$0.taskIdentifier] == taskId }) as? URLSessionDownloadTask else {
+                completion(false)
+                return
+            }
+            task.cancel(byProducingResumeData: { resumeData in
+                if let data = resumeData {
+                    self.queue.async(flags: .barrier) {
+                        self.resumeDataStorage[taskId] = data
+                    }
+                    NSLog("BackgroundSessionManager: Paused download for '\(taskId)', resume data \(data.count) bytes")
+                    completion(true)
+                } else {
+                    NSLog("BackgroundSessionManager: Pause for '\(taskId)' — no resume data (full restart required)")
+                    completion(false)
+                }
+            })
         }
     }
 
@@ -262,12 +402,15 @@ public class BackgroundSessionManager: NSObject {
         queue.async(flags: .barrier) {
             self.downloadHandlers.removeValue(forKey: taskId)
             self.uploadHandlers.removeValue(forKey: taskId)
+            self.lastProgressTimes.removeValue(forKey: taskId)
 
             // Remove from taskIdMap
             if let key = self.taskIdMap.first(where: { $0.value == taskId })?.key {
                 self.taskIdMap.removeValue(forKey: key)
             }
         }
+        // Remove from persistent registry (can run off the barrier queue).
+        removePersistedTask(taskId: taskId)
     }
 }
 
@@ -283,7 +426,9 @@ extension BackgroundSessionManager: URLSessionDownloadDelegate {
         didFinishDownloadingTo location: URL
     ) {
         guard let taskId = getTaskId(for: downloadTask) else {
-            NSLog("BackgroundSessionManager: Warning - No taskId found for completed download")
+            // taskIdMap is empty — app was killed and relaunched by the OS.
+            // Try to recover context from persistent registry using the original URL.
+            handleRelaunched(downloadTask: downloadTask, tempLocation: location)
             return
         }
 
@@ -300,6 +445,41 @@ extension BackgroundSessionManager: URLSessionDownloadDelegate {
         cleanup(taskId: taskId)
     }
 
+    /// Handles a download completion received during a background-relaunch.
+    /// Moves the temporary file to the persisted destination and notifies via delegate.
+    private func handleRelaunched(downloadTask: URLSessionDownloadTask, tempLocation: URL) {
+        guard let urlStr = downloadTask.originalRequest?.url?.absoluteString else {
+            NSLog("BackgroundSessionManager: Relaunch — cannot recover task (no original URL)")
+            return
+        }
+        let urlRegistry  = UserDefaults.standard.dictionary(forKey: urlRegistryKey)  as? [String: String] ?? [:]
+        let destRegistry = UserDefaults.standard.dictionary(forKey: destRegistryKey) as? [String: String] ?? [:]
+
+        guard let taskId = urlRegistry[urlStr],
+              let destPath = destRegistry[taskId] else {
+            NSLog("BackgroundSessionManager: Relaunch — no persisted record for url '\(urlStr)'")
+            return
+        }
+
+        NSLog("BackgroundSessionManager: Relaunch — recovering download for '\(taskId)'")
+
+        let destination = URL(fileURLWithPath: destPath)
+        do {
+            let fm = FileManager.default
+            if fm.fileExists(atPath: destPath) { try fm.removeItem(at: destination) }
+            try fm.moveItem(at: tempLocation, to: destination)
+            DispatchQueue.main.async {
+                self.relaunchCompletionDelegate?(taskId, .success(destination))
+            }
+        } catch {
+            NSLog("BackgroundSessionManager: Relaunch — file move failed: \(error)")
+            DispatchQueue.main.async {
+                self.relaunchCompletionDelegate?(taskId, .failure(error))
+            }
+        }
+        removePersistedTask(taskId: taskId)
+    }
+
     /// Called to report download progress.
     public func urlSession(
         _ session: URLSession,
@@ -314,9 +494,24 @@ extension BackgroundSessionManager: URLSessionDownloadDelegate {
             ? Double(totalBytesWritten) / Double(totalBytesExpectedToWrite) * 100
             : 0
 
+        // Throttle: only emit if 100ms have passed since the last update for this task.
+        // URLSession can fire this delegate dozens of times per second for large files.
+        let now = Date()
+        let shouldEmit = queue.sync {
+            guard let last = lastProgressTimes[taskId] else {
+                lastProgressTimes[taskId] = now
+                return true
+            }
+            if now.timeIntervalSince(last) >= progressThrottleInterval {
+                lastProgressTimes[taskId] = now
+                return true
+            }
+            return false
+        }
+        guard shouldEmit else { return }
+
         NSLog("BackgroundSessionManager: Download progress for \(taskId): \(Int(progress))%")
 
-        // Report progress to Flutter via delegate
         DispatchQueue.main.async { [weak self] in
             self?.progressDelegate?(taskId, progress)
         }
@@ -405,9 +600,23 @@ extension BackgroundSessionManager: URLSessionTaskDelegate {
             ? Double(totalBytesSent) / Double(totalBytesExpectedToSend) * 100
             : 0
 
+        // Throttle: same 100ms gate as download progress.
+        let now = Date()
+        let shouldEmit = queue.sync {
+            guard let last = lastProgressTimes[taskId] else {
+                lastProgressTimes[taskId] = now
+                return true
+            }
+            if now.timeIntervalSince(last) >= progressThrottleInterval {
+                lastProgressTimes[taskId] = now
+                return true
+            }
+            return false
+        }
+        guard shouldEmit else { return }
+
         NSLog("BackgroundSessionManager: Upload progress for \(taskId): \(Int(progress))%")
 
-        // Report progress to Flutter via delegate
         DispatchQueue.main.async { [weak self] in
             self?.progressDelegate?(taskId, progress)
         }
@@ -421,12 +630,18 @@ extension BackgroundSessionManager: URLSessionDelegate {
 
     /// Called when all background tasks finish and app is in background.
     public func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
-        NSLog("BackgroundSessionManager: All background tasks completed")
+        // Key by the session's own identifier so that multiple sessions each
+        // invoke the correct AppDelegate completion handler rather than all
+        // sharing (and overwriting) a single var.
+        let identifier = session.configuration.identifier ?? sessionIdentifier
+        NSLog("BackgroundSessionManager: All background tasks completed for session '\(identifier)'")
 
-        // Call the completion handler from AppDelegate
+        // Atomically pop the handler so it cannot be called twice.
+        let handler: (() -> Void)? = queue.sync(flags: .barrier) {
+            backgroundCompletionHandlers.removeValue(forKey: identifier)
+        }
         DispatchQueue.main.async {
-            self.backgroundCompletionHandler?()
-            self.backgroundCompletionHandler = nil
+            handler?()
         }
     }
 }
