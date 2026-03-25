@@ -527,6 +527,75 @@ class NativeWorker {
     );
   }
 
+  /// Upload multiple files in a single multipart/form-data HTTP request.
+  ///
+  /// Throws [ArgumentError] if [files] is empty or exceeds 50 files.
+  ///
+  /// Example:
+  /// ```dart
+  /// NativeWorker.multiUpload(
+  ///   url: 'https://api.example.com/batch',
+  ///   files: [
+  ///     const UploadFile(filePath: '/path/photo1.jpg', fieldName: 'photos'),
+  ///     const UploadFile(filePath: '/path/photo2.jpg', fieldName: 'photos'),
+  ///   ],
+  ///   additionalFields: {'albumId': '42'},
+  /// )
+  /// ```
+  static MultiUploadWorker multiUpload({
+    required String url,
+    required List<UploadFile> files,
+    Map<String, String> headers = const {},
+    Map<String, String> additionalFields = const {},
+    Duration timeout = const Duration(minutes: 10),
+    bool useBackgroundSession = false,
+  }) {
+    if (files.isEmpty) {
+      throw ArgumentError('files must not be empty');
+    }
+    if (files.length > 50) {
+      throw ArgumentError('Maximum 50 files per upload request');
+    }
+    return MultiUploadWorker(
+      url: url,
+      files: files,
+      headers: headers,
+      additionalFields: additionalFields,
+      timeout: timeout,
+      useBackgroundSession: useBackgroundSession,
+    );
+  }
+
+  /// Move a file from app-private storage to a shared / public location.
+  ///
+  /// On Android uses `MediaStore` (API 29+) or
+  /// `Environment.getExternalStoragePublicDirectory` (API 28−).
+  /// On iOS saves to the `PHPhotoLibrary` (for `photos`/`video`) or the app's
+  /// `Documents` directory (Files app, for `downloads`/`music`).
+  ///
+  /// Example — save downloaded photo to camera roll:
+  /// ```dart
+  /// NativeWorker.moveToSharedStorage(
+  ///   sourcePath: cacheFile.path,
+  ///   storageType: SharedStorageType.photos,
+  /// )
+  /// ```
+  static MoveToSharedStorageWorker moveToSharedStorage({
+    required String sourcePath,
+    required SharedStorageType storageType,
+    String? fileName,
+    String? mimeType,
+    String? subDir,
+  }) {
+    return MoveToSharedStorageWorker(
+      sourcePath: sourcePath,
+      storageType: storageType,
+      fileName: fileName,
+      mimeType: mimeType,
+      subDir: subDir,
+    );
+  }
+
   /// HTTP file download worker.
   ///
   /// Downloads a file from a URL and saves it to local storage.
@@ -783,6 +852,7 @@ class NativeWorker {
     String? expectedChecksum,
     String checksumAlgorithm = 'SHA-256',
     bool useBackgroundSession = false,
+    bool skipExisting = false,
   }) {
     _validateUrl(url);
     _validateFilePath(savePath, 'savePath');
@@ -835,6 +905,84 @@ class NativeWorker {
       expectedChecksum: expectedChecksum,
       checksumAlgorithm: checksumAlgorithm,
       useBackgroundSession: useBackgroundSession,
+      skipExisting: skipExisting,
+    );
+  }
+
+  /// Parallel chunked HTTP download worker.
+  ///
+  /// Splits a single file into [numChunks] parallel byte-range requests and
+  /// downloads them concurrently, then merges into a single output file.
+  /// Delivers noticeably faster downloads for large files on servers that
+  /// support `Accept-Ranges: bytes`.
+  ///
+  /// **Automatic fallback:** If the server does not support range requests
+  /// or does not return a `Content-Length`, the worker falls back to a
+  /// normal sequential download automatically.
+  ///
+  /// ## Example
+  ///
+  /// ```dart
+  /// await NativeWorkManager.enqueue(
+  ///   taskId: 'big-video',
+  ///   trigger: TaskTrigger.oneTime(),
+  ///   worker: NativeWorker.parallelHttpDownload(
+  ///     url: 'https://cdn.example.com/movie.mp4',
+  ///     savePath: '/data/user/0/com.example/files/movie.mp4',
+  ///     numChunks: 4,
+  ///   ),
+  ///   constraints: Constraints.networkRequired,
+  /// );
+  /// ```
+  ///
+  /// See also: [httpDownload] for simpler single-connection downloads.
+  static Worker parallelHttpDownload({
+    required String url,
+    required String savePath,
+    int numChunks = 4,
+    Map<String, String> headers = const {},
+    Duration timeout = const Duration(minutes: 10),
+    String? expectedChecksum,
+    String checksumAlgorithm = 'SHA-256',
+    bool showNotification = false,
+    String? notificationTitle,
+    String? notificationBody,
+    bool skipExisting = false,
+  }) {
+    _validateUrl(url);
+    _validateFilePath(savePath, 'savePath');
+
+    if (numChunks < 1 || numChunks > 16) {
+      throw ArgumentError('numChunks must be between 1 and 16, got $numChunks');
+    }
+
+    if (expectedChecksum != null) {
+      final validAlgorithms = ['MD5', 'SHA-1', 'SHA1', 'SHA-256', 'SHA256', 'SHA-512', 'SHA512'];
+      if (!validAlgorithms.contains(checksumAlgorithm.toUpperCase().replaceAll('-', ''))) {
+        throw ArgumentError(
+          'Invalid checksumAlgorithm: "$checksumAlgorithm"\n'
+          'Supported algorithms: MD5, SHA-1, SHA-256, SHA-512',
+        );
+      }
+      if (!RegExp(r'^[0-9a-fA-F]+$').hasMatch(expectedChecksum)) {
+        throw ArgumentError(
+          'Invalid expectedChecksum format: must be hexadecimal string',
+        );
+      }
+    }
+
+    return ParallelHttpDownloadWorker(
+      url: url,
+      savePath: savePath,
+      numChunks: numChunks,
+      headers: headers,
+      timeout: timeout,
+      expectedChecksum: expectedChecksum,
+      checksumAlgorithm: checksumAlgorithm,
+      showNotification: showNotification,
+      notificationTitle: notificationTitle,
+      notificationBody: notificationBody,
+      skipExisting: skipExisting,
     );
   }
 

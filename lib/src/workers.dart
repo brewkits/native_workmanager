@@ -11,7 +11,9 @@ library;
 
 export 'workers/http_request_worker.dart';
 export 'workers/http_upload_worker.dart';
+export 'workers/multi_upload_worker.dart';
 export 'workers/http_download_worker.dart';
+export 'workers/parallel_http_download_worker.dart';
 export 'workers/http_sync_worker.dart';
 export 'workers/file_compression_worker.dart';
 export 'workers/file_decompression_worker.dart';
@@ -20,3 +22,4 @@ export 'workers/image_process_worker.dart';
 export 'workers/crypto_worker.dart';
 export 'workers/custom_native_worker.dart';
 export 'workers/dart_worker.dart';
+export 'workers/move_to_shared_storage_worker.dart';

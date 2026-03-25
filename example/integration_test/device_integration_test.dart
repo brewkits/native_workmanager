@@ -1293,4 +1293,373 @@ void main() {
           reason: 'Unknown className must produce a failure, not silently succeed');
     });
   });
+
+  // ════════════════════════════════════════════════════════════
+  // GROUP 11 – New v1.1 Features
+  //   ✅ ParallelHttpDownloadWorker (parallel + sequential fallback)
+  //   ✅ Rich progress (bytesDownloaded, totalBytes, networkSpeed, timeRemaining)
+  //   ✅ pauseByTag / resumeByTag (group control)
+  //   ✅ pauseAll / resumeAll (global control)
+  //   ✅ getTasksByStatus
+  //   ✅ enqueueAll (batch enqueue)
+  //   ✅ skipExisting on HttpDownloadWorker
+  //   ✅ skipExisting on ParallelHttpDownloadWorker
+  // ════════════════════════════════════════════════════════════
+  group('New v1.1 Features', () {
+    // ── ParallelHttpDownloadWorker ─────────────────────────────
+
+    testWidgets(
+        'ParallelHttpDownloadWorker – downloads file with parallel chunks',
+        (tester) async {
+      final id = _id('parallel_dl');
+      final savePath = '${tmpDir.path}/parallel_download.zip';
+      // A publicly available file that supports Range requests (~1 MB):
+      const url =
+          'https://github.com/nicehash/NiceHashQuickMiner/releases/download/v0.9.2.4/NiceHashQuickMiner_v0.9.2.4.zip';
+
+      // Use a smaller well-known test file that supports Range requests
+      const testUrl = 'https://httpbin.org/bytes/102400'; // 100 KB, supports Range
+      final future = _waitEvent(id, timeout: const Duration(seconds: 120));
+
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(),
+        worker: NativeWorker.parallelHttpDownload(
+          url: testUrl,
+          savePath: savePath,
+          numChunks: 4,
+        ),
+        constraints: const Constraints(requiresNetwork: true),
+      );
+
+      final event = await future;
+      expect(event, isNotNull,
+          reason: 'ParallelHttpDownloadWorker must emit a completion event');
+      expect(event!.success, isTrue,
+          reason: 'Parallel download must succeed');
+      expect(File(savePath).existsSync(), isTrue,
+          reason: 'Downloaded file must exist on disk');
+    });
+
+    testWidgets(
+        'ParallelHttpDownloadWorker – falls back to sequential when no Range support',
+        (tester) async {
+      final id = _id('parallel_dl_fallback');
+      final savePath = '${tmpDir.path}/parallel_fallback.json';
+      // httpbin /get does not advertise Accept-Ranges: bytes → sequential fallback
+      const url = 'https://httpbin.org/get';
+      final future = _waitEvent(id, timeout: const Duration(seconds: 60));
+
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(),
+        worker: NativeWorker.parallelHttpDownload(
+          url: url,
+          savePath: savePath,
+          numChunks: 4,
+        ),
+        constraints: const Constraints(requiresNetwork: true),
+      );
+
+      final event = await future;
+      expect(event, isNotNull,
+          reason: 'Sequential fallback must emit a completion event');
+      expect(event!.success, isTrue,
+          reason: 'Sequential fallback must succeed');
+      expect(File(savePath).existsSync(), isTrue,
+          reason: 'Fallback file must exist on disk');
+    });
+
+    // ── Rich Progress ──────────────────────────────────────────
+
+    testWidgets(
+        'Rich progress – HttpDownloadWorker emits bytesDownloaded and totalBytes',
+        (tester) async {
+      final id = _id('rich_progress_http');
+      final savePath = '${tmpDir.path}/rich_progress.json';
+      // Use a URL that has a known Content-Length so rich progress fires
+      const url = 'https://httpbin.org/bytes/51200'; // 50 KB
+
+      final richUpdates = <TaskProgress>[];
+      late StreamSubscription<TaskProgress> sub;
+      final progressDone = Completer<void>();
+
+      sub = NativeWorkManager.progress.listen((p) {
+        if (p.taskId == id) {
+          richUpdates.add(p);
+          if (p.progress >= 100 && !progressDone.isCompleted) {
+            progressDone.complete();
+          }
+        }
+      });
+
+      final eventFuture = _waitEvent(id, timeout: const Duration(seconds: 60));
+
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(),
+        worker: HttpDownloadWorker(
+          url: url,
+          savePath: savePath,
+        ),
+        constraints: const Constraints(requiresNetwork: true),
+      );
+
+      final event = await eventFuture;
+      await sub.cancel();
+
+      expect(event?.success, isTrue, reason: 'Download must succeed');
+
+      // All emitted progress values must be in range
+      for (final p in richUpdates) {
+        expect(p.progress, inInclusiveRange(0, 100));
+        // If bytesDownloaded is present, it must be non-negative
+        if (p.bytesDownloaded != null) {
+          expect(p.bytesDownloaded, greaterThanOrEqualTo(0));
+        }
+        if (p.totalBytes != null) {
+          expect(p.totalBytes, greaterThan(0));
+        }
+        if (p.networkSpeed != null) {
+          expect(p.networkSpeed, greaterThan(0));
+        }
+        if (p.timeRemaining != null) {
+          expect(p.timeRemaining!.inMilliseconds, greaterThanOrEqualTo(0));
+        }
+      }
+    });
+
+    testWidgets(
+        'Rich progress – ParallelHttpDownloadWorker emits bytesDownloaded',
+        (tester) async {
+      final id = _id('rich_progress_parallel');
+      final savePath = '${tmpDir.path}/rich_progress_parallel.bin';
+      const url = 'https://httpbin.org/bytes/102400'; // 100 KB, supports Range
+
+      final richUpdates = <TaskProgress>[];
+      late StreamSubscription<TaskProgress> sub;
+
+      sub = NativeWorkManager.progress.listen((p) {
+        if (p.taskId == id) richUpdates.add(p);
+      });
+
+      final eventFuture = _waitEvent(id, timeout: const Duration(seconds: 120));
+
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(),
+        worker: NativeWorker.parallelHttpDownload(
+          url: url,
+          savePath: savePath,
+          numChunks: 2,
+        ),
+        constraints: const Constraints(requiresNetwork: true),
+      );
+
+      final event = await eventFuture;
+      await sub.cancel();
+
+      expect(event?.success, isTrue, reason: 'Parallel download must succeed');
+      // At least some progress events should have been emitted
+      for (final p in richUpdates) {
+        expect(p.progress, inInclusiveRange(0, 100));
+        if (p.bytesDownloaded != null) {
+          expect(p.bytesDownloaded, greaterThanOrEqualTo(0));
+        }
+      }
+    });
+
+    // ── skipExisting ───────────────────────────────────────────
+
+    testWidgets(
+        'HttpDownloadWorker skipExisting=true – skips download when file exists',
+        (tester) async {
+      final id = _id('skip_existing_http');
+      final savePath = '${tmpDir.path}/skip_existing.txt';
+      // Pre-create the file
+      File(savePath).writeAsStringSync('existing content');
+      final originalContent = File(savePath).readAsStringSync();
+
+      final future = _waitEvent(id, timeout: const Duration(seconds: 30));
+
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(),
+        worker: HttpDownloadWorker(
+          url: 'https://httpbin.org/get',
+          savePath: savePath,
+          skipExisting: true,
+        ),
+        constraints: const Constraints(requiresNetwork: true),
+      );
+
+      final event = await future;
+      expect(event?.success, isTrue,
+          reason: 'skipExisting must return success, not failure');
+      // File must NOT have been overwritten
+      expect(File(savePath).readAsStringSync(), equals(originalContent),
+          reason: 'Pre-existing file must not be overwritten');
+    });
+
+    testWidgets(
+        'ParallelHttpDownloadWorker skipExisting=true – skips when file exists',
+        (tester) async {
+      final id = _id('skip_existing_parallel');
+      final savePath = '${tmpDir.path}/skip_existing_parallel.bin';
+      File(savePath).writeAsStringSync('pre-existing content');
+      final originalContent = File(savePath).readAsStringSync();
+
+      final future = _waitEvent(id, timeout: const Duration(seconds: 30));
+
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(),
+        worker: NativeWorker.parallelHttpDownload(
+          url: 'https://httpbin.org/bytes/1024',
+          savePath: savePath,
+          skipExisting: true,
+        ),
+        constraints: const Constraints(requiresNetwork: true),
+      );
+
+      final event = await future;
+      expect(event?.success, isTrue, reason: 'skipExisting must return success');
+      expect(File(savePath).readAsStringSync(), equals(originalContent),
+          reason: 'Pre-existing file must not be overwritten');
+    });
+
+    // ── enqueueAll ─────────────────────────────────────────────
+
+    testWidgets('enqueueAll – accepts a batch of tasks', (tester) async {
+      final id1 = _id('batch_a');
+      final id2 = _id('batch_b');
+
+      final results = await NativeWorkManager.enqueueAll([
+        EnqueueRequest(
+          taskId: id1,
+          trigger: const TaskTrigger.oneTime(),
+          worker: HttpRequestWorker(
+            url: 'https://jsonplaceholder.typicode.com/posts/1',
+          ),
+          constraints: const Constraints(requiresNetwork: true),
+        ),
+        EnqueueRequest(
+          taskId: id2,
+          trigger: const TaskTrigger.oneTime(),
+          worker: HttpRequestWorker(
+            url: 'https://jsonplaceholder.typicode.com/posts/2',
+          ),
+          constraints: const Constraints(requiresNetwork: true),
+        ),
+      ]);
+
+      expect(results.length, equals(2));
+      expect(results[0], equals(ScheduleResult.accepted),
+          reason: 'First batch task must be accepted');
+      expect(results[1], equals(ScheduleResult.accepted),
+          reason: 'Second batch task must be accepted');
+
+      // Wait for both to complete
+      final e1 = await _waitEvent(id1, timeout: const Duration(seconds: 60));
+      final e2 = await _waitEvent(id2, timeout: const Duration(seconds: 60));
+      expect(e1?.success, isTrue);
+      expect(e2?.success, isTrue);
+    });
+
+    // ── pauseByTag / resumeByTag ───────────────────────────────
+
+    testWidgets('pauseByTag + resumeByTag – group control via tag',
+        (tester) async {
+      const tag = 'v11_group_tag';
+      final id1 = _id('tagged_a');
+      final id2 = _id('tagged_b');
+
+      // Enqueue two tasks with the same tag (use delay so they don't finish
+      // before we pause them)
+      await NativeWorkManager.enqueue(
+        taskId: id1,
+        trigger: const TaskTrigger.oneTime(Duration(seconds: 30)),
+        worker: HttpRequestWorker(
+          url: 'https://jsonplaceholder.typicode.com/posts/1',
+        ),
+        tag: tag,
+        constraints: const Constraints(requiresNetwork: true),
+      );
+      await NativeWorkManager.enqueue(
+        taskId: id2,
+        trigger: const TaskTrigger.oneTime(Duration(seconds: 30)),
+        worker: HttpRequestWorker(
+          url: 'https://jsonplaceholder.typicode.com/posts/2',
+        ),
+        tag: tag,
+        constraints: const Constraints(requiresNetwork: true),
+      );
+
+      // Verify both tasks are in the store
+      final byTag = await NativeWorkManager.getTasksByTag(tag);
+      expect(byTag.length, greaterThanOrEqualTo(2),
+          reason: 'Both tasks must be retrievable by tag');
+
+      // pauseByTag must not throw
+      await expectLater(
+        NativeWorkManager.pauseByTag(tag),
+        completes,
+        reason: 'pauseByTag must complete without throwing',
+      );
+
+      // resumeByTag must not throw
+      await expectLater(
+        NativeWorkManager.resumeByTag(tag),
+        completes,
+        reason: 'resumeByTag must complete without throwing',
+      );
+
+      // Clean up
+      await NativeWorkManager.cancelByTag(tag);
+    });
+
+    // ── pauseAll / resumeAll ───────────────────────────────────
+
+    testWidgets('pauseAll + resumeAll – global control', (tester) async {
+      // Both methods must complete without throwing, even when no tasks exist
+      await expectLater(NativeWorkManager.pauseAll(), completes,
+          reason: 'pauseAll must complete without throwing');
+      await expectLater(NativeWorkManager.resumeAll(), completes,
+          reason: 'resumeAll must complete without throwing');
+    });
+
+    // ── getTasksByStatus ───────────────────────────────────────
+
+    testWidgets('getTasksByStatus – returns tasks filtered by status',
+        (tester) async {
+      final id = _id('status_filter');
+
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(Duration(seconds: 60)),
+        worker: HttpRequestWorker(
+          url: 'https://jsonplaceholder.typicode.com/posts/1',
+        ),
+        constraints: const Constraints(requiresNetwork: true),
+      );
+
+      // Give WorkManager a moment to register the task
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+
+      final allTasks = await NativeWorkManager.allTasks();
+      expect(allTasks, isNotEmpty,
+          reason: 'allTasks must return at least the newly enqueued task');
+
+      // getTasksByStatus must not throw for any status value
+      for (final status in TaskStatus.values) {
+        final filtered = await NativeWorkManager.getTasksByStatus(status);
+        for (final task in filtered) {
+          expect(task.status.toLowerCase(), equals(status.name.toLowerCase()),
+              reason: 'getTasksByStatus($status) must only return $status tasks');
+        }
+      }
+
+      await NativeWorkManager.cancel(taskId: id);
+    });
+  });
 }

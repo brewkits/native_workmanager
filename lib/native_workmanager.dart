@@ -34,6 +34,7 @@
 library;
 
 export 'src/constraints.dart';
+export 'src/enqueue_request.dart';
 export 'src/events.dart';
 export 'src/native_work_manager.dart';
 export 'src/performance/performance_monitor.dart';

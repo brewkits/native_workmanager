@@ -76,6 +76,8 @@ public class IosWorkerFactory {
             return HttpUploadWorker()
         case "HttpDownloadWorker":
             return HttpDownloadWorker()
+        case "ParallelHttpDownloadWorker":
+            return ParallelHttpDownloadWorker()
         case "HttpSyncWorker":
             return HttpSyncWorker()
         case "DartCallbackWorker":
@@ -90,6 +92,8 @@ public class IosWorkerFactory {
             return CryptoWorker()
         case "FileSystemWorker":  // ⚠️ DO NOT REMOVE - Required for v1.0.0
             return FileSystemWorker()
+        case "MoveToSharedStorageWorker":
+            return MoveToSharedStorageWorker()
         default:
             print("IosWorkerFactory: Unknown worker class: \(className)")
             return nil

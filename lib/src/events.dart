@@ -378,6 +378,12 @@ enum TaskStatus {
   /// [NativeWorkManager.cancelByTag], or [NativeWorkManager.cancelAll].
   /// Cancelled tasks are removed from the queue and cannot be resumed.
   cancelled,
+
+  /// Task is paused.
+  ///
+  /// The task was paused via [NativeWorkManager.pause] or
+  /// [NativeWorkManager.pauseByTag]. Resume with [NativeWorkManager.resume].
+  paused,
 }
 
 /// Event emitted when a task completes (success or failure).
@@ -835,6 +841,10 @@ class TaskProgress {
     this.message,
     this.currentStep,
     this.totalSteps,
+    this.bytesDownloaded,
+    this.totalBytes,
+    this.networkSpeed,
+    this.timeRemaining,
   });
 
   /// ID of the task.
@@ -852,6 +862,31 @@ class TaskProgress {
   /// Total number of steps.
   final int? totalSteps;
 
+  /// Bytes downloaded so far (download workers only).
+  ///
+  /// `null` if the worker does not report byte-level progress.
+  final int? bytesDownloaded;
+
+  /// Total file size in bytes (download workers only).
+  ///
+  /// `null` if the server did not return a `Content-Length` header.
+  final int? totalBytes;
+
+  /// Current download/upload speed in bytes per second.
+  ///
+  /// `null` if speed cannot be computed (e.g. task just started).
+  final double? networkSpeed;
+
+  /// Estimated time remaining in milliseconds.
+  ///
+  /// Computed as `(totalBytes - bytesDownloaded) / networkSpeed`.
+  /// `null` if either [networkSpeed] or [totalBytes] is unavailable.
+  final Duration? timeRemaining;
+
+  /// Whether this progress update carries byte-level information.
+  bool get hasNetworkInfo =>
+      bytesDownloaded != null && totalBytes != null && networkSpeed != null;
+
   /// Create from platform channel map.
   ///
   /// FIX M5: Null-safe access prevents crash if platform omits a required field.
@@ -861,6 +896,12 @@ class TaskProgress {
         message: map['message'] as String?,
         currentStep: (map['currentStep'] as num?)?.toInt(),
         totalSteps: (map['totalSteps'] as num?)?.toInt(),
+        bytesDownloaded: (map['bytesDownloaded'] as num?)?.toInt(),
+        totalBytes: (map['totalBytes'] as num?)?.toInt(),
+        networkSpeed: (map['networkSpeed'] as num?)?.toDouble(),
+        timeRemaining: map['timeRemainingMs'] != null
+            ? Duration(milliseconds: (map['timeRemainingMs'] as num).toInt())
+            : null,
       );
 
   /// Convert to map.
@@ -870,6 +911,11 @@ class TaskProgress {
         'message': message,
         'currentStep': currentStep,
         'totalSteps': totalSteps,
+        if (bytesDownloaded != null) 'bytesDownloaded': bytesDownloaded,
+        if (totalBytes != null) 'totalBytes': totalBytes,
+        if (networkSpeed != null) 'networkSpeed': networkSpeed,
+        if (timeRemaining != null)
+          'timeRemainingMs': timeRemaining!.inMilliseconds,
       };
 
   @override
@@ -887,5 +933,8 @@ class TaskProgress {
       'taskId: $taskId, '
       'progress: $progress%, '
       'message: $message, '
-      'step: $currentStep/$totalSteps)';
+      'step: $currentStep/$totalSteps, '
+      'bytes: $bytesDownloaded/$totalBytes, '
+      'speed: ${networkSpeed != null ? "${(networkSpeed! / 1024).toStringAsFixed(1)} KB/s" : "n/a"})';
 }
+

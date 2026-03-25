@@ -105,6 +105,11 @@ public class BackgroundSessionManager: NSObject {
     /// Progress delegate for reporting download/upload progress to Flutter
     public var progressDelegate: ((String, Double) -> Void)?
 
+    /// Rich progress delegate — passes full progress dict including bytesDownloaded,
+    /// totalBytes, networkSpeed (bytes/sec), and timeRemainingMs to Flutter.
+    /// When set, this takes priority over `progressDelegate` for download progress.
+    public var richProgressDelegate: ((String, [String: Any]) -> Void)?
+
     /// Resume data storage for failed downloads (taskId -> resumeData)
     private var resumeDataStorage: [String: Data] = [:]
 
@@ -123,6 +128,11 @@ public class BackgroundSessionManager: NSObject {
     /// Prevents flooding the Flutter bridge when downloading large files in small chunks.
     private var lastProgressTimes: [String: Date] = [:]
     private let progressThrottleInterval: TimeInterval = 0.1 // 100ms
+
+    // Speed tracking per task (all protected by queue)
+    private var speedWindowBytes: [String: Int64] = [:]
+    private var speedWindowStart: [String: Date] = [:]
+    private var smoothedSpeedBps: [String: Double] = [:]
 
     // MARK: - Session Creation
 
@@ -403,6 +413,9 @@ public class BackgroundSessionManager: NSObject {
             self.downloadHandlers.removeValue(forKey: taskId)
             self.uploadHandlers.removeValue(forKey: taskId)
             self.lastProgressTimes.removeValue(forKey: taskId)
+            self.speedWindowBytes.removeValue(forKey: taskId)
+            self.speedWindowStart.removeValue(forKey: taskId)
+            self.smoothedSpeedBps.removeValue(forKey: taskId)
 
             // Remove from taskIdMap
             if let key = self.taskIdMap.first(where: { $0.value == taskId })?.key {
@@ -494,26 +507,63 @@ extension BackgroundSessionManager: URLSessionDownloadDelegate {
             ? Double(totalBytesWritten) / Double(totalBytesExpectedToWrite) * 100
             : 0
 
-        // Throttle: only emit if 100ms have passed since the last update for this task.
-        // URLSession can fire this delegate dozens of times per second for large files.
+        // Throttle + speed tracking (barrier needed: reads and writes)
         let now = Date()
-        let shouldEmit = queue.sync {
-            guard let last = lastProgressTimes[taskId] else {
-                lastProgressTimes[taskId] = now
-                return true
+        let result: (Bool, Double?, Int64?) = queue.sync(flags: .barrier) {
+            // Always accumulate bytes for the speed window
+            speedWindowBytes[taskId] = (speedWindowBytes[taskId] ?? 0) + bytesWritten
+
+            // Throttle gate: skip emit if interval not elapsed
+            if let last = lastProgressTimes[taskId],
+               now.timeIntervalSince(last) < progressThrottleInterval {
+                return (false, nil, nil)
             }
-            if now.timeIntervalSince(last) >= progressThrottleInterval {
-                lastProgressTimes[taskId] = now
-                return true
+            lastProgressTimes[taskId] = now
+
+            // Update speed every ~500ms (exponential moving average, α=0.3)
+            var speed: Double? = nil
+            var etaMs: Int64? = nil
+            let wStart = speedWindowStart[taskId] ?? now
+            let wElapsed = now.timeIntervalSince(wStart)
+            if wElapsed >= 0.5 {
+                let wBytes = speedWindowBytes[taskId] ?? 0
+                let instant = Double(wBytes) / wElapsed
+                let prev = smoothedSpeedBps[taskId] ?? 0
+                let smoothed = prev == 0 ? instant : 0.3 * instant + 0.7 * prev
+                smoothedSpeedBps[taskId] = smoothed
+                speedWindowStart[taskId] = now
+                speedWindowBytes[taskId] = 0
+                if smoothed > 0 { speed = smoothed }
+            } else if let s = smoothedSpeedBps[taskId], s > 0 {
+                speed = s
             }
-            return false
+            if let s = speed, totalBytesExpectedToWrite > 0 {
+                let remaining = totalBytesExpectedToWrite - totalBytesWritten
+                if remaining > 0 { etaMs = Int64(Double(remaining) / s * 1000) }
+            }
+            return (true, speed, etaMs)
         }
+
+        let (shouldEmit, speed, etaMs) = result
         guard shouldEmit else { return }
 
         NSLog("BackgroundSessionManager: Download progress for \(taskId): \(Int(progress))%")
 
-        DispatchQueue.main.async { [weak self] in
-            self?.progressDelegate?(taskId, progress)
+        if richProgressDelegate != nil {
+            var dict: [String: Any] = ["taskId": taskId, "progress": Int(progress)]
+            if totalBytesExpectedToWrite > 0 {
+                dict["bytesDownloaded"] = totalBytesWritten
+                dict["totalBytes"] = totalBytesExpectedToWrite
+            }
+            if let s = speed { dict["networkSpeed"] = s }
+            if let eta = etaMs { dict["timeRemainingMs"] = eta }
+            DispatchQueue.main.async { [weak self] in
+                self?.richProgressDelegate?(taskId, dict)
+            }
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.progressDelegate?(taskId, progress)
+            }
         }
     }
 

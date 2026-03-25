@@ -24,5 +24,14 @@
                 <action android:name="dev.brewkits.native_workmanager.CANCEL_DOWNLOAD" />
             </intent-filter>
         </receiver>
+
+        <!-- BroadcastReceiver for the Pause button in download progress notifications. -->
+        <receiver
+            android:name="dev.brewkits.native_workmanager.notification.NotificationPauseReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="dev.brewkits.native_workmanager.PAUSE_DOWNLOAD" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

@@ -61,7 +61,7 @@ class ProgressResponseBody(
     }
 
     /**
-     * Source wrapper that tracks bytes read and reports progress.
+     * Source wrapper that tracks bytes read, speed, and ETA, then reports rich progress.
      */
     private class ProgressSource(
         delegate: Source,
@@ -73,39 +73,59 @@ class ProgressResponseBody(
         private var bytesRead = 0L
         private var lastReportedProgress = 0
 
+        // Speed calculation: sliding window over last ~2 seconds of I/O
+        private var windowStart = System.nanoTime()
+        private var windowBytes = 0L
+        private var smoothedSpeedBps = 0.0  // exponential moving average
+
         override fun read(sink: Buffer, byteCount: Long): Long {
             val bytesReadNow = super.read(sink, byteCount)
 
             if (bytesReadNow != -1L) {
                 bytesRead += bytesReadNow
+                windowBytes += bytesReadNow
 
-                // Calculate progress
-                val progress = if (totalBytes > 0) {
-                    ((bytesRead.toFloat() / totalBytes.toFloat()) * 100).toInt()
-                } else {
-                    0
+                // Update speed every ~500 ms to avoid per-chunk noise
+                val nowNs = System.nanoTime()
+                val elapsedMs = (nowNs - windowStart) / 1_000_000L
+                if (elapsedMs >= 500) {
+                    val instantBps = windowBytes.toDouble() / (elapsedMs / 1000.0)
+                    // Exponential moving average (α = 0.3) for smooth display
+                    smoothedSpeedBps = if (smoothedSpeedBps == 0.0) instantBps
+                                       else 0.3 * instantBps + 0.7 * smoothedSpeedBps
+                    windowStart = nowNs
+                    windowBytes = 0L
                 }
 
-                // Only report if progress changed by at least 1%
-                // This prevents excessive progress updates
+                val progress = if (totalBytes > 0) {
+                    ((bytesRead.toFloat() / totalBytes.toFloat()) * 100).toInt()
+                } else { 0 }
+
                 if (progress != lastReportedProgress) {
                     lastReportedProgress = progress
+                    val etaMs = if (smoothedSpeedBps > 0 && totalBytes > 0) {
+                        ((totalBytes - bytesRead) / smoothedSpeedBps * 1000).toLong()
+                    } else null
 
-                    // ✅ FIX #1: Non-blocking progress reporting from I/O thread
                     ProgressReporter.reportProgressNonBlocking(
                         taskId = taskId,
                         progress = progress,
-                        message = "Downloading $fileName... (${formatBytes(bytesRead)}/${formatBytes(totalBytes)})"
+                        message = "Downloading $fileName... " +
+                            "(${formatBytes(bytesRead)}/${formatBytes(totalBytes)})",
+                        bytesDownloaded = bytesRead,
+                        totalBytes = totalBytes,
+                        networkSpeed = if (smoothedSpeedBps > 0) smoothedSpeedBps else null,
+                        timeRemainingMs = etaMs
                     )
                 }
             } else {
-                // Download complete
                 if (lastReportedProgress < 100) {
-                    // ✅ FIX #1: Non-blocking completion report
                     ProgressReporter.reportProgressNonBlocking(
                         taskId = taskId,
                         progress = 100,
-                        message = "Download complete"
+                        message = "Download complete",
+                        bytesDownloaded = bytesRead,
+                        totalBytes = totalBytes
                     )
                 }
             }

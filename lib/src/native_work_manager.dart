@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import 'constraints.dart';
+import 'enqueue_request.dart';
 import 'events.dart';
 import 'platform_interface.dart';
 import 'task_chain.dart';
@@ -898,6 +899,42 @@ class NativeWorkManager {
     return NativeWorkManagerPlatform.instance.resumeTask(taskId);
   }
 
+  /// Pause all running tasks that share a given tag.
+  ///
+  /// Looks up every task with [tag] via [getTasksByTag] then calls [pause]
+  /// on each one concurrently.  Completed, failed, or already-paused tasks
+  /// are silently skipped on the native side.
+  ///
+  /// ```dart
+  /// // Pause all active downloads in the "media" group
+  /// await NativeWorkManager.pauseByTag('media');
+  /// ```
+  static Future<void> pauseByTag(String tag) async {
+    _checkInitialized();
+    final taskIds = await NativeWorkManagerPlatform.instance.getTasksByTag(tag);
+    await Future.wait(
+      taskIds.map((id) => NativeWorkManagerPlatform.instance.pauseTask(id)),
+    );
+  }
+
+  /// Resume all paused tasks that share a given tag.
+  ///
+  /// Looks up every task with [tag] via [getTasksByTag] then calls [resume]
+  /// on each one concurrently.  Only tasks in the `paused` state will
+  /// actually restart; other tasks are silently skipped on the native side.
+  ///
+  /// ```dart
+  /// // Resume all downloads in the "media" group
+  /// await NativeWorkManager.resumeByTag('media');
+  /// ```
+  static Future<void> resumeByTag(String tag) async {
+    _checkInitialized();
+    final taskIds = await NativeWorkManagerPlatform.instance.getTasksByTag(tag);
+    await Future.wait(
+      taskIds.map((id) => NativeWorkManagerPlatform.instance.resumeTask(id)),
+    );
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // TASK STORE
   // ═══════════════════════════════════════════════════════════════════════════
@@ -917,6 +954,133 @@ class NativeWorkManager {
   static Future<List<TaskRecord>> allTasks() async {
     _checkInitialized();
     return NativeWorkManagerPlatform.instance.allTasks();
+  }
+
+  /// Fetch the server-suggested filename for a URL by sending a HEAD request
+  /// and parsing the `Content-Disposition` header (RFC 6266).
+  ///
+  /// Returns the sanitized filename string, or `null` if the server did not
+  /// provide a `Content-Disposition: attachment; filename=…` header.
+  ///
+  /// Prefer `filename*=UTF-8''…` (RFC 5987 percent-encoded) when present.
+  ///
+  /// ```dart
+  /// final name = await NativeWorkManager.getServerFilename(
+  ///   'https://files.example.com/report.pdf',
+  /// );
+  /// // name == 'Q4_Report_2024.pdf'
+  ///
+  /// await NativeWorkManager.enqueue(
+  ///   taskId: 'dl-report',
+  ///   trigger: const TaskTrigger.oneTime(),
+  ///   worker: NativeWorker.httpDownload(
+  ///     url: 'https://files.example.com/report.pdf',
+  ///     savePath: '/path/to/downloads/$name',
+  ///   ),
+  /// );
+  /// ```
+  static Future<String?> getServerFilename(
+    String url, {
+    Map<String, String>? headers,
+    int timeoutMs = 30000,
+  }) {
+    _checkInitialized();
+    return NativeWorkManagerPlatform.instance.getServerFilename(
+      url: url,
+      headers: headers,
+      timeoutMs: timeoutMs,
+    );
+  }
+
+  /// Return all tasks that match a given [status].
+  ///
+  /// Queries the persistent task store and filters by status.  Useful for
+  /// building download managers, queue dashboards, or retry logic.
+  ///
+  /// ```dart
+  /// final running = await NativeWorkManager.getTasksByStatus(TaskStatus.running);
+  /// final paused  = await NativeWorkManager.getTasksByStatus(TaskStatus.paused);
+  /// ```
+  static Future<List<TaskRecord>> getTasksByStatus(TaskStatus status) async {
+    _checkInitialized();
+    final all = await NativeWorkManagerPlatform.instance.allTasks();
+    return all.where((t) => t.status == status.name).toList();
+  }
+
+  /// Pause all currently-running tasks.
+  ///
+  /// Queries the task store for every task in the `running` state, then
+  /// calls [pause] on each one concurrently.  Tasks that cannot be paused
+  /// (e.g. non-download workers) are silently skipped on the native side.
+  ///
+  /// ```dart
+  /// // Pause everything — e.g. when the user taps "Pause All"
+  /// await NativeWorkManager.pauseAll();
+  /// ```
+  static Future<void> pauseAll() async {
+    _checkInitialized();
+    final running = await getTasksByStatus(TaskStatus.running);
+    await Future.wait(
+      running.map((t) => NativeWorkManagerPlatform.instance.pauseTask(t.taskId)),
+    );
+  }
+
+  /// Resume all currently-paused tasks.
+  ///
+  /// Queries the task store for every task in the `paused` state, then
+  /// calls [resume] on each one concurrently.
+  ///
+  /// ```dart
+  /// // Resume everything — e.g. when network becomes available again
+  /// await NativeWorkManager.resumeAll();
+  /// ```
+  static Future<void> resumeAll() async {
+    _checkInitialized();
+    final paused = await getTasksByStatus(TaskStatus.paused);
+    await Future.wait(
+      paused.map((t) => NativeWorkManagerPlatform.instance.resumeTask(t.taskId)),
+    );
+  }
+
+  /// Enqueue multiple tasks at once and return their [ScheduleResult]s.
+  ///
+  /// Each entry in [requests] maps to one [enqueue] call.  All tasks are
+  /// submitted concurrently; the returned list preserves the input order.
+  ///
+  /// ```dart
+  /// final results = await NativeWorkManager.enqueueAll([
+  ///   EnqueueRequest(
+  ///     taskId: 'dl-1',
+  ///     trigger: TaskTrigger.oneTime(),
+  ///     worker: NativeWorker.httpDownload(url: urls[0], savePath: paths[0]),
+  ///     tag: 'batch-download',
+  ///   ),
+  ///   EnqueueRequest(
+  ///     taskId: 'dl-2',
+  ///     trigger: TaskTrigger.oneTime(),
+  ///     worker: NativeWorker.httpDownload(url: urls[1], savePath: paths[1]),
+  ///     tag: 'batch-download',
+  ///   ),
+  /// ]);
+  /// final accepted = results.where((r) => r == ScheduleResult.accepted).length;
+  /// print('$accepted / ${results.length} tasks accepted');
+  /// ```
+  static Future<List<ScheduleResult>> enqueueAll(
+    List<EnqueueRequest> requests,
+  ) async {
+    _checkInitialized();
+    return Future.wait(
+      requests.map(
+        (r) => NativeWorkManagerPlatform.instance.enqueue(
+          taskId: r.taskId,
+          trigger: r.trigger,
+          worker: r.worker,
+          constraints: r.constraints,
+          existingPolicy: r.existingPolicy,
+          tag: r.tag,
+        ),
+      ),
+    );
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

@@ -114,6 +114,18 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
     throw UnimplementedError('allTasks() has not been implemented.');
   }
 
+  /// Fetch the server-suggested filename for a URL by sending a HEAD request
+  /// and parsing the Content-Disposition header (RFC 6266).
+  ///
+  /// Returns the sanitized filename, or `null` if the server did not provide one.
+  Future<String?> getServerFilename({
+    required String url,
+    Map<String, String>? headers,
+    int timeoutMs = 30000,
+  }) {
+    throw UnimplementedError('getServerFilename() has not been implemented.');
+  }
+
   /// Set the Dart callback executor.
   void setCallbackExecutor(
       Future<bool> Function(String callbackId, Map<String, dynamic>? input)

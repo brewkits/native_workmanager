@@ -63,12 +63,15 @@ class HttpDownloadWorker : AndroidWorker {
         val savePath: String,
         val headers: Map<String, String>? = null,
         val timeoutMs: Long? = null,
-        val enableResume: Boolean = true,      // Enable resume support (default: true)
-        val expectedChecksum: String? = null,  // 👈 NEW: Expected checksum for verification
-        val checksumAlgorithm: String? = null  // 👈 NEW: Algorithm (MD5, SHA-256, SHA-1)
+        val enableResume: Boolean = true,
+        val expectedChecksum: String? = null,
+        val checksumAlgorithm: String? = null,
+        val skipExisting: Boolean = false
     ) {
         val timeout: Long get() = timeoutMs ?: DEFAULT_TIMEOUT_MS
         val effectiveChecksumAlgorithm: String get() = checksumAlgorithm ?: "SHA-256"
+        /** True when savePath is a directory (ends with `/`). Filename is resolved from server response. */
+        val isDirectory: Boolean get() = savePath.endsWith("/")
     }
 
     override suspend fun doWork(input: String?): WorkerResult = withContext(Dispatchers.IO) {
@@ -85,11 +88,27 @@ class HttpDownloadWorker : AndroidWorker {
                 headers = parseStringMap(j.optJSONObject("headers")),
                 timeoutMs = if (j.has("timeoutMs")) j.getLong("timeoutMs") else null,
                 enableResume = j.optBoolean("enableResume", true),
-                expectedChecksum = if (j.has("expectedChecksum")) j.getString("expectedChecksum") else null,  // 👈 NEW
-                checksumAlgorithm = if (j.has("checksumAlgorithm")) j.getString("checksumAlgorithm") else null  // 👈 NEW
+                expectedChecksum = if (j.has("expectedChecksum")) j.getString("expectedChecksum") else null,
+                checksumAlgorithm = if (j.has("checksumAlgorithm")) j.getString("checksumAlgorithm") else null,
+                skipExisting = j.optBoolean("skipExisting", false)
             )
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid config JSON: ${e.message}", e)
+        }
+
+        // Skip download if destination already exists and skipExisting is enabled
+        // (only for non-directory paths where we already know the final filename)
+        if (config.skipExisting && !config.isDirectory && File(config.savePath).exists()) {
+            Log.d(TAG, "skipExisting=true and file already exists — skipping download")
+            return@withContext WorkerResult.Success(
+                message = "File already exists, download skipped",
+                data = mapOf(
+                    "filePath" to config.savePath,
+                    "fileName" to File(config.savePath).name,
+                    "fileSize" to File(config.savePath).length(),
+                    "skipped" to true
+                )
+            )
         }
 
         // ✅ SECURITY: Validate URL scheme (prevent file://, content://, etc.)
@@ -105,12 +124,6 @@ class HttpDownloadWorker : AndroidWorker {
             null
         }
 
-        // Get allowed directories for path validation
-        // Note: Context would be needed to get actual directories, so this is a simplified version
-        // In production, pass context to worker and use context.filesDir, context.cacheDir, etc.
-        val destinationFile = File(config.savePath)
-        val tempFile = File(config.savePath + ".tmp")
-
         // FIX H1: Use canonical-path validation instead of the weak contains("..")
         // string check. File.canonicalPath resolves symlinks and ".." at the OS level,
         // defeating URL-encoded paths and symlink-based escapes.
@@ -119,8 +132,17 @@ class HttpDownloadWorker : AndroidWorker {
             return@withContext WorkerResult.Failure("Invalid or unsafe save path")
         }
 
-        // Create parent directory if needed
-        val parentDir = destinationFile.parentFile
+        // When savePath is a directory, we need to resolve the filename from the server response.
+        // Use a sentinel temp file in the directory until we know the real filename.
+        val sentinelTempFile = if (config.isDirectory) File(config.savePath + "__pending__.tmp") else File(config.savePath + ".tmp")
+
+        // For directory mode, destinationFile is resolved after the response headers arrive.
+        // For now, set a placeholder that will be replaced below.
+        var destinationFile = if (config.isDirectory) File(config.savePath + "download") else File(config.savePath)
+        var tempFile = sentinelTempFile
+
+        // Create directory (or parent directory) if needed
+        val parentDir = if (config.isDirectory) File(config.savePath) else File(config.savePath).parentFile
         if (parentDir != null && !parentDir.exists()) {
             if (!parentDir.mkdirs()) {
                 Log.e(TAG, "Error - Failed to create parent directory: ${parentDir.path}")
@@ -231,6 +253,31 @@ class HttpDownloadWorker : AndroidWorker {
                 val contentType = response.header("Content-Type")
                 val finalUrl = response.request.url.toString()
 
+                // 👇 Feature 4: Resolve filename from Content-Disposition or URL when savePath is a directory
+                val serverSuggestedName: String? = parseFilenameFromContentDisposition(response.header("Content-Disposition"))
+                if (config.isDirectory) {
+                    val resolvedName = serverSuggestedName
+                        ?: sanitizeFilename(response.request.url.pathSegments.lastOrNull { it.isNotEmpty() } ?: "download")
+                    destinationFile = File(config.savePath + resolvedName)
+                    tempFile = File(config.savePath + resolvedName + ".tmp")
+                    Log.d(TAG, "Directory mode — resolved filename: $resolvedName")
+
+                    // skipExisting check for directory mode (now we know the actual path)
+                    if (config.skipExisting && destinationFile.exists()) {
+                        Log.d(TAG, "skipExisting=true and file already exists — skipping download")
+                        return@withContext WorkerResult.Success(
+                            message = "File already exists, download skipped",
+                            data = mapOf(
+                                "filePath" to destinationFile.absolutePath,
+                                "fileName" to destinationFile.name,
+                                "fileSize" to destinationFile.length(),
+                                "serverSuggestedName" to serverSuggestedName,
+                                "skipped" to true
+                            )
+                        )
+                    }
+                }
+
                 // 👇 NEW: Stream to temp file (append if resuming, overwrite if starting fresh)
                 inputStream.use { input ->
                     val outputStream = if (isResumingDownload) {
@@ -280,15 +327,17 @@ class HttpDownloadWorker : AndroidWorker {
                 Log.d(TAG, "Saved to: ${config.savePath}")
 
                 // ✅ Return success with rich data
+                val resultData = mutableMapOf<String, Any?>(
+                    "filePath" to destinationFile.absolutePath,
+                    "fileName" to destinationFile.name,
+                    "fileSize" to fileSize,
+                    "contentType" to contentType,
+                    "finalUrl" to finalUrl
+                )
+                if (serverSuggestedName != null) resultData["serverSuggestedName"] = serverSuggestedName
                 WorkerResult.Success(
                     message = "Downloaded ${fileSize} bytes",
-                    data = mapOf(
-                        "filePath" to destinationFile.absolutePath,
-                        "fileName" to destinationFile.name,
-                        "fileSize" to fileSize,
-                        "contentType" to contentType,
-                        "finalUrl" to finalUrl
-                    )
+                    data = resultData
                 )
             }
         } catch (e: Exception) {
@@ -301,6 +350,34 @@ class HttpDownloadWorker : AndroidWorker {
             )
         }
     }
+
+    /**
+     * Parse filename from RFC 6266 Content-Disposition header.
+     * Prefers `filename*=UTF-8''<encoded>` over `filename=<value>`.
+     */
+    internal fun parseFilenameFromContentDisposition(header: String?): String? {
+        if (header.isNullOrBlank()) return null
+        // Try filename* (RFC 5987 encoded) first
+        val encodedMatch = Regex("""filename\*\s*=\s*UTF-8''([^;\s]+)""", RegexOption.IGNORE_CASE)
+            .find(header)
+        if (encodedMatch != null) {
+            return try {
+                java.net.URLDecoder.decode(encodedMatch.groupValues[1], "UTF-8")
+                    .let { sanitizeFilename(it) }.takeIf { it.isNotEmpty() }
+            } catch (_: Exception) { null }
+        }
+        // Fall back to plain filename=
+        val plainMatch = Regex("""filename\s*=\s*(?:"([^"]+)"|([^;\s]+))""", RegexOption.IGNORE_CASE)
+            .find(header)
+        return plainMatch?.let {
+            (it.groupValues[1].takeIf { s -> s.isNotEmpty() } ?: it.groupValues[2])
+                .let { name -> sanitizeFilename(name) }.takeIf { s -> s.isNotEmpty() }
+        }
+    }
+
+    /** Remove path separators and other unsafe characters from a filename. */
+    internal fun sanitizeFilename(name: String): String =
+        name.trim().replace(Regex("""[/\\:*?"<>|]"""), "_").trimStart('.')
 
     private fun parseStringMap(obj: org.json.JSONObject?): Map<String, String>? {
         if (obj == null) return null

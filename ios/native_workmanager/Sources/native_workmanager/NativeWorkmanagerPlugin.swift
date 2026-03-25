@@ -59,6 +59,9 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     // Notification title per taskId for download notification feature
     private var taskNotifTitles: [String: String] = [:]
 
+    // Previous UNUserNotificationCenterDelegate (forwarded to for non-NWM notifications)
+    private weak var previousNotificationDelegate: UNUserNotificationCenterDelegate?
+
     // Concurrency limiter — prevents simultaneous network saturation.
     // Replaced in handleInitialize when maxConcurrentTasks is provided.
     private var concurrencyLimiter = ConcurrencyLimiter(max: 4)
@@ -104,7 +107,11 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                 instance?.emitTaskEvent(taskId: taskId, success: success, message: message)
             }
 
-            // Setup progress delegate for BackgroundSessionManager
+            // Setup rich progress delegate (carries bytes, speed, ETA in addition to %)
+            BackgroundSessionManager.shared.richProgressDelegate = { [weak instance] _, dict in
+                instance?.emitRichProgress(dict)
+            }
+            // Fallback for callers that still use the simple delegate directly
             BackgroundSessionManager.shared.progressDelegate = { [weak instance] taskId, progress in
                 instance?.emitProgress(taskId: taskId, progress: Int(progress), message: nil)
             }
@@ -153,6 +160,8 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             handleResume(call: call, result: result)
         case "allTasks":
             handleAllTasks(result: result)
+        case "getServerFilename":
+            handleGetServerFilename(call: call, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -189,9 +198,14 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             NativeLogger.d("Initialized (KMP native workers)")
         }
 
-        // Initialize download notification permission (required for showNotification feature)
+        // Initialize download notification permission + interactive action buttons
         if #available(iOS 13.0, *) {
             DownloadNotificationManager.requestPermission()
+            DownloadNotificationManager.registerCategory()
+            // Register plugin as UNUserNotificationCenterDelegate (forward to previous delegate)
+            let center = UNUserNotificationCenter.current()
+            previousNotificationDelegate = center.delegate
+            center.delegate = self
         }
 
         // ✅ NEW: Resume incomplete chains and cleanup old states
@@ -584,6 +598,35 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         let records = taskStore?.allTasks() ?? []
         let maps = records.map { $0.toFlutterMap() }
         result(maps)
+    }
+
+    private func handleGetServerFilename(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let urlString = args["url"] as? String else {
+            result(FlutterError(code: "INVALID_ARGS", message: "url is required", details: nil))
+            return
+        }
+        let headers = args["headers"] as? [String: String]
+        let timeoutMs = args["timeoutMs"] as? Int ?? 30_000
+        guard let url = SecurityValidator.validateURL(urlString) else {
+            result(FlutterError(code: "INVALID_URL", message: "Invalid or unsafe URL", details: nil))
+            return
+        }
+        var request = URLRequest(url: url, timeoutInterval: TimeInterval(timeoutMs / 1000))
+        request.httpMethod = "HEAD"
+        headers?.forEach { request.setValue($1, forHTTPHeaderField: $0) }
+
+        URLSession.shared.dataTask(with: request) { _, response, error in
+            if let error = error {
+                DispatchQueue.main.async {
+                    result(FlutterError(code: "REQUEST_ERROR", message: error.localizedDescription, details: nil))
+                }
+                return
+            }
+            let cdHeader = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
+            let filename = HttpDownloadWorker().parseFilenameFromContentDisposition(cdHeader)
+            DispatchQueue.main.async { result(filename) }
+        }.resume()
     }
 
     private func handleCancel(call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -1155,6 +1198,27 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         }
     }
 
+    /// Emit a rich progress event from a pre-built dict (taskId + progress already included).
+    /// Used by BackgroundSessionManager's richProgressDelegate to forward bytes/speed/ETA to Flutter.
+    func emitRichProgress(_ dict: [String: Any]) {
+        if #available(iOS 13.0, *),
+           let taskId = dict["taskId"] as? String,
+           let progress = dict["progress"] as? Int {
+            let notifTitle: String? = stateQueue.sync { taskNotifTitles[taskId] }
+            if let title = notifTitle {
+                DownloadNotificationManager.showProgress(
+                    taskId: taskId,
+                    title: title,
+                    progress: Double(progress),
+                    message: dict["message"] as? String
+                )
+            }
+        }
+        DispatchQueue.main.async {
+            self.progressSink?(dict)
+        }
+    }
+
     // MARK: - Helper Methods
     
     /// Map QoS string to DispatchQoS
@@ -1281,5 +1345,87 @@ private class ProgressStreamHandler: NSObject, FlutterStreamHandler {
         plugin?.progressSink = nil
         NativeLogger.d("ProgressStreamHandler: Progress sink cancelled")
         return nil
+    }
+}
+
+// MARK: - UNUserNotificationCenterDelegate (interactive notification buttons)
+
+@available(iOS 13.0, *)
+extension NativeWorkmanagerPlugin: UNUserNotificationCenterDelegate {
+
+    public func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let catId = response.notification.request.content.categoryIdentifier
+        guard catId == DownloadNotificationManager.categoryId else {
+            // Forward to previous delegate (app's own handler) for non-NWM notifications
+            if let prev = previousNotificationDelegate,
+               prev.responds(to: #selector(userNotificationCenter(_:didReceive:withCompletionHandler:))) {
+                prev.userNotificationCenter?(center, didReceive: response, withCompletionHandler: completionHandler)
+            } else {
+                completionHandler()
+            }
+            return
+        }
+
+        let notifId = response.notification.request.identifier
+        guard notifId.hasPrefix("nwm_dl_") else {
+            completionHandler()
+            return
+        }
+        let taskId = String(notifId.dropFirst("nwm_dl_".count))
+
+        switch response.actionIdentifier {
+        case DownloadNotificationManager.pauseActionId:
+            // Pause: cancel the running Swift Task + update persistent status
+            stateQueue.async(flags: .barrier) {
+                self.activeTasks[taskId]?.cancel()
+                self.activeTasks.removeValue(forKey: taskId)
+                self.taskStates[taskId] = "paused"
+            }
+            taskStore?.updateStatus(taskId: taskId, status: "paused")
+            DownloadNotificationManager.dismiss(taskId: taskId)
+            NativeLogger.d("Notification Pause tapped for task '\(taskId)'")
+
+        case DownloadNotificationManager.cancelActionId:
+            // Cancel: same as programmatic cancel
+            stateQueue.async(flags: .barrier) {
+                self.activeTasks[taskId]?.cancel()
+                self.activeTasks.removeValue(forKey: taskId)
+                self.taskStates[taskId] = "cancelled"
+                self.taskTags.removeValue(forKey: taskId)
+                self.taskNotifTitles.removeValue(forKey: taskId)
+            }
+            taskStore?.updateStatus(taskId: taskId, status: "cancelled")
+            DownloadNotificationManager.dismiss(taskId: taskId)
+            NativeLogger.d("Notification Cancel tapped for task '\(taskId)'")
+
+        default:
+            break
+        }
+        completionHandler()
+    }
+
+    public func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        // Forward non-NWM notifications to previous delegate
+        if notification.request.content.categoryIdentifier != DownloadNotificationManager.categoryId {
+            if let prev = previousNotificationDelegate,
+               prev.responds(to: #selector(userNotificationCenter(_:willPresent:withCompletionHandler:))) {
+                prev.userNotificationCenter?(center, willPresent: notification, withCompletionHandler: completionHandler)
+                return
+            }
+        }
+        // NWM notifications: show banner + list even in foreground
+        if #available(iOS 14.0, *) {
+            completionHandler([.banner, .list])
+        } else {
+            completionHandler([.alert])
+        }
     }
 }

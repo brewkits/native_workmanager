@@ -15,6 +15,7 @@ internal object DownloadNotificationManager {
     const val CHANNEL_ID = "native_workmanager_downloads"
     const val CHANNEL_NAME = "Downloads"
     const val CANCEL_ACTION = "dev.brewkits.native_workmanager.CANCEL_DOWNLOAD"
+    const val PAUSE_ACTION  = "dev.brewkits.native_workmanager.PAUSE_DOWNLOAD"
     const val EXTRA_TASK_ID = "taskId"
 
     private val notifIds = ConcurrentHashMap<String, Int>()
@@ -47,6 +48,12 @@ internal object DownloadNotificationManager {
             Intent(CANCEL_ACTION).setPackage(context.packageName).putExtra(EXTRA_TASK_ID, taskId),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        // Use notifId + 10000 as a distinct request code for the pause PendingIntent
+        val pauseIntent = PendingIntent.getBroadcast(
+            context, notifId + 10_000,
+            Intent(PAUSE_ACTION).setPackage(context.packageName).putExtra(EXTRA_TASK_ID, taskId),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         val indeterminate = progress < 0
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
@@ -56,6 +63,7 @@ internal object DownloadNotificationManager {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
+            .addAction(android.R.drawable.ic_media_pause, "Pause", pauseIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Cancel", cancelIntent)
         try {
             NotificationManagerCompat.from(context).notify(notifId, builder.build())

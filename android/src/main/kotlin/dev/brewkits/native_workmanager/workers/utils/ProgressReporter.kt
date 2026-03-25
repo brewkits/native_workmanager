@@ -30,7 +30,11 @@ object ProgressReporter {
         val progress: Int,
         val message: String? = null,
         val currentStep: Int? = null,
-        val totalSteps: Int? = null
+        val totalSteps: Int? = null,
+        val bytesDownloaded: Long? = null,
+        val totalBytes: Long? = null,
+        val networkSpeed: Double? = null,   // bytes per second
+        val timeRemainingMs: Long? = null   // milliseconds
     ) {
         /**
          * Convert to map for Flutter EventChannel.
@@ -41,6 +45,10 @@ object ProgressReporter {
             if (message != null) put("message", message)
             if (currentStep != null) put("currentStep", currentStep)
             if (totalSteps != null) put("totalSteps", totalSteps)
+            if (bytesDownloaded != null) put("bytesDownloaded", bytesDownloaded)
+            if (totalBytes != null) put("totalBytes", totalBytes)
+            if (networkSpeed != null) put("networkSpeed", networkSpeed)
+            if (timeRemainingMs != null) put("timeRemainingMs", timeRemainingMs)
         }
     }
 
@@ -137,7 +145,11 @@ object ProgressReporter {
         progress: Int,
         message: String? = null,
         currentStep: Int? = null,
-        totalSteps: Int? = null
+        totalSteps: Int? = null,
+        bytesDownloaded: Long? = null,
+        totalBytes: Long? = null,
+        networkSpeed: Double? = null,
+        timeRemainingMs: Long? = null
     ): Boolean {
         val clampedProgress = progress.coerceIn(0, 100)
 
@@ -153,7 +165,11 @@ object ProgressReporter {
             progress = clampedProgress,
             message = message,
             currentStep = currentStep,
-            totalSteps = totalSteps
+            totalSteps = totalSteps,
+            bytesDownloaded = bytesDownloaded,
+            totalBytes = totalBytes,
+            networkSpeed = networkSpeed,
+            timeRemainingMs = timeRemainingMs
         )
 
         return try {

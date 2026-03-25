@@ -19,6 +19,7 @@ final class HttpDownloadWorker extends Worker {
     this.showNotification = false,
     this.notificationTitle,
     this.notificationBody,
+    this.skipExisting = false,
   });
 
   /// The URL to download from.
@@ -122,6 +123,19 @@ final class HttpDownloadWorker extends Worker {
   /// Default: `false` (backward compatible with existing code)
   final bool useBackgroundSession;
 
+  /// Skip the download if the destination file already exists.
+  ///
+  /// When `true`, the worker checks whether [savePath] already exists on disk.
+  /// If it does, the task reports success immediately without issuing any HTTP
+  /// request.  This is useful for incremental download managers or caches
+  /// where a previously completed download should not be repeated.
+  ///
+  /// When `false` (default), the download always proceeds and overwrites any
+  /// existing file.
+  ///
+  /// Default: `false`
+  final bool skipExisting;
+
   @override
   String get workerClassName => 'HttpDownloadWorker';
 
@@ -136,6 +150,7 @@ final class HttpDownloadWorker extends Worker {
         if (expectedChecksum != null) 'expectedChecksum': expectedChecksum,
         'checksumAlgorithm': checksumAlgorithm,
         'useBackgroundSession': useBackgroundSession,
+        'skipExisting': skipExisting,
         'showNotification': showNotification,
         if (notificationTitle != null) 'notificationTitle': notificationTitle,
         if (notificationBody != null) 'notificationBody': notificationBody,

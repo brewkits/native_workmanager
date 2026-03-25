@@ -28,14 +28,41 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
   String _runningTaskName = '';
   StreamSubscription<TaskEvent>? _eventSubscription;
 
+  // v1.1 parallel download live-progress state
+  String? _v11TaskId;
+  bool _v11Downloading = false;
+  int _v11Progress = 0;
+  double? _v11Speed;
+  Duration? _v11Eta;
+  int? _v11Bytes;
+  int? _v11Total;
+  StreamSubscription<TaskProgress>? _v11ProgressSub;
+
   @override
   void initState() {
     super.initState();
+
+    // Rich-progress subscription for v1.1 parallel-download live demo
+    _v11ProgressSub = NativeWorkManager.progress.listen((p) {
+      if (p.taskId == _v11TaskId && mounted) {
+        setState(() {
+          _v11Progress = p.progress;
+          _v11Speed = p.networkSpeed;
+          _v11Eta = p.timeRemaining;
+          _v11Bytes = p.bytesDownloaded;
+          _v11Total = p.totalBytes;
+        });
+      }
+    });
 
     // Listen for task completion events to reset running state
     // Removed .where() filter to catch ALL events.
     // This ensures the UI always unlocks, regardless of the Task ID format.
     _eventSubscription = NativeWorkManager.events.listen((event) {
+      // Reset v1.1 parallel download when it finishes
+      if (event.taskId == _v11TaskId && mounted) {
+        setState(() => _v11Downloading = false);
+      }
       if (mounted) {
         // Only update UI if we were actually waiting for a task
         if (_isAnyTaskRunning) {
@@ -57,6 +84,7 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
   @override
   void dispose() {
     _eventSubscription?.cancel();
+    _v11ProgressSub?.cancel();
     super.dispose();
   }
 
@@ -550,6 +578,189 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
                 description: 'Queue uploads, retry on network',
                 icon: Icons.cloud_queue,
                 onTap: () => _runTask('Upload Queue', _demoUploadQueue),
+              ),
+            ],
+          ),
+
+          // ═══════════════════════════════════════════════════════════
+          // 8. NEW v1.1 FEATURES
+          // ═══════════════════════════════════════════════════════════
+          _buildSection(
+            title: 'New v1.1 Features',
+            icon: Icons.new_releases,
+            children: [
+              // ── Parallel Download with live rich-progress ──────────
+              Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.download_for_offline,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Parallel Download (4 chunks)',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleSmall
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                ),
+                                Text(
+                                  'Live speed + ETA via rich progress events',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (_v11Downloading)
+                            TextButton(
+                              onPressed: _cancelParallelDownload,
+                              child: const Text('Cancel'),
+                            )
+                          else
+                            ElevatedButton(
+                              onPressed: _startParallelDownload,
+                              child: const Text('Start'),
+                            ),
+                        ],
+                      ),
+                      if (_v11Downloading) ...[
+                        const SizedBox(height: 12),
+                        LinearProgressIndicator(
+                          value: _v11Progress / 100,
+                          minHeight: 8,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Text(
+                              '$_v11Progress%',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                            if (_v11Speed != null) ...[
+                              const SizedBox(width: 12),
+                              Icon(
+                                Icons.speed,
+                                size: 14,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                _formatSpeed(_v11Speed!),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                            if (_v11Eta != null) ...[
+                              const SizedBox(width: 12),
+                              Icon(
+                                Icons.timer_outlined,
+                                size: 14,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'ETA ${_formatEta(_v11Eta!)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        if (_v11Bytes != null && _v11Total != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              '${_formatBytes(_v11Bytes!)} / ${_formatBytes(_v11Total!)}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+
+              // ── skipExisting ──────────────────────────────────────
+              _buildDemoCard(
+                title: 'skipExisting – Skip if File Exists',
+                description:
+                    'Enqueue download; file already exists → task returns skipped=true instantly',
+                icon: Icons.skip_next,
+                onTap: () => _runTask('skipExisting', _demoSkipExisting),
+              ),
+
+              // ── Group Control ─────────────────────────────────────
+              _buildDemoCard(
+                title: 'pauseByTag / resumeByTag',
+                description:
+                    'Enqueue 2 tasks with tag "v11-group", pause group, then resume',
+                icon: Icons.pause_circle_outline,
+                onTap: () => _runTask('Group Control', _demoGroupControl),
+              ),
+
+              // ── pauseAll / resumeAll ──────────────────────────────
+              _buildDemoCard(
+                title: 'pauseAll / resumeAll',
+                description: 'Pause every running task, then immediately resume all',
+                icon: Icons.pause_presentation,
+                onTap: () => _runTask('pauseAll + resumeAll', _demoPauseResumeAll),
+              ),
+
+              // ── enqueueAll ────────────────────────────────────────
+              _buildDemoCard(
+                title: 'enqueueAll – Batch Enqueue',
+                description: 'Schedule 3 HTTP tasks in one call, no await waterfall',
+                icon: Icons.playlist_add,
+                onTap: () => _runTask('enqueueAll', _demoEnqueueAll),
+              ),
+
+              // ── getTasksByStatus ──────────────────────────────────
+              _buildDemoCard(
+                title: 'getTasksByStatus',
+                description: 'Query all tasks, group by status, show summary snackbar',
+                icon: Icons.filter_list,
+                onTap: () => _demoGetTasksByStatus(),
               ),
             ],
           ),
@@ -1341,6 +1552,191 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
         .enqueue();
     _showSnackbar('🔄 Data Sync Pipeline started (native file ops!)');
   }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // NEW v1.1 FEATURES
+  // ═══════════════════════════════════════════════════════════════════════
+
+  Future<void> _startParallelDownload() async {
+    final taskId =
+        'v11-parallel-${DateTime.now().millisecondsSinceEpoch}';
+    final savePath =
+        '${Directory.systemTemp.path}/v11_parallel_demo.bin';
+
+    setState(() {
+      _v11TaskId = taskId;
+      _v11Downloading = true;
+      _v11Progress = 0;
+      _v11Speed = null;
+      _v11Eta = null;
+      _v11Bytes = null;
+      _v11Total = null;
+    });
+
+    await NativeWorkManager.enqueue(
+      taskId: taskId,
+      trigger: const TaskTrigger.oneTime(),
+      worker: NativeWorker.parallelHttpDownload(
+        url: 'https://httpbin.org/bytes/524288', // 512 KB
+        savePath: savePath,
+        numChunks: 4,
+      ),
+      constraints: const Constraints(requiresNetwork: true),
+    );
+    _showSnackbar('⬇️ Parallel download started (4 chunks)');
+  }
+
+  Future<void> _cancelParallelDownload() async {
+    if (_v11TaskId != null) {
+      await NativeWorkManager.cancel(taskId: _v11TaskId!);
+    }
+    if (mounted) setState(() => _v11Downloading = false);
+    _showSnackbar('🛑 Parallel download cancelled');
+  }
+
+  Future<void> _demoSkipExisting() async {
+    final taskId = 'v11-skip-${DateTime.now().millisecondsSinceEpoch}';
+    final savePath = '${Directory.systemTemp.path}/v11_skip_demo.txt';
+    // Pre-create the file so the worker will skip it
+    File(savePath).writeAsStringSync('pre-existing content — must not change');
+
+    await NativeWorkManager.enqueue(
+      taskId: taskId,
+      trigger: const TaskTrigger.oneTime(),
+      worker: HttpDownloadWorker(
+        url: 'https://httpbin.org/get',
+        savePath: savePath,
+        skipExisting: true,
+      ),
+      constraints: const Constraints(requiresNetwork: true),
+    );
+    _showSnackbar(
+      '⏭️ skipExisting task scheduled\n'
+      'The file already exists — worker will skip the download.',
+    );
+  }
+
+  Future<void> _demoGroupControl() async {
+    const tag = 'v11-group';
+    final base = DateTime.now().millisecondsSinceEpoch;
+
+    // Enqueue two long-delayed tasks so we can pause them
+    await NativeWorkManager.enqueueAll([
+      EnqueueRequest(
+        taskId: 'v11-group-a-$base',
+        trigger: const TaskTrigger.oneTime(Duration(minutes: 5)),
+        worker: HttpRequestWorker(
+          url: 'https://jsonplaceholder.typicode.com/posts/1',
+        ),
+        tag: tag,
+        constraints: const Constraints(requiresNetwork: true),
+      ),
+      EnqueueRequest(
+        taskId: 'v11-group-b-$base',
+        trigger: const TaskTrigger.oneTime(Duration(minutes: 5)),
+        worker: HttpRequestWorker(
+          url: 'https://jsonplaceholder.typicode.com/posts/2',
+        ),
+        tag: tag,
+        constraints: const Constraints(requiresNetwork: true),
+      ),
+    ]);
+
+    await NativeWorkManager.pauseByTag(tag);
+    _showSnackbar('⏸️ Group "$tag" paused (2 tasks)');
+
+    await Future<void>.delayed(const Duration(seconds: 1));
+    await NativeWorkManager.resumeByTag(tag);
+    _showSnackbar('▶️ Group "$tag" resumed');
+
+    await NativeWorkManager.cancelByTag(tag);
+  }
+
+  Future<void> _demoPauseResumeAll() async {
+    await NativeWorkManager.pauseAll();
+    _showSnackbar('⏸️ All tasks paused');
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await NativeWorkManager.resumeAll();
+    _showSnackbar('▶️ All tasks resumed');
+  }
+
+  Future<void> _demoEnqueueAll() async {
+    final base = DateTime.now().millisecondsSinceEpoch;
+    final results = await NativeWorkManager.enqueueAll([
+      EnqueueRequest(
+        taskId: 'batch-1-$base',
+        trigger: const TaskTrigger.oneTime(),
+        worker: HttpRequestWorker(
+          url: 'https://jsonplaceholder.typicode.com/posts/1',
+        ),
+        constraints: const Constraints(requiresNetwork: true),
+      ),
+      EnqueueRequest(
+        taskId: 'batch-2-$base',
+        trigger: const TaskTrigger.oneTime(),
+        worker: HttpRequestWorker(
+          url: 'https://jsonplaceholder.typicode.com/posts/2',
+        ),
+        constraints: const Constraints(requiresNetwork: true),
+      ),
+      EnqueueRequest(
+        taskId: 'batch-3-$base',
+        trigger: const TaskTrigger.oneTime(),
+        worker: HttpRequestWorker(
+          url: 'https://jsonplaceholder.typicode.com/posts/3',
+        ),
+        constraints: const Constraints(requiresNetwork: true),
+      ),
+    ]);
+
+    final accepted = results.where((r) => r == ScheduleResult.accepted).length;
+    _showSnackbar('📋 enqueueAll: $accepted/3 tasks accepted');
+  }
+
+  Future<void> _demoGetTasksByStatus() async {
+    final all = await NativeWorkManager.allTasks();
+    final grouped = <String, int>{};
+    for (final t in all) {
+      grouped[t.status] = (grouped[t.status] ?? 0) + 1;
+    }
+    if (grouped.isEmpty) {
+      _showSnackbar('📊 No tasks in store (enqueue some first)');
+      return;
+    }
+    final summary = grouped.entries
+        .map((e) => '${e.key}: ${e.value}')
+        .join('  ·  ');
+    _showSnackbar('📊 Tasks by status — $summary');
+  }
+
+  // ── Rich-progress helpers ─────────────────────────────────────────────
+
+  String _formatSpeed(double bps) {
+    if (bps >= 1024 * 1024) {
+      return '${(bps / (1024 * 1024)).toStringAsFixed(1)} MB/s';
+    } else if (bps >= 1024) {
+      return '${(bps / 1024).toStringAsFixed(1)} KB/s';
+    }
+    return '${bps.toStringAsFixed(0)} B/s';
+  }
+
+  String _formatEta(Duration eta) {
+    if (eta.inSeconds < 60) return '${eta.inSeconds}s';
+    return '${eta.inMinutes}m ${eta.inSeconds % 60}s';
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    } else if (bytes >= 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
+    return '$bytes B';
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // UPLOAD QUEUE (existing)
+  // ═══════════════════════════════════════════════════════════════════════
 
   Future<void> _demoUploadQueue() async {
     // Offline-First Upload Queue: Queue multiple uploads with retry

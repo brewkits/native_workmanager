@@ -45,10 +45,11 @@ class HttpDownloadWorker: IosWorker {
         let savePath: String
         let headers: [String: String]?
         let timeoutMs: Int64?
-        let enableResume: Bool?  // Enable resume support (default: true)
-        let expectedChecksum: String?  // Expected checksum for verification
-        let checksumAlgorithm: String?  // Hash algorithm (MD5, SHA-256, SHA-1)
-        let useBackgroundSession: Bool?  // 👈 NEW v2.3.0: Use background URLSession (survives app termination)
+        let enableResume: Bool?
+        let expectedChecksum: String?
+        let checksumAlgorithm: String?
+        let useBackgroundSession: Bool?
+        let skipExisting: Bool?
 
         var timeout: TimeInterval {
             TimeInterval((timeoutMs ?? HttpDownloadWorker.defaultTimeoutMs) / 1000)
@@ -62,9 +63,10 @@ class HttpDownloadWorker: IosWorker {
             checksumAlgorithm ?? "SHA-256"
         }
 
-        var shouldUseBackgroundSession: Bool {
-            useBackgroundSession ?? false  // Default: false for backward compatibility
-        }
+        var shouldUseBackgroundSession: Bool { useBackgroundSession ?? false }
+        var shouldSkipExisting: Bool { skipExisting ?? false }
+        /// True when savePath is a directory (ends with `/`). Filename is resolved from server response.
+        var isDirectory: Bool { savePath.hasSuffix("/") }
     }
 
     func doWork(input: String?) async throws -> WorkerResult {
@@ -87,6 +89,17 @@ class HttpDownloadWorker: IosWorker {
             return .failure(message: "Invalid JSON config: \(error.localizedDescription)")
         }
 
+        // Skip download if destination already exists and skipExisting is enabled
+        // (only for non-directory paths where we already know the final filename)
+        if config.shouldSkipExisting && !config.isDirectory && FileManager.default.fileExists(atPath: config.savePath) {
+            print("HttpDownloadWorker: skipExisting=true and file already exists — skipping")
+            let size = (try? FileManager.default.attributesOfItem(atPath: config.savePath))?[.size] as? Int64 ?? 0
+            return .success(
+                message: "File already exists, download skipped",
+                data: ["filePath": config.savePath, "fileSize": size, "skipped": true]
+            )
+        }
+
         // ✅ SECURITY: Validate URL scheme (prevent file://, ftp://, etc.)
         guard let url = SecurityValidator.validateURL(config.url) else {
             print("HttpDownloadWorker: Error - Invalid or unsafe URL")
@@ -99,11 +112,19 @@ class HttpDownloadWorker: IosWorker {
             return .failure(message: "File path outside app sandbox")
         }
 
-        let destinationURL = URL(fileURLWithPath: config.savePath)
-        let tempURL = URL(fileURLWithPath: config.savePath + ".tmp")
+        // For directory mode, destination is resolved after response headers arrive.
+        // Use a sentinel temp path until the real filename is known.
+        var destinationURL = URL(fileURLWithPath: config.isDirectory
+            ? config.savePath + "download"
+            : config.savePath)
+        var tempURL = URL(fileURLWithPath: config.isDirectory
+            ? config.savePath + "__pending__.tmp"
+            : config.savePath + ".tmp")
 
-        // Create parent directory if needed
-        let parentDir = destinationURL.deletingLastPathComponent()
+        // Create directory (or parent directory) if needed
+        let parentDir = config.isDirectory
+            ? URL(fileURLWithPath: config.savePath)
+            : destinationURL.deletingLastPathComponent()
         if !FileManager.default.fileExists(atPath: parentDir.path) {
             do {
                 try FileManager.default.createDirectory(at: parentDir,
@@ -231,6 +252,29 @@ class HttpDownloadWorker: IosWorker {
                     try? FileManager.default.removeItem(at: tempURL) // Server sent full content, delete partial file
                 }
 
+                // 👇 Feature 4: Resolve filename from Content-Disposition or URL when savePath is a directory
+                let cdHeader = httpResponse.value(forHTTPHeaderField: "Content-Disposition")
+                let serverSuggestedName: String? = self.parseFilenameFromContentDisposition(cdHeader)
+                if config.isDirectory {
+                    let resolvedName = serverSuggestedName
+                        ?? self.sanitizeFilename(httpResponse.url?.lastPathComponent ?? "download")
+                    let name = resolvedName.isEmpty ? "download" : resolvedName
+                    destinationURL = URL(fileURLWithPath: config.savePath + name)
+                    tempURL = URL(fileURLWithPath: config.savePath + name + ".tmp")
+                    print("HttpDownloadWorker: Directory mode — resolved filename: \(name)")
+
+                    // skipExisting check for directory mode (now we know actual path)
+                    if config.shouldSkipExisting && FileManager.default.fileExists(atPath: destinationURL.path) {
+                        print("HttpDownloadWorker: skipExisting=true and resolved file exists — skipping")
+                        let size = (try? FileManager.default.attributesOfItem(atPath: destinationURL.path))?[.size] as? Int64 ?? 0
+                        try? FileManager.default.removeItem(at: location)
+                        var skipData: [String: Any] = ["filePath": destinationURL.path, "fileSize": size, "skipped": true]
+                        if let n = serverSuggestedName { skipData["serverSuggestedName"] = n }
+                        continuation.resume(returning: .success(message: "File already exists, download skipped", data: skipData))
+                        return
+                    }
+                }
+
                 do {
                     // 👇 NEW: Handle resume by appending to temp file
                     if isResumingDownload {
@@ -299,18 +343,20 @@ class HttpDownloadWorker: IosWorker {
                     try FileManager.default.moveItem(at: tempURL, to: destinationURL)
 
                     print("HttpDownloadWorker: Success - Downloaded \(finalFileSize) bytes")
-                    print("HttpDownloadWorker: Saved to: \(config.savePath)")
+                    print("HttpDownloadWorker: Saved to: \(destinationURL.path)")
 
                     // ✅ Return success with rich data
+                    var resultData: [String: Any] = [
+                        "filePath": destinationURL.path,
+                        "fileName": destinationURL.lastPathComponent,
+                        "fileSize": finalFileSize,
+                        "contentType": contentType as Any,
+                        "finalUrl": finalURL
+                    ]
+                    if let name = serverSuggestedName { resultData["serverSuggestedName"] = name }
                     continuation.resume(returning: .success(
                         message: "Downloaded \(finalFileSize) bytes",
-                        data: [
-                            "filePath": destinationURL.path,
-                            "fileName": destinationURL.lastPathComponent,
-                            "fileSize": finalFileSize,
-                            "contentType": contentType as Any,
-                            "finalUrl": finalURL
-                        ]
+                        data: resultData
                     ))
                 } catch {
                     print("HttpDownloadWorker: Error moving file - \(error.localizedDescription)")
@@ -488,5 +534,43 @@ class HttpDownloadWorker: IosWorker {
             print("HttpDownloadWorker: CryptoKit requires iOS 13+")
             return nil
         }
+    }
+
+    /// Parse filename from RFC 6266 Content-Disposition header.
+    /// Prefers `filename*=UTF-8''<encoded>` over `filename=<value>`.
+    func parseFilenameFromContentDisposition(_ header: String?) -> String? {
+        guard let header = header, !header.isEmpty else { return nil }
+        // Try filename* (RFC 5987 encoded) first
+        if let range = header.range(of: #"filename\*\s*=\s*UTF-8''([^;\s]+)"#,
+                                    options: [.regularExpression, .caseInsensitive]) {
+            let full = String(header[range])
+            if let eqRange = full.range(of: "''") {
+                let encoded = String(full[eqRange.upperBound...])
+                if let decoded = encoded.removingPercentEncoding, !decoded.isEmpty {
+                    return sanitizeFilename(decoded)
+                }
+            }
+        }
+        // Fall back to plain filename=
+        if let range = header.range(of: #"filename\s*=\s*(?:"([^"]+)"|([^;\s]+))"#,
+                                    options: [.regularExpression, .caseInsensitive]) {
+            var name = String(header[range])
+            // Strip the `filename=` prefix and quotes
+            if let eqIdx = name.firstIndex(of: "=") {
+                name = String(name[name.index(after: eqIdx)...])
+                    .trimmingCharacters(in: .init(charactersIn: "\" "))
+            }
+            let sanitized = sanitizeFilename(name)
+            return sanitized.isEmpty ? nil : sanitized
+        }
+        return nil
+    }
+
+    /// Remove path separators and other unsafe characters from a filename.
+    func sanitizeFilename(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: #"[/\\:*?"<>|]"#, with: "_", options: .regularExpression)
+            .drop(while: { $0 == "." })
+            .description
     }
 }

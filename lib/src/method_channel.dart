@@ -222,6 +222,19 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   }
 
   @override
+  Future<String?> getServerFilename({
+    required String url,
+    Map<String, String>? headers,
+    int timeoutMs = 30000,
+  }) async {
+    return methodChannel.invokeMethod<String>('getServerFilename', {
+      'url': url,
+      if (headers != null) 'headers': headers,
+      'timeoutMs': timeoutMs,
+    });
+  }
+
+  @override
   Future<List<TaskRecord>> allTasks() async {
     final result =
         await methodChannel.invokeMethod<List<dynamic>>('allTasks');

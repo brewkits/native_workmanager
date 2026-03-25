@@ -21,6 +21,8 @@ import java.util.concurrent.TimeUnit
 import dev.brewkits.native_workmanager.engine.FlutterEngineManager
 import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import dev.brewkits.native_workmanager.workers.utils.ProgressReporter
+import dev.brewkits.native_workmanager.workers.HttpDownloadWorker
+import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import dev.brewkits.kmpworkmanager.kmpWorkerModule
 import dev.brewkits.kmpworkmanager.KmpWorkManagerConfig
 import dev.brewkits.kmpworkmanager.KmpWorkManager
@@ -331,6 +333,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
             "pause" -> handlePause(call, result)
             "resume" -> handleResume(call, result)
             "allTasks" -> handleAllTasks(result)
+            "getServerFilename" -> handleGetServerFilename(call, result)
             else -> result.notImplemented()
         }
     }
@@ -414,6 +417,41 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
             result.success(maps)
         } catch (e: Exception) {
             result.error("ALL_TASKS_ERROR", e.message, null)
+        }
+    }
+
+    private fun handleGetServerFilename(call: MethodCall, result: Result) {
+        scope.launch {
+            try {
+                val url = call.argument<String>("url")
+                    ?: return@launch result.error("INVALID_ARGS", "url required", null)
+                val headers = call.argument<Map<String, String>>("headers")
+                val timeoutMs = call.argument<Int>("timeoutMs")?.toLong() ?: 30_000L
+
+                if (!SecurityValidator.validateURL(url)) {
+                    return@launch result.error("INVALID_URL", "Invalid or unsafe URL", null)
+                }
+
+                val filename = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    val client = OkHttpClient.Builder()
+                        .connectTimeout(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+                        .readTimeout(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+                        .followRedirects(true)
+                        .build()
+
+                    val requestBuilder = okhttp3.Request.Builder().url(url).head()
+                    headers?.forEach { (k, v) -> requestBuilder.addHeader(k, v) }
+
+                    client.newCall(requestBuilder.build()).execute().use { resp ->
+                        HttpDownloadWorker().parseFilenameFromContentDisposition(
+                            resp.header("Content-Disposition")
+                        )
+                    }
+                }
+                result.success(filename)
+            } catch (e: Exception) {
+                result.error("GET_FILENAME_ERROR", e.message, null)
+            }
         }
     }
 

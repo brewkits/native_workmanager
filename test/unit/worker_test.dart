@@ -797,4 +797,105 @@ void main() {
       expect(map['timeoutMs'], 120000); // 2 minutes in milliseconds
     });
   });
+
+  group('MultiUploadWorker', () {
+    test('uses HttpUploadWorker native class', () {
+      final w = MultiUploadWorker(
+        url: 'https://api.example.com/upload',
+        files: [const UploadFile(filePath: '/tmp/a.jpg')],
+      );
+      expect(w.workerClassName, 'HttpUploadWorker');
+    });
+
+    test('serializes files array correctly', () {
+      final w = MultiUploadWorker(
+        url: 'https://api.example.com/upload',
+        files: [
+          const UploadFile(filePath: '/tmp/a.jpg', fieldName: 'photo', mimeType: 'image/jpeg'),
+          const UploadFile(filePath: '/tmp/b.pdf', fileName: 'report.pdf'),
+        ],
+        headers: {'Authorization': 'Bearer tok'},
+        additionalFields: {'albumId': '1'},
+      );
+      final map = w.toMap();
+      expect(map['url'], 'https://api.example.com/upload');
+      expect(map['workerType'], 'httpUpload');
+      final files = map['files'] as List;
+      expect(files.length, 2);
+      expect(files[0]['filePath'], '/tmp/a.jpg');
+      expect(files[0]['fileFieldName'], 'photo');
+      expect(files[0]['mimeType'], 'image/jpeg');
+      expect(files[1]['fileName'], 'report.pdf');
+      expect(files[1]['mimeType'], isNull);
+      expect((map['headers'] as Map)['Authorization'], 'Bearer tok');
+      expect((map['additionalFields'] as Map)['albumId'], '1');
+    });
+  });
+
+  group('UploadFile', () {
+    test('omits optional fields from map when null', () {
+      const f = UploadFile(filePath: '/tmp/file.txt');
+      final m = f.toMap();
+      expect(m['filePath'], '/tmp/file.txt');
+      expect(m['fileFieldName'], 'file');
+      expect(m.containsKey('fileName'), isFalse);
+      expect(m.containsKey('mimeType'), isFalse);
+    });
+  });
+
+  group('MoveToSharedStorageWorker', () {
+    test('uses correct workerClassName', () {
+      final w = MoveToSharedStorageWorker(
+        sourcePath: '/tmp/photo.jpg',
+        storageType: SharedStorageType.photos,
+      );
+      expect(w.workerClassName, 'MoveToSharedStorageWorker');
+    });
+
+    test('serializes required fields', () {
+      final w = MoveToSharedStorageWorker(
+        sourcePath: '/tmp/song.mp3',
+        storageType: SharedStorageType.music,
+      );
+      final m = w.toMap();
+      expect(m['sourcePath'], '/tmp/song.mp3');
+      expect(m['storageType'], 'music');
+      expect(m['workerType'], 'moveToSharedStorage');
+      expect(m.containsKey('fileName'), isFalse);
+      expect(m.containsKey('mimeType'), isFalse);
+      expect(m.containsKey('subDir'), isFalse);
+    });
+
+    test('serializes optional fields when set', () {
+      final w = MoveToSharedStorageWorker(
+        sourcePath: '/tmp/video.mp4',
+        storageType: SharedStorageType.video,
+        fileName: 'holiday.mp4',
+        mimeType: 'video/mp4',
+        subDir: 'Holidays',
+      );
+      final m = w.toMap();
+      expect(m['fileName'], 'holiday.mp4');
+      expect(m['mimeType'], 'video/mp4');
+      expect(m['subDir'], 'Holidays');
+    });
+
+    test('all SharedStorageType values serialize as expected names', () {
+      expect(SharedStorageType.downloads.name, 'downloads');
+      expect(SharedStorageType.photos.name, 'photos');
+      expect(SharedStorageType.music.name, 'music');
+      expect(SharedStorageType.video.name, 'video');
+    });
+  });
+
+  group('TaskStatus', () {
+    test('paused variant exists', () {
+      expect(TaskStatus.paused.name, 'paused');
+    });
+
+    test('all expected statuses present', () {
+      final names = TaskStatus.values.map((s) => s.name).toList();
+      expect(names, containsAll(['pending', 'running', 'completed', 'failed', 'cancelled', 'paused']));
+    });
+  });
 }

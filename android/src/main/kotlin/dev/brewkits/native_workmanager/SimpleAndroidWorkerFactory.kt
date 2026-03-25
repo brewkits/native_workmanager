@@ -11,9 +11,11 @@ import dev.brewkits.native_workmanager.workers.FileDecompressionWorker
 import dev.brewkits.native_workmanager.workers.FileSystemWorker
 import dev.brewkits.native_workmanager.workers.HttpDownloadWorker
 import dev.brewkits.native_workmanager.workers.HttpRequestWorker
+import dev.brewkits.native_workmanager.workers.ParallelHttpDownloadWorker
 import dev.brewkits.native_workmanager.workers.HttpSyncWorker
 import dev.brewkits.native_workmanager.workers.HttpUploadWorker
 import dev.brewkits.native_workmanager.workers.ImageProcessWorker
+import dev.brewkits.native_workmanager.workers.MoveToSharedStorageWorker
 
 /**
  * AndroidWorkerFactory implementation for native_workmanager plugin.
@@ -76,12 +78,14 @@ class SimpleAndroidWorkerFactory(
             "HttpRequestWorker" -> HttpRequestWorker()
             "HttpUploadWorker" -> HttpUploadWorker()
             "HttpDownloadWorker" -> HttpDownloadWorker()
+            "ParallelHttpDownloadWorker" -> ParallelHttpDownloadWorker()
             "HttpSyncWorker" -> HttpSyncWorker()
             "FileCompressionWorker" -> FileCompressionWorker()
             "FileDecompressionWorker" -> FileDecompressionWorker()
             "ImageProcessWorker" -> ImageProcessWorker()
             "CryptoWorker" -> CryptoWorker()
             "FileSystemWorker" -> FileSystemWorker()
+            "MoveToSharedStorageWorker" -> MoveToSharedStorageWorker(context)
             else -> {
                 Log.e("SimpleAndroidWorkerFactory", "Unknown worker class: '$workerClassName'. " +
                     "Register it via SimpleAndroidWorkerFactory.setUserFactory() in MainActivity.")

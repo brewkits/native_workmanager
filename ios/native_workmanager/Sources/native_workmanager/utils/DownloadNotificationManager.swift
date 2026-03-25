@@ -14,7 +14,9 @@ import UserNotifications
 @available(iOS 13.0, *)
 struct DownloadNotificationManager {
 
-    static let categoryId = "NWM_DOWNLOAD"
+    static let categoryId   = "NWM_DOWNLOAD"
+    static let pauseActionId  = "NWM_PAUSE"
+    static let cancelActionId = "NWM_CANCEL"
 
     // MARK: - Permission
 
@@ -22,6 +24,35 @@ struct DownloadNotificationManager {
     static func requestPermission() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
             NSLog("DownloadNotificationManager: notification permission %@", granted ? "granted" : "denied")
+        }
+    }
+
+    // MARK: - Category registration (Pause + Cancel action buttons)
+
+    /// Register the NWM_DOWNLOAD notification category with interactive action buttons.
+    /// Must be called before any notifications are displayed (ideally at plugin init time).
+    static func registerCategory() {
+        let pauseAction = UNNotificationAction(
+            identifier: pauseActionId,
+            title: "Pause",
+            options: []
+        )
+        let cancelAction = UNNotificationAction(
+            identifier: cancelActionId,
+            title: "Cancel",
+            options: [.destructive]
+        )
+        let category = UNNotificationCategory(
+            identifier: categoryId,
+            actions: [pauseAction, cancelAction],
+            intentIdentifiers: [],
+            options: []
+        )
+        // Merge with any existing categories rather than replacing all of them
+        UNUserNotificationCenter.current().getNotificationCategories { existing in
+            var updated = existing.filter { $0.identifier != categoryId }
+            updated.insert(category)
+            UNUserNotificationCenter.current().setNotificationCategories(updated)
         }
     }
 
