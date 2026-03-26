@@ -10,11 +10,15 @@ import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.native_workmanager.AppContextHolder
 import dev.brewkits.native_workmanager.workers.utils.AuthInterceptor
+import dev.brewkits.native_workmanager.workers.utils.BandwidthThrottle
 import dev.brewkits.native_workmanager.workers.utils.HostConcurrencyManager
 import dev.brewkits.native_workmanager.workers.utils.ProgressResponseBody
+import dev.brewkits.native_workmanager.workers.utils.RequestSigner
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -108,6 +112,8 @@ class HttpDownloadWorker : AndroidWorker {
         val cookies: Map<String, String>? = null,
         val authToken: String? = null,
         val authHeaderTemplate: String = DEFAULT_AUTH_HEADER_TEMPLATE,
+        val bandwidthLimitBytesPerSecond: Long? = null,
+        val requestSigningConfig: RequestSigner.Config? = null,
     ) {
         val timeout: Long get() = timeoutMs ?: DEFAULT_TIMEOUT_MS
         val effectiveChecksumAlgorithm: String get() = checksumAlgorithm ?: DEFAULT_CHECKSUM_ALGORITHM
@@ -142,6 +148,8 @@ class HttpDownloadWorker : AndroidWorker {
                 cookies = parseStringMap(j.optJSONObject("cookies")),
                 authToken = if (j.has("authToken")) j.getString("authToken") else null,
                 authHeaderTemplate = j.optString("authHeaderTemplate", DEFAULT_AUTH_HEADER_TEMPLATE),
+                bandwidthLimitBytesPerSecond = if (j.has("bandwidthLimitBytesPerSecond")) j.getLong("bandwidthLimitBytesPerSecond") else null,
+                requestSigningConfig = RequestSigner.fromMap(j.optJSONObject("requestSigning")),
             )
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid config JSON: ${e.message}", e)
@@ -151,14 +159,14 @@ class HttpDownloadWorker : AndroidWorker {
         // (only for non-directory paths where we already know the final filename)
         if (config.skipExisting && !config.isDirectory && File(config.savePath).exists()) {
             Log.d(TAG, "skipExisting=true and file already exists — skipping download")
-            return@downloadBlock WorkerResult.Success(
+            return@withContext WorkerResult.Success(
                 message = "File already exists, download skipped",
-                data = mapOf(
-                    "filePath" to config.savePath,
-                    "fileName" to File(config.savePath).name,
-                    "fileSize" to File(config.savePath).length(),
-                    "skipped" to true
-                )
+                data = buildJsonObject {
+                    put("filePath", config.savePath)
+                    put("fileName", File(config.savePath).name)
+                    put("fileSize", File(config.savePath).length())
+                    put("skipped", true)
+                }
             )
         }
 
@@ -167,14 +175,14 @@ class HttpDownloadWorker : AndroidWorker {
             when (config.onDuplicate) {
                 "skip" -> {
                     Log.d(TAG, "onDuplicate=skip and file already exists — skipping download")
-                    return@downloadBlock WorkerResult.Success(
+                    return@withContext WorkerResult.Success(
                         message = "File already exists, download skipped",
-                        data = mapOf(
-                            "filePath" to config.savePath,
-                            "fileName" to File(config.savePath).name,
-                            "fileSize" to File(config.savePath).length(),
-                            "skipped" to true
-                        )
+                        data = buildJsonObject {
+                            put("filePath", config.savePath)
+                            put("fileName", File(config.savePath).name)
+                            put("fileSize", File(config.savePath).length())
+                            put("skipped", true)
+                        }
                     )
                 }
                 "rename" -> {
@@ -188,7 +196,7 @@ class HttpDownloadWorker : AndroidWorker {
         // ✅ SECURITY: Validate URL scheme (prevent file://, content://, etc.)
         if (!SecurityValidator.validateURL(config.url)) {
             Log.e(TAG, "Error - Invalid or unsafe URL")
-            return@downloadBlock WorkerResult.Failure("Invalid or unsafe URL")
+            return@withContext WorkerResult.Failure("Invalid or unsafe URL")
         }
 
         // Extract taskId for progress reporting
@@ -203,7 +211,7 @@ class HttpDownloadWorker : AndroidWorker {
         // defeating URL-encoded paths and symlink-based escapes.
         if (!SecurityValidator.validateFilePathSafe(config.savePath)) {
             Log.e(TAG, "Error - Invalid or unsafe save path")
-            return@downloadBlock WorkerResult.Failure("Invalid or unsafe save path")
+            return@withContext WorkerResult.Failure("Invalid or unsafe save path")
         }
 
         // When savePath is a directory, we need to resolve the filename from the server response.
@@ -220,7 +228,7 @@ class HttpDownloadWorker : AndroidWorker {
         if (parentDir != null && !parentDir.exists()) {
             if (!parentDir.mkdirs()) {
                 Log.e(TAG, "Error - Failed to create parent directory: ${parentDir.path}")
-                return@downloadBlock WorkerResult.Failure("Failed to create parent directory: ${parentDir.path}")
+                return@withContext WorkerResult.Failure("Failed to create parent directory: ${parentDir.path}")
             }
             Log.d(TAG, "Created directory: ${parentDir.path}")
         }
@@ -284,7 +292,10 @@ class HttpDownloadWorker : AndroidWorker {
             requestBuilder.addHeader(HTTP_HEADER_COOKIE, cookieHeader)
         }
 
-        val request = requestBuilder.build()
+        // Apply HMAC-SHA256 request signing if configured
+        val request = config.requestSigningConfig
+            ?.let { RequestSigner.sign(requestBuilder.build(), it) }
+            ?: requestBuilder.build()
 
         // Execute download (with per-host concurrency limit)
         val host = try { java.net.URL(config.url).host } catch (_: Exception) { config.url }
@@ -345,8 +356,14 @@ class HttpDownloadWorker : AndroidWorker {
                     Log.e(TAG, "Error - No response body")
                     return@downloadBlock WorkerResult.Failure("No response body")
                 }
+                // Apply bandwidth throttle (token-bucket, wraps the raw stream)
+                val throttledBody = config.bandwidthLimitBytesPerSecond
+                    ?.takeIf { it > 0L }
+                    ?.let { BandwidthThrottle.wrap(rawBody, it) }
+                    ?: rawBody
+
                 val progressBody = ProgressResponseBody(
-                    responseBody = rawBody,
+                    responseBody = throttledBody,
                     taskId = taskId,
                     fileName = destinationFile.name
                 )
@@ -371,13 +388,13 @@ class HttpDownloadWorker : AndroidWorker {
                         Log.d(TAG, "skipExisting=true and file already exists — skipping download")
                         return@downloadBlock WorkerResult.Success(
                             message = "File already exists, download skipped",
-                            data = mapOf(
-                                "filePath" to destinationFile.absolutePath,
-                                "fileName" to destinationFile.name,
-                                "fileSize" to destinationFile.length(),
-                                "serverSuggestedName" to serverSuggestedName,
-                                "skipped" to true
-                            )
+                            data = buildJsonObject {
+                                put("filePath", destinationFile.absolutePath)
+                                put("fileName", destinationFile.name)
+                                put("fileSize", destinationFile.length())
+                                if (serverSuggestedName != null) put("serverSuggestedName", serverSuggestedName)
+                                put("skipped", true)
+                            }
                         )
                     }
                 }
@@ -398,7 +415,7 @@ class HttpDownloadWorker : AndroidWorker {
                 val fileSize = tempFile.length()
 
                 // Save ETag/Last-Modified for future If-Range validation
-                if (existingBytes == 0 && isFullContent) {
+                if (existingBytes == 0L && isFullContent) {
                     val etag = response.header(HTTP_HEADER_ETAG) ?: response.header(HTTP_HEADER_LAST_MODIFIED)
                     if (etag != null) {
                         try { java.io.File(config.savePath + ETAG_SIDECAR_SUFFIX).writeText(etag) } catch (_: Exception) {}
@@ -549,17 +566,16 @@ class HttpDownloadWorker : AndroidWorker {
                 }
 
                 // ✅ Return success with rich data
-                val resultData = mutableMapOf<String, Any?>(
-                    "filePath" to destinationFile.absolutePath,
-                    "fileName" to destinationFile.name,
-                    "fileSize" to fileSize,
-                    "contentType" to contentType,
-                    "finalUrl" to finalUrl
-                )
-                if (serverSuggestedName != null) resultData["serverSuggestedName"] = serverSuggestedName
                 WorkerResult.Success(
                     message = "Downloaded ${fileSize} bytes",
-                    data = resultData
+                    data = buildJsonObject {
+                        put("filePath", destinationFile.absolutePath)
+                        put("fileName", destinationFile.name)
+                        put("fileSize", fileSize)
+                        if (contentType != null) put("contentType", contentType)
+                        put("finalUrl", finalUrl)
+                        if (serverSuggestedName != null) put("serverSuggestedName", serverSuggestedName)
+                    }
                 )
             }
         } catch (e: Exception) {

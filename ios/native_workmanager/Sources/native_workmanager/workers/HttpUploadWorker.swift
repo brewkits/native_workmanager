@@ -299,6 +299,12 @@ class HttpUploadWorker: IosWorker {
         // End boundary
         body.append("--\(HttpUploadWorker.boundary)--\r\n".data(using: .utf8)!)
 
+        // T3-7: HMAC-SHA256 request signing
+        let uploadRawDict = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+        if let signingCfg = RequestSigner.Config.from(uploadRawDict?["requestSigning"] as? [String: Any]) {
+            RequestSigner.sign(request: &request, config: signingCfg)
+        }
+
         // Execute upload
         do {
             let (data, response) = try await URLSession.shared.upload(for: request, from: body)
@@ -387,6 +393,12 @@ class HttpUploadWorker: IosWorker {
             for (key, value) in headers {
                 request.setValue(value, forHTTPHeaderField: key)
             }
+        }
+
+        // T3-7: HMAC-SHA256 request signing (raw body path)
+        let rawBodyDict = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+        if let signingCfg = RequestSigner.Config.from(rawBodyDict?["requestSigning"] as? [String: Any]) {
+            RequestSigner.sign(request: &request, config: signingCfg)
         }
 
         // Execute upload

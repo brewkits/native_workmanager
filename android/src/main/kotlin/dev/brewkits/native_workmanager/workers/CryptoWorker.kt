@@ -6,6 +6,8 @@ import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.io.File
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -147,12 +149,12 @@ class CryptoWorker : AndroidWorker {
 
                     WorkerResult.Success(
                         message = "$algorithm hash calculated",
-                        data = mapOf(
-                            "hash" to hash,
-                            "algorithm" to algorithm,
-                            "filePath" to file.absolutePath,
-                            "fileSize" to file.length()
-                        )
+                        data = buildJsonObject {
+                            put("hash", hash)
+                            put("algorithm", algorithm)
+                            put("filePath", file.absolutePath)
+                            put("fileSize", file.length())
+                        }
                     )
                 } catch (e: Exception) {
                     Log.e(TAG, "Error calculating hash: ${e.message}", e)
@@ -167,11 +169,11 @@ class CryptoWorker : AndroidWorker {
 
                     WorkerResult.Success(
                         message = "$algorithm hash calculated",
-                        data = mapOf(
-                            "hash" to hash,
-                            "algorithm" to algorithm,
-                            "dataLength" to config.data.length
-                        )
+                        data = buildJsonObject {
+                            put("hash", hash)
+                            put("algorithm", algorithm)
+                            put("dataLength", config.data.length)
+                        }
                     )
                 } catch (e: Exception) {
                     Log.e(TAG, "Error calculating hash: ${e.message}", e)
@@ -258,13 +260,13 @@ class CryptoWorker : AndroidWorker {
 
             WorkerResult.Success(
                 message = "File encrypted successfully",
-                data = mapOf(
-                    "inputPath" to inputFile.absolutePath,
-                    "outputPath" to outputFile.absolutePath,
-                    "inputSize" to inputFile.length(),
-                    "outputSize" to outputFile.length(),
-                    "algorithm" to "AES-256-CBC"
-                )
+                data = buildJsonObject {
+                    put("inputPath", inputFile.absolutePath)
+                    put("outputPath", outputFile.absolutePath)
+                    put("inputSize", inputFile.length())
+                    put("outputSize", outputFile.length())
+                    put("algorithm", "AES-256-CBC")
+                }
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error during encryption: ${e.message}", e)
@@ -348,13 +350,13 @@ class CryptoWorker : AndroidWorker {
 
             WorkerResult.Success(
                 message = "File decrypted successfully",
-                data = mapOf(
-                    "inputPath" to inputFile.absolutePath,
-                    "outputPath" to outputFile.absolutePath,
-                    "inputSize" to inputFile.length(),
-                    "outputSize" to outputFile.length(),
-                    "algorithm" to "AES-256-CBC"
-                )
+                data = buildJsonObject {
+                    put("inputPath", inputFile.absolutePath)
+                    put("outputPath", outputFile.absolutePath)
+                    put("inputSize", inputFile.length())
+                    put("outputSize", outputFile.length())
+                    put("algorithm", "AES-256-CBC")
+                }
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error during decryption: ${e.message}", e)

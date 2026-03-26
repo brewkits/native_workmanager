@@ -11,6 +11,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Native HTTP sync worker for Android.
@@ -55,7 +57,8 @@ class HttpSyncWorker : AndroidWorker {
         val method: String? = null,
         val headers: Map<String, String>? = null,
         val requestBody: String? = null,
-        val timeoutMs: Long? = null
+        val timeoutMs: Long? = null,
+        val requestSigningConfig: dev.brewkits.native_workmanager.workers.utils.RequestSigner.Config? = null,
     ) {
         val httpMethod: String get() = (method ?: "post").uppercase()
         val timeout: Long get() = timeoutMs ?: DEFAULT_TIMEOUT_MS
@@ -74,7 +77,8 @@ class HttpSyncWorker : AndroidWorker {
                 method = if (j.has("method") && !j.isNull("method")) j.getString("method") else null,
                 headers = parseStringMap(j.optJSONObject("headers")),
                 requestBody = if (j.has("requestBody") && !j.isNull("requestBody")) j.get("requestBody").toString() else null,
-                timeoutMs = if (j.has("timeoutMs")) j.getLong("timeoutMs") else null
+                timeoutMs = if (j.has("timeoutMs")) j.getLong("timeoutMs") else null,
+                requestSigningConfig = dev.brewkits.native_workmanager.workers.utils.RequestSigner.fromMap(j.optJSONObject("requestSigning")),
             )
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid config JSON: ${e.message}", e)
@@ -129,7 +133,9 @@ class HttpSyncWorker : AndroidWorker {
             requestBuilder.header(key, value)
         }
 
-        val request = requestBuilder.build()
+        val request = config.requestSigningConfig
+            ?.let { dev.brewkits.native_workmanager.workers.utils.RequestSigner.sign(requestBuilder.build(), it) }
+            ?: requestBuilder.build()
 
         // Execute request
         return@withContext try {
@@ -161,11 +167,10 @@ class HttpSyncWorker : AndroidWorker {
                     // ✅ Return success with response data
                     WorkerResult.Success(
                         message = "HTTP $statusCode",
-                        data = mapOf(
-                            "statusCode" to statusCode,
-                            "body" to responseString,
-                            "headers" to headers
-                        )
+                        data = buildJsonObject {
+                            put("statusCode", statusCode)
+                            put("body", responseString)
+                        }
                     )
                 } else {
                     // ✅ SECURITY: Truncate error body for logging

@@ -33,31 +33,78 @@ import dev.brewkits.native_workmanager.workers.MoveToSharedStorageWorker
  * - CryptoWorker: File hashing and AES encryption (v1.0.0+)
  * - FileSystemWorker: File operations (copy/move/delete/list/mkdir) for pure-native chains (v1.0.0+)
  *
- * Supports custom worker registration via [setUserFactory].
- * User factory is checked first, then falls back to built-in workers.
+ * Supports two extension mechanisms (Open/Closed Principle):
+ *  1. **Per-worker registry** (preferred): [registerWorker] — mirrors iOS [IosWorkerFactory.registerWorker].
+ *  2. **Factory chain** (backward-compat): [setUserFactory] — single catch-all factory.
+ *
+ * Worker lookup order: per-worker registry → factory chain → built-in workers.
  */
 class SimpleAndroidWorkerFactory(
     private val context: Context
 ) : AndroidWorkerFactory {
 
     companion object {
+        private const val TAG = "SimpleAndroidWorkerFactory"
+
         /**
-         * User-provided factory for custom workers.
+         * Per-worker registry: className → factory closure.
+         *
+         * Thread-safe via [ConcurrentHashMap]. Mirrors iOS [IosWorkerFactory]'s design,
+         * enabling the Open/Closed Principle: add workers without modifying this class.
+         *
+         * ```kotlin
+         * // In MainActivity.kt, before NativeWorkManager.initialize():
+         * SimpleAndroidWorkerFactory.registerWorker("ImageCompressWorker") {
+         *     ImageCompressWorker()
+         * }
+         * SimpleAndroidWorkerFactory.registerWorker("EncryptionWorker") {
+         *     EncryptionWorker()
+         * }
+         * ```
+         */
+        private val workerRegistry =
+            java.util.concurrent.ConcurrentHashMap<String, () -> AndroidWorker>()
+
+        /**
+         * Register a custom worker by class name.
+         *
+         * The factory closure is called each time a new instance is needed.
+         * Safe to call before [NativeWorkManager.initialize].
+         *
+         * @param className Worker class name (must match Dart's `NativeWorker.custom(className:)`).
+         * @param factory   Closure that creates a fresh worker instance.
+         */
+        fun registerWorker(className: String, factory: () -> AndroidWorker) {
+            workerRegistry[className] = factory
+            Log.d(TAG, "Registered custom worker '$className'")
+        }
+
+        /**
+         * Unregister a previously registered worker.
+         */
+        fun unregisterWorker(className: String) {
+            workerRegistry.remove(className)
+            Log.d(TAG, "Unregistered custom worker '$className'")
+        }
+
+        /**
+         * User-provided catch-all factory (legacy / backward-compat alternative to [registerWorker]).
          * Set this in MainActivity before calling NativeWorkManager.initialize().
          */
         @Volatile
         private var userFactory: AndroidWorkerFactory? = null
 
         /**
-         * Register a custom worker factory.
+         * Register a catch-all custom worker factory.
          *
-         * Example usage in MainActivity.kt:
+         * Prefer [registerWorker] for individual workers. Use this only when you need
+         * to handle an open-ended set of worker class names dynamically at runtime.
+         *
          * ```kotlin
          * SimpleAndroidWorkerFactory.setUserFactory(object : AndroidWorkerFactory {
          *     override fun createWorker(workerClassName: String): AndroidWorker? {
          *         return when (workerClassName) {
          *             "ImageCompressWorker" -> ImageCompressWorker()
-         *             "EncryptionWorker" -> EncryptionWorker()
          *             else -> null
          *         }
          *     }
@@ -70,10 +117,13 @@ class SimpleAndroidWorkerFactory(
     }
 
     override fun createWorker(workerClassName: String): AndroidWorker? {
-        // Try user factory first
+        // 1. Per-worker registry (Open/Closed — preferred API)
+        workerRegistry[workerClassName]?.let { return it() }
+
+        // 2. Catch-all factory chain (backward-compat)
         userFactory?.createWorker(workerClassName)?.let { return it }
 
-        // Fallback to built-in workers
+        // 3. Built-in workers
         return when (workerClassName) {
             "DartCallbackWorker" -> DartCallbackWorkerWrapper(context)
             "HttpRequestWorker" -> HttpRequestWorker()
@@ -89,8 +139,8 @@ class SimpleAndroidWorkerFactory(
             "FileSystemWorker" -> FileSystemWorker()
             "MoveToSharedStorageWorker" -> MoveToSharedStorageWorker(context)
             else -> {
-                Log.e("SimpleAndroidWorkerFactory", "Unknown worker class: '$workerClassName'. " +
-                    "Register it via SimpleAndroidWorkerFactory.setUserFactory() in MainActivity.")
+                Log.e(TAG, "Unknown worker class: '$workerClassName'. " +
+                    "Register it via SimpleAndroidWorkerFactory.registerWorker() in MainActivity.")
                 null
             }
         }

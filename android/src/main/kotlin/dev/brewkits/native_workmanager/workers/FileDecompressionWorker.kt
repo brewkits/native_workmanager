@@ -6,6 +6,8 @@ import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.io.File
 import java.io.FileOutputStream
 import java.util.zip.ZipEntry
@@ -231,13 +233,13 @@ class FileDecompressionWorker : AndroidWorker {
             // ✅ Return success with extraction data
             WorkerResult.Success(
                 message = "Extracted $extractedFiles files, $extractedDirs directories",
-                data = mapOf(
-                    "extractedFiles" to extractedFiles,
-                    "extractedDirs" to extractedDirs,
-                    "totalBytes" to totalBytes,
-                    "targetDir" to targetDir.absolutePath,
-                    "zipDeleted" to config.deleteAfterExtract
-                )
+                data = buildJsonObject {
+                    put("extractedFiles", extractedFiles)
+                    put("extractedDirs", extractedDirs)
+                    put("totalBytes", totalBytes)
+                    put("targetDir", targetDir.absolutePath)
+                    put("zipDeleted", config.deleteAfterExtract)
+                }
             )
 
         } catch (e: Exception) {

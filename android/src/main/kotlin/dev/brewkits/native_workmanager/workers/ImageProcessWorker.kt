@@ -16,6 +16,8 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.min
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Built-in worker: Image processing (resize, compress, convert)
@@ -272,18 +274,18 @@ class ImageProcessWorker : AndroidWorker {
 
             WorkerResult.Success(
                 message = "Image processed successfully",
-                data = mapOf(
-                    "inputPath" to config.inputPath,
-                    "outputPath" to config.outputPath,
-                    "originalWidth" to originalWidth,
-                    "originalHeight" to originalHeight,
-                    "processedWidth" to processedWidth,
-                    "processedHeight" to processedHeight,
-                    "originalSize" to originalSize,
-                    "processedSize" to processedSize,
-                    "compressionRatio" to compressionRatio,
-                    "format" to format.name
-                )
+                data = buildJsonObject {
+                    put("inputPath", config.inputPath)
+                    put("outputPath", config.outputPath)
+                    put("originalWidth", originalWidth)
+                    put("originalHeight", originalHeight)
+                    put("processedWidth", processedWidth)
+                    put("processedHeight", processedHeight)
+                    put("originalSize", originalSize)
+                    put("processedSize", processedSize)
+                    put("compressionRatio", compressionRatio)
+                    put("format", format.name)
+                }
             )
         } catch (e: OutOfMemoryError) {
             Log.e(TAG, "Out of memory during image processing", e)

@@ -8,6 +8,9 @@ import dev.brewkits.native_workmanager.workers.utils.ProgressReporter
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
@@ -123,14 +126,14 @@ class FileSystemWorker : AndroidWorker {
 
             WorkerResult.Success(
                 message = "Copied ${copiedFiles.size} file(s)",
-                data = mapOf(
-                    "operation" to "copy",
-                    "sourcePath" to sourcePath,
-                    "destinationPath" to destinationPath,
-                    "fileCount" to copiedFiles.size,
-                    "totalSize" to totalSize,
-                    "files" to copiedFiles.map { it.absolutePath }
-                )
+                data = buildJsonObject {
+                    put("operation", "copy")
+                    put("sourcePath", sourcePath)
+                    put("destinationPath", destinationPath)
+                    put("fileCount", copiedFiles.size)
+                    put("totalSize", totalSize)
+                    put("files", buildJsonArray { copiedFiles.forEach { add(kotlinx.serialization.json.JsonPrimitive(it.absolutePath)) } })
+                }
             )
         } catch (e: IOException) {
             WorkerResult.Failure("Copy failed: ${e.message}")
@@ -186,12 +189,12 @@ class FileSystemWorker : AndroidWorker {
 
             WorkerResult.Success(
                 message = "Moved $fileCount file(s)",
-                data = mapOf(
-                    "operation" to "move",
-                    "sourcePath" to sourcePath,
-                    "destinationPath" to destinationPath,
-                    "fileCount" to fileCount
-                )
+                data = buildJsonObject {
+                    put("operation", "move")
+                    put("sourcePath", sourcePath)
+                    put("destinationPath", destinationPath)
+                    put("fileCount", fileCount)
+                }
             )
         } catch (e: IOException) {
             WorkerResult.Failure("Move failed: ${e.message}")
@@ -230,11 +233,11 @@ class FileSystemWorker : AndroidWorker {
             if (deleted) {
                 WorkerResult.Success(
                     message = "Deleted $fileCount file(s)",
-                    data = mapOf(
-                        "operation" to "delete",
-                        "path" to path,
-                        "fileCount" to fileCount
-                    )
+                    data = buildJsonObject {
+                        put("operation", "delete")
+                        put("path", path)
+                        put("fileCount", fileCount)
+                    }
                 )
             } else {
                 WorkerResult.Failure("Failed to delete: $path")
@@ -280,27 +283,27 @@ class FileSystemWorker : AndroidWorker {
                 files
             }
 
-            val fileInfos = filteredFiles.map { file ->
-                mapOf(
-                    "path" to file.absolutePath,
-                    "name" to file.name,
-                    "size" to file.length(),
-                    "lastModified" to file.lastModified(),
-                    "isDirectory" to file.isDirectory
-                )
-            }
-
             WorkerResult.Success(
                 message = "Found ${filteredFiles.size} file(s)",
-                data = mapOf(
-                    "operation" to "list",
-                    "path" to path,
-                    "pattern" to (pattern ?: ""),
-                    "recursive" to recursive,
-                    "fileCount" to filteredFiles.size,
-                    "totalSize" to filteredFiles.sumOf { it.length() },
-                    "files" to fileInfos
-                )
+                data = buildJsonObject {
+                    put("operation", "list")
+                    put("path", path)
+                    put("pattern", pattern ?: "")
+                    put("recursive", recursive)
+                    put("fileCount", filteredFiles.size)
+                    put("totalSize", filteredFiles.sumOf { it.length() })
+                    put("files", buildJsonArray {
+                        filteredFiles.forEach { file ->
+                            add(buildJsonObject {
+                                put("path", file.absolutePath)
+                                put("name", file.name)
+                                put("size", file.length())
+                                put("lastModified", file.lastModified())
+                                put("isDirectory", file.isDirectory)
+                            })
+                        }
+                    })
+                }
             )
         } catch (e: Exception) {
             WorkerResult.Failure("List failed: ${e.message}")
@@ -317,11 +320,11 @@ class FileSystemWorker : AndroidWorker {
             return if (directory.isDirectory) {
                 WorkerResult.Success(
                     message = "Directory already exists",
-                    data = mapOf(
-                        "operation" to "mkdir",
-                        "path" to path,
-                        "created" to false
-                    )
+                    data = buildJsonObject {
+                        put("operation", "mkdir")
+                        put("path", path)
+                        put("created", false)
+                    }
                 )
             } else {
                 WorkerResult.Failure("Path exists but is not a directory: $path")
@@ -343,11 +346,11 @@ class FileSystemWorker : AndroidWorker {
             if (created) {
                 WorkerResult.Success(
                     message = "Directory created",
-                    data = mapOf(
-                        "operation" to "mkdir",
-                        "path" to path,
-                        "created" to true
-                    )
+                    data = buildJsonObject {
+                        put("operation", "mkdir")
+                        put("path", path)
+                        put("created", true)
+                    }
                 )
             } else {
                 WorkerResult.Failure("Failed to create directory: $path")

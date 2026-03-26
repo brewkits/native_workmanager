@@ -844,6 +844,110 @@ void main() {
       expect(executionOrder, equals(['A', 'B', 'C']),
           reason: 'Chain steps must execute in order A→B→C');
     });
+
+    testWidgets('Chain cancel after first step stops remaining steps',
+        (tester) async {
+      // Verify that cancelling a chain after step A prevents B and C from running.
+      // This is fundamental to chain-resume: if we can stop a chain reliably we
+      // can also restart it from a later step (the "manual resume" pattern).
+      final ts = DateTime.now().millisecondsSinceEpoch;
+      final idA = 'cancel_chain_a_$ts';
+      final idB = 'cancel_chain_b_$ts';
+      final idC = 'cancel_chain_c_$ts';
+
+      final aCompleter = Completer<void>();
+      final laterStepsRan = <String>[];
+
+      final sub = NativeWorkManager.events.listen((event) {
+        if (event.taskId == idA && event.success) aCompleter.complete();
+        if (event.taskId == idB) laterStepsRan.add('B');
+        if (event.taskId == idC) laterStepsRan.add('C');
+      });
+
+      await NativeWorkManager.beginWith(
+        TaskRequest(id: idA, worker: DartWorker(callbackId: 'chain_a')),
+      )
+          .then(TaskRequest(id: idB, worker: DartWorker(callbackId: 'chain_b')))
+          .then(TaskRequest(id: idC, worker: DartWorker(callbackId: 'chain_c')))
+          .enqueue();
+
+      // Wait for step A to complete, then cancel before B starts.
+      await aCompleter.future.timeout(const Duration(seconds: 60), onTimeout: () {
+        fail('Step A did not complete within 60 s');
+      });
+
+      // Cancel remaining steps immediately after A completes.
+      await NativeWorkManager.cancel(taskId: idB);
+      await NativeWorkManager.cancel(taskId: idC);
+
+      // Give the scheduler time to propagate cancellation.
+      await Future<void>.delayed(const Duration(seconds: 5));
+
+      await sub.cancel();
+
+      // B and C should not have run (or at most B if it was already dispatched).
+      expect(laterStepsRan, isNot(contains('C')),
+          reason: 'Step C must not run after cancellation');
+    });
+
+    testWidgets('Chain resume – re-enqueue remaining steps after first step',
+        (tester) async {
+      // Demonstrates the "manual chain resume" pattern:
+      //   1. Run step A (first step of original chain).
+      //   2. Enqueue a new chain B→C once A succeeds.
+      //   3. Verify B and C complete in order.
+      //
+      // This mirrors what happens on iOS when `resumePendingChains()` picks up
+      // an interrupted chain: it enqueues remaining steps as a fresh sequence.
+      final ts = DateTime.now().millisecondsSinceEpoch;
+      final idA = 'resume_a_$ts';
+      final idB = 'resume_b_$ts';
+      final idC = 'resume_c_$ts';
+
+      final aCompleter = Completer<void>();
+      final executionOrder = <String>[];
+      final bcCompleter = Completer<void>();
+
+      final sub = NativeWorkManager.events.listen((event) {
+        if (event.taskId == idA && event.success) {
+          executionOrder.add('A');
+          if (!aCompleter.isCompleted) aCompleter.complete();
+        }
+        if (event.taskId == idB && event.success) executionOrder.add('B');
+        if (event.taskId == idC && event.success) {
+          executionOrder.add('C');
+          if (!bcCompleter.isCompleted) bcCompleter.complete();
+        }
+      });
+
+      // Phase 1: enqueue only step A.
+      await NativeWorkManager.enqueue(
+        taskId: idA,
+        trigger: const TaskTrigger.oneTime(),
+        worker: DartWorker(callbackId: 'chain_a'),
+      );
+
+      // Wait for A to finish.
+      await aCompleter.future.timeout(const Duration(seconds: 60), onTimeout: () {
+        fail('Step A did not complete within 60 s');
+      });
+
+      // Phase 2: enqueue B→C as a "resumed" chain (simulating chain resume).
+      await NativeWorkManager.beginWith(
+        TaskRequest(id: idB, worker: DartWorker(callbackId: 'chain_b')),
+      )
+          .then(TaskRequest(id: idC, worker: DartWorker(callbackId: 'chain_c')))
+          .enqueue();
+
+      await bcCompleter.future.timeout(const Duration(seconds: 90), onTimeout: () {
+        fail('Resumed chain B→C did not complete within 90 s');
+      });
+
+      await sub.cancel();
+
+      expect(executionOrder, equals(['A', 'B', 'C']),
+          reason: 'Resumed chain must complete steps A→B→C in order');
+    });
   });
 
   // ════════════════════════════════════════════════════════════

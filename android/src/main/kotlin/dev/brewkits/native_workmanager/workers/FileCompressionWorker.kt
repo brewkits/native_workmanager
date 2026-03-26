@@ -5,6 +5,8 @@ import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.native_workmanager.workers.utils.ProgressReporter
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedInputStream
@@ -257,13 +259,13 @@ class FileCompressionWorker : AndroidWorker {
             // ✅ Return success with compression data
             WorkerResult.Success(
                 message = "Compressed $filesCompressed files ($compressionRatio% ratio)",
-                data = mapOf(
-                    "filesCompressed" to filesCompressed,
-                    "originalSize" to originalSize,
-                    "compressedSize" to compressedSize,
-                    "compressionRatio" to compressionRatio,
-                    "outputPath" to outputPath
-                )
+                data = buildJsonObject {
+                    put("filesCompressed", filesCompressed)
+                    put("originalSize", originalSize)
+                    put("compressedSize", compressedSize)
+                    put("compressionRatio", compressionRatio)
+                    put("outputPath", outputPath)
+                }
             )
 
         } catch (e: Exception) {

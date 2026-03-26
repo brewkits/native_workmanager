@@ -17,6 +17,8 @@ import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Parallel chunked HTTP download worker for Android.
@@ -85,12 +87,17 @@ class ParallelHttpDownloadWorker : AndroidWorker {
             throw IllegalArgumentException("Invalid config JSON: ${e.message}", e)
         }
 
+        val destinationFile = File(config.savePath)
+
         // Skip download if destination already exists and skipExisting is enabled
         if (config.skipExisting && destinationFile.exists()) {
             Log.d(TAG, "skipExisting=true and file already exists — skipping download")
             return@withContext WorkerResult.Success(
                 message = "File already exists, download skipped",
-                data = mapOf("filePath" to config.savePath, "skipped" to true)
+                data = buildJsonObject {
+                    put("filePath", config.savePath)
+                    put("skipped", true)
+                }
             )
         }
 
@@ -102,7 +109,6 @@ class ParallelHttpDownloadWorker : AndroidWorker {
         }
 
         val taskId = try { JSONObject(input).optString("__taskId", null) } catch (_: Exception) { null }
-        val destinationFile = File(config.savePath)
 
         // Ensure parent directory exists
         destinationFile.parentFile?.let { if (!it.exists()) it.mkdirs() }
@@ -279,13 +285,13 @@ class ParallelHttpDownloadWorker : AndroidWorker {
 
         WorkerResult.Success(
             message = "Downloaded $finalSize bytes (${config.numChunks} parallel chunks)",
-            data = mapOf(
-                "filePath" to destinationFile.absolutePath,
-                "fileName" to destinationFile.name,
-                "fileSize" to finalSize,
-                "numChunks" to config.numChunks,
-                "parallelDownload" to true
-            )
+            data = buildJsonObject {
+                put("filePath", destinationFile.absolutePath)
+                put("fileName", destinationFile.name)
+                put("fileSize", finalSize)
+                put("numChunks", config.numChunks)
+                put("parallelDownload", true)
+            }
         )
     }
 
@@ -353,13 +359,13 @@ class ParallelHttpDownloadWorker : AndroidWorker {
                 if (taskId != null) ProgressReporter.reportProgressNonBlocking(taskId, 100, "Download complete")
                 WorkerResult.Success(
                     message = "Downloaded ${destinationFile.length()} bytes (sequential fallback)",
-                    data = mapOf(
-                        "filePath" to destinationFile.absolutePath,
-                        "fileName" to destinationFile.name,
-                        "fileSize" to destinationFile.length(),
-                        "numChunks" to 1,
-                        "parallelDownload" to false
-                    )
+                    data = buildJsonObject {
+                        put("filePath", destinationFile.absolutePath)
+                        put("fileName", destinationFile.name)
+                        put("fileSize", destinationFile.length())
+                        put("numChunks", 1)
+                        put("parallelDownload", false)
+                    }
                 )
             }
         } catch (e: Exception) {

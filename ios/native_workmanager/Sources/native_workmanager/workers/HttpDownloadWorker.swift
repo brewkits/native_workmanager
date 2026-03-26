@@ -68,6 +68,9 @@ class HttpDownloadWorker: IosWorker {
         let authToken: String?
         let authHeaderTemplate: String?       // Default: "Bearer {accessToken}"
 
+        // T3-6 - Bandwidth throttling (bytes/s; nil = no limit)
+        let bandwidthLimitBytesPerSecond: Int64?
+
         var timeout: TimeInterval {
             TimeInterval((timeoutMs ?? HttpConstants.downloadTimeoutMs) / 1000)
         }
@@ -249,6 +252,12 @@ class HttpDownloadWorker: IosWorker {
             request.addValue(headerValue, forHTTPHeaderField: HttpConstants.headerAuthorization)
         }
 
+        // T3-7: HMAC-SHA256 request signing
+        let rawDictForSigning = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+        if let signingCfg = RequestSigner.Config.from(rawDictForSigning?["requestSigning"] as? [String: Any]) {
+            RequestSigner.sign(request: &request, config: signingCfg)
+        }
+
         // Sprint 2: per-host concurrency — block here until a permit is available.
         // The permit is released after the download completes (success, failure, or skip).
         let host = URL(string: config.url)?.host ?? config.url
@@ -266,6 +275,22 @@ class HttpDownloadWorker: IosWorker {
                 headers: config.headers,
                 existingBytes: existingBytes
             )
+        }
+
+        // T3-6: Throttled foreground download (iOS 15+) when bandwidth limit is configured
+        if #available(iOS 15.0, *),
+           let bwLimit = config.bandwidthLimitBytesPerSecond, bwLimit > 0 {
+            return await throttledForegroundDownload(
+                request: request,
+                tempURL: tempURL,
+                destinationURL: destinationURL,
+                config: config,
+                existingBytes: existingBytes,
+                bandwidthLimit: bwLimit,
+                taskIdForProgress: taskIdForProgress
+            )
+        } else if let bwLimit = config.bandwidthLimitBytesPerSecond, bwLimit > 0 {
+            print("HttpDownloadWorker: bandwidth throttling requires iOS 15+, proceeding unthrottled")
         }
 
         // Execute download using foreground session (iOS 13+ compatible)
@@ -518,6 +543,162 @@ class HttpDownloadWorker: IosWorker {
 
     /// Download file using background URLSession (survives app termination).
     ///
+    // MARK: - Throttled foreground download (iOS 15+)
+
+    /// Streaming download with token-bucket bandwidth throttling.
+    ///
+    /// Uses `URLSession.bytes(for:)` to obtain an `AsyncBytes` stream so that
+    /// each 64 KB chunk can be rate-limited before being written to disk.
+    /// Falls back to the standard foreground path on iOS < 15 (caller's responsibility).
+    @available(iOS 15.0, *)
+    private func throttledForegroundDownload(
+        request: URLRequest,
+        tempURL: URL,
+        destinationURL: URL,
+        config: Config,
+        existingBytes: Int64,
+        bandwidthLimit: Int64,
+        taskIdForProgress: String?
+    ) async -> WorkerResult {
+        let throttle = BandwidthThrottle(maxBytesPerSecond: bandwidthLimit)
+
+        do {
+            let (asyncBytes, response) = try await URLSession.shared.bytes(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return .failure(message: "Invalid response")
+            }
+
+            let statusCode = httpResponse.statusCode
+
+            if statusCode == HttpConstants.rangeNotSatisfiable {
+                try? FileManager.default.removeItem(at: tempURL)
+                try? FileManager.default.removeItem(atPath: config.savePath + HttpConstants.etagSidecarSuffix)
+                return .failure(message: "Resume position invalid (file may have changed). Retry to restart download.")
+            }
+
+            let isPartialContent = statusCode == HttpConstants.partialContent
+            let isFullContent = (200..<300).contains(statusCode)
+            guard isPartialContent || isFullContent else {
+                return .failure(message: "HTTP \(statusCode)")
+            }
+
+            let contentLength = httpResponse.expectedContentLength
+            if contentLength > 0, !SecurityValidator.validateContentLength(contentLength) {
+                return .failure(message: "Download size exceeds limit")
+            }
+
+            // Prepare output file
+            if !FileManager.default.fileExists(atPath: tempURL.path) {
+                FileManager.default.createFile(atPath: tempURL.path, contents: nil)
+            }
+            let fileHandle = try FileHandle(forWritingTo: tempURL)
+            defer { try? fileHandle.close() }
+            if existingBytes > 0 && isPartialContent {
+                try fileHandle.seekToEnd()
+            }
+
+            // Stream with 64 KB chunks and token-bucket throttling
+            let chunkSize = 65_536
+            var chunkBuffer = [UInt8]()
+            chunkBuffer.reserveCapacity(chunkSize)
+            var totalBytesWritten = existingBytes
+            let totalExpected = contentLength > 0 ? (existingBytes + contentLength) : -1
+
+            for try await byte in asyncBytes {
+                chunkBuffer.append(byte)
+                if chunkBuffer.count >= chunkSize {
+                    let data = Data(chunkBuffer)
+                    if #available(iOS 13.4, *) {
+                        try fileHandle.write(contentsOf: data)
+                    } else {
+                        fileHandle.write(data)
+                    }
+                    await throttle.consume(chunkBuffer.count)
+                    totalBytesWritten += Int64(chunkBuffer.count)
+                    if let taskId = taskIdForProgress, totalExpected > 0 {
+                        let pct = Int(Double(totalBytesWritten) / Double(totalExpected) * 100)
+                        ProgressReporter.shared.report(
+                            taskId: taskId,
+                            progress: pct,
+                            message: "Downloading \(destinationURL.lastPathComponent)…",
+                            bytesDownloaded: totalBytesWritten,
+                            totalBytes: totalExpected,
+                            networkSpeed: nil,
+                            timeRemainingMs: nil
+                        )
+                    }
+                    chunkBuffer.removeAll(keepingCapacity: true)
+                }
+            }
+            // Flush remaining bytes
+            if !chunkBuffer.isEmpty {
+                let data = Data(chunkBuffer)
+                if #available(iOS 13.4, *) {
+                    try fileHandle.write(contentsOf: data)
+                } else {
+                    fileHandle.write(data)
+                }
+                await throttle.consume(chunkBuffer.count)
+                totalBytesWritten += Int64(chunkBuffer.count)
+            }
+            try fileHandle.close()
+
+            // Save ETag for future resume attempts
+            if !isPartialContent {
+                let etag = httpResponse.value(forHTTPHeaderField: HttpConstants.headerETag)
+                    ?? httpResponse.value(forHTTPHeaderField: HttpConstants.headerLastModified)
+                if let etag = etag {
+                    try? etag.write(toFile: config.savePath + HttpConstants.etagSidecarSuffix, atomically: true, encoding: .utf8)
+                }
+            }
+
+            // Checksum verification
+            if let expectedChecksum = config.expectedChecksum {
+                guard let actualChecksum = calculateChecksum(fileURL: tempURL, algorithm: config.effectiveChecksumAlgorithm) else {
+                    try? FileManager.default.removeItem(at: tempURL)
+                    return .failure(message: "Failed to calculate checksum")
+                }
+                if actualChecksum.caseInsensitiveCompare(expectedChecksum) != .orderedSame {
+                    try? FileManager.default.removeItem(at: tempURL)
+                    return .failure(message: "Checksum verification failed (expected: \(expectedChecksum), actual: \(actualChecksum))")
+                }
+            }
+
+            let finalFileSize = (try? FileManager.default.attributesOfItem(atPath: tempURL.path))?[.size] as? Int64 ?? 0
+            let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type")
+            let finalURL = httpResponse.url?.absoluteString ?? config.url
+
+            // Resolve final destination (rename/overwrite)
+            var finalDestination = destinationURL
+            if config.effectiveOnDuplicate == "rename" {
+                finalDestination = resolveRenamedURL(destinationURL)
+            } else {
+                try? FileManager.default.removeItem(at: destinationURL)
+            }
+            try FileManager.default.moveItem(at: tempURL, to: finalDestination)
+            try? FileManager.default.removeItem(atPath: config.savePath + HttpConstants.etagSidecarSuffix)
+
+            performPostDownloadActions(config: config, filePath: finalDestination.path)
+
+            return .success(
+                message: "Downloaded \(finalFileSize) bytes (throttled)",
+                data: [
+                    "filePath": finalDestination.path,
+                    "fileName": finalDestination.lastPathComponent,
+                    "fileSize": finalFileSize,
+                    "contentType": contentType as Any,
+                    "finalUrl": finalURL
+                ]
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: tempURL)
+            return .failure(message: error.localizedDescription)
+        }
+    }
+
+    // MARK: - Background session download
+
     /// - Parameters:
     ///   - url: URL to download from
     ///   - destinationURL: Final destination for downloaded file

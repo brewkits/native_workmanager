@@ -25,21 +25,9 @@ enum CompressionLevel {
 /// Base class for all worker configurations.
 ///
 /// All built-in workers (HttpDownloadWorker, FileCompressWorker, etc.) extend
-/// this sealed class, enabling exhaustive switch/pattern matching at call sites:
-///
-/// ```dart
-/// switch (worker) {
-///   case HttpDownloadWorker w => print('Download: ${w.url}'),
-///   case DartWorker w        => print('Dart callback: ${w.callbackId}'),
-///   // compiler warns if a subtype is unhandled
-/// }
-/// ```
-///
-/// Custom native workers use [CustomNativeWorker], which is also a subtype of
-/// this class. You CANNOT directly extend [Worker] outside this library — use
-/// [CustomNativeWorker] to register user-defined native workers.
+/// this class. Custom native workers use [CustomNativeWorker].
 @immutable
-sealed class Worker {
+abstract class Worker {
   const Worker();
 
   /// Convert to map for platform channel.

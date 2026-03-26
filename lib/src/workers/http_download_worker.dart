@@ -1,5 +1,8 @@
 import 'package:flutter/foundation.dart';
 import '../worker.dart';
+import 'request_signing.dart';
+
+export 'request_signing.dart';
 
 /// What to do if the destination file already exists.
 enum DuplicatePolicy {
@@ -42,6 +45,8 @@ final class HttpDownloadWorker extends Worker {
     this.extractAfterDownload = false,
     this.extractPath,
     this.deleteArchiveAfterExtract = false,
+    this.bandwidthLimitBytesPerSecond,
+    this.requestSigning,
   });
 
   /// The URL to download from.
@@ -195,6 +200,29 @@ final class HttpDownloadWorker extends Worker {
   /// Delete the archive file after successful extraction.
   final bool deleteArchiveAfterExtract;
 
+  /// Maximum download speed in bytes per second.
+  ///
+  /// When set, the download stream is throttled to this rate using a token-bucket
+  /// algorithm. Useful for limiting bandwidth consumption on metered connections.
+  ///
+  /// **Android:** applied via OkHttp response-body wrapping (effective immediately).
+  /// **iOS:** applied via streaming download on iOS 15+; ignored on iOS 14 (downloads
+  /// proceed at full speed — no error is raised).
+  ///
+  /// Example: `500 * 1024` for 500 KB/s.
+  ///
+  /// Default: `null` (no limit).
+  final int? bandwidthLimitBytesPerSecond;
+
+  /// HMAC-SHA256 request signing configuration.
+  ///
+  /// When set, each download request is signed with the specified secret key
+  /// and the signature is injected as a request header (default: `X-Signature`).
+  /// An `X-Timestamp` header is also added when [RequestSigning.includeTimestamp] is true.
+  ///
+  /// Default: `null` (no signing).
+  final RequestSigning? requestSigning;
+
   // ═══════════════════════════════════════════════════════════════════════════
   // BUILDER-STYLE copyWith — avoids parameter explosion at call sites
   // ═══════════════════════════════════════════════════════════════════════════
@@ -240,6 +268,8 @@ final class HttpDownloadWorker extends Worker {
     bool? extractAfterDownload,
     String? extractPath,
     bool? deleteArchiveAfterExtract,
+    int? bandwidthLimitBytesPerSecond,
+    RequestSigning? requestSigning,
   }) {
     return HttpDownloadWorker(
       url: url ?? this.url,
@@ -265,6 +295,9 @@ final class HttpDownloadWorker extends Worker {
       extractPath: extractPath ?? this.extractPath,
       deleteArchiveAfterExtract:
           deleteArchiveAfterExtract ?? this.deleteArchiveAfterExtract,
+      bandwidthLimitBytesPerSecond:
+          bandwidthLimitBytesPerSecond ?? this.bandwidthLimitBytesPerSecond,
+      requestSigning: requestSigning ?? this.requestSigning,
     );
   }
 
@@ -343,5 +376,8 @@ final class HttpDownloadWorker extends Worker {
         'extractAfterDownload': extractAfterDownload,
         if (extractPath != null) 'extractPath': extractPath,
         'deleteArchiveAfterExtract': deleteArchiveAfterExtract,
+        if (bandwidthLimitBytesPerSecond != null)
+          'bandwidthLimitBytesPerSecond': bandwidthLimitBytesPerSecond,
+        if (requestSigning != null) 'requestSigning': requestSigning!.toMap(),
       };
 }

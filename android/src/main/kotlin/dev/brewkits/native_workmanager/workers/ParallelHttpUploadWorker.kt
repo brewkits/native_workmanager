@@ -24,6 +24,8 @@ import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Parallel multi-file HTTP upload worker for Android.
@@ -209,12 +211,11 @@ class ParallelHttpUploadWorker : AndroidWorker {
 
         WorkerResult.Success(
             message = "Uploaded $succeeded/${fileResults.size} files ($actualUploaded bytes)",
-            data = mapOf(
-                "uploadedCount" to succeeded,
-                "failedCount" to failed,
-                "totalBytes" to actualUploaded,
-                "fileResults" to fileResults,
-            )
+            data = buildJsonObject {
+                put("uploadedCount", succeeded)
+                put("failedCount", failed)
+                put("totalBytes", actualUploaded)
+            }
         )
     }
 
@@ -327,7 +328,7 @@ private class ProgressTrackingRequestBody(
                 onProgress(byteCount)
             }
         }
-        val bufferedSink = okio.buffer(tracked)
+        val bufferedSink = tracked.buffer()
         delegate.writeTo(bufferedSink)
         bufferedSink.flush()
     }

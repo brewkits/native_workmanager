@@ -16,6 +16,8 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Native HTTP file upload worker for Android.
@@ -119,7 +121,8 @@ class HttpUploadWorker : AndroidWorker {
         val contentType: String? = null,     // Content-Type for raw body (required if body/bodyBytes)
         val headers: Map<String, String>? = null,
         val fields: Map<String, String>? = null,
-        val timeoutMs: Long? = null
+        val timeoutMs: Long? = null,
+        val requestSigningConfig: dev.brewkits.native_workmanager.workers.utils.RequestSigner.Config? = null,
     ) {
         val timeout: Long get() = timeoutMs ?: DEFAULT_TIMEOUT_MS
 
@@ -180,7 +183,8 @@ class HttpUploadWorker : AndroidWorker {
                 contentType = if (j.has("contentType") && !j.isNull("contentType")) j.getString("contentType") else null,
                 headers = parseStringMap(j.optJSONObject("headers")),
                 fields = parseStringMap(j.optJSONObject("additionalFields")),
-                timeoutMs = if (j.has("timeoutMs")) j.getLong("timeoutMs") else null
+                timeoutMs = if (j.has("timeoutMs")) j.getLong("timeoutMs") else null,
+                requestSigningConfig = dev.brewkits.native_workmanager.workers.utils.RequestSigner.fromMap(j.optJSONObject("requestSigning")),
             )
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid config JSON: ${e.message}", e)
@@ -305,7 +309,9 @@ class HttpUploadWorker : AndroidWorker {
             requestBuilder.addHeader(key, value)
         }
 
-        val request = requestBuilder.build()
+        val request = config.requestSigningConfig
+            ?.let { dev.brewkits.native_workmanager.workers.utils.RequestSigner.sign(requestBuilder.build(), it) }
+            ?: requestBuilder.build()
 
         // Execute upload
         return@withContext try {
@@ -331,13 +337,12 @@ class HttpUploadWorker : AndroidWorker {
                     // ✅ Return success with upload data
                     WorkerResult.Success(
                         message = "Uploaded ${validatedFiles.size} file(s), $totalSize bytes",
-                        data = mapOf(
-                            "statusCode" to statusCode,
-                            "uploadedSize" to totalSize,
-                            "fileCount" to validatedFiles.size,  // 👈 NEW
-                            "fileNames" to validatedFiles.map { it.second },  // 👈 NEW
-                            "responseBody" to responseString
-                        )
+                        data = buildJsonObject {
+                            put("statusCode", statusCode)
+                            put("uploadedSize", totalSize)
+                            put("fileCount", validatedFiles.size)
+                            put("responseBody", responseString)
+                        }
                     )
                 } else {
                     // ✅ SECURITY: Truncate error body for logging
@@ -421,7 +426,9 @@ class HttpUploadWorker : AndroidWorker {
             requestBuilder.addHeader(key, value)
         }
 
-        val request = requestBuilder.build()
+        val request = config.requestSigningConfig
+            ?.let { dev.brewkits.native_workmanager.workers.utils.RequestSigner.sign(requestBuilder.build(), it) }
+            ?: requestBuilder.build()
 
         // Execute upload
         return@withContext try {
@@ -446,12 +453,12 @@ class HttpUploadWorker : AndroidWorker {
 
                     WorkerResult.Success(
                         message = "Uploaded raw body",
-                        data = mapOf(
-                            "statusCode" to statusCode,
-                            "uploadedSize" to requestBody.contentLength(),
-                            "contentType" to config.contentType,
-                            "responseBody" to responseString
-                        )
+                        data = buildJsonObject {
+                            put("statusCode", statusCode)
+                            put("uploadedSize", requestBody.contentLength())
+                            if (config.contentType != null) put("contentType", config.contentType)
+                            put("responseBody", responseString)
+                        }
                     )
                 } else {
                     // ✅ SECURITY: Truncate error body for logging

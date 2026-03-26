@@ -49,7 +49,9 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.OkHttpClient
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -610,12 +612,15 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                     "contentUri" -> {
                         val uriString = triggerMap?.get("uriString") as? String ?: ""
                         val triggerForDescendants = triggerMap?.get("triggerForDescendants") as? Boolean ?: false
+                        @OptIn(AndroidOnly::class)
                         TaskTrigger.ContentUri(uriString = uriString, triggerForDescendants = triggerForDescendants)
                     }
-                    "batteryOkay" -> TaskTrigger.BatteryOkay
-                    "batteryLow" -> TaskTrigger.BatteryLow
-                    "deviceIdle" -> TaskTrigger.DeviceIdle
-                    "storageLow" -> TaskTrigger.StorageLow
+                    // Battery/idle/storage variants removed in kmpworkmanager 2.3.7 — use OneTime
+                    // with the corresponding SystemConstraint added via parseConstraints instead.
+                    "batteryOkay" -> TaskTrigger.OneTime()
+                    "batteryLow" -> TaskTrigger.OneTime()
+                    "deviceIdle" -> TaskTrigger.OneTime()
+                    "storageLow" -> TaskTrigger.OneTime()
                     else -> {
                         val initialDelayMs = (triggerMap?.get("initialDelayMs") as? Number)?.toLong() ?: 0L
                         TaskTrigger.OneTime(initialDelayMs = initialDelayMs)
@@ -692,6 +697,10 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                     ScheduleResult.THROTTLED -> {
                         NativeLogger.w("⚠️ Task throttled: $taskId")
                         result.success("THROTTLED")
+                    }
+                    ScheduleResult.DEADLINE_ALREADY_PASSED -> {
+                        NativeLogger.w("⚠️ Task deadline already passed: $taskId")
+                        result.success("DEADLINE_ALREADY_PASSED")
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {

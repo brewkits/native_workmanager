@@ -81,6 +81,10 @@ class HttpRequestWorker: IosWorker {
             return .failure(message: "Invalid JSON config: \(error.localizedDescription)")
         }
 
+        // Parse request signing config from raw dict (not Codable — parsed separately)
+        let rawDict = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let signingConfig = RequestSigner.Config.from(rawDict?["requestSigning"] as? [String: Any])
+
         // ✅ SECURITY: Validate URL scheme (prevent file://, ftp://, etc.)
         guard let url = SecurityValidator.validateURL(config.url) else {
             print("HttpRequestWorker: Error - Invalid or unsafe URL")
@@ -118,6 +122,11 @@ class HttpRequestWorker: IosWorker {
             if request.value(forHTTPHeaderField: "Content-Type") == nil {
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             }
+        }
+
+        // Apply HMAC-SHA256 request signing if configured
+        if var sc = signingConfig {
+            RequestSigner.sign(request: &request, config: sc)
         }
 
         // ✅ SECURITY: Sanitize URL for logging (redact query params)

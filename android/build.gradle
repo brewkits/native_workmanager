@@ -44,6 +44,9 @@ android {
         // (getForegroundInfo() override added in kmpworkmanager 2.3.3)
         api("androidx.work:work-runtime-ktx:2.10.1")
 
+        // JSON serialization (required for WorkerResult.Success.data: JsonObject?)
+        implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+
         // Coroutines for async operations
         implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
 

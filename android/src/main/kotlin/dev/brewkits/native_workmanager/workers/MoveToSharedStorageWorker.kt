@@ -13,6 +13,8 @@ import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Worker that moves/copies a file from app-private storage to a shared public location.
@@ -118,12 +120,12 @@ class MoveToSharedStorageWorker(private val context: Context) : AndroidWorker {
             Log.d(TAG, "MediaStore insert success: $itemUri")
             WorkerResult.Success(
                 message = "Saved to shared storage",
-                data = mapOf(
-                    "uri" to itemUri.toString(),
-                    "fileName" to config.fileName,
-                    "storageType" to config.storageType,
-                    "mimeType" to config.mimeType
-                )
+                data = buildJsonObject {
+                    put("uri", itemUri.toString())
+                    put("fileName", config.fileName)
+                    put("storageType", config.storageType)
+                    if (config.mimeType != null) put("mimeType", config.mimeType)
+                }
             )
         } catch (e: Exception) {
             resolver.delete(itemUri, null, null)
@@ -152,11 +154,11 @@ class MoveToSharedStorageWorker(private val context: Context) : AndroidWorker {
             Log.d(TAG, "Legacy copy success: ${destFile.absolutePath}")
             WorkerResult.Success(
                 message = "Saved to shared storage (legacy)",
-                data = mapOf(
-                    "filePath" to destFile.absolutePath,
-                    "fileName" to config.fileName,
-                    "storageType" to config.storageType
-                )
+                data = buildJsonObject {
+                    put("filePath", destFile.absolutePath)
+                    put("fileName", config.fileName)
+                    put("storageType", config.storageType)
+                }
             )
         } catch (e: Exception) {
             Log.e(TAG, "Legacy copy failed: ${e.message}", e)

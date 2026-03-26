@@ -1,5 +1,8 @@
 import 'package:flutter/foundation.dart';
 import '../worker.dart';
+import 'request_signing.dart';
+
+export 'request_signing.dart';
 
 /// HTTP upload worker configuration.
 ///
@@ -17,6 +20,7 @@ final class HttpUploadWorker extends Worker {
     this.additionalFields = const {},
     this.timeout = const Duration(minutes: 5),
     this.useBackgroundSession = false,
+    this.requestSigning,
   });
 
   /// The URL to upload to.
@@ -76,6 +80,12 @@ final class HttpUploadWorker extends Worker {
   /// Default: `false` (backward compatible with existing code)
   final bool useBackgroundSession;
 
+  /// HMAC-SHA256 request signing configuration.
+  ///
+  /// When set, each upload request is signed with the specified secret key
+  /// and the signature is injected as a request header (default: `X-Signature`).
+  final RequestSigning? requestSigning;
+
   @override
   String get workerClassName => 'HttpUploadWorker';
 
@@ -91,5 +101,6 @@ final class HttpUploadWorker extends Worker {
         'additionalFields': additionalFields,
         'timeoutMs': timeout.inMilliseconds,
         'useBackgroundSession': useBackgroundSession,
+        if (requestSigning != null) 'requestSigning': requestSigning!.toMap(),
       };
 }
