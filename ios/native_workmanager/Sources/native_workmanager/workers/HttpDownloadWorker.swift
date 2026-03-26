@@ -1,5 +1,7 @@
 import Foundation
 import CryptoKit
+import Photos
+import ZIPFoundation
 
 /// Native HTTP file download worker for iOS.
 ///
@@ -38,7 +40,7 @@ import CryptoKit
 /// **Performance:** ~3-5MB RAM regardless of file size
 class HttpDownloadWorker: IosWorker {
 
-    private static let defaultTimeoutMs: Int64 = 300_000
+    // Timeout default lives in HttpConstants.downloadTimeoutMs
 
     struct Config: Codable {
         let url: String
@@ -51,8 +53,23 @@ class HttpDownloadWorker: IosWorker {
         let useBackgroundSession: Bool?
         let skipExisting: Bool?
 
+        // Sprint 1 - Feature 5: Advanced file handling
+        let onDuplicate: String?              // "overwrite" (default) | "rename" | "skip"
+        let moveToPublicDownloads: Bool?      // Copy to iOS Downloads folder after download
+        let saveToGallery: Bool?              // Save image/video to Photos library after download
+        let extractAfterDownload: Bool?       // Extract archive after download
+        let extractPath: String?              // Destination directory for extraction
+        let deleteArchiveAfterExtract: Bool?  // Delete archive after successful extraction
+
+        // Sprint 3 - Cookie support
+        let cookies: [String: String]?
+
+        // Sprint 3 - Auth layer
+        let authToken: String?
+        let authHeaderTemplate: String?       // Default: "Bearer {accessToken}"
+
         var timeout: TimeInterval {
-            TimeInterval((timeoutMs ?? HttpDownloadWorker.defaultTimeoutMs) / 1000)
+            TimeInterval((timeoutMs ?? HttpConstants.downloadTimeoutMs) / 1000)
         }
 
         var resumeEnabled: Bool {
@@ -60,13 +77,20 @@ class HttpDownloadWorker: IosWorker {
         }
 
         var effectiveChecksumAlgorithm: String {
-            checksumAlgorithm ?? "SHA-256"
+            checksumAlgorithm ?? HttpConstants.defaultChecksumAlgorithm
         }
 
         var shouldUseBackgroundSession: Bool { useBackgroundSession ?? false }
         var shouldSkipExisting: Bool { skipExisting ?? false }
         /// True when savePath is a directory (ends with `/`). Filename is resolved from server response.
         var isDirectory: Bool { savePath.hasSuffix("/") }
+
+        var effectiveOnDuplicate: String { onDuplicate ?? "overwrite" }
+        var effectiveMoveToPublicDownloads: Bool { moveToPublicDownloads ?? false }
+        var effectiveSaveToGallery: Bool { saveToGallery ?? false }
+        var effectiveExtractAfterDownload: Bool { extractAfterDownload ?? false }
+        var effectiveDeleteArchiveAfterExtract: Bool { deleteArchiveAfterExtract ?? false }
+        var effectiveAuthHeaderTemplate: String { authHeaderTemplate ?? HttpConstants.defaultAuthHeaderTemplate }
     }
 
     func doWork(input: String?) async throws -> WorkerResult {
@@ -80,6 +104,12 @@ class HttpDownloadWorker: IosWorker {
             print("HttpDownloadWorker: Error - Invalid UTF-8 encoding")
             return .failure(message: "Invalid input encoding")
         }
+
+        // Extract __taskId injected by the plugin for progress reporting.
+        // Parsed from raw JSON so the Config struct stays Codable-clean
+        // (same pattern as Android's HttpDownloadWorker).
+        let taskIdForProgress: String? = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+            .flatMap { $0["__taskId"] as? String }
 
         let config: Config
         do {
@@ -100,6 +130,25 @@ class HttpDownloadWorker: IosWorker {
             )
         }
 
+        // onDuplicate: pre-download check for known (non-directory) paths
+        if !config.isDirectory {
+            let duplicate = config.effectiveOnDuplicate
+            if duplicate == "skip" && FileManager.default.fileExists(atPath: config.savePath) {
+                print("HttpDownloadWorker: onDuplicate=skip and file exists — skipping")
+                let size = (try? FileManager.default.attributesOfItem(atPath: config.savePath))?[.size] as? Int64 ?? 0
+                return .success(
+                    message: "File already exists, download skipped (onDuplicate=skip)",
+                    data: ["filePath": config.savePath, "fileSize": size, "skipped": true]
+                )
+            } else if duplicate == "overwrite" {
+                // Remove existing file so the download can overwrite it (existing behaviour)
+                if FileManager.default.fileExists(atPath: config.savePath) {
+                    try? FileManager.default.removeItem(atPath: config.savePath)
+                }
+            }
+            // "rename" is handled when the file is moved to its final destination (see resolveDestination)
+        }
+
         // ✅ SECURITY: Validate URL scheme (prevent file://, ftp://, etc.)
         guard let url = SecurityValidator.validateURL(config.url) else {
             print("HttpDownloadWorker: Error - Invalid or unsafe URL")
@@ -118,7 +167,7 @@ class HttpDownloadWorker: IosWorker {
             ? config.savePath + "download"
             : config.savePath)
         var tempURL = URL(fileURLWithPath: config.isDirectory
-            ? config.savePath + "__pending__.tmp"
+            ? config.savePath + HttpConstants.pendingTmpFilename
             : config.savePath + ".tmp")
 
         // Create directory (or parent directory) if needed
@@ -169,16 +218,42 @@ class HttpDownloadWorker: IosWorker {
 
         // 👇 NEW: Add Range header if resuming
         if existingBytes > 0 {
-            request.setValue("bytes=\(existingBytes)-", forHTTPHeaderField: "Range")
+            request.setValue("bytes=\(existingBytes)-", forHTTPHeaderField: HttpConstants.headerRange)
+            // If-Range: only honour the Range if the file hasn't changed on the server.
+            // Prevents silently producing a corrupt merged file when CDN rotates ETags.
+            let etagSidecar = URL(fileURLWithPath: config.savePath + HttpConstants.etagSidecarSuffix)
+            if let stored = try? String(contentsOf: etagSidecar, encoding: .utf8), !stored.isEmpty {
+                request.setValue(stored.trimmingCharacters(in: .whitespacesAndNewlines),
+                                 forHTTPHeaderField: HttpConstants.headerIfRange)
+            }
             print("HttpDownloadWorker: Resuming download from byte \(existingBytes)")
         }
 
-        // Add headers
+        // Add custom headers
         if let headers = config.headers {
             for (key, value) in headers {
                 request.setValue(value, forHTTPHeaderField: key)
             }
         }
+
+        // Sprint 3: Cookie support
+        if let cookies = config.cookies, !cookies.isEmpty {
+            let cookieHeader = cookies.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
+            request.addValue(cookieHeader, forHTTPHeaderField: HttpConstants.headerCookie)
+        }
+
+        // Sprint 3: Auth layer
+        if let authToken = config.authToken {
+            let headerValue = config.effectiveAuthHeaderTemplate
+                .replacingOccurrences(of: "{accessToken}", with: authToken)
+            request.addValue(headerValue, forHTTPHeaderField: HttpConstants.headerAuthorization)
+        }
+
+        // Sprint 2: per-host concurrency — block here until a permit is available.
+        // The permit is released after the download completes (success, failure, or skip).
+        let host = URL(string: config.url)?.host ?? config.url
+        HostConcurrencyManager.shared.acquire(host: host)
+        defer { HostConcurrencyManager.shared.release(host: host) }
 
         // Execute download using background session or foreground session
         if config.shouldUseBackgroundSession {
@@ -195,7 +270,14 @@ class HttpDownloadWorker: IosWorker {
 
         // Execute download using foreground session (iOS 13+ compatible)
         return await withCheckedContinuation { continuation in
-            let task = URLSession.shared.downloadTask(with: request) { location, response, error in
+            // Declared before the task so the completion handler can capture it by reference,
+            // keeping the KVO observer alive for the full duration of the download.
+            var progressObserver: NSKeyValueObservation?
+
+            let task = URLSession.shared.downloadTask(with: request) { [self] location, response, error in
+                // Invalidate progress observer once the download finishes.
+                progressObserver?.invalidate()
+                progressObserver = nil
                 // Handle errors
                 if let error = error {
                     print("HttpDownloadWorker: Error - \(error.localizedDescription)")
@@ -214,9 +296,20 @@ class HttpDownloadWorker: IosWorker {
                 let statusCode = httpResponse.statusCode
 
                 // 👇 NEW: Handle both full content (200) and partial content (206)
-                let isPartialContent = statusCode == 206
+                let isPartialContent = statusCode == HttpConstants.partialContent
                 let isFullContent = (200..<300).contains(statusCode)
                 let isResumingDownload = existingBytes > 0 && isPartialContent
+
+                // 416 Range Not Satisfiable: our .tmp is stale (server file changed). Delete and signal retry.
+                if statusCode == HttpConstants.rangeNotSatisfiable {
+                    print("HttpDownloadWorker: 416 Range Not Satisfiable — deleting stale .tmp, restart on retry")
+                    try? FileManager.default.removeItem(at: tempURL)
+                    try? FileManager.default.removeItem(atPath: config.savePath + HttpConstants.etagSidecarSuffix)
+                    continuation.resume(returning: .failure(
+                        message: "Resume position invalid (file may have changed). Retry to restart download."
+                    ))
+                    return
+                }
 
                 if !isPartialContent && !isFullContent {
                     print("HttpDownloadWorker: Failed - Status \(statusCode)")
@@ -247,9 +340,10 @@ class HttpDownloadWorker: IosWorker {
                 // Log resume status
                 if isResumingDownload {
                     print("HttpDownloadWorker: Resume confirmed - Server sent 206 Partial Content")
-                } else if existingBytes > 0 && statusCode == 200 {
+                } else if existingBytes > 0 && statusCode == HttpConstants.httpOk {
                     print("HttpDownloadWorker: Server doesn't support resume - Starting from beginning")
-                    try? FileManager.default.removeItem(at: tempURL) // Server sent full content, delete partial file
+                    try? FileManager.default.removeItem(at: tempURL)
+                    try? FileManager.default.removeItem(atPath: config.savePath + HttpConstants.etagSidecarSuffix)
                 }
 
                 // 👇 Feature 4: Resolve filename from Content-Disposition or URL when savePath is a directory
@@ -286,11 +380,21 @@ class HttpDownloadWorker: IosWorker {
                             let destHandle = try FileHandle(forWritingTo: tempURL)
                             defer { try? destHandle.close() }
                             destHandle.seekToEndOfFile()
-                            let bufferSize = 65_536 // 64 KB chunks
-                            while true {
-                                let chunk = chunkHandle.readData(ofLength: bufferSize)
-                                if chunk.isEmpty { break }
-                                destHandle.write(chunk)
+                            let bufferSize = HttpConstants.resumeChunkSize
+                            if #available(iOS 13.4, *) {
+                                // Use throwing API — guards against disk-full / memory-pressure ObjC exceptions
+                                while true {
+                                    guard let chunk = try chunkHandle.read(upToCount: bufferSize),
+                                          !chunk.isEmpty else { break }
+                                    try destHandle.write(contentsOf: chunk)
+                                }
+                            } else {
+                                // Legacy ObjC bridge (iOS 13.0–13.3); rare ObjC exceptions not catchable in Swift
+                                while true {
+                                    let chunk = chunkHandle.readData(ofLength: bufferSize)
+                                    if chunk.isEmpty { break }
+                                    destHandle.write(chunk)
+                                }
                             }
                         } catch {
                             try? FileManager.default.removeItem(at: location)
@@ -302,6 +406,14 @@ class HttpDownloadWorker: IosWorker {
                         // Fresh download: move to temp location
                         try? FileManager.default.removeItem(at: tempURL) // Remove old temp if exists
                         try FileManager.default.moveItem(at: location, to: tempURL)
+                        // Save ETag/Last-Modified for If-Range validation on future resume attempts
+                        if !isResumingDownload {
+                            let etag = httpResponse.value(forHTTPHeaderField: HttpConstants.headerETag)
+                                ?? httpResponse.value(forHTTPHeaderField: HttpConstants.headerLastModified)
+                            if let etag = etag {
+                                try? etag.write(toFile: config.savePath + HttpConstants.etagSidecarSuffix, atomically: true, encoding: .utf8)
+                            }
+                        }
                     }
 
                     // Get final file size
@@ -336,14 +448,25 @@ class HttpDownloadWorker: IosWorker {
                     let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type")
                     let finalURL = httpResponse.url?.absoluteString ?? config.url
 
-                    // Remove destination if exists
-                    try? FileManager.default.removeItem(at: destinationURL)
+                    // onDuplicate=rename: find a free filename before placing the file
+                    if config.effectiveOnDuplicate == "rename" {
+                        destinationURL = self.resolveRenamedURL(destinationURL)
+                    } else {
+                        // Remove destination if exists (overwrite path)
+                        try? FileManager.default.removeItem(at: destinationURL)
+                    }
 
                     // Then rename to final destination (atomic)
                     try FileManager.default.moveItem(at: tempURL, to: destinationURL)
 
+                    // Clean up ETag sidecar after successful download
+                    try? FileManager.default.removeItem(atPath: config.savePath + HttpConstants.etagSidecarSuffix)
+
                     print("HttpDownloadWorker: Success - Downloaded \(finalFileSize) bytes")
                     print("HttpDownloadWorker: Saved to: \(destinationURL.path)")
+
+                    // Post-download actions
+                    self.performPostDownloadActions(config: config, filePath: destinationURL.path)
 
                     // ✅ Return success with rich data
                     var resultData: [String: Any] = [
@@ -365,6 +488,30 @@ class HttpDownloadWorker: IosWorker {
                     continuation.resume(returning: .failure(message: "Failed to move file: \(error.localizedDescription)"))
                 }
             }
+            // Track progress via KVO on URLSessionDownloadTask.progress (iOS 11+).
+            // Mirrors Android's ProgressResponseBody: smoothed speed + ETA forwarded
+            // to Flutter via ProgressReporter.
+            if let reportTaskId = taskIdForProgress {
+                let fileName = URL(fileURLWithPath: config.savePath).lastPathComponent
+                let speedTracker = DownloadSpeedTracker()
+                progressObserver = task.progress.observe(\.fractionCompleted, options: [.new]) { progress, _ in
+                    guard progress.totalUnitCount > 0 else { return }
+                    let pct = Int(progress.fractionCompleted * 100)
+                    let downloaded = progress.completedUnitCount
+                    let total = progress.totalUnitCount
+                    let (speed, eta) = speedTracker.update(bytesNow: downloaded, totalBytes: total)
+                    ProgressReporter.shared.report(
+                        taskId: reportTaskId,
+                        progress: pct,
+                        message: "Downloading \(fileName)…",
+                        bytesDownloaded: downloaded,
+                        totalBytes: total,
+                        networkSpeed: speed,
+                        timeRemainingMs: eta
+                    )
+                }
+            }
+
             task.resume()
         }
     }
@@ -459,6 +606,105 @@ class HttpDownloadWorker: IosWorker {
                     print("HttpDownloadWorker: Background download failed - \(error.localizedDescription)")
                     continuation.resume(returning: .failure(message: "Background download failed: \(error.localizedDescription)"))
                 }
+            }
+        }
+    }
+
+    // MARK: - Post-download actions
+
+    /// Resolve a free filename by appending _1, _2, … when `onDuplicate=rename`.
+    func resolveRenamedURL(_ url: URL) -> URL {
+        guard FileManager.default.fileExists(atPath: url.path) else { return url }
+        let dir = url.deletingLastPathComponent()
+        let base = url.deletingPathExtension().lastPathComponent
+        let ext = url.pathExtension
+        var index = 1
+        var candidate = url
+        repeat {
+            let newName = ext.isEmpty ? "\(base)_\(index)" : "\(base)_\(index).\(ext)"
+            candidate = dir.appendingPathComponent(newName)
+            index += 1
+        } while FileManager.default.fileExists(atPath: candidate.path)
+        return candidate
+    }
+
+    /// Run optional post-download actions: saveToGallery, moveToPublicDownloads, extractAfterDownload.
+    private func performPostDownloadActions(config: Config, filePath: String) {
+        let fileURL = URL(fileURLWithPath: filePath)
+
+        // saveToGallery: save image or video to the Photos library
+        if config.effectiveSaveToGallery {
+            let ext = fileURL.pathExtension.lowercased()
+            if ["jpg", "jpeg", "png", "gif", "heic"].contains(ext) {
+                PHPhotoLibrary.shared().performChanges({
+                    PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: fileURL)
+                }, completionHandler: { success, error in
+                    if let error = error {
+                        print("HttpDownloadWorker: saveToGallery image error: \(error.localizedDescription)")
+                    } else if success {
+                        print("HttpDownloadWorker: Image saved to gallery")
+                    }
+                })
+            } else if ["mp4", "mov", "m4v"].contains(ext) {
+                PHPhotoLibrary.shared().performChanges({
+                    PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: fileURL)
+                }, completionHandler: { success, error in
+                    if let error = error {
+                        print("HttpDownloadWorker: saveToGallery video error: \(error.localizedDescription)")
+                    } else if success {
+                        print("HttpDownloadWorker: Video saved to gallery")
+                    }
+                })
+            }
+        }
+
+        // moveToPublicDownloads: copy to the iOS Downloads folder (visible in Files app)
+        if config.effectiveMoveToPublicDownloads {
+            if let downloadsDir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first {
+                let destURL = downloadsDir.appendingPathComponent(fileURL.lastPathComponent)
+                do {
+                    // Overwrite if already present
+                    if FileManager.default.fileExists(atPath: destURL.path) {
+                        try FileManager.default.removeItem(at: destURL)
+                    }
+                    try FileManager.default.copyItem(at: fileURL, to: destURL)
+                    print("HttpDownloadWorker: Copied to public Downloads: \(destURL.path)")
+                } catch {
+                    print("HttpDownloadWorker: moveToPublicDownloads error: \(error.localizedDescription)")
+                }
+            }
+        }
+
+        // extractAfterDownload: zip extraction using ZIPFoundation
+        if config.effectiveExtractAfterDownload {
+            let ext = fileURL.pathExtension.lowercased()
+            if ext == "zip" {
+                let extractDirURL: URL
+                if let path = config.extractPath, !path.isEmpty {
+                    extractDirURL = URL(fileURLWithPath: path)
+                } else {
+                    extractDirURL = fileURL.deletingLastPathComponent()
+                }
+
+                if !FileManager.default.fileExists(atPath: extractDirURL.path) {
+                    try? FileManager.default.createDirectory(at: extractDirURL, withIntermediateDirectories: true)
+                }
+
+                do {
+                    let resolvedZipURL = fileURL.resolvingSymlinksInPath()
+                    let resolvedDestURL = extractDirURL.resolvingSymlinksInPath()
+                    try FileManager.default.unzipItem(at: resolvedZipURL, to: resolvedDestURL)
+                    print("HttpDownloadWorker: Extracted zip to: \(extractDirURL.path)")
+
+                    if config.effectiveDeleteArchiveAfterExtract {
+                        try? FileManager.default.removeItem(at: fileURL)
+                        print("HttpDownloadWorker: Deleted archive after extraction")
+                    }
+                } catch {
+                    print("HttpDownloadWorker: extractAfterDownload failed: \(error.localizedDescription)")
+                }
+            } else {
+                print("HttpDownloadWorker: extractAfterDownload: unsupported archive type '.\(ext)', skipping")
             }
         }
     }
@@ -572,5 +818,38 @@ class HttpDownloadWorker: IosWorker {
             .replacingOccurrences(of: #"[/\\:*?"<>|]"#, with: "_", options: .regularExpression)
             .drop(while: { $0 == "." })
             .description
+    }
+}
+
+// MARK: - DownloadSpeedTracker
+
+/// Tracks smoothed download speed and estimated time remaining.
+///
+/// Uses an exponential moving average (α = 0.3) — the same formula as Android's
+/// `ProgressResponseBody` — so speed display is consistent on both platforms.
+private final class DownloadSpeedTracker {
+
+    private var lastBytes: Int64 = 0
+    private var lastTime: TimeInterval = Date().timeIntervalSince1970
+    private var smoothedSpeed: Double = 0   // bytes per second (EMA)
+
+    /// Update with the latest byte count and return (smoothedSpeed, etaMs).
+    ///
+    /// Returns `(nil, nil)` when not enough time has elapsed for a reliable sample.
+    func update(bytesNow: Int64, totalBytes: Int64) -> (speed: Double?, etaMs: Int64?) {
+        let now = Date().timeIntervalSince1970
+        let elapsed = now - lastTime
+        guard elapsed >= 0.5 else { return (smoothedSpeed > 0 ? smoothedSpeed : nil, nil) }
+
+        let instantSpeed = Double(bytesNow - lastBytes) / elapsed
+        smoothedSpeed = smoothedSpeed == 0 ? instantSpeed : 0.3 * instantSpeed + 0.7 * smoothedSpeed
+        lastBytes = bytesNow
+        lastTime = now
+
+        let eta: Int64? = smoothedSpeed > 0 && totalBytes > bytesNow
+            ? Int64(Double(totalBytes - bytesNow) / smoothedSpeed * 1000)
+            : nil
+
+        return (smoothedSpeed, eta)
     }
 }

@@ -55,7 +55,7 @@ void main() {
       );
 
       // Cancel the task
-      await NativeWorkManager.cancel('test_task_to_cancel');
+      await NativeWorkManager.cancel(taskId: 'test_task_to_cancel');
 
       developer.log('✅ KMP Integration Test: Task cancelled successfully');
     });

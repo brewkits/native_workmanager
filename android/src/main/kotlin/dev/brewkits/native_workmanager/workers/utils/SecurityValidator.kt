@@ -17,6 +17,13 @@ object SecurityValidator {
 
     private const val TAG = "SecurityValidator"
 
+    /**
+     * When true, plain HTTP URLs are rejected globally across all workers.
+     * Set by handleInitialize() when the Dart caller passes enforceHttps=true.
+     */
+    @Volatile
+    var enforceHttps: Boolean = false
+
     // MARK: - Constants
 
     /** Maximum allowed request body size (10MB) */
@@ -57,8 +64,12 @@ object SecurityValidator {
                 return false
             }
 
-            // ⚠️ Warning for non-HTTPS
+            // Reject plain HTTP when global HTTPS enforcement is enabled.
             if (scheme == "http") {
+                if (enforceHttps) {
+                    Log.e(TAG, "Plain HTTP rejected — enforceHttps=true. Use an HTTPS URL.")
+                    return false
+                }
                 Log.w(TAG, "WARNING - Using HTTP (unencrypted). Consider HTTPS for security.")
             }
 

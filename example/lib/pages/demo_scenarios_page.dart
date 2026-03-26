@@ -1642,14 +1642,14 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
       ),
     ]);
 
-    await NativeWorkManager.pauseByTag(tag);
+    await NativeWorkManager.pauseByTag(tag: tag);
     _showSnackbar('⏸️ Group "$tag" paused (2 tasks)');
 
     await Future<void>.delayed(const Duration(seconds: 1));
-    await NativeWorkManager.resumeByTag(tag);
+    await NativeWorkManager.resumeByTag(tag: tag);
     _showSnackbar('▶️ Group "$tag" resumed');
 
-    await NativeWorkManager.cancelByTag(tag);
+    await NativeWorkManager.cancelByTag(tag: tag);
   }
 
   Future<void> _demoPauseResumeAll() async {

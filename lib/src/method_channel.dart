@@ -48,6 +48,9 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
     int? callbackHandle,
     bool debugMode = false,
     int maxConcurrentTasks = 4,
+    int diskSpaceBufferMB = 20,
+    int cleanupAfterDays = 30,
+    bool enforceHttps = false,
   }) async {
     // Setup method call handler for Dart callbacks
     methodChannel.setMethodCallHandler(_handleMethodCall);
@@ -58,6 +61,9 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
     // Pass config to native side.
     final args = <String, dynamic>{
       'maxConcurrentTasks': maxConcurrentTasks,
+      'diskSpaceBufferMB': diskSpaceBufferMB,
+      'cleanupAfterDays': cleanupAfterDays,
+      'enforceHttps': enforceHttps,
     };
     if (callbackHandle != null) args['callbackHandle'] = callbackHandle;
     if (debugMode) args['debugMode'] = debugMode;
@@ -164,12 +170,12 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   }
 
   @override
-  Future<void> cancelByTag(String tag) async {
+  Future<void> cancelByTag({required String tag}) async {
     await methodChannel.invokeMethod<void>('cancelByTag', {'tag': tag});
   }
 
   @override
-  Future<List<String>> getTasksByTag(String tag) async {
+  Future<List<String>> getTasksByTag({required String tag}) async {
     final result = await methodChannel.invokeMethod<List<dynamic>>('getTasksByTag', {'tag': tag});
     return result?.cast<String>() ?? [];
   }
@@ -181,7 +187,7 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   }
 
   @override
-  Future<void> cancel(String taskId) async {
+  Future<void> cancel({required String taskId}) async {
     await methodChannel.invokeMethod<void>('cancel', {'taskId': taskId});
   }
 
@@ -191,7 +197,7 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   }
 
   @override
-  Future<TaskStatus?> getTaskStatus(String taskId) async {
+  Future<TaskStatus?> getTaskStatus({required String taskId}) async {
     final result = await methodChannel.invokeMethod<String?>(
       'getTaskStatus',
       {'taskId': taskId},
@@ -212,12 +218,12 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   }
 
   @override
-  Future<void> pauseTask(String taskId) async {
+  Future<void> pauseTask({required String taskId}) async {
     await methodChannel.invokeMethod<void>('pause', {'taskId': taskId});
   }
 
   @override
-  Future<void> resumeTask(String taskId) async {
+  Future<void> resumeTask({required String taskId}) async {
     await methodChannel.invokeMethod<void>('resume', {'taskId': taskId});
   }
 
@@ -271,6 +277,19 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
       level: 900, // WARNING
     );
     return ScheduleResult.accepted;
+  }
+
+  @override
+  Future<void> openFile(String path, {String? mimeType}) async {
+    await methodChannel.invokeMethod<void>('openFile', {
+      'filePath': path,
+      if (mimeType != null) 'mimeType': mimeType,
+    });
+  }
+
+  @override
+  Future<void> setMaxConcurrentPerHost(int max) async {
+    await methodChannel.invokeMethod<void>('setMaxConcurrentPerHost', {'max': max});
   }
 
   /// Dispose resources.

@@ -137,7 +137,7 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
 
       // Cancel the periodic task
-      await NativeWorkManager.cancel(taskId);
+      await NativeWorkManager.cancel(taskId: taskId);
     });
 
     /// Test 4: Task chain with expedited tasks

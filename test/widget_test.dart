@@ -147,7 +147,7 @@ void main() {
       );
 
       // Cancel it
-      await NativeWorkManager.cancel('test-cancel');
+      await NativeWorkManager.cancel(taskId: 'test-cancel');
       // Test passes if no exception thrown
     });
 
@@ -661,7 +661,7 @@ void main() {
     test('cancelByTag() sends correct tag to platform', () async {
       await NativeWorkManager.initialize();
 
-      await NativeWorkManager.cancelByTag('sync-group');
+      await NativeWorkManager.cancelByTag(tag: 'sync-group');
 
       expect(capturedTag, equals('sync-group'));
     });
@@ -670,7 +670,7 @@ void main() {
       await NativeWorkManager.initialize();
 
       expect(
-        () => NativeWorkManager.cancelByTag(''),
+        () => NativeWorkManager.cancelByTag(tag: ''),
         throwsArgumentError,
       );
     });
@@ -678,7 +678,7 @@ void main() {
     test('getTasksByTag() returns task list from platform', () async {
       await NativeWorkManager.initialize();
 
-      final tasks = await NativeWorkManager.getTasksByTag('upload');
+      final tasks = await NativeWorkManager.getTasksByTag(tag: 'upload');
 
       expect(capturedTag, equals('upload'));
       expect(tasks, equals(['task-1', 'task-2']));
@@ -688,7 +688,7 @@ void main() {
       await NativeWorkManager.initialize();
 
       expect(
-        () => NativeWorkManager.getTasksByTag(''),
+        () => NativeWorkManager.getTasksByTag(tag: ''),
         throwsArgumentError,
       );
     });
@@ -705,7 +705,7 @@ void main() {
     test('getTaskStatus() returns correct status from platform', () async {
       await NativeWorkManager.initialize();
 
-      final status = await NativeWorkManager.getTaskStatus('my-task');
+      final status = await NativeWorkManager.getTaskStatus(taskId: 'my-task');
 
       expect(capturedTaskId, equals('my-task'));
       expect(status, equals(TaskStatus.running));
@@ -725,7 +725,7 @@ void main() {
       });
 
       await NativeWorkManager.initialize();
-      final status = await NativeWorkManager.getTaskStatus('unknown-task');
+      final status = await NativeWorkManager.getTaskStatus(taskId: 'unknown-task');
 
       expect(status, isNull);
     });
@@ -748,7 +748,7 @@ void main() {
         });
 
         await NativeWorkManager.initialize();
-        final status = await NativeWorkManager.getTaskStatus('task');
+        final status = await NativeWorkManager.getTaskStatus(taskId: 'task');
         expect(status, equals(entry.value),
             reason: 'Failed to parse status "${entry.key}"');
       }

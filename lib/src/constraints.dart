@@ -844,6 +844,7 @@ class Constraints {
     this.exactAlarmIOSBehavior = ExactAlarmIOSBehavior.showNotification,
     this.backoffPolicy = BackoffPolicy.exponential,
     this.backoffDelayMs = 30000,
+    this.maxRetries = 3,
     this.systemConstraints = const {},
     this.bgTaskType,
     this.foregroundServiceType,
@@ -931,6 +932,21 @@ class Constraints {
   ///
   /// Default: 30,000ms (30 seconds)
   final int backoffDelayMs;
+
+  /// Maximum number of retry attempts when a task fails.
+  ///
+  /// **Android**: Maps to WorkManager's `setInputMerger` / run-attempt cap.
+  /// Retries follow [backoffPolicy] and [backoffDelayMs].
+  ///
+  /// **iOS**: Implemented natively in the plugin's execution layer.
+  /// Each retry respects [backoffPolicy] and [backoffDelayMs].
+  ///
+  /// - `0` — no retry (fail immediately on first failure)
+  /// - `1` — try once, retry once = up to 2 total attempts
+  /// - `3` — try once, retry up to 3 times = up to 4 total attempts (default)
+  ///
+  /// Default: 3
+  final int maxRetries;
 
   /// System-level constraints for task execution (Android only).
   ///
@@ -1143,6 +1159,7 @@ class Constraints {
         'exactAlarmIOSBehavior': exactAlarmIOSBehavior.name,
         'backoffPolicy': backoffPolicy.name,
         'backoffDelayMs': backoffDelayMs,
+        'maxRetries': maxRetries,
         'systemConstraints': systemConstraints.map((c) => c.name).toList(),
         'bgTaskType': bgTaskType?.name,
         'foregroundServiceType': foregroundServiceType?.name,
@@ -1172,6 +1189,7 @@ class Constraints {
           orElse: () => BackoffPolicy.exponential,
         ),
         backoffDelayMs: map['backoffDelayMs'] as int? ?? 30000,
+        maxRetries: map['maxRetries'] as int? ?? 3,
         systemConstraints: (map['systemConstraints'] as List<dynamic>?)
                 ?.map((name) => SystemConstraint.values.where(
                       (e) => e.name == name,
@@ -1205,6 +1223,7 @@ class Constraints {
     ExactAlarmIOSBehavior? exactAlarmIOSBehavior,
     BackoffPolicy? backoffPolicy,
     int? backoffDelayMs,
+    int? maxRetries,
     Set<SystemConstraint>? systemConstraints,
     BGTaskType? bgTaskType,
     ForegroundServiceType? foregroundServiceType,
@@ -1226,6 +1245,7 @@ class Constraints {
             exactAlarmIOSBehavior ?? this.exactAlarmIOSBehavior,
         backoffPolicy: backoffPolicy ?? this.backoffPolicy,
         backoffDelayMs: backoffDelayMs ?? this.backoffDelayMs,
+        maxRetries: maxRetries ?? this.maxRetries,
         systemConstraints: systemConstraints ?? this.systemConstraints,
         bgTaskType: bgTaskType ?? this.bgTaskType,
         foregroundServiceType:
@@ -1248,6 +1268,7 @@ class Constraints {
           exactAlarmIOSBehavior == other.exactAlarmIOSBehavior &&
           backoffPolicy == other.backoffPolicy &&
           backoffDelayMs == other.backoffDelayMs &&
+          maxRetries == other.maxRetries &&
           setEquals(systemConstraints, other.systemConstraints) &&
           bgTaskType == other.bgTaskType &&
           foregroundServiceType == other.foregroundServiceType;
@@ -1266,6 +1287,7 @@ class Constraints {
         exactAlarmIOSBehavior,
         backoffPolicy,
         backoffDelayMs,
+        maxRetries,
         Object.hashAll(systemConstraints),
         bgTaskType,
         foregroundServiceType,

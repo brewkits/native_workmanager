@@ -78,6 +78,8 @@ public class IosWorkerFactory {
             return HttpDownloadWorker()
         case "ParallelHttpDownloadWorker":
             return ParallelHttpDownloadWorker()
+        case "ParallelHttpUploadWorker":
+            return ParallelHttpUploadWorker()
         case "HttpSyncWorker":
             return HttpSyncWorker()
         case "DartCallbackWorker":

@@ -274,7 +274,7 @@ enum ExistingTaskPolicy {
 /// ## Checking Task Status
 ///
 /// ```dart
-/// final status = await NativeWorkManager.getTaskStatus('upload-photos');
+/// final status = await NativeWorkManager.getTaskStatus(taskId: 'upload-photos');
 ///
 /// switch (status) {
 ///   case TaskStatus.pending:
@@ -302,7 +302,7 @@ enum ExistingTaskPolicy {
 ///
 /// ```dart
 /// Future<void> checkUploads() async {
-///   final tasks = await NativeWorkManager.getTasksByTag('upload');
+///   final tasks = await NativeWorkManager.getTasksByTag(tag: 'upload');
 ///
 ///   final pending = tasks.where((t) => t.status == TaskStatus.pending).length;
 ///   final running = tasks.where((t) => t.status == TaskStatus.running).length;

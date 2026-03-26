@@ -12,20 +12,41 @@ class KMPBridge {
 
     private init() {}
 
-    /// Initialize KMP WorkManager with direct NativeTaskScheduler
-    /// This approach avoids Koin complexity and directly instantiates the scheduler
-    func initialize() {
+    /// Initialize KMP WorkManager with direct NativeTaskScheduler.
+    ///
+    /// - Parameter diskSpaceBufferMB: Minimum free disk space (in MB) that must
+    ///   remain after a download. Defaults to `diskSpaceBufferBytes` constant.
+    ///   Injected from Flutter's `NativeWorkManager.initialize(diskSpaceBufferMB:)`.
+    func initialize(diskSpaceBufferMB: Int = 20) {
         guard !isInitialized else {
             print("✅ KMPBridge: Already initialized")
             return
         }
 
+        let bufferBytes = Int64(diskSpaceBufferMB) * 1024 * 1024
+
         // Create NativeTaskScheduler directly
         // additionalPermittedTaskIds is empty - Info.plist is the primary source
-        scheduler = NativeTaskScheduler(additionalPermittedTaskIds: [])
+        scheduler = NativeTaskScheduler(additionalPermittedTaskIds: [],
+                                        diskSpaceBufferBytes: bufferBytes)
 
         isInitialized = true
         print("✅ KMPBridge: Initialized with NativeTaskScheduler from kmpworkmanager v2.3.3")
+    }
+
+    /// Re-initialize the KMP scheduler with a new disk-space buffer.
+    ///
+    /// Called from `handleInitialize` when the Flutter app provides a custom
+    /// `diskSpaceBufferMB` value. This recreates the `NativeTaskScheduler` so
+    /// the new buffer takes effect without requiring a full app restart.
+    ///
+    /// BGTaskScheduler handlers are NOT re-registered here — they remain from
+    /// the initial `initialize()` call in `register(with:)`.
+    func reinitialize(diskSpaceBufferMB: Int) {
+        let bufferBytes = Int64(diskSpaceBufferMB) * 1024 * 1024
+        scheduler = NativeTaskScheduler(additionalPermittedTaskIds: [],
+                                        diskSpaceBufferBytes: bufferBytes)
+        NativeLogger.d("KMPBridge: scheduler recreated with diskSpaceBuffer=\(diskSpaceBufferMB)MB")
     }
 
     /// Check if KMP is initialized and scheduler is available

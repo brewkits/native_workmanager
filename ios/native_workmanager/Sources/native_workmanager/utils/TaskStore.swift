@@ -156,6 +156,42 @@ final class TaskStore {
         }
     }
 
+    /// Delete terminal-state tasks older than [olderThanMs] milliseconds.
+    ///
+    /// Call on initialize() to auto-prune the task store and prevent unbounded growth.
+    func deleteCompleted(olderThanMs: Int64 = 0) {
+        let threshold = olderThanMs > 0
+            ? Int64(Date().timeIntervalSince1970 * 1000) - olderThanMs
+            : Int64.max
+        queue.async(flags: .barrier) {
+            let sql = "DELETE FROM tasks WHERE status IN ('completed','failed','cancelled') AND updated_at < ?"
+            if let stmt = self.prepare(sql) {
+                sqlite3_bind_int64(stmt, 1, threshold)
+                sqlite3_step(stmt)
+                sqlite3_finalize(stmt)
+            }
+        }
+    }
+
+    /// Returns a sanitized copy of a JSON worker-config string with sensitive
+    /// fields (auth tokens, cookies) removed before persisting to disk.
+    ///
+    /// Sensitive keys stripped: `authToken`, `cookies`, `password`, `secret`.
+    /// The worker runtime always receives the full in-memory config; only the
+    /// persisted (SQLite) copy is sanitized.
+    static func sanitizeConfig(_ json: String?) -> String? {
+        guard let json = json,
+              let data = json.data(using: .utf8),
+              var dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return json
+        }
+        let sensitiveKeys: Set<String> = ["authToken", "cookies", "password", "secret"]
+        sensitiveKeys.forEach { dict.removeValue(forKey: $0) }
+        guard let sanitized = try? JSONSerialization.data(withJSONObject: dict),
+              let result = String(data: sanitized, encoding: .utf8) else { return json }
+        return result
+    }
+
     // MARK: - Helpers
 
     private func prepare(_ sql: String) -> OpaquePointer? {

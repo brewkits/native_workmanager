@@ -1,6 +1,18 @@
 import 'package:flutter/foundation.dart';
 import '../worker.dart';
 
+/// What to do if the destination file already exists.
+enum DuplicatePolicy {
+  /// Overwrite the existing file (default).
+  overwrite,
+
+  /// Rename the new file to avoid collision (e.g. `file_1.zip`).
+  rename,
+
+  /// Skip the download entirely and report success.
+  skip,
+}
+
 /// HTTP download worker configuration.
 ///
 /// Supports automatic resume from last downloaded byte on network failure,
@@ -20,6 +32,16 @@ final class HttpDownloadWorker extends Worker {
     this.notificationTitle,
     this.notificationBody,
     this.skipExisting = false,
+    this.allowPause = false,
+    this.cookies,
+    this.authToken,
+    this.authHeaderTemplate = 'Bearer {accessToken}',
+    this.onDuplicate = DuplicatePolicy.overwrite,
+    this.moveToPublicDownloads = false,
+    this.saveToGallery = false,
+    this.extractAfterDownload = false,
+    this.extractPath,
+    this.deleteArchiveAfterExtract = false,
   });
 
   /// The URL to download from.
@@ -136,6 +158,163 @@ final class HttpDownloadWorker extends Worker {
   /// Default: `false`
   final bool skipExisting;
 
+  /// Allow the task to be paused via [NativeWorkManager.pause]. When false
+  /// (default), the Pause button is hidden from the download notification.
+  final bool allowPause;
+
+  /// HTTP cookies to include in the download request. Keys are cookie names,
+  /// values are cookie values.
+  final Map<String, String>? cookies;
+
+  /// Auth token for the download request. Injected into the header as
+  /// [authHeaderTemplate] with `{accessToken}` replaced by this value.
+  final String? authToken;
+
+  /// Template for the `Authorization` header value.
+  ///
+  /// `{accessToken}` is replaced with [authToken] at request time.
+  /// Default: `"Bearer {accessToken}"`
+  final String authHeaderTemplate;
+
+  /// What to do if the destination file already exists.
+  final DuplicatePolicy onDuplicate;
+
+  /// Move the completed download into the public Downloads folder.
+  final bool moveToPublicDownloads;
+
+  /// Save the completed download to the device gallery (images/videos).
+  final bool saveToGallery;
+
+  /// Automatically extract the downloaded archive after a successful download.
+  final bool extractAfterDownload;
+
+  /// Directory to extract the archive into. Defaults to the directory
+  /// containing [savePath] when null.
+  final String? extractPath;
+
+  /// Delete the archive file after successful extraction.
+  final bool deleteArchiveAfterExtract;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BUILDER-STYLE copyWith — avoids parameter explosion at call sites
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Returns a copy of this worker with the given fields replaced.
+  ///
+  /// Enables a fluent builder-style API without a separate builder class:
+  ///
+  /// ```dart
+  /// final base = HttpDownloadWorker(url: '...', savePath: '...');
+  ///
+  /// final withNotification = base.copyWith(
+  ///   showNotification: true,
+  ///   notificationTitle: 'Downloading update…',
+  ///   allowPause: true,
+  /// );
+  ///
+  /// final withResume = withNotification.copyWith(
+  ///   enableResume: true,
+  ///   onDuplicate: DuplicatePolicy.rename,
+  /// );
+  /// ```
+  HttpDownloadWorker copyWith({
+    String? url,
+    String? savePath,
+    Map<String, String>? headers,
+    Duration? timeout,
+    bool? enableResume,
+    String? expectedChecksum,
+    String? checksumAlgorithm,
+    bool? useBackgroundSession,
+    bool? showNotification,
+    String? notificationTitle,
+    String? notificationBody,
+    bool? skipExisting,
+    bool? allowPause,
+    Map<String, String>? cookies,
+    String? authToken,
+    String? authHeaderTemplate,
+    DuplicatePolicy? onDuplicate,
+    bool? moveToPublicDownloads,
+    bool? saveToGallery,
+    bool? extractAfterDownload,
+    String? extractPath,
+    bool? deleteArchiveAfterExtract,
+  }) {
+    return HttpDownloadWorker(
+      url: url ?? this.url,
+      savePath: savePath ?? this.savePath,
+      headers: headers ?? this.headers,
+      timeout: timeout ?? this.timeout,
+      enableResume: enableResume ?? this.enableResume,
+      expectedChecksum: expectedChecksum ?? this.expectedChecksum,
+      checksumAlgorithm: checksumAlgorithm ?? this.checksumAlgorithm,
+      useBackgroundSession: useBackgroundSession ?? this.useBackgroundSession,
+      showNotification: showNotification ?? this.showNotification,
+      notificationTitle: notificationTitle ?? this.notificationTitle,
+      notificationBody: notificationBody ?? this.notificationBody,
+      skipExisting: skipExisting ?? this.skipExisting,
+      allowPause: allowPause ?? this.allowPause,
+      cookies: cookies ?? this.cookies,
+      authToken: authToken ?? this.authToken,
+      authHeaderTemplate: authHeaderTemplate ?? this.authHeaderTemplate,
+      onDuplicate: onDuplicate ?? this.onDuplicate,
+      moveToPublicDownloads: moveToPublicDownloads ?? this.moveToPublicDownloads,
+      saveToGallery: saveToGallery ?? this.saveToGallery,
+      extractAfterDownload: extractAfterDownload ?? this.extractAfterDownload,
+      extractPath: extractPath ?? this.extractPath,
+      deleteArchiveAfterExtract:
+          deleteArchiveAfterExtract ?? this.deleteArchiveAfterExtract,
+    );
+  }
+
+  /// Convenience: enable notification with sensible defaults.
+  ///
+  /// ```dart
+  /// worker.withNotification(title: 'Downloading...', allowPause: true)
+  /// ```
+  HttpDownloadWorker withNotification({
+    String? title,
+    String? body,
+    bool allowPause = false,
+  }) =>
+      copyWith(
+        showNotification: true,
+        notificationTitle: title,
+        notificationBody: body,
+        allowPause: allowPause,
+      );
+
+  /// Convenience: set authentication token.
+  ///
+  /// ```dart
+  /// worker.withAuth(token: myToken)
+  /// worker.withAuth(token: myApiKey, template: 'ApiKey {accessToken}')
+  /// ```
+  HttpDownloadWorker withAuth({
+    required String token,
+    String template = 'Bearer {accessToken}',
+  }) =>
+      copyWith(authToken: token, authHeaderTemplate: template);
+
+  /// Convenience: enable resume + skip-existing policy.
+  HttpDownloadWorker withResume({bool skipIfExists = false}) => copyWith(
+        enableResume: true,
+        skipExisting: skipIfExists,
+      );
+
+  /// Convenience: verify download integrity with a checksum.
+  ///
+  /// ```dart
+  /// worker.withChecksum(expected: sha256Hex)  // defaults to SHA-256
+  /// worker.withChecksum(expected: md5Hex, algorithm: 'MD5')
+  /// ```
+  HttpDownloadWorker withChecksum({
+    required String expected,
+    String algorithm = 'SHA-256',
+  }) =>
+      copyWith(expectedChecksum: expected, checksumAlgorithm: algorithm);
+
   @override
   String get workerClassName => 'HttpDownloadWorker';
 
@@ -154,5 +333,15 @@ final class HttpDownloadWorker extends Worker {
         'showNotification': showNotification,
         if (notificationTitle != null) 'notificationTitle': notificationTitle,
         if (notificationBody != null) 'notificationBody': notificationBody,
+        'allowPause': allowPause,
+        if (cookies != null) 'cookies': cookies,
+        if (authToken != null) 'authToken': authToken,
+        'authHeaderTemplate': authHeaderTemplate,
+        'onDuplicate': onDuplicate.name,
+        'moveToPublicDownloads': moveToPublicDownloads,
+        'saveToGallery': saveToGallery,
+        'extractAfterDownload': extractAfterDownload,
+        if (extractPath != null) 'extractPath': extractPath,
+        'deleteArchiveAfterExtract': deleteArchiveAfterExtract,
       };
 }

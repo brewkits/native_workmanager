@@ -5,6 +5,7 @@ import android.util.Log
 import io.flutter.FlutterInjector
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.dart.DartExecutor
+import dev.brewkits.native_workmanager.workers.utils.ProgressReporter
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.FlutterCallbackInformation
 import kotlinx.coroutines.CompletableDeferred
@@ -146,6 +147,9 @@ object FlutterEngineManager {
 
         } catch (e: Exception) {
             Log.e(TAG, "Error executing Dart callback", e)
+            // Always dispose on any error (including TimeoutCancellationException) — prevents zombie
+            // engines that hold ~50 MB of RAM indefinitely after a hung or timed-out Dart task.
+            try { dispose() } catch (_: Exception) {}
             false
         }
     }
@@ -210,6 +214,17 @@ object FlutterEngineManager {
                     "dartReady" -> {
                         Log.d(TAG, "Dart side ready")
                         readyDeferred.complete(Unit)
+                        result.success(null)
+                    }
+                    // Progress reports emitted from inside a DartWorker callback.
+                    // The Dart side calls MethodChannel('dev.brewkits/dart_worker_channel')
+                    // .invokeMethod('reportProgress', {...}) which arrives here and is
+                    // forwarded to the shared ProgressReporter → Flutter EventChannel.
+                    "reportProgress" -> {
+                        val taskId  = call.argument<String>("taskId") ?: ""
+                        val progress = call.argument<Int>("progress") ?: 0
+                        val message  = call.argument<String>("message")
+                        ProgressReporter.reportProgressNonBlocking(taskId, progress, message)
                         result.success(null)
                     }
                     else -> result.notImplemented()

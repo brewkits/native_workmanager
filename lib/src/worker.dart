@@ -23,8 +23,23 @@ enum CompressionLevel {
 }
 
 /// Base class for all worker configurations.
+///
+/// All built-in workers (HttpDownloadWorker, FileCompressWorker, etc.) extend
+/// this sealed class, enabling exhaustive switch/pattern matching at call sites:
+///
+/// ```dart
+/// switch (worker) {
+///   case HttpDownloadWorker w => print('Download: ${w.url}'),
+///   case DartWorker w        => print('Dart callback: ${w.callbackId}'),
+///   // compiler warns if a subtype is unhandled
+/// }
+/// ```
+///
+/// Custom native workers use [CustomNativeWorker], which is also a subtype of
+/// this class. You CANNOT directly extend [Worker] outside this library — use
+/// [CustomNativeWorker] to register user-defined native workers.
 @immutable
-abstract base class Worker {
+sealed class Worker {
   const Worker();
 
   /// Convert to map for platform channel.
@@ -853,6 +868,16 @@ class NativeWorker {
     String checksumAlgorithm = 'SHA-256',
     bool useBackgroundSession = false,
     bool skipExisting = false,
+    bool allowPause = false,
+    Map<String, String>? cookies,
+    String? authToken,
+    String authHeaderTemplate = 'Bearer {accessToken}',
+    DuplicatePolicy onDuplicate = DuplicatePolicy.overwrite,
+    bool moveToPublicDownloads = false,
+    bool saveToGallery = false,
+    bool extractAfterDownload = false,
+    String? extractPath,
+    bool deleteArchiveAfterExtract = false,
   }) {
     _validateUrl(url);
     _validateFilePath(savePath, 'savePath');
@@ -906,6 +931,16 @@ class NativeWorker {
       checksumAlgorithm: checksumAlgorithm,
       useBackgroundSession: useBackgroundSession,
       skipExisting: skipExisting,
+      allowPause: allowPause,
+      cookies: cookies,
+      authToken: authToken,
+      authHeaderTemplate: authHeaderTemplate,
+      onDuplicate: onDuplicate,
+      moveToPublicDownloads: moveToPublicDownloads,
+      saveToGallery: saveToGallery,
+      extractAfterDownload: extractAfterDownload,
+      extractPath: extractPath,
+      deleteArchiveAfterExtract: deleteArchiveAfterExtract,
     );
   }
 

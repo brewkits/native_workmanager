@@ -12,6 +12,7 @@ import dev.brewkits.native_workmanager.workers.FileSystemWorker
 import dev.brewkits.native_workmanager.workers.HttpDownloadWorker
 import dev.brewkits.native_workmanager.workers.HttpRequestWorker
 import dev.brewkits.native_workmanager.workers.ParallelHttpDownloadWorker
+import dev.brewkits.native_workmanager.workers.ParallelHttpUploadWorker
 import dev.brewkits.native_workmanager.workers.HttpSyncWorker
 import dev.brewkits.native_workmanager.workers.HttpUploadWorker
 import dev.brewkits.native_workmanager.workers.ImageProcessWorker
@@ -79,6 +80,7 @@ class SimpleAndroidWorkerFactory(
             "HttpUploadWorker" -> HttpUploadWorker()
             "HttpDownloadWorker" -> HttpDownloadWorker()
             "ParallelHttpDownloadWorker" -> ParallelHttpDownloadWorker()
+            "ParallelHttpUploadWorker" -> ParallelHttpUploadWorker()
             "HttpSyncWorker" -> HttpSyncWorker()
             "FileCompressionWorker" -> FileCompressionWorker()
             "FileDecompressionWorker" -> FileDecompressionWorker()

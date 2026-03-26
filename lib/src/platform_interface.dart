@@ -34,10 +34,23 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
   /// [maxConcurrentTasks] - Maximum number of worker tasks that may run
   /// simultaneously. Defaults to 4. On iOS this is enforced by a semaphore
   /// in the plugin; on Android WorkManager's own thread pool handles it.
+  ///
+  /// [diskSpaceBufferMB] - Minimum free disk space (in MB) the OS must have
+  /// before any download worker is allowed to run. Defaults to 20 MB.
+  ///
+  /// [cleanupAfterDays] - Automatically delete completed/failed/cancelled task
+  /// records older than this many days on each initialize(). 0 = disabled.
+  /// Defaults to 30 days to prevent unbounded SQLite growth.
+  ///
+  /// [enforceHttps] - When true, all HTTP workers reject plain-HTTP URLs and
+  /// only allow HTTPS. Defaults to false for backward compatibility.
   Future<void> initialize({
     int? callbackHandle,
     bool debugMode = false,
     int maxConcurrentTasks = 4,
+    int diskSpaceBufferMB = 20,
+    int cleanupAfterDays = 30,
+    bool enforceHttps = false,
   }) {
     throw UnimplementedError('initialize() has not been implemented.');
   }
@@ -55,12 +68,12 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
   }
 
   /// Cancel all tasks with a specific tag.
-  Future<void> cancelByTag(String tag) {
+  Future<void> cancelByTag({required String tag}) {
     throw UnimplementedError('cancelByTag() has not been implemented.');
   }
 
   /// Get all tasks with a specific tag.
-  Future<List<String>> getTasksByTag(String tag) {
+  Future<List<String>> getTasksByTag({required String tag}) {
     throw UnimplementedError('getTasksByTag() has not been implemented.');
   }
 
@@ -70,7 +83,7 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
   }
 
   /// Cancel a task by ID.
-  Future<void> cancel(String taskId) {
+  Future<void> cancel({required String taskId}) {
     throw UnimplementedError('cancel() has not been implemented.');
   }
 
@@ -80,7 +93,7 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
   }
 
   /// Get task status.
-  Future<TaskStatus?> getTaskStatus(String taskId) {
+  Future<TaskStatus?> getTaskStatus({required String taskId}) {
     throw UnimplementedError('getTaskStatus() has not been implemented.');
   }
 
@@ -100,12 +113,12 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
   }
 
   /// Pause a running task (best-effort; saves resume data where possible).
-  Future<void> pauseTask(String taskId) {
+  Future<void> pauseTask({required String taskId}) {
     throw UnimplementedError('pauseTask() has not been implemented.');
   }
 
   /// Resume a previously paused task.
-  Future<void> resumeTask(String taskId) {
+  Future<void> resumeTask({required String taskId}) {
     throw UnimplementedError('resumeTask() has not been implemented.');
   }
 
@@ -124,6 +137,25 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
     int timeoutMs = 30000,
   }) {
     throw UnimplementedError('getServerFilename() has not been implemented.');
+  }
+
+  /// Open a file with the OS default viewer/handler.
+  ///
+  /// On Android, uses `Intent.ACTION_VIEW` via `FileProvider`.
+  /// On iOS, presents a `UIDocumentInteractionController`.
+  ///
+  /// [path] — absolute path to the file.
+  /// [mimeType] — optional MIME type hint. If null, the OS infers from extension.
+  Future<void> openFile(String path, {String? mimeType}) {
+    throw UnimplementedError('openFile() has not been implemented.');
+  }
+
+  /// Set the maximum number of concurrent downloads per host.
+  ///
+  /// When multiple downloads target the same host, this limits how many run
+  /// simultaneously. Defaults to 2.
+  Future<void> setMaxConcurrentPerHost(int max) {
+    throw UnimplementedError('setMaxConcurrentPerHost() has not been implemented.');
   }
 
   /// Set the Dart callback executor.

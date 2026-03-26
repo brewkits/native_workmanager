@@ -200,7 +200,7 @@ void main() {
           reason: 'Delayed oneTime must be accepted');
 
       // Clean up before the delay elapses.
-      await NativeWorkManager.cancel(id);
+      await NativeWorkManager.cancel(taskId: id);
     });
 
     testWidgets(
@@ -259,14 +259,14 @@ void main() {
                 'Only 1 execution expected within 3s of a 15-min periodic task');
       } else {
         // Validate the task is still tracked as scheduled (not accidentally cancelled)
-        final status = await NativeWorkManager.getTaskStatus(id);
+        final status = await NativeWorkManager.getTaskStatus(taskId: id);
         expect(status, isNotNull,
             reason: 'Periodic task should still be tracked after enqueue');
         print('[periodic test] PASS – task is scheduled (execution skipped on emulator)');
       }
 
       await sub.cancel();
-      await NativeWorkManager.cancel(id);
+      await NativeWorkManager.cancel(taskId: id);
 
       // After cancel, no more events should arrive.
       await Future.delayed(const Duration(seconds: 2));
@@ -343,7 +343,7 @@ void main() {
       expect(r2, ScheduleResult.accepted,
           reason: 'KEEP must be accepted without error');
 
-      await NativeWorkManager.cancel(id);
+      await NativeWorkManager.cancel(taskId: id);
     });
   });
 
@@ -413,7 +413,7 @@ void main() {
       expect(result, ScheduleResult.accepted,
           reason: 'Linear backoff constraint must be accepted');
 
-      await NativeWorkManager.cancel(id);
+      await NativeWorkManager.cancel(taskId: id);
     });
 
     testWidgets('requiresCharging=false – runs without charger',
@@ -455,7 +455,7 @@ void main() {
       expect(result, ScheduleResult.accepted,
           reason: 'SystemConstraint must be accepted');
 
-      await NativeWorkManager.cancel(id);
+      await NativeWorkManager.cancel(taskId: id);
     });
   });
 
@@ -869,11 +869,11 @@ void main() {
         tag: tag,
       );
 
-      final tasks = await NativeWorkManager.getTasksByTag(tag);
+      final tasks = await NativeWorkManager.getTasksByTag(tag: tag);
       expect(tasks, containsAll([id1, id2]),
           reason: 'Both tagged tasks must appear in getTasksByTag');
 
-      await NativeWorkManager.cancelByTag(tag);
+      await NativeWorkManager.cancelByTag(tag: tag);
     });
 
     testWidgets('cancelByTag – cancels all tasks with that tag', (tester) async {
@@ -890,14 +890,14 @@ void main() {
       }
 
       // Verify tasks exist.
-      final before = await NativeWorkManager.getTasksByTag(tag);
+      final before = await NativeWorkManager.getTasksByTag(tag: tag);
       expect(before.length, equals(3),
           reason: '3 tasks must exist before cancelByTag');
 
-      await NativeWorkManager.cancelByTag(tag);
+      await NativeWorkManager.cancelByTag(tag: tag);
 
       // After cancel, the plugin's in-memory tag map is cleared.
-      final after = await NativeWorkManager.getTasksByTag(tag);
+      final after = await NativeWorkManager.getTasksByTag(tag: tag);
       expect(after, isEmpty, reason: 'No tasks must remain after cancelByTag');
     });
   });
@@ -920,7 +920,7 @@ void main() {
         worker: DartWorker(callbackId: 'dit_pass'),
       );
 
-      await NativeWorkManager.cancel(id);
+      await NativeWorkManager.cancel(taskId: id);
 
       // Wait 3 s; the task must NOT execute.
       await Future.delayed(const Duration(seconds: 3));
@@ -1596,26 +1596,26 @@ void main() {
       );
 
       // Verify both tasks are in the store
-      final byTag = await NativeWorkManager.getTasksByTag(tag);
+      final byTag = await NativeWorkManager.getTasksByTag(tag: tag);
       expect(byTag.length, greaterThanOrEqualTo(2),
           reason: 'Both tasks must be retrievable by tag');
 
       // pauseByTag must not throw
       await expectLater(
-        NativeWorkManager.pauseByTag(tag),
+        NativeWorkManager.pauseByTag(tag: tag),
         completes,
         reason: 'pauseByTag must complete without throwing',
       );
 
       // resumeByTag must not throw
       await expectLater(
-        NativeWorkManager.resumeByTag(tag),
+        NativeWorkManager.resumeByTag(tag: tag),
         completes,
         reason: 'resumeByTag must complete without throwing',
       );
 
       // Clean up
-      await NativeWorkManager.cancelByTag(tag);
+      await NativeWorkManager.cancelByTag(tag: tag);
     });
 
     // ── pauseAll / resumeAll ───────────────────────────────────

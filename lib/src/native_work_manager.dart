@@ -239,6 +239,15 @@ class NativeWorkManager {
     Map<String, DartWorkerCallback>? dartWorkers,
     bool debugMode = false,
     int maxConcurrentTasks = 4,
+    int diskSpaceBufferMB = 20,
+    /// Automatically delete completed/failed/cancelled task records older than
+    /// this many days during initialize(). Set to 0 to disable auto-cleanup.
+    /// Default: 30 days (prevents unbounded SQLite growth on long-running apps).
+    int cleanupAfterDays = 30,
+    /// When true, all HTTP workers reject plain HTTP URLs and only allow HTTPS.
+    /// Useful for apps that require transport security across all background tasks.
+    /// Default: false (backward compatible).
+    bool enforceHttps = false,
   }) async {
     if (_initialized) return;
 
@@ -295,6 +304,9 @@ class NativeWorkManager {
       callbackHandle: callbackHandle,
       debugMode: debugMode,
       maxConcurrentTasks: maxConcurrentTasks,
+      diskSpaceBufferMB: diskSpaceBufferMB,
+      cleanupAfterDays: cleanupAfterDays,
+      enforceHttps: enforceHttps,
     );
 
     _initialized = true;
@@ -398,7 +410,7 @@ class NativeWorkManager {
   /// }
   ///
   /// // Later, cancel all at once
-  /// await NativeWorkManager.cancelByTag('batch-upload');
+  /// await NativeWorkManager.cancelByTag(tag: 'batch-upload');
   /// ```
   ///
   /// ## Parameters
@@ -577,7 +589,7 @@ class NativeWorkManager {
   /// }
   ///
   /// // User cancels upload - cancel all 10 tasks at once
-  /// await NativeWorkManager.cancelByTag('batch-upload');
+  /// await NativeWorkManager.cancelByTag(tag: 'batch-upload');
   /// ```
   ///
   /// ## Example - Feature-Based Cancellation
@@ -599,7 +611,7 @@ class NativeWorkManager {
   /// );
   ///
   /// // User disables photo feature - cancel all related tasks
-  /// await NativeWorkManager.cancelByTag('photo-feature');
+  /// await NativeWorkManager.cancelByTag(tag: 'photo-feature');
   /// ```
   ///
   /// ## Parameters
@@ -626,14 +638,14 @@ class NativeWorkManager {
   /// - [cancel] - Cancel a specific task by ID
   /// - [cancelAll] - Cancel all scheduled tasks
   /// - [getTasksByTag] - Query tasks by tag
-  static Future<void> cancelByTag(String tag) async {
+  static Future<void> cancelByTag({required String tag}) async {
     _checkInitialized();
 
     if (tag.isEmpty) {
       throw ArgumentError('tag cannot be empty');
     }
 
-    return NativeWorkManagerPlatform.instance.cancelByTag(tag);
+    return NativeWorkManagerPlatform.instance.cancelByTag(tag: tag);
   }
 
   /// Get all tasks with a specific tag.
@@ -641,17 +653,17 @@ class NativeWorkManager {
   /// Returns a list of task IDs that have the given tag.
   ///
   /// ```dart
-  /// List<String> syncTasks = await NativeWorkManager.getTasksByTag('sync-group');
+  /// List<String> syncTasks = await NativeWorkManager.getTasksByTag(tag: 'sync-group');
   /// print('Found ${syncTasks.length} sync tasks');
   /// ```
-  static Future<List<String>> getTasksByTag(String tag) async {
+  static Future<List<String>> getTasksByTag({required String tag}) async {
     _checkInitialized();
 
     if (tag.isEmpty) {
       throw ArgumentError('tag cannot be empty');
     }
 
-    return NativeWorkManagerPlatform.instance.getTasksByTag(tag);
+    return NativeWorkManagerPlatform.instance.getTasksByTag(tag: tag);
   }
 
   /// Get all tags currently in use.
@@ -683,7 +695,7 @@ class NativeWorkManager {
   /// );
   ///
   /// // Later, cancel it
-  /// await NativeWorkManager.cancel('daily-sync');
+  /// await NativeWorkManager.cancel(taskId: 'daily-sync');
   /// ```
   ///
   /// ## Parameters
@@ -701,9 +713,9 @@ class NativeWorkManager {
   ///
   /// - [cancelByTag] - Cancel multiple tasks by tag
   /// - [cancelAll] - Cancel all tasks
-  static Future<void> cancel(String taskId) async {
+  static Future<void> cancel({required String taskId}) async {
     _checkInitialized();
-    return NativeWorkManagerPlatform.instance.cancel(taskId);
+    return NativeWorkManagerPlatform.instance.cancel(taskId: taskId);
   }
 
   /// Cancel all scheduled tasks.
@@ -760,6 +772,53 @@ class NativeWorkManager {
     return NativeWorkManagerPlatform.instance.cancelAll();
   }
 
+  /// Report progress from inside a [DartWorker] callback.
+  ///
+  /// Call this from your [DartWorkerCallback] to emit progress events that
+  /// will appear in [NativeWorkManager.progressStream] on the UI side.
+  ///
+  /// The [taskId] is injected into the callback input map under the key
+  /// `'__taskId'`. Read it and forward to this method:
+  ///
+  /// ```dart
+  /// await NativeWorkManager.initialize(
+  ///   dartWorkers: {
+  ///     'processFiles': (input) async {
+  ///       final taskId = input?['__taskId'] as String?;
+  ///       for (var i = 1; i <= 10; i++) {
+  ///         await processFile(i);
+  ///         await NativeWorkManager.reportDartWorkerProgress(
+  ///           taskId: taskId,
+  ///           progress: (i / 10 * 100).round(),
+  ///           message: 'Processing file $i / 10',
+  ///         );
+  ///       }
+  ///       return true;
+  ///     },
+  ///   },
+  /// );
+  /// ```
+  ///
+  /// **Thread safety:** Safe to call from any isolate that has access to the
+  /// `dev.brewkits/dart_worker_channel` MethodChannel (i.e., the background
+  /// isolate spawned by DartWorker execution).
+  ///
+  /// Does nothing if [taskId] is null or empty (avoids need for null checks in
+  /// callers that cannot guarantee a taskId is present).
+  static Future<void> reportDartWorkerProgress({
+    String? taskId,
+    required int progress,
+    String? message,
+  }) async {
+    if (taskId == null || taskId.isEmpty) return;
+    const channel = MethodChannel('dev.brewkits/dart_worker_channel');
+    await channel.invokeMethod<void>('reportProgress', <String, Object?>{
+      'taskId': taskId,
+      'progress': progress.clamp(0, 100),
+      if (message != null) 'message': message,
+    });
+  }
+
   /// Get the current status of a task.
   ///
   /// Query the execution state of a specific task. Useful for showing
@@ -768,7 +827,7 @@ class NativeWorkManager {
   /// ## Example - Show Upload Status
   ///
   /// ```dart
-  /// final status = await NativeWorkManager.getTaskStatus('photo-upload');
+  /// final status = await NativeWorkManager.getTaskStatus(taskId: 'photo-upload');
   ///
   /// switch (status) {
   ///   case TaskStatus.enqueued:
@@ -811,7 +870,7 @@ class NativeWorkManager {
   ///   }
   ///
   ///   Future<void> _checkStatus() async {
-  ///     final status = await NativeWorkManager.getTaskStatus('upload');
+  ///     final status = await NativeWorkManager.getTaskStatus(taskId: 'upload');
   ///     setState(() => _status = status);
   ///   }
   ///
@@ -860,9 +919,9 @@ class NativeWorkManager {
   ///
   /// - [events] - Stream of task completion events
   /// - [progress] - Stream of task progress updates
-  static Future<TaskStatus?> getTaskStatus(String taskId) async {
+  static Future<TaskStatus?> getTaskStatus({required String taskId}) async {
     _checkInitialized();
-    return NativeWorkManagerPlatform.instance.getTaskStatus(taskId);
+    return NativeWorkManagerPlatform.instance.getTaskStatus(taskId: taskId);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -885,18 +944,18 @@ class NativeWorkManager {
   ///
   /// **Note:** Only `HttpDownloadWorker` tasks support pause/resume. For other
   /// worker types the call is a no-op on the native side.
-  static Future<void> pause(String taskId) async {
+  static Future<void> pause({required String taskId}) async {
     _checkInitialized();
-    return NativeWorkManagerPlatform.instance.pauseTask(taskId);
+    return NativeWorkManagerPlatform.instance.pauseTask(taskId: taskId);
   }
 
   /// Resume a previously paused download task.
   ///
   /// The task must have been paused via [pause] before calling this method.
   /// See [pause] for platform-specific behaviour.
-  static Future<void> resume(String taskId) async {
+  static Future<void> resume({required String taskId}) async {
     _checkInitialized();
-    return NativeWorkManagerPlatform.instance.resumeTask(taskId);
+    return NativeWorkManagerPlatform.instance.resumeTask(taskId: taskId);
   }
 
   /// Pause all running tasks that share a given tag.
@@ -909,11 +968,11 @@ class NativeWorkManager {
   /// // Pause all active downloads in the "media" group
   /// await NativeWorkManager.pauseByTag('media');
   /// ```
-  static Future<void> pauseByTag(String tag) async {
+  static Future<void> pauseByTag({required String tag}) async {
     _checkInitialized();
-    final taskIds = await NativeWorkManagerPlatform.instance.getTasksByTag(tag);
+    final taskIds = await NativeWorkManagerPlatform.instance.getTasksByTag(tag: tag);
     await Future.wait(
-      taskIds.map((id) => NativeWorkManagerPlatform.instance.pauseTask(id)),
+      taskIds.map((id) => NativeWorkManagerPlatform.instance.pauseTask(taskId: id)),
     );
   }
 
@@ -927,11 +986,11 @@ class NativeWorkManager {
   /// // Resume all downloads in the "media" group
   /// await NativeWorkManager.resumeByTag('media');
   /// ```
-  static Future<void> resumeByTag(String tag) async {
+  static Future<void> resumeByTag({required String tag}) async {
     _checkInitialized();
-    final taskIds = await NativeWorkManagerPlatform.instance.getTasksByTag(tag);
+    final taskIds = await NativeWorkManagerPlatform.instance.getTasksByTag(tag: tag);
     await Future.wait(
-      taskIds.map((id) => NativeWorkManagerPlatform.instance.resumeTask(id)),
+      taskIds.map((id) => NativeWorkManagerPlatform.instance.resumeTask(taskId: id)),
     );
   }
 
@@ -992,6 +1051,43 @@ class NativeWorkManager {
     );
   }
 
+  /// Open a file with the system default application.
+  ///
+  /// Launches the OS file viewer for the given [path]. Useful after a download
+  /// completes to let the user immediately view/open the downloaded file.
+  ///
+  /// On **Android**, opens via `Intent.ACTION_VIEW` with a `FileProvider` URI.
+  /// Requires the `native_workmanager.provider` FileProvider to be declared in
+  /// the app's `AndroidManifest.xml` (added automatically by the plugin).
+  ///
+  /// On **iOS**, presents a `UIDocumentInteractionController`.
+  ///
+  /// ```dart
+  /// // After download completes:
+  /// NativeWorkManager.events.listen((event) async {
+  ///   if (event.taskId == 'my-download' && event.success) {
+  ///     await NativeWorkManager.openFile('/path/to/downloaded.pdf');
+  ///   }
+  /// });
+  /// ```
+  static Future<void> openFile(String path, {String? mimeType}) {
+    _checkInitialized();
+    return NativeWorkManagerPlatform.instance.openFile(path, mimeType: mimeType);
+  }
+
+  /// Set the maximum number of concurrent downloads per host.
+  ///
+  /// Limits how many simultaneous downloads can target the same server.
+  /// Default is 2. Call after [initialize].
+  ///
+  /// ```dart
+  /// await NativeWorkManager.setMaxConcurrentPerHost(3);
+  /// ```
+  static Future<void> setMaxConcurrentPerHost(int max) {
+    _checkInitialized();
+    return NativeWorkManagerPlatform.instance.setMaxConcurrentPerHost(max);
+  }
+
   /// Return all tasks that match a given [status].
   ///
   /// Queries the persistent task store and filters by status.  Useful for
@@ -1021,7 +1117,7 @@ class NativeWorkManager {
     _checkInitialized();
     final running = await getTasksByStatus(TaskStatus.running);
     await Future.wait(
-      running.map((t) => NativeWorkManagerPlatform.instance.pauseTask(t.taskId)),
+      running.map((t) => NativeWorkManagerPlatform.instance.pauseTask(taskId: t.taskId)),
     );
   }
 
@@ -1038,7 +1134,7 @@ class NativeWorkManager {
     _checkInitialized();
     final paused = await getTasksByStatus(TaskStatus.paused);
     await Future.wait(
-      paused.map((t) => NativeWorkManagerPlatform.instance.resumeTask(t.taskId)),
+      paused.map((t) => NativeWorkManagerPlatform.instance.resumeTask(taskId: t.taskId)),
     );
   }
 

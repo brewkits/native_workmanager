@@ -119,6 +119,26 @@ internal class TaskStore(context: Context) {
         resultData   = getString(getColumnIndexOrThrow("result_data"))
     )
 
+    companion object {
+        private val SENSITIVE_KEYS = setOf("authToken", "cookies", "password", "secret")
+
+        /**
+         * Returns a sanitized copy of a JSON worker-config string with sensitive fields removed
+         * before persisting to SQLite. The runtime always uses the full in-memory config;
+         * only the persisted copy is sanitized to prevent tokens leaking via adb backup.
+         *
+         * Sensitive keys stripped: authToken, cookies, password, secret.
+         */
+        fun sanitizeConfig(json: String?): String? {
+            if (json == null) return null
+            return try {
+                val obj = org.json.JSONObject(json)
+                SENSITIVE_KEYS.forEach { obj.remove(it) }
+                obj.toString()
+            } catch (_: Exception) { json }
+        }
+    }
+
     fun TaskRecord.toFlutterMap(): Map<String, Any?> = mapOf(
         "taskId"          to taskId,
         "tag"             to tag,

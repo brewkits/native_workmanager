@@ -26,8 +26,13 @@ import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import dev.brewkits.kmpworkmanager.kmpWorkerModule
 import dev.brewkits.kmpworkmanager.KmpWorkManagerConfig
 import dev.brewkits.kmpworkmanager.KmpWorkManager
+import dev.brewkits.native_workmanager.AppContextHolder
 import dev.brewkits.native_workmanager.notification.DownloadNotificationManager
 import dev.brewkits.native_workmanager.store.TaskStore
+import dev.brewkits.native_workmanager.workers.utils.HostConcurrencyManager
+import android.content.Intent
+import android.webkit.MimeTypeMap
+import androidx.core.content.FileProvider
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -66,7 +71,10 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
 
     private var eventSink: EventChannel.EventSink? = null
     private var progressSink: EventChannel.EventSink? = null
+    // Main scope: UI updates, event/progress emission, result callbacks to Flutter.
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    // IO scope: SQLite reads/writes, file I/O. Separate from Main to avoid blocking UI thread.
+    private val ioScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // Track subscription jobs so old ones are cancelled on re-subscribe
     private var eventJob: Job? = null
@@ -97,8 +105,17 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
     // Persistent SQLite task store (initialized in onAttachedToEngine)
     private lateinit var taskStore: TaskStore
 
+    // Persistent SQLite chain state store (initialized in onAttachedToEngine)
+    private lateinit var chainStore: dev.brewkits.native_workmanager.store.ChainStore
+
     // Notification title per taskId for download notification feature
     private val taskNotifTitles = ConcurrentHashMap<String, String>()
+
+    // allowPause flag per taskId (for suppressing Pause button in notifications)
+    private val taskAllowPause = ConcurrentHashMap<String, Boolean>()
+
+    // Filename per taskId (extracted from URL for notification template substitution)
+    private val taskFilenames = ConcurrentHashMap<String, String>()
 
     companion object {
         private const val TAG = "NativeWorkmanagerPlugin"
@@ -107,6 +124,10 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
         private const val PROGRESS_CHANNEL = "dev.brewkits/native_workmanager/progress"
         private const val DEBUG_NOTIFICATION_CHANNEL_ID = "native_workmanager_debug"
         private const val DEBUG_NOTIFICATION_CHANNEL_NAME = "Background Task Debug"
+        /** Auto-dismiss timeout for debug task-completion notifications (ms). */
+        private const val DEBUG_NOTIFICATION_TIMEOUT_MS = 5_000L
+        /** Default concurrent-task limit (mirrors iOS NWMDefaults.maxConcurrentTasks). */
+        private const val DEFAULT_MAX_CONCURRENT_TASKS = 4
         private var isKoinInitialized = false
         private val TERMINAL_STATES = setOf(
             WorkInfo.State.SUCCEEDED,
@@ -117,10 +138,17 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
+        AppContextHolder.appContext = context
 
-        // Initialize persistent task store and download notification channel
+        // Initialize persistent task store, chain store, and download notification channel
         taskStore = TaskStore(context)
+        chainStore = dev.brewkits.native_workmanager.store.ChainStore(context)
         DownloadNotificationManager.createChannel(context)
+
+        // Resume any incomplete chains that were in-progress when the app was killed.
+        // WorkManager will re-execute the individual workers; this restores Dart-visible
+        // chain metadata and re-attaches step observers.
+        ioScope.launch { resumePendingChains() }
 
         // Initialize Koin with kmpworkmanager
         initializeKoin(context)
@@ -198,7 +226,9 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                             taskId = update.taskId,
                             title = notifTitle,
                             progress = update.progress,
-                            message = update.message
+                            message = update.message,
+                            filename = taskFilenames[update.taskId],
+                            allowPause = taskAllowPause[update.taskId] ?: true
                         )
                     }
                     progressSink?.success(update.toMap())
@@ -253,7 +283,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                                 .setStyle(NotificationCompat.BigTextStyle().bigText(text))
                                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                                 .setAutoCancel(true)
-                                .setTimeoutAfter(5000) // Auto-dismiss after 5 seconds
+                                .setTimeoutAfter(DEBUG_NOTIFICATION_TIMEOUT_MS)
                                 .build()
 
                             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -266,13 +296,15 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                     // Update in-memory status
                     taskStatuses[event.taskName] = if (event.success) "completed" else "failed"
 
-                    // Persist status change to SQLite store
+                    // Persist status change to SQLite store (IO dispatcher — SQLite must not run on Main)
                     val resultJson = event.outputData?.let { toJson(it) }
-                    taskStore.updateStatus(
-                        taskId = event.taskName,
-                        status = if (event.success) "completed" else "failed",
-                        resultData = resultJson
-                    )
+                    withContext(Dispatchers.IO) {
+                        taskStore.updateStatus(
+                            taskId = event.taskName,
+                            status = if (event.success) "completed" else "failed",
+                            resultData = resultJson
+                        )
+                    }
 
                     // Show download completion/failure notification if enabled for this task
                     val notifTitle = taskNotifTitles.remove(event.taskName)
@@ -334,8 +366,50 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
             "resume" -> handleResume(call, result)
             "allTasks" -> handleAllTasks(result)
             "getServerFilename" -> handleGetServerFilename(call, result)
+            "openFile" -> handleOpenFile(call, result)
+            "setMaxConcurrentPerHost" -> {
+                val max = call.argument<Int>("max") ?: 2
+                HostConcurrencyManager.maxConcurrentPerHost = max
+                result.success(null)
+            }
             else -> result.notImplemented()
         }
+    }
+
+    private fun handleOpenFile(call: MethodCall, result: Result) {
+        try {
+            val filePath = call.argument<String>("filePath")
+                ?: return result.error("INVALID_ARGS", "filePath required", null)
+            val mimeType = call.argument<String>("mimeType")
+
+            val file = java.io.File(filePath)
+            if (!file.exists()) {
+                return result.error("FILE_NOT_FOUND", "File does not exist: $filePath", null)
+            }
+
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.native_workmanager.provider",
+                file
+            )
+
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mimeType ?: getMimeTypeFromFile(filePath))
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+
+            context.startActivity(intent)
+            result.success(null)
+        } catch (e: Exception) {
+            result.error("OPEN_FILE_ERROR", e.message, null)
+        }
+    }
+
+    private fun getMimeTypeFromFile(filePath: String): String {
+        val ext = filePath.substringAfterLast('.', "").lowercase()
+        return android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+            ?: "*/*"
     }
 
     private fun handlePause(call: MethodCall, result: Result) {
@@ -350,8 +424,8 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                 // Update in-memory state
                 taskStatuses[taskId] = "paused"
 
-                // Persist paused state
-                taskStore.updateStatus(taskId = taskId, status = "paused")
+                // Persist paused state (IO dispatcher — SQLite must not run on Main)
+                withContext(Dispatchers.IO) { taskStore.updateStatus(taskId = taskId, status = "paused") }
 
                 // Dismiss any active progress notification
                 if (taskNotifTitles.containsKey(taskId)) {
@@ -372,8 +446,8 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                 val taskId = call.argument<String>("taskId")
                     ?: return@launch result.error("INVALID_ARGS", "taskId required", null)
 
-                // Look up the paused task from the store
-                val record = taskStore.getTask(taskId)
+                // Look up the paused task from the store (IO dispatcher — SQLite must not run on Main)
+                val record = withContext(Dispatchers.IO) { taskStore.getTask(taskId) }
                     ?: return@launch result.error("NOT_FOUND", "Task '$taskId' not found in store", null)
 
                 if (record.status != "paused") {
@@ -395,9 +469,9 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                     policy = ExistingPolicy.REPLACE
                 )
 
-                // Update status back to pending
+                // Update status back to pending (IO dispatcher — SQLite must not run on Main)
                 taskStatuses[taskId] = "pending"
-                taskStore.updateStatus(taskId = taskId, status = "pending")
+                withContext(Dispatchers.IO) { taskStore.updateStatus(taskId = taskId, status = "pending") }
                 observeWorkCompletion(taskId, false)
 
                 NativeLogger.d("Task '$taskId' resumed")
@@ -409,14 +483,17 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
     }
 
     private fun handleAllTasks(result: Result) {
-        try {
-            val records = taskStore.getAllTasks()
-            val maps = records.map { record ->
-                with(taskStore) { record.toFlutterMap() }
+        scope.launch {
+            try {
+                val maps = withContext(Dispatchers.IO) {
+                    taskStore.getAllTasks().map { record ->
+                        with(taskStore) { record.toFlutterMap() }
+                    }
+                }
+                result.success(maps)
+            } catch (e: Exception) {
+                result.error("ALL_TASKS_ERROR", e.message, null)
             }
-            result.success(maps)
-        } catch (e: Exception) {
-            result.error("ALL_TASKS_ERROR", e.message, null)
         }
     }
 
@@ -484,21 +561,30 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                     NativeLogger.d("Stored tag '$tag' for task '$taskId'")
                 }
 
-                // Store task in persistent SQLite store
-                taskStore.upsert(
-                    taskId = taskId,
-                    tag = tag,
-                    status = "pending",
-                    workerClassName = workerClassName,
-                    workerConfig = inputJson
-                )
+                // Store task in persistent SQLite store (IO dispatcher — SQLite must not run on Main).
+                // Sanitize config before persisting: strip auth tokens / cookies to prevent leaking
+                // sensitive data via adb backup. The full inputJson is used for execution above.
+                withContext(Dispatchers.IO) {
+                    taskStore.upsert(
+                        taskId = taskId,
+                        tag = tag,
+                        status = "pending",
+                        workerClassName = workerClassName,
+                        workerConfig = TaskStore.sanitizeConfig(inputJson)
+                    )
+                }
 
-                // If showNotification requested, store the title for progress/completion hooks
+                // If showNotification requested, store the title, allowPause, and filename for progress/completion hooks
                 if (workerConfig?.get("showNotification") == true) {
+                    val url = workerConfig["url"] as? String
                     val title = (workerConfig["notificationTitle"] as? String)
-                        ?: (workerConfig["url"] as? String)?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+                        ?: url?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
                         ?: taskId
                     taskNotifTitles[taskId] = title
+                    taskAllowPause[taskId] = workerConfig["allowPause"] as? Boolean ?: true
+                    val filename = url?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+                        ?: (workerConfig["savePath"] as? String)?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+                    if (filename != null) taskFilenames[taskId] = filename
                 }
 
                 // Parse trigger from method call arguments
@@ -553,8 +639,13 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                 // without setExpedited(). KmpWorker/KmpHeavyWorker still handle task dispatch.
                 if (trigger is TaskTrigger.OneTime) {
                     val delayMs = trigger.initialDelayMs
-                    NativeLogger.d("Scheduling '$taskId': OneTime(delay=${delayMs}ms) → direct WorkManager (no expedited)")
-                    enqueueOneTimeWorkDirect(taskId, workerClassName, inputJson, tag, constraints, delayMs, policy)
+                    // Check if expedited mode is requested for download workers (Task 6 / UIDT)
+                    val isDownloadWorker = workerClassName.contains("HttpDownloadWorker") ||
+                        workerClassName.contains("ParallelHttpDownloadWorker")
+                    val isExpedited = isDownloadWorker &&
+                        (workerConfig?.get("expedited") == true || workerConfig?.get("priority") == "high")
+                    NativeLogger.d("Scheduling '$taskId': OneTime(delay=${delayMs}ms, expedited=$isExpedited) → direct WorkManager")
+                    enqueueOneTimeWorkDirect(taskId, workerClassName, inputJson, tag, constraints, delayMs, policy, isExpedited)
                     taskStatuses[taskId] = "pending"
                     observeWorkCompletion(taskId, false)
                     result.success("ACCEPTED")
@@ -612,6 +703,27 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
         }
     }
 
+    /** Delete leftover .tmp and .tmp.etag files for a cancelled/failed download task.
+     *  Prevents GB-scale orphan files accumulating on disk — mirrors #516 fix. */
+    private suspend fun cleanupTempFilesForTask(taskId: String) {
+        try {
+            val record = withContext(Dispatchers.IO) { taskStore.getTask(taskId) } ?: return
+            val config = record.workerConfig ?: return
+            val savePath = try {
+                org.json.JSONObject(config).optString("savePath").takeIf { it.isNotBlank() }
+            } catch (_: Exception) { null } ?: return
+            for (suffix in listOf(".tmp", ".tmp.etag")) {
+                val f = java.io.File(savePath + suffix)
+                if (f.exists()) {
+                    f.delete()
+                    NativeLogger.d("Deleted orphan $suffix for cancelled task '$taskId'")
+                }
+            }
+        } catch (e: Exception) {
+            NativeLogger.w("cleanupTempFilesForTask '$taskId': ${e.message}")
+        }
+    }
+
     private fun handleCancel(call: MethodCall, result: Result) {
         scope.launch {
             try {
@@ -619,12 +731,15 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                     ?: return@launch result.error("INVALID_ARGS", "taskId required", null)
 
                 scheduler.cancel(taskId)
+                cleanupTempFilesForTask(taskId)
                 // Remove tag mapping and update status
                 taskTags.remove(taskId)
                 taskStatuses[taskId] = "cancelled"
-                taskStore.updateStatus(taskId = taskId, status = "cancelled")
+                withContext(Dispatchers.IO) { taskStore.updateStatus(taskId = taskId, status = "cancelled") }
                 // Dismiss any active progress notification
                 taskNotifTitles.remove(taskId)?.let { DownloadNotificationManager.dismiss(context, taskId) }
+                taskAllowPause.remove(taskId)
+                taskFilenames.remove(taskId)
                 result.success(null)
             } catch (e: Exception) {
                 result.error("CANCEL_ERROR", e.message, null)
@@ -635,10 +750,24 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
     private fun handleCancelAll(result: Result) {
         scope.launch {
             try {
+                withContext(Dispatchers.IO) {
+                    taskStore.getAllTasks().forEach { record ->
+                        val config = record.workerConfig ?: return@forEach
+                        val savePath = try {
+                            org.json.JSONObject(config).optString("savePath").takeIf { it.isNotBlank() }
+                        } catch (_: Exception) { null } ?: return@forEach
+                        for (suffix in listOf(".tmp", ".tmp.etag")) {
+                            val f = java.io.File(savePath + suffix)
+                            if (f.exists()) f.delete()
+                        }
+                    }
+                }
                 scheduler.cancelAll()
                 // Clear all tag mappings and status tracking
                 taskTags.clear()
                 taskStatuses.clear()
+                taskAllowPause.clear()
+                taskFilenames.clear()
                 result.success(null)
             } catch (e: Exception) {
                 result.error("CANCEL_ERROR", e.message, null)
@@ -661,6 +790,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                 tasksToCancel.forEach { taskId ->
                     try {
                         scheduler.cancel(taskId)
+                        cleanupTempFilesForTask(taskId)
                         taskTags.remove(taskId)
                         taskStatuses[taskId] = "cancelled"
                     } catch (e: Exception) {
@@ -720,19 +850,32 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                     return@launch result.error("CHAIN_ERROR", "Chain must have at least one task", null)
                 }
 
+                val chainId = "${chainName}_${java.util.UUID.randomUUID()}"
                 val workManager = WorkManager.getInstance(context)
                 val allTaskIds = mutableListOf<String>()
 
                 // Build OneTimeWorkRequest for each step tagged with its task ID.
-                // We bypass kmpworkmanager's chain API because TaskRequest has no 'id' parameter,
-                // so we cannot add task-ID tags through it. Direct WorkManager gives us full control.
-                val stepWorkRequests: List<List<OneTimeWorkRequest>> = steps.map { parallelTasks ->
+                val stepWorkRequests: List<List<OneTimeWorkRequest>> = steps.mapIndexed { stepIndex, parallelTasks ->
                     @Suppress("UNCHECKED_CAST")
                     (parallelTasks as List<Map<String, Any?>>).map { taskData ->
                         val taskId = taskData["id"] as? String ?: java.util.UUID.randomUUID().toString()
                         allTaskIds.add(taskId)
+                        // Persist each step to ChainStore for resume and Dart visibility.
+                        withContext(Dispatchers.IO) {
+                            chainStore.addChainStep(chainId, stepIndex, taskId, "pending")
+                        }
                         buildChainStepRequest(taskId, taskData)
                     }
+                }
+
+                // Persist chain header BEFORE enqueuing (so resume can find it even if killed immediately).
+                withContext(Dispatchers.IO) {
+                    chainStore.upsertChain(
+                        chainId = chainId,
+                        chainName = chainName,
+                        totalSteps = steps.size,
+                        status = "running"
+                    )
                 }
 
                 // Enqueue as a WorkManager chain.
@@ -742,12 +885,12 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                 }
                 continuation.enqueue()
 
-                NativeLogger.d("✅ Chain scheduled: $chainName (${steps.size} steps), IDs: $allTaskIds")
+                NativeLogger.d("✅ Chain scheduled: $chainName/$chainId (${steps.size} steps), IDs: $allTaskIds")
 
                 // Observe each chain step by its task-ID tag and emit events on completion.
                 for (taskId in allTaskIds) {
                     taskStatuses[taskId] = "pending"
-                    observeChainStepCompletion(taskId)
+                    observeChainStepCompletion(taskId, chainId = chainId)
                 }
 
                 result.success("ACCEPTED")
@@ -755,6 +898,32 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                 NativeLogger.e("❌ Chain error", e)
                 result.error("CHAIN_ERROR", e.message, null)
             }
+        }
+    }
+
+    /**
+     * Resume Dart-visible chain metadata for chains that were in-progress
+     * when the app was killed.  WorkManager itself already re-executes the
+     * individual workers; this layer re-attaches step observers and marks
+     * chain status as running so allTasks() returns accurate data.
+     */
+    private suspend fun resumePendingChains() {
+        try {
+            val pending = withContext(Dispatchers.IO) { chainStore.getPendingChains() }
+            if (pending.isEmpty()) return
+            NativeLogger.d("Resuming ${pending.size} pending chain(s) from ChainStore")
+            for (chain in pending) {
+                val steps = withContext(Dispatchers.IO) { chainStore.getStepsForChain(chain.chainId) }
+                for (step in steps) {
+                    if (step.status !in listOf("completed", "failed")) {
+                        taskStatuses[step.taskId] = step.status
+                        observeChainStepCompletion(step.taskId, chainId = chain.chainId)
+                    }
+                }
+                NativeLogger.d("  Chain '${chain.chainName}' (${chain.chainId}): re-observing ${steps.size} steps")
+            }
+        } catch (e: Exception) {
+            NativeLogger.e("resumePendingChains failed", e)
         }
     }
 
@@ -812,8 +981,9 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
     /**
      * Observe a single chain step by its task-ID tag and emit an event when it reaches a terminal state.
      * Uses getWorkInfosByTagFlow since chain steps are NOT unique work.
+     * [chainId] is used to persist step status to ChainStore (null = legacy calls without persistence).
      */
-    private fun observeChainStepCompletion(taskId: String) {
+    private fun observeChainStepCompletion(taskId: String, chainId: String? = null) {
         scope.launch {
             try {
                 val workManager = WorkManager.getInstance(context)
@@ -827,6 +997,15 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                             WorkInfo.State.SUCCEEDED -> {
                                 taskStatuses[taskId] = "completed"
                                 NativeLogger.d("✅ Chain step SUCCEEDED: $taskId")
+                                // Persist step result and update ChainStore
+                                val outputJson = workInfo.outputData.keyValueMap
+                                    .takeIf { it.isNotEmpty() }
+                                    ?.let { toJson(it) }
+                                if (chainId != null) {
+                                    withContext(Dispatchers.IO) {
+                                        chainStore.updateStepStatus(chainId, taskId, "completed", outputJson)
+                                    }
+                                }
                                 eventSink?.success(mapOf(
                                     "taskId" to taskId,
                                     "success" to true,
@@ -837,6 +1016,12 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                             WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
                                 taskStatuses[taskId] = "failed"
                                 NativeLogger.e("❌ Chain step FAILED/CANCELLED: $taskId (${workInfo.state})")
+                                if (chainId != null) {
+                                    withContext(Dispatchers.IO) {
+                                        chainStore.updateStepStatus(chainId, taskId, "failed")
+                                        chainStore.updateChainStatus(chainId, "failed")
+                                    }
+                                }
                                 eventSink?.success(mapOf(
                                     "taskId" to taskId,
                                     "success" to false,
@@ -1085,6 +1270,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
         constraints: Constraints,
         delayMs: Long,
         policy: ExistingPolicy,
+        expedited: Boolean = false,
     ) {
         val workerClass = if (constraints.isHeavyTask) KmpHeavyWorker::class.java else KmpWorker::class.java
 
@@ -1112,6 +1298,13 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
             .addTag(workerClassName)
         if (delayMs > 0) requestBuilder.setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
         if (tag != null) requestBuilder.addTag(tag)
+        if (expedited && delayMs == 0L) {
+            // setExpedited is only valid when there is no initial delay.
+            // OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST ensures the task still
+            // runs even when the app is out of expedited job quota.
+            requestBuilder.setExpedited(androidx.work.OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            NativeLogger.d("Expedited flag set for '$taskId' (UIDT / Android 14+ data-sync)")
+        }
 
         val wmBackoffPolicy = when (constraints.backoffPolicy) {
             BackoffPolicy.LINEAR -> androidx.work.BackoffPolicy.LINEAR
@@ -1232,8 +1425,23 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
             // maxConcurrentTasks: Android WorkManager manages its own thread pool
             // (default ≈ min(CPU-1, 4) workers).  We accept the param so the Dart
             // API is symmetric with iOS, but no additional limiting is applied here.
-            val maxConcurrentTasks = call.argument<Int>("maxConcurrentTasks") ?: 4
+            val maxConcurrentTasks = call.argument<Int>("maxConcurrentTasks") ?: DEFAULT_MAX_CONCURRENT_TASKS
             NativeLogger.d("maxConcurrentTasks=$maxConcurrentTasks (WorkManager thread-pool managed)")
+
+            // HTTPS enforcement — propagate flag to SecurityValidator so all workers honour it.
+            val enforceHttps = call.argument<Boolean>("enforceHttps") ?: false
+            dev.brewkits.native_workmanager.workers.utils.SecurityValidator.enforceHttps = enforceHttps
+            NativeLogger.d("enforceHttps=$enforceHttps")
+
+            // Auto-cleanup: prune terminal-state records older than N days (prevents unbounded growth).
+            val cleanupAfterDays = call.argument<Int>("cleanupAfterDays") ?: 30
+            if (cleanupAfterDays > 0) {
+                ioScope.launch {
+                    val thresholdMs = cleanupAfterDays.toLong() * 24 * 60 * 60 * 1000L
+                    taskStore.deleteCompleted(olderThanMs = thresholdMs)
+                    NativeLogger.d("Auto-cleanup: pruned task records older than ${cleanupAfterDays}d")
+                }
+            }
 
             result.success(null)
         } catch (e: Exception) {
@@ -1305,6 +1513,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
         taskBusSignals.values.forEach { it.cancel() }
         taskBusSignals.clear()
         scope.cancel()
+        ioScope.cancel()
         // FIX H2: Reset the static initialization flag so the next attach (e.g. hot restart)
         // goes through initializeKoin() again and re-loads modules into the Koin context.
         // Without this, a hot restart reuses the stale flag and skips module loading,

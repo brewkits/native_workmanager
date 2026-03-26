@@ -124,7 +124,7 @@ class _BasicHttpSyncAppState extends State<BasicHttpSyncApp> {
   /// Cancel scheduled sync
   Future<void> _cancelSync() async {
     try {
-      await NativeWorkManager.cancel('api-sync');
+      await NativeWorkManager.cancel(taskId: 'api-sync');
       setState(() {
         _status = 'Cancelled';
       });

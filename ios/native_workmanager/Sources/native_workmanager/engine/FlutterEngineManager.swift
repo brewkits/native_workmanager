@@ -262,6 +262,19 @@ class FlutterEngineManager {
                         continuation.resume()
                     }
                 }
+            } else if call.method == "reportProgress" {
+                // Progress reports emitted from inside a DartWorker callback.
+                // The Dart side calls MethodChannel('dev.brewkits/dart_worker_channel')
+                // .invokeMethod('reportProgress', {...}) which arrives here and is
+                // forwarded to ProgressReporter → Flutter EventChannel.
+                let args     = call.arguments as? [String: Any]
+                let taskId   = args?["taskId"]   as? String ?? ""
+                let progress = args?["progress"] as? Int    ?? 0
+                let message  = args?["message"]  as? String
+                ProgressReporter.shared.report(taskId: taskId, progress: progress, message: message)
+                result(nil)
+            } else {
+                result(FlutterMethodNotImplemented)
             }
         }
 

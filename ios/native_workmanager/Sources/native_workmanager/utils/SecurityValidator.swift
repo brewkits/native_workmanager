@@ -8,6 +8,12 @@ import Foundation
 /// - Safe logging (sanitize sensitive data)
 enum SecurityValidator {
 
+    // MARK: - Global enforcement flags
+
+    /// When true, plain HTTP URLs are rejected globally across all workers.
+    /// Set by handleInitialize() when the Dart caller passes enforceHttps=true.
+    static var enforceHttps: Bool = false
+
     // MARK: - URL Validation
 
     /// Validate that URL uses safe scheme (http/https only).
@@ -32,8 +38,12 @@ enum SecurityValidator {
             return nil
         }
 
-        // ⚠️ Warning for non-HTTPS
+        // Reject plain HTTP when global HTTPS enforcement is enabled.
         if scheme == "http" {
+            if enforceHttps {
+                print("SecurityValidator: Plain HTTP rejected — enforceHttps=true. Use an HTTPS URL.")
+                return nil
+            }
             print("SecurityValidator: WARNING - Using HTTP (unencrypted). Consider HTTPS for security.")
         }
 
