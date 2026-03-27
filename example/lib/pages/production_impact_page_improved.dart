@@ -147,27 +147,27 @@ class _ProductionImpactPageImprovedState
       title: 'Memory Footprint',
       description: 'Theoretical comparison (educational)',
       explanation:
-          'THEORETICAL: native_wm runs purely native (~35MB), while workmanager spawns a Flutter Engine (~85MB total, +50MB overhead). Cannot measure live in-app - these values from separate process measurements.',
-      icon: Icons.memory,
-      color: Color(0xFF1976D2),
+          'THEORETICAL: native_wm runs purely native (~35 MB), while workmanager spawns a Flutter Engine (~85 MB total, +50 MB overhead). Cannot measure live in-app — values from separate process measurements.',
+      icon: Icons.memory_outlined,
+      color: Color(0xFF1565C0),
     ),
     ImpactMetric(
       type: MetricType.battery,
       title: 'Battery Impact',
-      description: 'Theoretical engine startups',
+      description: 'Engine startups per 3 tasks (theoretical)',
       explanation:
-          'THEORETICAL: Every workmanager task spawns a Flutter Engine (~500ms startup), draining battery. native_wm has zero engine overhead. Demonstrates architectural difference.',
-      icon: Icons.battery_charging_full,
-      color: Color(0xFF388E3C),
+          'THEORETICAL: Every workmanager task spawns a Flutter Engine (~500 ms startup), draining battery. native_wm has zero engine overhead — all work runs in native threads.',
+      icon: Icons.battery_charging_full_outlined,
+      color: Color(0xFF2E7D32),
     ),
     ImpactMetric(
       type: MetricType.heavyIO,
       title: 'Heavy I/O Performance',
-      description: 'REAL ${BenchmarkConstants.downloadSizeKB}KB download',
+      description: 'REAL ${BenchmarkConstants.downloadSizeKB} KB download benchmark',
       explanation:
-          'REAL MEASUREMENT: Downloads ${BenchmarkConstants.downloadSizeKB}KB file using native OkHttp. Flutter estimate based on typical Dart http + isolate overhead (~35% slower).',
-      icon: Icons.speed,
-      color: Color(0xFFD32F2F),
+          'REAL MEASUREMENT: Downloads ${BenchmarkConstants.downloadSizeKB} KB using native OkHttp/URLSession. workmanager estimate based on typical Dart http + isolate overhead (~35% slower).',
+      icon: Icons.speed_outlined,
+      color: Color(0xFFC62828),
     ),
   ];
 
@@ -381,44 +381,57 @@ class _ProductionImpactPageImprovedState
   }
 
   Widget _buildHeader() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Production Impact Comparison',
-          style: Theme.of(
-            context,
-          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'See the REAL advantages of native_workmanager in production scenarios.',
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
-        ),
-      ],
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: cs.primaryContainer,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.insights_rounded, color: cs.primary, size: 28),
+              const SizedBox(width: 10),
+              Text(
+                'Production Impact',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: cs.onPrimaryContainer,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Compare native_workmanager vs workmanager across memory, battery, and I/O performance.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: cs.onPrimaryContainer.withAlpha(200),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildRunAllButton() {
-    return ElevatedButton.icon(
+    return FilledButton.icon(
       onPressed: _runningAll ? null : _runAll,
       icon: _runningAll
           ? const SizedBox(
-              width: 20,
-              height: 20,
+              width: 18,
+              height: 18,
               child: CircularProgressIndicator(
                 strokeWidth: 2.5,
                 color: Colors.white,
               ),
             )
-          : const Icon(Icons.play_arrow),
-      label: Text(_runningAll ? 'Running...' : 'Run All Benchmarks'),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: Colors.blue.shade700,
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(vertical: 16),
+          : const Icon(Icons.play_arrow_rounded),
+      label: Text(_runningAll ? 'Running…' : 'Run All Benchmarks'),
+      style: FilledButton.styleFrom(
+        padding: const EdgeInsets.symmetric(vertical: 14),
         minimumSize: const Size(double.infinity, 0),
       ),
     );
@@ -468,7 +481,7 @@ class _ProductionImpactPageImprovedState
                         metric.description,
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.grey.shade600,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ],
@@ -477,7 +490,7 @@ class _ProductionImpactPageImprovedState
                 IconButton(
                   icon: Icon(
                     Icons.info_outline,
-                    color: Colors.grey.shade600,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                     size: 20,
                   ),
                   onPressed: () => _showExplanationDialog(metric),
@@ -516,7 +529,7 @@ class _ProductionImpactPageImprovedState
                       label: 'native_wm',
                       value: result.formattedNativeValue,
                       unit: result.unit,
-                      color: Colors.blue.shade700,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -525,7 +538,7 @@ class _ProductionImpactPageImprovedState
                       label: 'workmanager',
                       value: result.formattedFlutterValue,
                       unit: result.unit,
-                      color: Colors.grey.shade600,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ],
@@ -537,17 +550,16 @@ class _ProductionImpactPageImprovedState
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: Colors.green.shade200, width: 1),
+                  color: Theme.of(context).colorScheme.tertiaryContainer,
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(
-                      Icons.check_circle,
+                      Icons.check_circle_rounded,
                       size: 16,
-                      color: Colors.green.shade700,
+                      color: Theme.of(context).colorScheme.onTertiaryContainer,
                     ),
                     const SizedBox(width: 8),
                     Text(
@@ -555,7 +567,7 @@ class _ProductionImpactPageImprovedState
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
-                        color: Colors.green.shade900,
+                        color: Theme.of(context).colorScheme.onTertiaryContainer,
                       ),
                     ),
                     if (result.isSimulated) ...[
@@ -566,7 +578,7 @@ class _ProductionImpactPageImprovedState
                         child: Icon(
                           Icons.science_outlined,
                           size: 14,
-                          color: Colors.green.shade700,
+                          color: Theme.of(context).colorScheme.onTertiaryContainer,
                         ),
                       ),
                     ],
@@ -581,9 +593,9 @@ class _ProductionImpactPageImprovedState
                     CircularProgressIndicator(color: metric.color),
                     const SizedBox(height: 12),
                     Text(
-                      'Measuring...',
+                      'Measuring…',
                       style: TextStyle(
-                        color: Colors.grey.shade600,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                         fontSize: 13,
                       ),
                     ),
@@ -624,7 +636,7 @@ class _ProductionImpactPageImprovedState
                   'Tap ⟳ to measure this metric',
                   style: TextStyle(
                     fontSize: 13,
-                    color: Colors.grey.shade500,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                     fontStyle: FontStyle.italic,
                   ),
                 ),
@@ -649,7 +661,7 @@ class _ProductionImpactPageImprovedState
           style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w600,
-            color: Colors.grey.shade600,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
         ),
         const SizedBox(height: 4),

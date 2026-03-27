@@ -86,6 +86,63 @@ final class HttpUploadWorker extends Worker {
   /// and the signature is injected as a request header (default: `X-Signature`).
   final RequestSigning? requestSigning;
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BUILDER-STYLE copyWith + convenience methods
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Returns a copy with the given fields replaced.
+  HttpUploadWorker copyWith({
+    String? url,
+    String? filePath,
+    String? fileFieldName,
+    String? fileName,
+    String? mimeType,
+    Map<String, String>? headers,
+    Map<String, String>? additionalFields,
+    Duration? timeout,
+    bool? useBackgroundSession,
+    RequestSigning? requestSigning,
+  }) =>
+      HttpUploadWorker(
+        url: url ?? this.url,
+        filePath: filePath ?? this.filePath,
+        fileFieldName: fileFieldName ?? this.fileFieldName,
+        fileName: fileName ?? this.fileName,
+        mimeType: mimeType ?? this.mimeType,
+        headers: headers ?? this.headers,
+        additionalFields: additionalFields ?? this.additionalFields,
+        timeout: timeout ?? this.timeout,
+        useBackgroundSession: useBackgroundSession ?? this.useBackgroundSession,
+        requestSigning: requestSigning ?? this.requestSigning,
+      );
+
+  /// Convenience: add or merge HTTP headers.
+  ///
+  /// ```dart
+  /// worker.withHeaders({'Authorization': 'Bearer $token', 'X-App': '1'})
+  /// ```
+  HttpUploadWorker withHeaders(Map<String, String> extra) => copyWith(
+        headers: {...headers, ...extra},
+      );
+
+  /// Convenience: add `Authorization` header.
+  ///
+  /// ```dart
+  /// worker.withAuth(token: myToken)
+  /// worker.withAuth(token: myApiKey, template: 'ApiKey {accessToken}')
+  /// ```
+  HttpUploadWorker withAuth({
+    required String token,
+    String template = 'Bearer {accessToken}',
+  }) =>
+      withHeaders({
+        'Authorization': template.replaceAll('{accessToken}', token),
+      });
+
+  /// Convenience: sign requests with HMAC-SHA256.
+  HttpUploadWorker withSigning(RequestSigning signing) =>
+      copyWith(requestSigning: signing);
+
   @override
   String get workerClassName => 'HttpUploadWorker';
 

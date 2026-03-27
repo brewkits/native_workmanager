@@ -34,10 +34,15 @@
 library;
 
 export 'src/constraints.dart';
+export 'src/task_id.dart';
 export 'src/enqueue_request.dart';
 export 'src/events.dart';
 export 'src/native_work_manager.dart';
+export 'src/observability.dart';
+export 'src/offline_queue.dart';
 export 'src/performance/performance_monitor.dart';
 export 'src/task_chain.dart';
+export 'src/task_graph.dart';
 export 'src/task_trigger.dart';
 export 'src/worker.dart';
+export 'src/worker_results.dart';

@@ -44,6 +44,10 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
   ///
   /// [enforceHttps] - When true, all HTTP workers reject plain-HTTP URLs and
   /// only allow HTTPS. Defaults to false for backward compatibility.
+  ///
+  /// [blockPrivateIPs] - When true, HTTP workers block requests to
+  /// private/loopback IP ranges (10.x, 172.16-31.x, 192.168.x, 127.x, ::1)
+  /// to prevent SSRF attacks. Defaults to false for backward compatibility.
   Future<void> initialize({
     int? callbackHandle,
     bool debugMode = false,
@@ -51,6 +55,7 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
     int diskSpaceBufferMB = 20,
     int cleanupAfterDays = 30,
     bool enforceHttps = false,
+    bool blockPrivateIPs = false,
   }) {
     throw UnimplementedError('initialize() has not been implemented.');
   }

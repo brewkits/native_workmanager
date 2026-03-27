@@ -24,6 +24,16 @@ object SecurityValidator {
     @Volatile
     var enforceHttps: Boolean = false
 
+    /**
+     * When true, HTTP workers block requests to private/loopback IP literals.
+     * Covers: 10.x, 172.16-31.x, 192.168.x, 127.x, 169.254.x (link-local),
+     *         ::1, and fc00::/7 (ULA).
+     * Only parsed IP literals are checked — hostnames are not resolved.
+     * Set by handleInitialize() when the Dart caller passes blockPrivateIPs=true.
+     */
+    @Volatile
+    var blockPrivateIPs: Boolean = false
+
     // MARK: - Constants
 
     /** Maximum allowed request body size (10MB) */
@@ -71,6 +81,15 @@ object SecurityValidator {
                     return false
                 }
                 Log.w(TAG, "WARNING - Using HTTP (unencrypted). Consider HTTPS for security.")
+            }
+
+            // SSRF protection: block requests to private/loopback IP literals.
+            if (blockPrivateIPs) {
+                val host = uri.host ?: ""
+                if (isPrivateIP(host)) {
+                    Log.e(TAG, "Request blocked — '$host' is a private/loopback IP (blockPrivateIPs=true).")
+                    return false
+                }
             }
 
             return true
@@ -308,6 +327,39 @@ object SecurityValidator {
         }
 
         return true
+    }
+
+    // MARK: - Private IP Detection
+
+    /**
+     * Returns true if [host] is a private/loopback IPv4 or IPv6 literal.
+     *
+     * Only IP literals are matched — hostnames are NOT resolved (no DNS lookup).
+     * Covers:
+     *   IPv4: 127.x, 10.x, 172.16-31.x, 192.168.x, 169.254.x (link-local)
+     *   IPv6: ::1, fc00::/7 (ULA: fc-- and fd--)
+     */
+    private fun isPrivateIP(host: String): Boolean {
+        if (host.isEmpty()) return false
+        // Strip IPv6 brackets: [::1] → ::1
+        val h = if (host.startsWith("[") && host.endsWith("]")) host.drop(1).dropLast(1) else host
+        // IPv6 loopback and ULA
+        if (h == "::1") return true
+        val lower = h.lowercase()
+        if (lower.startsWith("fc") || lower.startsWith("fd")) return true
+        // IPv4 private ranges
+        val ipv4Regex = Regex("""^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$""")
+        val match = ipv4Regex.matchEntire(h) ?: return false
+        val (a, b) = match.destructured.let { it.component1().toIntOrNull() to it.component2().toIntOrNull() }
+        return when {
+            a == null || b == null -> false
+            a == 127 -> true                      // 127.x loopback
+            a == 10 -> true                       // 10.x/8
+            a == 172 && b in 16..31 -> true       // 172.16-31.x/12
+            a == 192 && b == 168 -> true          // 192.168.x/16
+            a == 169 && b == 254 -> true          // 169.254.x link-local
+            else -> false
+        }
     }
 
     /**

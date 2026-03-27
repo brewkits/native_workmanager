@@ -348,6 +348,22 @@ final class HttpDownloadWorker extends Worker {
   }) =>
       copyWith(expectedChecksum: expected, checksumAlgorithm: algorithm);
 
+  /// Convenience: limit download speed.
+  ///
+  /// ```dart
+  /// worker.withBandwidthLimit(500 * 1024)  // 500 KB/s
+  /// ```
+  HttpDownloadWorker withBandwidthLimit(int bytesPerSecond) =>
+      copyWith(bandwidthLimitBytesPerSecond: bytesPerSecond);
+
+  /// Convenience: sign requests with HMAC-SHA256.
+  ///
+  /// ```dart
+  /// worker.withSigning(RequestSigning(secretKey: mySecret))
+  /// ```
+  HttpDownloadWorker withSigning(RequestSigning signing) =>
+      copyWith(requestSigning: signing);
+
   @override
   String get workerClassName => 'HttpDownloadWorker';
 

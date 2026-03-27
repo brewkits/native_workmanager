@@ -54,6 +54,88 @@ Platform setup: [Android](doc/ANDROID_SETUP.md) · [iOS](doc/IOS_BACKGROUND_LIMI
 
 ---
 
+## Platform Setup
+
+### Android — `AndroidManifest.xml`
+
+The plugin declares the permissions it needs in its own manifest. **No manual entries are required for basic use.** The following are merged automatically:
+
+```xml
+<!-- Allows WorkManager to reschedule tasks after device reboot -->
+<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+<!-- Required for long-running foreground-service workers (download, upload) -->
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+<!-- Required to post download-progress notifications (Android 13+) -->
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+```
+
+You only need to add `POST_NOTIFICATIONS` to your own manifest **if** you target SDK 33+ and want to show download-progress notifications — Android 13 requires a runtime permission request for notifications:
+
+```dart
+// Request notification permission on Android 13+
+import 'package:permission_handler/permission_handler.dart';
+await Permission.notification.request();
+```
+
+> **Note on `FOREGROUND_SERVICE_DATA_SYNC`:** This data-sync service type is required on Android 14+ for background download/upload workers. It is declared in the plugin's manifest and merged automatically.
+
+---
+
+### iOS — `Info.plist`
+
+Add the following keys to `ios/Runner/Info.plist` before using background tasks:
+
+**1. Register background task identifiers** (required for `BGTaskScheduler`):
+
+```xml
+<key>BGTaskSchedulerPermittedIdentifiers</key>
+<array>
+  <!-- Native WorkManager uses these two identifiers internally -->
+  <string>dev.brewkits.native_workmanager.refresh</string>
+  <string>dev.brewkits.native_workmanager.processing</string>
+</array>
+```
+
+**2. Declare background execution modes** (required for download resumption and periodic tasks):
+
+```xml
+<key>UIBackgroundModes</key>
+<array>
+  <!-- Enables URLSession background transfers (HttpDownloadWorker, HttpUploadWorker) -->
+  <string>fetch</string>
+  <string>processing</string>
+</array>
+```
+
+**3. Restore background sessions in `AppDelegate`** (required for download/upload to survive app restart):
+
+```swift
+// ios/Runner/AppDelegate.swift
+import native_workmanager
+
+@UIApplicationMain
+class AppDelegate: FlutterAppDelegate {
+  override func application(
+    _ application: UIApplication,
+    handleEventsForBackgroundURLSession identifier: String,
+    completionHandler: @escaping () -> Void
+  ) {
+    // Hand the completion handler to the plugin so URLSession can finish.
+    NativeWorkmanagerPlugin.handleBackgroundURLSession(
+      identifier: identifier,
+      completionHandler: completionHandler
+    )
+  }
+}
+```
+
+Without this `AppDelegate` hook, background downloads and uploads will silently fail to deliver results when the app is not in the foreground.
+
+---
+
 ## Quick Start
 
 **1. Initialize once in `main()`:**
@@ -403,6 +485,99 @@ await NativeWorkManager.enqueue(
 | [FAQ](doc/FAQ.md) | Common questions and troubleshooting |
 
 **Use cases:** [Periodic Sync](doc/use-cases/01-periodic-api-sync.md) · [File Upload with Retry](doc/use-cases/02-file-upload-with-retry.md) · [Background Cleanup](doc/use-cases/03-background-cleanup.md) · [Photo Backup](doc/use-cases/04-photo-auto-backup.md) · [Chain Processing](doc/use-cases/06-chain-processing.md) · [Custom Workers](doc/use-cases/07-custom-native-workers.md)
+
+---
+
+## Troubleshooting
+
+### iOS: task never fires / fires only once
+
+**Root cause — BGTaskScheduler simulator limitation:**
+BGTaskScheduler does **not** fire in the iOS Simulator. Always test background tasks on a physical device.
+
+To force a background task to launch immediately during debugging, pause the app in Xcode and run:
+```
+e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"dev.brewkits.native_workmanager.refresh"]
+```
+
+**Root cause — minimum 15-minute periodic interval:**
+iOS BGTaskScheduler enforces a hard minimum of ~15 minutes between periodic launches regardless of the interval you specify. Intervals shorter than 15 minutes are silently clamped.
+
+```dart
+// ✅ Reliable — respects the OS minimum
+trigger: TaskTrigger.periodic(Duration(hours: 1))
+
+// ⚠️ Silently clamped to ~15 min by iOS
+trigger: TaskTrigger.periodic(Duration(minutes: 5))
+```
+
+**Root cause — 30-second execution budget:**
+Each `BGAppRefreshTask` has roughly 30 seconds to complete. A `DartWorker` consumes ~200–500 ms just starting the Flutter engine, leaving less than 30 seconds for actual work. Prefer **native workers** (`NativeWorker.httpDownload`, `NativeWorker.httpSync`, etc.) for background tasks — they start in <100 ms with ~2 MB RAM.
+
+**Root cause — `BGTaskSchedulerPermittedIdentifiers` missing:**
+Verify your `ios/Runner/Info.plist` contains the task identifier:
+```xml
+<key>BGTaskSchedulerPermittedIdentifiers</key>
+<array>
+  <string>dev.brewkits.native_workmanager.refresh</string>
+  <string>dev.brewkits.native_workmanager.processing</string>
+</array>
+```
+
+---
+
+### Android: task is delayed or never runs
+
+**Battery optimization (OEM restrictions):**
+Samsung, Xiaomi, Huawei, and OnePlus devices apply aggressive background kill policies. Direct the user to disable battery optimization for your app:
+```dart
+// Guide users to Android battery settings
+const platform = MethodChannel('your.channel');
+await platform.invokeMethod('openBatterySettings');
+```
+Or include a one-time prompt at install time pointing to **Settings → Battery → App Launch / Unrestricted**.
+
+**Doze mode defers tasks:**
+Android Doze mode can delay tasks by minutes to hours. Use constraints to defer execution until conditions are met rather than fighting the OS:
+```dart
+constraints: Constraints(
+  requiresNetwork: true,
+  requiresBatteryNotLow: true,
+),
+```
+
+**Minimum 15-minute periodic interval:**
+`PeriodicWorkRequest` enforces a minimum repeat interval of **15 minutes**. Intervals below this are clamped. For higher-frequency work, use a foreground service instead.
+
+**Minimum SDK version:**
+The plugin requires `minSdk 26` (Android 8.0). Lower values produce a crash at startup.
+
+**Debug with adb logcat:**
+```bash
+adb logcat -s NativeWorkmanagerPlugin KmpWorkManager WorkManager
+```
+
+---
+
+### Chain behavior differences: iOS vs Android
+
+| Behaviour | Android | iOS |
+|-----------|---------|-----|
+| Chain persisted across app restart | ✅ `ChainStore` (SQLite) | ✅ `TaskStore` (SQLite) |
+| Chain resumed after device reboot | ✅ WorkManager re-enqueues | ✅ `resumePendingChains()` on plugin attach |
+| Max reliable chain length | 5–10 tasks | 3–5 tasks (30-second budget per step) |
+| Step-level retry | ✅ per-step `Constraints.maxAttempts` | ✅ BGProcessingTask retry |
+| Data passing between steps | Via shared storage (SQLite / `SharedPreferences`) | Same |
+| Failure propagation | Downstream tasks cancelled | Downstream tasks cancelled |
+
+**iOS chain length warning:**
+Each step in a chain is a separate `BGAppRefreshTask` with its own 30-second budget. If step N times out, the chain stalls. Keep each step lightweight; use `NativeWorker.*` whenever possible to avoid Flutter engine start-up time.
+
+**Android chain resume:**
+`ChainStore.kt` (SQLite) persists pending chains. On engine attach, `resumePendingChains()` re-enqueues any steps whose predecessor already completed. This makes chains durable across process death and device reboot.
+
+**Recommendation — large file processing:**
+Instead of one long chain, use a `DartWorker` that reads from a queue (e.g., `OfflineQueue`) and dispatches individual native tasks. This avoids the chain-length limit and gives you fine-grained retry control.
 
 ---
 

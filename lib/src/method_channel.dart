@@ -51,6 +51,7 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
     int diskSpaceBufferMB = 20,
     int cleanupAfterDays = 30,
     bool enforceHttps = false,
+    bool blockPrivateIPs = false,
   }) async {
     // Setup method call handler for Dart callbacks
     methodChannel.setMethodCallHandler(_handleMethodCall);
@@ -64,6 +65,7 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
       'diskSpaceBufferMB': diskSpaceBufferMB,
       'cleanupAfterDays': cleanupAfterDays,
       'enforceHttps': enforceHttps,
+      'blockPrivateIPs': blockPrivateIPs,
     };
     if (callbackHandle != null) args['callbackHandle'] = callbackHandle;
     if (debugMode) args['debugMode'] = debugMode;

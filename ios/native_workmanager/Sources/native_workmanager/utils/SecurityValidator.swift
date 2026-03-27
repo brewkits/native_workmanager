@@ -14,6 +14,13 @@ enum SecurityValidator {
     /// Set by handleInitialize() when the Dart caller passes enforceHttps=true.
     static var enforceHttps: Bool = false
 
+    /// When true, HTTP workers block requests to private/loopback IP literals.
+    /// Covers: 10.x, 172.16-31.x, 192.168.x, 127.x, 169.254.x (link-local),
+    ///         ::1, and fc00::/7 (ULA).
+    /// Only parsed IP literals are checked — hostnames are NOT resolved.
+    /// Set by handleInitialize() when the Dart caller passes blockPrivateIPs=true.
+    static var blockPrivateIPs: Bool = false
+
     // MARK: - URL Validation
 
     /// Validate that URL uses safe scheme (http/https only).
@@ -47,10 +54,29 @@ enum SecurityValidator {
             print("SecurityValidator: WARNING - Using HTTP (unencrypted). Consider HTTPS for security.")
         }
 
+        // SSRF protection: block requests to private/loopback IP literals.
+        if blockPrivateIPs, let host = url.host, isPrivateIP(host) {
+            print("SecurityValidator: Request blocked — '\(host)' is a private/loopback IP (blockPrivateIPs=true).")
+            return nil
+        }
+
         return url
     }
 
     // MARK: - File Path Validation
+
+    /// Validate a save path and return the canonical path on success, or nil if invalid.
+    ///
+    /// Convenience wrapper around `validateFilePath(_:)` that returns the resolved
+    /// path string so callers can use the canonical path after validation.
+    ///
+    /// - Parameter path: File path to validate
+    /// - Returns: Canonical (symlink-resolved) path string if valid, nil if invalid/unsafe
+    static func validateSavePath(_ path: String) -> String? {
+        guard !path.isEmpty else { return nil }
+        guard validateFilePath(path) else { return nil }
+        return resolvePathWithSymlinks(path)
+    }
 
     /// Validate file path is within app sandbox.
     ///
@@ -341,6 +367,67 @@ enum SecurityValidator {
             print("SecurityValidator: Cannot check disk space at '\(checkPath)': \(error) — allowing operation (OS will surface actual disk-full errors)")
             return true
         }
+    }
+
+    // MARK: - Private IP Detection
+
+    /// Returns true if `host` is a private/loopback IPv4 or IPv6 literal.
+    ///
+    /// Only IP literals are matched — hostnames are NOT resolved (no DNS lookup).
+    /// Covers:
+    ///   IPv4: 127.x, 10.x, 172.16-31.x, 192.168.x, 169.254.x (link-local)
+    ///   IPv6: ::1, fc00::/7 (ULA)
+    static func isPrivateIP(_ host: String) -> Bool {
+        guard !host.isEmpty else { return false }
+        // Strip IPv6 brackets: [::1] → ::1
+        let h: String
+        if host.hasPrefix("[") && host.hasSuffix("]") {
+            h = String(host.dropFirst().dropLast())
+        } else {
+            h = host
+        }
+        // IPv6 loopback
+        if h == "::1" { return true }
+        // IPv6 ULA (fc00::/7 — first byte fc or fd)
+        let lower = h.lowercased()
+        if lower.hasPrefix("fc") || lower.hasPrefix("fd") { return true }
+        // IPv4 — split on "." and validate octets
+        let parts = h.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4,
+              let a = Int(parts[0]),
+              let b = Int(parts[1]) else { return false }
+        switch a {
+        case 127: return true                    // 127.x loopback
+        case 10:  return true                    // 10.x/8
+        case 172: return b >= 16 && b <= 31      // 172.16-31.x/12
+        case 192: return b == 168               // 192.168.x/16
+        case 169: return b == 254               // 169.254.x link-local
+        default:  return false
+        }
+    }
+
+    // MARK: - Safe Header Logging
+
+    /// Return a loggable representation of HTTP headers with sensitive values redacted.
+    ///
+    /// Sensitive header names (Authorization, X-API-Key, X-Auth-Token, Cookie,
+    /// Set-Cookie, Proxy-Authorization) are replaced with `[redacted]`.
+    /// Non-sensitive headers are included as-is.
+    ///
+    /// - Parameter headers: HTTP request or response headers
+    /// - Returns: String summary safe for logging
+    static func safeLog(headers: [String: String]) -> String {
+        let sensitiveNames: Set<String> = [
+            "authorization", "x-api-key", "x-auth-token",
+            "cookie", "set-cookie", "proxy-authorization",
+        ]
+        let entries = headers.map { key, value -> String in
+            if sensitiveNames.contains(key.lowercased()) {
+                return "\(key): [redacted]"
+            }
+            return "\(key): \(value)"
+        }
+        return entries.sorted().joined(separator: ", ")
     }
 
     // MARK: - Additional Field Validation

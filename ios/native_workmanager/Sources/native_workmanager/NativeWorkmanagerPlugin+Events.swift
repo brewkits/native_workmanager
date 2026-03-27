@@ -56,6 +56,10 @@ extension NativeWorkmanagerPlugin {
             "timestamp": Int(Date().timeIntervalSince1970 * 1000)
         ]
 
+        if !success {
+            event["errorCode"] = Self.deriveErrorCode(message)
+        }
+
         if let data = resultData {
             event["resultData"] = data
         }
@@ -64,6 +68,28 @@ extension NativeWorkmanagerPlugin {
         DispatchQueue.main.async {
             self.eventSink?(event)
         }
+    }
+
+    /// Derive a structured error-code string from a worker failure message.
+    ///
+    /// Mirrors the Kotlin `deriveErrorCode()` helper in the Android plugin so that
+    /// the same `NativeWorkManagerError` enum values are produced on both platforms.
+    static func deriveErrorCode(_ message: String?) -> String {
+        guard let msg = message else { return "UNKNOWN" }
+        let lower = msg.lowercased()
+        if msg.hasPrefix("HTTP 4") || msg.hasPrefix("http 4") { return "HTTP_CLIENT_ERROR" }
+        if msg.hasPrefix("HTTP 5") || msg.hasPrefix("http 5") { return "HTTP_SERVER_ERROR" }
+        if lower.contains("timeout") { return "TIMEOUT" }
+        if lower.contains("network") || lower.contains("connect") ||
+           lower.contains("socket") || lower.contains("unreachable") { return "NETWORK_ERROR" }
+        if lower.contains("disk space") || lower.contains("insufficient") ||
+           lower.contains("no space") { return "INSUFFICIENT_STORAGE" }
+        if lower.contains("not found") || lower.contains("no such file") ||
+           lower.contains("does not exist") { return "FILE_NOT_FOUND" }
+        if lower.contains("unsafe") || lower.contains("ssrf") ||
+           lower.contains("security") { return "SECURITY_VIOLATION" }
+        if lower.contains("cancel") { return "CANCELLED" }
+        return "WORKER_EXCEPTION"
     }
 
     func emitProgress(taskId: String, progress: Int, message: String?) {

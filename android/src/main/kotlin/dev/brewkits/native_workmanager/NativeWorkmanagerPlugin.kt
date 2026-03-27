@@ -30,6 +30,7 @@ import dev.brewkits.native_workmanager.AppContextHolder
 import dev.brewkits.native_workmanager.notification.DownloadNotificationManager
 import dev.brewkits.native_workmanager.store.TaskStore
 import dev.brewkits.native_workmanager.workers.utils.HostConcurrencyManager
+import dev.brewkits.native_workmanager.workers.DbCleanupWorker
 import android.content.Intent
 import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
@@ -64,74 +65,75 @@ import org.koin.core.context.startKoin
  * Uses kmpworkmanager v2.3.7 from Maven Central as the core engine.
  * This ensures compatibility with Pro/Enterprise versions.
  */
-class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent {
+class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent,
+    android.content.ComponentCallbacks2 {
 
-    private lateinit var methodChannel: MethodChannel
-    private lateinit var eventChannel: EventChannel
-    private lateinit var progressChannel: EventChannel
-    private lateinit var context: Context
+    internal lateinit var methodChannel: MethodChannel
+    internal lateinit var eventChannel: EventChannel
+    internal lateinit var progressChannel: EventChannel
+    internal lateinit var context: Context
 
-    private var eventSink: EventChannel.EventSink? = null
-    private var progressSink: EventChannel.EventSink? = null
+    internal var eventSink: EventChannel.EventSink? = null
+    internal var progressSink: EventChannel.EventSink? = null
     // Main scope: UI updates, event/progress emission, result callbacks to Flutter.
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    internal val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     // IO scope: SQLite reads/writes, file I/O. Separate from Main to avoid blocking UI thread.
-    private val ioScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    internal val ioScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // Track subscription jobs so old ones are cancelled on re-subscribe
-    private var eventJob: Job? = null
-    private var progressJob: Job? = null
+    internal var eventJob: Job? = null
+    internal var progressJob: Job? = null
 
     // Inject BackgroundTaskScheduler from kmpworkmanager via Koin
-    private val scheduler: BackgroundTaskScheduler by inject()
+    internal val scheduler: BackgroundTaskScheduler by inject()
     // TaskEventBus is an object singleton, accessed directly (not via Koin)
 
     // Tag storage: taskId -> tag mapping (ConcurrentHashMap for thread safety across coroutines)
-    private val taskTags = ConcurrentHashMap<String, String>()
+    internal val taskTags = ConcurrentHashMap<String, String>()
 
     // Task status tracking: taskId -> status string (ConcurrentHashMap for thread safety)
-    private val taskStatuses = ConcurrentHashMap<String, String>()
+    internal val taskStatuses = ConcurrentHashMap<String, String>()
 
     // Debug mode flag
-    private var debugMode = false
+    internal var debugMode = false
 
     // Task start times for debug mode (ConcurrentHashMap for thread safety)
-    private val taskStartTimes = ConcurrentHashMap<String, Long>()
+    internal val taskStartTimes = ConcurrentHashMap<String, Long>()
 
     // Per-task signal: completed by subscribeToTaskEvents when TaskEventBus fires.
     // observeWorkCompletion awaits this instead of using delay(500L), so the WorkManager
     // fallback path resolves immediately when TaskEventBus fires and only blocks up to
     // 2 seconds if it doesn't (e.g. edge cases where the bus is silent).
-    private val taskBusSignals = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
+    internal val taskBusSignals = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
 
     // Persistent SQLite task store (initialized in onAttachedToEngine)
-    private lateinit var taskStore: TaskStore
+    internal lateinit var taskStore: TaskStore
 
     // Persistent SQLite chain state store (initialized in onAttachedToEngine)
-    private lateinit var chainStore: dev.brewkits.native_workmanager.store.ChainStore
+    internal lateinit var chainStore: dev.brewkits.native_workmanager.store.ChainStore
 
     // Notification title per taskId for download notification feature
-    private val taskNotifTitles = ConcurrentHashMap<String, String>()
+    internal val taskNotifTitles = ConcurrentHashMap<String, String>()
 
     // allowPause flag per taskId (for suppressing Pause button in notifications)
-    private val taskAllowPause = ConcurrentHashMap<String, Boolean>()
+    internal val taskAllowPause = ConcurrentHashMap<String, Boolean>()
 
     // Filename per taskId (extracted from URL for notification template substitution)
-    private val taskFilenames = ConcurrentHashMap<String, String>()
+    internal val taskFilenames = ConcurrentHashMap<String, String>()
 
     companion object {
         private const val TAG = "NativeWorkmanagerPlugin"
         private const val METHOD_CHANNEL = "dev.brewkits/native_workmanager"
         private const val EVENT_CHANNEL = "dev.brewkits/native_workmanager/events"
         private const val PROGRESS_CHANNEL = "dev.brewkits/native_workmanager/progress"
-        private const val DEBUG_NOTIFICATION_CHANNEL_ID = "native_workmanager_debug"
+        internal const val DEBUG_NOTIFICATION_CHANNEL_ID = "native_workmanager_debug"
         private const val DEBUG_NOTIFICATION_CHANNEL_NAME = "Background Task Debug"
         /** Auto-dismiss timeout for debug task-completion notifications (ms). */
-        private const val DEBUG_NOTIFICATION_TIMEOUT_MS = 5_000L
+        internal const val DEBUG_NOTIFICATION_TIMEOUT_MS = 5_000L
         /** Default concurrent-task limit (mirrors iOS NWMDefaults.maxConcurrentTasks). */
         private const val DEFAULT_MAX_CONCURRENT_TASKS = 4
         private var isKoinInitialized = false
-        private val TERMINAL_STATES = setOf(
+        internal val TERMINAL_STATES = setOf(
             WorkInfo.State.SUCCEEDED,
             WorkInfo.State.FAILED,
             WorkInfo.State.CANCELLED
@@ -141,6 +143,10 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
         AppContextHolder.appContext = context
+
+        // Register for system memory callbacks (onTrimMemory / onLowMemory).
+        // Unregistered in onDetachedFromEngine to prevent leaks.
+        context.registerComponentCallbacks(this)
 
         // Initialize persistent task store, chain store, and download notification channel
         taskStore = TaskStore(context)
@@ -215,143 +221,6 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
         }
     }
 
-    private fun subscribeToProgressUpdates() {
-        progressJob?.cancel()
-        progressJob = scope.launch {
-            try {
-                ProgressReporter.progressFlow.collect { update ->
-                    // Show download notification progress if enabled for this task
-                    val notifTitle = taskNotifTitles[update.taskId]
-                    if (notifTitle != null) {
-                        DownloadNotificationManager.showProgress(
-                            context = context,
-                            taskId = update.taskId,
-                            title = notifTitle,
-                            progress = update.progress,
-                            message = update.message,
-                            filename = taskFilenames[update.taskId],
-                            allowPause = taskAllowPause[update.taskId] ?: true
-                        )
-                    }
-                    progressSink?.success(update.toMap())
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e  // Re-throw so coroutine cancellation propagates normally
-            } catch (e: Exception) {
-                NativeLogger.e("Error in progress subscription", e)
-            }
-        }
-    }
-
-    private fun subscribeToTaskEvents() {
-        eventJob?.cancel()
-        eventJob = scope.launch {
-            try {
-                // Access TaskEventBus object singleton directly (v2.3.1+ with outputData support)
-                TaskEventBus.events.collect { event ->
-                    // Show debug notification if enabled
-                    if (debugMode && isDebugBuild()) {
-                        try {
-                            val taskId = event.taskName
-                            val startTime = taskStartTimes[taskId]
-                            val executionTime = if (startTime != null) {
-                                "${System.currentTimeMillis() - startTime}ms"
-                            } else {
-                                "N/A"
-                            }
-
-                            // Remove from tracking if task completed
-                            if (event.success || !event.message.isNullOrEmpty()) {
-                                taskStartTimes.remove(taskId)
-                            }
-
-                            val title = if (event.success) {
-                                "✅ Task Completed: $taskId"
-                            } else {
-                                "❌ Task Failed: $taskId"
-                            }
-
-                            val text = buildString {
-                                append("Execution time: $executionTime")
-                                if (!event.message.isNullOrEmpty()) {
-                                    append("\n${event.message}")
-                                }
-                            }
-
-                            val notification = NotificationCompat.Builder(context, DEBUG_NOTIFICATION_CHANNEL_ID)
-                                .setSmallIcon(android.R.drawable.ic_dialog_info)
-                                .setContentTitle(title)
-                                .setContentText(text)
-                                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-                                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                                .setAutoCancel(true)
-                                .setTimeoutAfter(DEBUG_NOTIFICATION_TIMEOUT_MS)
-                                .build()
-
-                            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                            notificationManager.notify(taskId.hashCode(), notification)
-                        } catch (e: Exception) {
-                            NativeLogger.e("Error showing debug notification", e)
-                        }
-                    }
-
-                    // Update in-memory status
-                    taskStatuses[event.taskName] = if (event.success) "completed" else "failed"
-
-                    // Persist status change to SQLite store (IO dispatcher — SQLite must not run on Main)
-                    val resultJson = event.outputData?.let { toJson(it) }
-                    withContext(Dispatchers.IO) {
-                        taskStore.updateStatus(
-                            taskId = event.taskName,
-                            status = if (event.success) "completed" else "failed",
-                            resultData = resultJson
-                        )
-                    }
-
-                    // Show download completion/failure notification if enabled for this task
-                    val notifTitle = taskNotifTitles.remove(event.taskName)
-                    if (notifTitle != null) {
-                        if (event.success) {
-                            DownloadNotificationManager.showCompleted(
-                                context = context,
-                                taskId = event.taskName,
-                                title = notifTitle,
-                                fileName = null
-                            )
-                        } else {
-                            DownloadNotificationManager.showFailed(
-                                context = context,
-                                taskId = event.taskName,
-                                title = notifTitle,
-                                error = event.message ?: "Download failed"
-                            )
-                        }
-                    }
-
-                    // Signal any observeWorkCompletion waiter so it can skip the fallback path.
-                    // computeIfAbsent is atomic: creates a new deferred only if absent, then
-                    // completes it. If observeWorkCompletion created the deferred first it gets
-                    // resolved here; if TaskEventBus fires first the deferred is pre-completed
-                    // and observeWorkCompletion's await() returns immediately.
-                    taskBusSignals.computeIfAbsent(event.taskName) { CompletableDeferred() }
-                        .complete(Unit)
-
-                    // Always emit event to Dart (v2.3.1+: includes outputData)
-                    eventSink?.success(mapOf(
-                        "taskId" to event.taskName,  // Map taskName to taskId for Dart compatibility
-                        "success" to event.success,
-                        "message" to event.message,
-                        "resultData" to event.outputData,  // ✅ Pass result data from worker
-                        "timestamp" to System.currentTimeMillis()
-                    ))
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e  // Re-throw so coroutine cancellation propagates normally
-            } catch (e: Exception) {
-                NativeLogger.e("Error in event subscription", e)
-            }
-        }
-    }
 
     override fun onMethodCall(call: MethodCall, result: Result) {
         when (call.method) {
@@ -378,1041 +247,6 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
         }
     }
 
-    private fun handleOpenFile(call: MethodCall, result: Result) {
-        try {
-            val filePath = call.argument<String>("filePath")
-                ?: return result.error("INVALID_ARGS", "filePath required", null)
-            val mimeType = call.argument<String>("mimeType")
-
-            val file = java.io.File(filePath)
-            if (!file.exists()) {
-                return result.error("FILE_NOT_FOUND", "File does not exist: $filePath", null)
-            }
-
-            val uri = androidx.core.content.FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.native_workmanager.provider",
-                file
-            )
-
-            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, mimeType ?: getMimeTypeFromFile(filePath))
-                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-
-            context.startActivity(intent)
-            result.success(null)
-        } catch (e: Exception) {
-            result.error("OPEN_FILE_ERROR", e.message, null)
-        }
-    }
-
-    private fun getMimeTypeFromFile(filePath: String): String {
-        val ext = filePath.substringAfterLast('.', "").lowercase()
-        return android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
-            ?: "*/*"
-    }
-
-    private fun handlePause(call: MethodCall, result: Result) {
-        scope.launch {
-            try {
-                val taskId = call.argument<String>("taskId")
-                    ?: return@launch result.error("INVALID_ARGS", "taskId required", null)
-
-                // WorkManager has no native pause; cancel the job (preserving the .tmp partial file)
-                WorkManager.getInstance(context).cancelUniqueWork(taskId)
-
-                // Update in-memory state
-                taskStatuses[taskId] = "paused"
-
-                // Persist paused state (IO dispatcher — SQLite must not run on Main)
-                withContext(Dispatchers.IO) { taskStore.updateStatus(taskId = taskId, status = "paused") }
-
-                // Dismiss any active progress notification
-                if (taskNotifTitles.containsKey(taskId)) {
-                    DownloadNotificationManager.dismiss(context, taskId)
-                }
-
-                NativeLogger.d("Task '$taskId' paused")
-                result.success(null)
-            } catch (e: Exception) {
-                result.error("PAUSE_ERROR", e.message, null)
-            }
-        }
-    }
-
-    private fun handleResume(call: MethodCall, result: Result) {
-        scope.launch {
-            try {
-                val taskId = call.argument<String>("taskId")
-                    ?: return@launch result.error("INVALID_ARGS", "taskId required", null)
-
-                // Look up the paused task from the store (IO dispatcher — SQLite must not run on Main)
-                val record = withContext(Dispatchers.IO) { taskStore.getTask(taskId) }
-                    ?: return@launch result.error("NOT_FOUND", "Task '$taskId' not found in store", null)
-
-                if (record.status != "paused") {
-                    return@launch result.error("INVALID_STATE", "Task '$taskId' is not paused (status: ${record.status})", null)
-                }
-
-                val workerClassName = record.workerClassName
-                val inputJson = record.workerConfig
-                val tag = record.tag
-
-                // Re-enqueue with the same config
-                enqueueOneTimeWorkDirect(
-                    taskId = taskId,
-                    workerClassName = workerClassName,
-                    inputJson = inputJson,
-                    tag = tag,
-                    constraints = Constraints(),
-                    delayMs = 0L,
-                    policy = ExistingPolicy.REPLACE
-                )
-
-                // Update status back to pending (IO dispatcher — SQLite must not run on Main)
-                taskStatuses[taskId] = "pending"
-                withContext(Dispatchers.IO) { taskStore.updateStatus(taskId = taskId, status = "pending") }
-                observeWorkCompletion(taskId, false)
-
-                NativeLogger.d("Task '$taskId' resumed")
-                result.success(null)
-            } catch (e: Exception) {
-                result.error("RESUME_ERROR", e.message, null)
-            }
-        }
-    }
-
-    private fun handleAllTasks(result: Result) {
-        scope.launch {
-            try {
-                val maps = withContext(Dispatchers.IO) {
-                    taskStore.getAllTasks().map { record ->
-                        with(taskStore) { record.toFlutterMap() }
-                    }
-                }
-                result.success(maps)
-            } catch (e: Exception) {
-                result.error("ALL_TASKS_ERROR", e.message, null)
-            }
-        }
-    }
-
-    private fun handleGetServerFilename(call: MethodCall, result: Result) {
-        scope.launch {
-            try {
-                val url = call.argument<String>("url")
-                    ?: return@launch result.error("INVALID_ARGS", "url required", null)
-                val headers = call.argument<Map<String, String>>("headers")
-                val timeoutMs = call.argument<Int>("timeoutMs")?.toLong() ?: 30_000L
-
-                if (!SecurityValidator.validateURL(url)) {
-                    return@launch result.error("INVALID_URL", "Invalid or unsafe URL", null)
-                }
-
-                val filename = kotlinx.coroutines.withContext(Dispatchers.IO) {
-                    val client = OkHttpClient.Builder()
-                        .connectTimeout(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
-                        .readTimeout(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
-                        .followRedirects(true)
-                        .build()
-
-                    val requestBuilder = okhttp3.Request.Builder().url(url).head()
-                    headers?.forEach { (k, v) -> requestBuilder.addHeader(k, v) }
-
-                    client.newCall(requestBuilder.build()).execute().use { resp ->
-                        HttpDownloadWorker().parseFilenameFromContentDisposition(
-                            resp.header("Content-Disposition")
-                        )
-                    }
-                }
-                result.success(filename)
-            } catch (e: Exception) {
-                result.error("GET_FILENAME_ERROR", e.message, null)
-            }
-        }
-    }
-
-    private fun handleEnqueue(call: MethodCall, result: Result) {
-        scope.launch {
-            try {
-                val taskId = call.argument<String>("taskId")
-                    ?: return@launch result.error("INVALID_ARGS", "taskId required", null)
-                val workerClassName = call.argument<String>("workerClassName")
-                    ?: return@launch result.error("INVALID_ARGS", "workerClassName required", null)
-                val workerConfig = call.argument<Map<String, Any?>?>("workerConfig")
-                // Custom workers carry a pre-encoded "input" JSON string;
-                // built-in workers need the entire workerConfig serialised as their input.
-                // ✅ ENHANCEMENT: Inject taskId into all worker configs for progress reporting
-                val inputJson: String? = when {
-                    workerConfig == null -> null
-                    workerConfig["workerType"] == "custom" -> workerConfig["input"] as? String
-                    else -> {
-                        // Inject taskId into worker config for progress reporting
-                        val enrichedConfig = workerConfig.toMutableMap()
-                        enrichedConfig["__taskId"] = taskId
-                        toJson(enrichedConfig)
-                    }
-                }
-                val tag = call.argument<String>("tag")
-
-                // Store tag if provided
-                if (tag != null) {
-                    taskTags[taskId] = tag
-                    NativeLogger.d("Stored tag '$tag' for task '$taskId'")
-                }
-
-                // Store task in persistent SQLite store (IO dispatcher — SQLite must not run on Main).
-                // Sanitize config before persisting: strip auth tokens / cookies to prevent leaking
-                // sensitive data via adb backup. The full inputJson is used for execution above.
-                withContext(Dispatchers.IO) {
-                    taskStore.upsert(
-                        taskId = taskId,
-                        tag = tag,
-                        status = "pending",
-                        workerClassName = workerClassName,
-                        workerConfig = TaskStore.sanitizeConfig(inputJson)
-                    )
-                }
-
-                // If showNotification requested, store the title, allowPause, and filename for progress/completion hooks
-                if (workerConfig?.get("showNotification") == true) {
-                    val url = workerConfig["url"] as? String
-                    val title = (workerConfig["notificationTitle"] as? String)
-                        ?: url?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
-                        ?: taskId
-                    taskNotifTitles[taskId] = title
-                    taskAllowPause[taskId] = workerConfig["allowPause"] as? Boolean ?: true
-                    val filename = url?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
-                        ?: (workerConfig["savePath"] as? String)?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
-                    if (filename != null) taskFilenames[taskId] = filename
-                }
-
-                // Parse trigger from method call arguments
-                @Suppress("UNCHECKED_CAST")
-                val triggerMap = call.argument<Map<String, Any?>>("trigger")
-                val triggerType = triggerMap?.get("type") as? String ?: "oneTime"
-                val trigger: TaskTrigger = when (triggerType) {
-                    "periodic" -> {
-                        val intervalMs = (triggerMap?.get("intervalMs") as? Number)?.toLong() ?: 900_000L
-                        val flexMs = (triggerMap?.get("flexMs") as? Number)?.toLong()
-                        TaskTrigger.Periodic(intervalMs = intervalMs, flexMs = flexMs)
-                    }
-                    "exact" -> {
-                        val scheduledTimeMs = (triggerMap?.get("scheduledTimeMs") as? Number)?.toLong()
-                            ?: System.currentTimeMillis()
-                        TaskTrigger.Exact(atEpochMillis = scheduledTimeMs)
-                    }
-                    "windowed" -> {
-                        val earliestMs = (triggerMap?.get("earliestMs") as? Number)?.toLong() ?: 0L
-                        val latestMs = (triggerMap?.get("latestMs") as? Number)?.toLong() ?: 0L
-                        TaskTrigger.Windowed(earliest = earliestMs, latest = latestMs)
-                    }
-                    "contentUri" -> {
-                        val uriString = triggerMap?.get("uriString") as? String ?: ""
-                        val triggerForDescendants = triggerMap?.get("triggerForDescendants") as? Boolean ?: false
-                        @OptIn(AndroidOnly::class)
-                        TaskTrigger.ContentUri(uriString = uriString, triggerForDescendants = triggerForDescendants)
-                    }
-                    // Battery/idle/storage variants removed in kmpworkmanager 2.3.7 — use OneTime
-                    // with the corresponding SystemConstraint added via parseConstraints instead.
-                    "batteryOkay" -> TaskTrigger.OneTime()
-                    "batteryLow" -> TaskTrigger.OneTime()
-                    "deviceIdle" -> TaskTrigger.OneTime()
-                    "storageLow" -> TaskTrigger.OneTime()
-                    else -> {
-                        val initialDelayMs = (triggerMap?.get("initialDelayMs") as? Number)?.toLong() ?: 0L
-                        TaskTrigger.OneTime(initialDelayMs = initialDelayMs)
-                    }
-                }
-
-                // Parse existing policy from method call arguments
-                val existingPolicyStr = call.argument<String>("existingPolicy") ?: "replace"
-                val policy = when (existingPolicyStr.lowercase()) {
-                    "replace" -> ExistingPolicy.REPLACE
-                    else -> ExistingPolicy.KEEP
-                }
-
-                @Suppress("UNCHECKED_CAST")
-                val constraintsMap = call.argument<Map<String, Any?>>("constraints")
-                val constraints = parseConstraints(constraintsMap)
-
-                // Fix: WorkManager 2.10+ rejects expedited work (all kmpworkmanager OneTime tasks)
-                // for ANY non-network/non-storage constraints, AND rejects expedited+initialDelay.
-                // Bypass kmpworkmanager for ALL OneTime tasks: schedule directly via WorkManager
-                // without setExpedited(). KmpWorker/KmpHeavyWorker still handle task dispatch.
-                if (trigger is TaskTrigger.OneTime) {
-                    val delayMs = trigger.initialDelayMs
-                    // Check if expedited mode is requested for download workers (Task 6 / UIDT)
-                    val isDownloadWorker = workerClassName.contains("HttpDownloadWorker") ||
-                        workerClassName.contains("ParallelHttpDownloadWorker")
-                    val isExpedited = isDownloadWorker &&
-                        (workerConfig?.get("expedited") == true || workerConfig?.get("priority") == "high")
-                    NativeLogger.d("Scheduling '$taskId': OneTime(delay=${delayMs}ms, expedited=$isExpedited) → direct WorkManager")
-                    enqueueOneTimeWorkDirect(taskId, workerClassName, inputJson, tag, constraints, delayMs, policy, isExpedited)
-                    taskStatuses[taskId] = "pending"
-                    observeWorkCompletion(taskId, false)
-                    result.success("ACCEPTED")
-                    return@launch
-                }
-
-                // Fix: kmpworkmanager scheduler.enqueue() silently creates a OneTimeWorkRequest
-                // even when given a Periodic trigger — so the task runs once then never repeats.
-                // Bypass kmpworkmanager for Periodic tasks and enqueue PeriodicWorkRequest directly.
-                if (trigger is TaskTrigger.Periodic) {
-                    val intervalMs = trigger.intervalMs
-                    val flexMs = trigger.flexMs
-                    NativeLogger.d("Scheduling '$taskId': Periodic(interval=${intervalMs}ms, flex=${flexMs}ms) → direct WorkManager")
-                    enqueuePeriodicWorkDirect(taskId, workerClassName, inputJson, tag, constraints, intervalMs, flexMs, policy)
-                    taskStatuses[taskId] = "pending"
-                    observeWorkCompletion(taskId, true)
-                    result.success("ACCEPTED")
-                    return@launch
-                }
-
-                val isPeriodic = trigger is TaskTrigger.Periodic
-                NativeLogger.d("Scheduling '$taskId': trigger=$triggerType, policy=$existingPolicyStr, heavy=${constraints.isHeavyTask}")
-
-                val scheduleResult = scheduler.enqueue(
-                    id = taskId,
-                    trigger = trigger,
-                    workerClassName = workerClassName,
-                    constraints = constraints,
-                    inputJson = inputJson,
-                    policy = policy
-                )
-
-                when (scheduleResult) {
-                    ScheduleResult.ACCEPTED -> {
-                        taskStatuses[taskId] = "pending"
-                        observeWorkCompletion(taskId, isPeriodic)
-                        NativeLogger.d("✅ Task scheduled: $taskId")
-                        result.success("ACCEPTED")
-                    }
-                    ScheduleResult.REJECTED_OS_POLICY -> {
-                        NativeLogger.w("⚠️ Task rejected by OS policy: $taskId")
-                        result.success("REJECTED_OS_POLICY")
-                    }
-                    ScheduleResult.THROTTLED -> {
-                        NativeLogger.w("⚠️ Task throttled: $taskId")
-                        result.success("THROTTLED")
-                    }
-                    ScheduleResult.DEADLINE_ALREADY_PASSED -> {
-                        NativeLogger.w("⚠️ Task deadline already passed: $taskId")
-                        result.success("DEADLINE_ALREADY_PASSED")
-                    }
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e  // Re-throw so coroutine cancellation propagates normally
-            } catch (e: Exception) {
-                NativeLogger.e("❌ Enqueue error", e)
-                result.error("ENQUEUE_ERROR", e.message, null)
-            }
-        }
-    }
-
-    /** Delete leftover .tmp and .tmp.etag files for a cancelled/failed download task.
-     *  Prevents GB-scale orphan files accumulating on disk — mirrors #516 fix. */
-    private suspend fun cleanupTempFilesForTask(taskId: String) {
-        try {
-            val record = withContext(Dispatchers.IO) { taskStore.getTask(taskId) } ?: return
-            val config = record.workerConfig ?: return
-            val savePath = try {
-                org.json.JSONObject(config).optString("savePath").takeIf { it.isNotBlank() }
-            } catch (_: Exception) { null } ?: return
-            for (suffix in listOf(".tmp", ".tmp.etag")) {
-                val f = java.io.File(savePath + suffix)
-                if (f.exists()) {
-                    f.delete()
-                    NativeLogger.d("Deleted orphan $suffix for cancelled task '$taskId'")
-                }
-            }
-        } catch (e: Exception) {
-            NativeLogger.w("cleanupTempFilesForTask '$taskId': ${e.message}")
-        }
-    }
-
-    private fun handleCancel(call: MethodCall, result: Result) {
-        scope.launch {
-            try {
-                val taskId = call.argument<String>("taskId")
-                    ?: return@launch result.error("INVALID_ARGS", "taskId required", null)
-
-                scheduler.cancel(taskId)
-                cleanupTempFilesForTask(taskId)
-                // Remove tag mapping and update status
-                taskTags.remove(taskId)
-                taskStatuses[taskId] = "cancelled"
-                withContext(Dispatchers.IO) { taskStore.updateStatus(taskId = taskId, status = "cancelled") }
-                // Dismiss any active progress notification
-                taskNotifTitles.remove(taskId)?.let { DownloadNotificationManager.dismiss(context, taskId) }
-                taskAllowPause.remove(taskId)
-                taskFilenames.remove(taskId)
-                result.success(null)
-            } catch (e: Exception) {
-                result.error("CANCEL_ERROR", e.message, null)
-            }
-        }
-    }
-
-    private fun handleCancelAll(result: Result) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    taskStore.getAllTasks().forEach { record ->
-                        val config = record.workerConfig ?: return@forEach
-                        val savePath = try {
-                            org.json.JSONObject(config).optString("savePath").takeIf { it.isNotBlank() }
-                        } catch (_: Exception) { null } ?: return@forEach
-                        for (suffix in listOf(".tmp", ".tmp.etag")) {
-                            val f = java.io.File(savePath + suffix)
-                            if (f.exists()) f.delete()
-                        }
-                    }
-                }
-                scheduler.cancelAll()
-                // Clear all tag mappings and status tracking
-                taskTags.clear()
-                taskStatuses.clear()
-                taskAllowPause.clear()
-                taskFilenames.clear()
-                result.success(null)
-            } catch (e: Exception) {
-                result.error("CANCEL_ERROR", e.message, null)
-            }
-        }
-    }
-
-    private fun handleCancelByTag(call: MethodCall, result: Result) {
-        scope.launch {
-            try {
-                val tag = call.argument<String>("tag")
-                    ?: return@launch result.error("INVALID_ARGS", "tag required", null)
-
-                // Find all tasks with this tag
-                val tasksToCancel = taskTags.filterValues { it == tag }.keys.toList()
-
-                NativeLogger.d("Canceling ${tasksToCancel.size} tasks with tag '$tag'")
-
-                // Cancel each task
-                tasksToCancel.forEach { taskId ->
-                    try {
-                        scheduler.cancel(taskId)
-                        cleanupTempFilesForTask(taskId)
-                        taskTags.remove(taskId)
-                        taskStatuses[taskId] = "cancelled"
-                    } catch (e: Exception) {
-                        NativeLogger.w("Failed to cancel task $taskId: ${e.message}")
-                    }
-                }
-
-                result.success(null)
-            } catch (e: Exception) {
-                result.error("CANCEL_ERROR", e.message, null)
-            }
-        }
-    }
-
-    private fun handleGetTasksByTag(call: MethodCall, result: Result) {
-        try {
-            val tag = call.argument<String>("tag")
-                ?: return result.error("INVALID_ARGS", "tag required", null)
-
-            // Find all tasks with this tag
-            val tasks = taskTags.filterValues { it == tag }.keys.toList()
-            result.success(tasks)
-        } catch (e: Exception) {
-            result.error("GET_TASKS_ERROR", e.message, null)
-        }
-    }
-
-    private fun handleGetAllTags(result: Result) {
-        try {
-            // Get all unique tags
-            val tags = taskTags.values.distinct()
-            result.success(tags)
-        } catch (e: Exception) {
-            result.error("GET_TAGS_ERROR", e.message, null)
-        }
-    }
-
-    private fun handleGetTaskStatus(call: MethodCall, result: Result) {
-        try {
-            val taskId = call.argument<String>("taskId")
-                ?: return result.error("INVALID_ARGS", "taskId required", null)
-
-            result.success(taskStatuses[taskId])
-        } catch (e: Exception) {
-            result.success(null)
-        }
-    }
-
-    private fun handleEnqueueChain(call: MethodCall, result: Result) {
-        scope.launch {
-            try {
-                val chainName = call.argument<String>("name") ?: "chain_${System.currentTimeMillis()}"
-                @Suppress("UNCHECKED_CAST")
-                val steps = call.argument<List<List<Map<String, Any?>>>>("steps") ?: emptyList()
-
-                if (steps.isEmpty() || steps[0].isEmpty()) {
-                    return@launch result.error("CHAIN_ERROR", "Chain must have at least one task", null)
-                }
-
-                val chainId = "${chainName}_${java.util.UUID.randomUUID()}"
-                val workManager = WorkManager.getInstance(context)
-                val allTaskIds = mutableListOf<String>()
-
-                // Build OneTimeWorkRequest for each step tagged with its task ID.
-                val stepWorkRequests: List<List<OneTimeWorkRequest>> = steps.mapIndexed { stepIndex, parallelTasks ->
-                    @Suppress("UNCHECKED_CAST")
-                    (parallelTasks as List<Map<String, Any?>>).map { taskData ->
-                        val taskId = taskData["id"] as? String ?: java.util.UUID.randomUUID().toString()
-                        allTaskIds.add(taskId)
-                        // Persist each step to ChainStore for resume and Dart visibility.
-                        withContext(Dispatchers.IO) {
-                            chainStore.addChainStep(chainId, stepIndex, taskId, "pending")
-                        }
-                        buildChainStepRequest(taskId, taskData)
-                    }
-                }
-
-                // Persist chain header BEFORE enqueuing (so resume can find it even if killed immediately).
-                withContext(Dispatchers.IO) {
-                    chainStore.upsertChain(
-                        chainId = chainId,
-                        chainName = chainName,
-                        totalSteps = steps.size,
-                        status = "running"
-                    )
-                }
-
-                // Enqueue as a WorkManager chain.
-                var continuation = workManager.beginWith(stepWorkRequests[0])
-                for (i in 1 until stepWorkRequests.size) {
-                    continuation = continuation.then(stepWorkRequests[i])
-                }
-                continuation.enqueue()
-
-                NativeLogger.d("✅ Chain scheduled: $chainName/$chainId (${steps.size} steps), IDs: $allTaskIds")
-
-                // Observe each chain step by its task-ID tag and emit events on completion.
-                for (taskId in allTaskIds) {
-                    taskStatuses[taskId] = "pending"
-                    observeChainStepCompletion(taskId, chainId = chainId)
-                }
-
-                result.success("ACCEPTED")
-            } catch (e: Exception) {
-                NativeLogger.e("❌ Chain error", e)
-                result.error("CHAIN_ERROR", e.message, null)
-            }
-        }
-    }
-
-    /**
-     * Resume Dart-visible chain metadata for chains that were in-progress
-     * when the app was killed.  WorkManager itself already re-executes the
-     * individual workers; this layer re-attaches step observers and marks
-     * chain status as running so allTasks() returns accurate data.
-     */
-    private suspend fun resumePendingChains() {
-        try {
-            val pending = withContext(Dispatchers.IO) { chainStore.getPendingChains() }
-            if (pending.isEmpty()) return
-            NativeLogger.d("Resuming ${pending.size} pending chain(s) from ChainStore")
-            for (chain in pending) {
-                val steps = withContext(Dispatchers.IO) { chainStore.getStepsForChain(chain.chainId) }
-                for (step in steps) {
-                    if (step.status !in listOf("completed", "failed")) {
-                        taskStatuses[step.taskId] = step.status
-                        observeChainStepCompletion(step.taskId, chainId = chain.chainId)
-                    }
-                }
-                NativeLogger.d("  Chain '${chain.chainName}' (${chain.chainId}): re-observing ${steps.size} steps")
-            }
-        } catch (e: Exception) {
-            NativeLogger.e("resumePendingChains failed", e)
-        }
-    }
-
-    /**
-     * Build a OneTimeWorkRequest for a single chain step.
-     * The task ID is added as a WorkManager tag so we can observe by tag later.
-     */
-    private fun buildChainStepRequest(taskId: String, taskData: Map<String, Any?>): OneTimeWorkRequest {
-        val workerClassName = taskData["workerClassName"] as? String ?: ""
-        @Suppress("UNCHECKED_CAST")
-        val workerConfig = taskData["workerConfig"] as? Map<String, Any?>
-        // Custom workers (NativeWorker.custom) carry user data under "input" key as a
-        // pre-encoded JSON string. Pass that directly so the custom worker receives its
-        // own fields — matching handleEnqueue and iOS executeWorkerSync behaviour.
-        // Built-in workers receive the full config enriched with __taskId for progress.
-        val inputJson: String? = when {
-            workerConfig == null -> null
-            workerConfig["workerType"] == "custom" -> workerConfig["input"] as? String
-            else -> {
-                val enrichedConfig = workerConfig.toMutableMap()
-                if (taskId.isNotEmpty()) enrichedConfig["__taskId"] = taskId
-                toJson(enrichedConfig)
-            }
-        }
-        @Suppress("UNCHECKED_CAST")
-        val constraintsMap = taskData["constraints"] as? Map<String, Any?>
-        val constraints = parseConstraints(constraintsMap)
-
-        val dataBuilder = Data.Builder().putString("workerClassName", workerClassName)
-        if (inputJson != null) dataBuilder.putString("inputJson", inputJson)
-
-        val networkType = when {
-            constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
-            constraints.requiresNetwork -> NetworkType.CONNECTED
-            else -> NetworkType.NOT_REQUIRED
-        }
-        val wmConstraintsBuilder = androidx.work.Constraints.Builder()
-            .setRequiredNetworkType(networkType)
-            .setRequiresCharging(constraints.requiresCharging)
-        val sysConstraints = constraints.systemConstraints ?: emptySet()
-        if (sysConstraints.contains(SystemConstraint.DEVICE_IDLE)) wmConstraintsBuilder.setRequiresDeviceIdle(true)
-        if (sysConstraints.contains(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)) wmConstraintsBuilder.setRequiresBatteryNotLow(true)
-
-        val workerClass = if (constraints.isHeavyTask) KmpHeavyWorker::class.java else KmpWorker::class.java
-        return OneTimeWorkRequest.Builder(workerClass)
-            .setConstraints(wmConstraintsBuilder.build())
-            .setInputData(dataBuilder.build())
-            .addTag(NativeTaskScheduler.TAG_KMP_TASK)
-            .addTag("worker-$workerClassName")
-            .addTag(taskId)         // Critical: allows observeChainStepCompletion to find this work
-            .addTag(workerClassName)
-            .build()
-    }
-
-    /**
-     * Observe a single chain step by its task-ID tag and emit an event when it reaches a terminal state.
-     * Uses getWorkInfosByTagFlow since chain steps are NOT unique work.
-     * [chainId] is used to persist step status to ChainStore (null = legacy calls without persistence).
-     */
-    private fun observeChainStepCompletion(taskId: String, chainId: String? = null) {
-        scope.launch {
-            try {
-                val workManager = WorkManager.getInstance(context)
-                workManager.getWorkInfosByTagFlow(taskId)
-                    .collect { infos ->
-                        val workInfo = infos.firstOrNull { it.state in TERMINAL_STATES }
-                            ?: return@collect
-                        if (taskStatuses[taskId] == "completed" || taskStatuses[taskId] == "failed") return@collect
-
-                        when (workInfo.state) {
-                            WorkInfo.State.SUCCEEDED -> {
-                                taskStatuses[taskId] = "completed"
-                                NativeLogger.d("✅ Chain step SUCCEEDED: $taskId")
-                                // Persist step result and update ChainStore
-                                val outputJson = workInfo.outputData.keyValueMap
-                                    .takeIf { it.isNotEmpty() }
-                                    ?.let { toJson(it) }
-                                if (chainId != null) {
-                                    withContext(Dispatchers.IO) {
-                                        chainStore.updateStepStatus(chainId, taskId, "completed", outputJson)
-                                    }
-                                }
-                                eventSink?.success(mapOf(
-                                    "taskId" to taskId,
-                                    "success" to true,
-                                    "message" to "Chain step completed",
-                                    "timestamp" to System.currentTimeMillis()
-                                ))
-                            }
-                            WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
-                                taskStatuses[taskId] = "failed"
-                                NativeLogger.e("❌ Chain step FAILED/CANCELLED: $taskId (${workInfo.state})")
-                                if (chainId != null) {
-                                    withContext(Dispatchers.IO) {
-                                        chainStore.updateStepStatus(chainId, taskId, "failed")
-                                        chainStore.updateChainStatus(chainId, "failed")
-                                    }
-                                }
-                                eventSink?.success(mapOf(
-                                    "taskId" to taskId,
-                                    "success" to false,
-                                    "message" to "Chain step ${workInfo.state.name.lowercase()}",
-                                    "timestamp" to System.currentTimeMillis()
-                                ))
-                            }
-                            else -> {}
-                        }
-                    }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                // FIX M7: Always rethrow CancellationException so coroutine cancellation
-                // propagates correctly. Catching it as Exception swallows scope cancellation
-                // and prevents the coroutine from stopping when the plugin detaches.
-                throw e
-            } catch (e: Exception) {
-                NativeLogger.e("Error observing chain step $taskId", e)
-            }
-        }
-    }
-
-    /**
-     * Collect WorkManager's Flow for the given unique-work task.
-     * TaskEventBus (kmpworkmanager) does not reliably emit on Android,
-     * so we observe WorkInfo state directly via the ktx Flow API.
-     *
-     * One-time tasks: wait for the first terminal state (SUCCEEDED/FAILED/CANCELLED).
-     * Periodic tasks: collect continuously, emitting an event on each execution cycle,
-     * and stop only when the task is CANCELLED.
-     */
-    private fun observeWorkCompletion(taskId: String, isPeriodic: Boolean = false) {
-        scope.launch {
-            try {
-                val workManager = WorkManager.getInstance(context)
-
-                if (isPeriodic) {
-                    // For periodic tasks: emit an event after each execution cycle.
-                    // Use takeWhile to keep collecting until the task is cancelled.
-                    //
-                    // IMPORTANT: PeriodicWorkRequest never reaches SUCCEEDED state.
-                    // Its state cycle is: ENQUEUED → RUNNING → ENQUEUED → RUNNING → ...
-                    // One cycle completion is detected by the RUNNING → ENQUEUED transition.
-                    var lastState: WorkInfo.State? = null
-                    workManager.getWorkInfosForUniqueWorkFlow(taskId)
-                        .takeWhile { infos ->
-                            infos.isEmpty() || infos.first().state != WorkInfo.State.CANCELLED
-                        }
-                        .collect { infos ->
-                            if (infos.isEmpty()) return@collect
-                            val state = infos.first().state
-                            if (state == lastState) return@collect
-                            val previousState = lastState
-                            lastState = state
-
-                            when (state) {
-                                WorkInfo.State.RUNNING -> {
-                                    // Task started a new execution cycle
-                                    taskStatuses[taskId] = "running"
-                                }
-                                WorkInfo.State.ENQUEUED -> {
-                                    // RUNNING → ENQUEUED: one execution cycle just completed.
-                                    // Any other → ENQUEUED is the initial schedule or re-queue after failure.
-                                    if (previousState == WorkInfo.State.RUNNING) {
-                                        taskStatuses[taskId] = "pending"
-                                        NativeLogger.d("✅ Periodic task cycle completed: $taskId")
-                                        eventSink?.success(mapOf(
-                                            "taskId" to taskId,
-                                            "success" to true,
-                                            "message" to "Task completed",
-                                            "timestamp" to System.currentTimeMillis()
-                                        ))
-                                    } else {
-                                        // Initial enqueue or re-enqueue after backoff
-                                        if (taskStatuses[taskId] == "running") taskStatuses[taskId] = "pending"
-                                    }
-                                }
-                                WorkInfo.State.FAILED -> {
-                                    // Permanent failure (very rare for PeriodicWorkRequest;
-                                    // normally WorkManager retries automatically via backoff).
-                                    if (taskStatuses[taskId] != "failed") {
-                                        taskStatuses[taskId] = "failed"
-                                        NativeLogger.e("❌ Periodic task failed permanently: $taskId")
-                                        eventSink?.success(mapOf(
-                                            "taskId" to taskId,
-                                            "success" to false,
-                                            "message" to "Task failed",
-                                            "timestamp" to System.currentTimeMillis()
-                                        ))
-                                    }
-                                }
-                                else -> { /* other states — no action */ }
-                            }
-                        }
-                    // Flow ended because the task was CANCELLED (takeWhile returned false)
-                    taskStatuses[taskId] = "cancelled"
-                    NativeLogger.d("⚠️ Periodic task cancelled: $taskId")
-                } else {
-                    // One-time task: observe until terminal state.
-                    // With ExistingWorkPolicy.REPLACE, WorkManager briefly emits CANCELLED
-                    // for the old task before ENQUEUED appears for the new task.
-                    // We retry once if CANCELLED is immediately followed by a new task.
-                    var retries = 0
-                    while (retries <= 1) {
-                        val terminalInfos = workManager.getWorkInfosForUniqueWorkFlow(taskId).first { infos ->
-                            infos.isNotEmpty() && infos.first().state in TERMINAL_STATES
-                        }
-                        val workInfo = terminalInfos.first()
-                        val state = workInfo.state
-                        // Extract output data from WorkInfo (set by KmpWorker/KmpHeavyWorker)
-                        val outputDataMap = workInfo.outputData.keyValueMap
-                            .let { if (it.isEmpty()) null else it }
-                        when (state) {
-                            WorkInfo.State.SUCCEEDED -> {
-                                // Wait for TaskEventBus to signal (it carries richer outputData).
-                                // computeIfAbsent is atomic — creates deferred if not yet signalled,
-                                // then suspends. If TaskEventBus already fired, await() returns at once.
-                                // withTimeoutOrNull caps the wait at 2 s for edge cases.
-                                withTimeoutOrNull(2_000L) {
-                                    taskBusSignals.computeIfAbsent(taskId) { CompletableDeferred() }.await()
-                                }
-                                taskBusSignals.remove(taskId)
-                                if (taskStatuses[taskId] != "completed") {
-                                    taskStatuses[taskId] = "completed"
-                                    NativeLogger.d("✅ WorkInfo SUCCEEDED (fallback): $taskId")
-                                    eventSink?.success(mapOf(
-                                        "taskId" to taskId,
-                                        "success" to true,
-                                        "message" to "Task completed",
-                                        "resultData" to outputDataMap,
-                                        "timestamp" to System.currentTimeMillis()
-                                    ))
-                                }
-                                break
-                            }
-                            WorkInfo.State.FAILED -> {
-                                // Same deferred-signal pattern for FAILED.
-                                withTimeoutOrNull(2_000L) {
-                                    taskBusSignals.computeIfAbsent(taskId) { CompletableDeferred() }.await()
-                                }
-                                taskBusSignals.remove(taskId)
-                                if (taskStatuses[taskId] != "failed") {
-                                    taskStatuses[taskId] = "failed"
-                                    NativeLogger.e("❌ WorkInfo FAILED (fallback): $taskId")
-                                    eventSink?.success(mapOf(
-                                        "taskId" to taskId,
-                                        "success" to false,
-                                        "message" to "Task failed",
-                                        "resultData" to outputDataMap,
-                                        "timestamp" to System.currentTimeMillis()
-                                    ))
-                                }
-                                break
-                            }
-                            WorkInfo.State.CANCELLED -> {
-                                // Short structural wait for REPLACE-policy detection (not bus-related).
-                                kotlinx.coroutines.delay(500L)
-                                val recheck = workManager.getWorkInfosForUniqueWorkFlow(taskId).first()
-                                if (retries == 0 && recheck.isNotEmpty() &&
-                                    recheck.first().state !in TERMINAL_STATES) {
-                                    // New task is alive — this was a REPLACE cancellation, retry.
-                                    NativeLogger.d("🔄 REPLACE detected, retrying observation: $taskId")
-                                    retries++
-                                    continue
-                                }
-                                taskStatuses[taskId] = "cancelled"
-                                NativeLogger.d("⚠️ WorkInfo CANCELLED: $taskId")
-                                break
-                            }
-                            else -> break
-                        }
-                    }
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e  // Re-throw so coroutine cancellation propagates normally
-            } catch (e: Exception) {
-                NativeLogger.e("❌ Failed to observe work completion for $taskId", e)
-            }
-        }
-    }
-
-    /**
-     * Parse kmpworkmanager [Constraints] from the Flutter method channel map.
-     * Every field sent by Dart's [Constraints.toMap()] is honoured here.
-     */
-    @Suppress("UNCHECKED_CAST")
-    private fun parseConstraints(map: Map<String, Any?>?): Constraints {
-        if (map == null) return Constraints()
-
-        val requiresNetwork = map["requiresNetwork"] as? Boolean ?: false
-        val requiresUnmeteredNetwork = map["requiresUnmeteredNetwork"] as? Boolean ?: false
-        val requiresCharging = map["requiresCharging"] as? Boolean ?: false
-        val allowWhileIdle = map["allowWhileIdle"] as? Boolean ?: false
-        val isHeavyTask = map["isHeavyTask"] as? Boolean ?: false
-        val backoffDelayMs = (map["backoffDelayMs"] as? Number)?.toLong() ?: 30_000L
-
-        val backoffPolicy = when ((map["backoffPolicy"] as? String)?.lowercase()) {
-            "linear" -> BackoffPolicy.LINEAR
-            else -> BackoffPolicy.EXPONENTIAL
-        }
-
-        val systemConstraintNames = map["systemConstraints"] as? List<*> ?: emptyList<Any>()
-        val systemConstraints: MutableSet<SystemConstraint> = systemConstraintNames
-            .filterIsInstance<String>()
-            .mapNotNull { name ->
-                when (name) {
-                    "allowLowStorage" -> SystemConstraint.ALLOW_LOW_STORAGE
-                    "allowLowBattery" -> SystemConstraint.ALLOW_LOW_BATTERY
-                    "requireBatteryNotLow" -> SystemConstraint.REQUIRE_BATTERY_NOT_LOW
-                    "deviceIdle" -> SystemConstraint.DEVICE_IDLE
-                    else -> null
-                }
-            }.toMutableSet()
-
-        // Merge legacy boolean flags into systemConstraints if not already covered
-        if (map["requiresDeviceIdle"] as? Boolean == true) systemConstraints.add(SystemConstraint.DEVICE_IDLE)
-        if (map["requiresBatteryNotLow"] as? Boolean == true) systemConstraints.add(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)
-        // requiresStorageNotLow has no direct SystemConstraint equivalent — intentionally skipped
-
-        return Constraints(
-            requiresNetwork = requiresNetwork,
-            requiresUnmeteredNetwork = requiresUnmeteredNetwork,
-            requiresCharging = requiresCharging,
-            allowWhileIdle = allowWhileIdle,
-            isHeavyTask = isHeavyTask,
-            backoffPolicy = backoffPolicy,
-            backoffDelayMs = backoffDelayMs,
-            systemConstraints = systemConstraints
-        )
-    }
-
-    /**
-     * Schedules a OneTime task directly via WorkManager, bypassing kmpworkmanager.
-     *
-     * kmpworkmanager 2.3.3 always calls setExpedited() on OneTime work requests.
-     * WorkManager 2.10+ rejects expedited work when:
-     * - Combined with setInitialDelay() (any delay > 0), OR
-     * - Combined with non-network/non-storage constraints (charging, battery, device-idle).
-     * This method omits setExpedited() entirely so all constraint combinations are accepted.
-     * KmpWorker and KmpHeavyWorker still handle task dispatch correctly.
-     */
-    private fun enqueueOneTimeWorkDirect(
-        taskId: String,
-        workerClassName: String,
-        inputJson: String?,
-        tag: String?,
-        constraints: Constraints,
-        delayMs: Long,
-        policy: ExistingPolicy,
-        expedited: Boolean = false,
-    ) {
-        val workerClass = if (constraints.isHeavyTask) KmpHeavyWorker::class.java else KmpWorker::class.java
-
-        val dataBuilder = Data.Builder().putString("workerClassName", workerClassName)
-        if (inputJson != null) dataBuilder.putString("inputJson", inputJson)
-
-        val networkType = when {
-            constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
-            constraints.requiresNetwork -> NetworkType.CONNECTED
-            else -> NetworkType.NOT_REQUIRED
-        }
-        val wmConstraintsBuilder = androidx.work.Constraints.Builder()
-            .setRequiredNetworkType(networkType)
-            .setRequiresCharging(constraints.requiresCharging)
-        val sysConstraints = constraints.systemConstraints ?: emptySet()
-        if (sysConstraints.contains(SystemConstraint.DEVICE_IDLE)) wmConstraintsBuilder.setRequiresDeviceIdle(true)
-        if (sysConstraints.contains(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)) wmConstraintsBuilder.setRequiresBatteryNotLow(true)
-
-        val requestBuilder = OneTimeWorkRequest.Builder(workerClass)
-            .setConstraints(wmConstraintsBuilder.build())
-            .setInputData(dataBuilder.build())
-            .addTag(NativeTaskScheduler.TAG_KMP_TASK)
-            .addTag("worker-$workerClassName")
-            .addTag(taskId)
-            .addTag(workerClassName)
-        if (delayMs > 0) requestBuilder.setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
-        if (tag != null) requestBuilder.addTag(tag)
-        if (expedited && delayMs == 0L) {
-            // setExpedited is only valid when there is no initial delay.
-            // OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST ensures the task still
-            // runs even when the app is out of expedited job quota.
-            requestBuilder.setExpedited(androidx.work.OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-            NativeLogger.d("Expedited flag set for '$taskId' (UIDT / Android 14+ data-sync)")
-        }
-
-        val wmBackoffPolicy = when (constraints.backoffPolicy) {
-            BackoffPolicy.LINEAR -> androidx.work.BackoffPolicy.LINEAR
-            else -> androidx.work.BackoffPolicy.EXPONENTIAL
-        }
-        requestBuilder.setBackoffCriteria(wmBackoffPolicy, constraints.backoffDelayMs, TimeUnit.MILLISECONDS)
-
-        val workPolicy = when (policy) {
-            ExistingPolicy.REPLACE -> ExistingWorkPolicy.REPLACE
-            else -> ExistingWorkPolicy.KEEP
-        }
-        val request = requestBuilder.build()
-        NativeLogger.d("📋 [DIAG] WorkRequest for '$taskId': networkType=$networkType, " +
-            "requiresCharging=${constraints.requiresCharging}, " +
-            "sysConstraints=$sysConstraints, " +
-            "delayApplied=${delayMs > 0}, delayMs=$delayMs, " +
-            "workerClass=${workerClass.simpleName}, " +
-            "workerClassName=$workerClassName")
-        WorkManager.getInstance(context).enqueueUniqueWork(taskId, workPolicy, request)
-        NativeLogger.d("✅ OneTime '$taskId' enqueued via direct WorkManager (delay=${delayMs}ms, heavy=${constraints.isHeavyTask}, policy=$workPolicy)")
-    }
-
-    /**
-     * Schedules a Periodic task directly via WorkManager, bypassing kmpworkmanager.
-     *
-     * kmpworkmanager's BackgroundTaskScheduler.enqueue() creates a OneTimeWorkRequest even when
-     * given a Periodic trigger — so the task runs once and never repeats.
-     * This method creates a true PeriodicWorkRequest so WorkManager re-schedules it automatically.
-     *
-     * Note: WorkManager enforces a minimum repeat interval of 15 minutes (900,000 ms).
-     * Shorter intervals are silently coerced up to 15 minutes by WorkManager.
-     */
-    private fun enqueuePeriodicWorkDirect(
-        taskId: String,
-        workerClassName: String,
-        inputJson: String?,
-        tag: String?,
-        constraints: Constraints,
-        intervalMs: Long,
-        flexMs: Long?,
-        policy: ExistingPolicy,
-    ) {
-        val workerClass = if (constraints.isHeavyTask) KmpHeavyWorker::class.java else KmpWorker::class.java
-
-        val dataBuilder = Data.Builder().putString("workerClassName", workerClassName)
-        if (inputJson != null) dataBuilder.putString("inputJson", inputJson)
-
-        val networkType = when {
-            constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
-            constraints.requiresNetwork -> NetworkType.CONNECTED
-            else -> NetworkType.NOT_REQUIRED
-        }
-        val wmConstraintsBuilder = androidx.work.Constraints.Builder()
-            .setRequiredNetworkType(networkType)
-            .setRequiresCharging(constraints.requiresCharging)
-        val sysConstraints = constraints.systemConstraints ?: emptySet()
-        if (sysConstraints.contains(SystemConstraint.DEVICE_IDLE)) wmConstraintsBuilder.setRequiresDeviceIdle(true)
-        if (sysConstraints.contains(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)) wmConstraintsBuilder.setRequiresBatteryNotLow(true)
-
-        // WorkManager minimum interval is 15 minutes; coerce silently to match WM behaviour
-        val effectiveIntervalMs = intervalMs.coerceAtLeast(15 * 60 * 1000L)
-
-        val requestBuilder = if (flexMs != null && flexMs > 0) {
-            // Flex must be ≤ interval and ≥ 5 minutes per WorkManager constraints
-            val effectiveFlexMs = flexMs.coerceIn(5 * 60 * 1000L, effectiveIntervalMs)
-            PeriodicWorkRequest.Builder(
-                workerClass,
-                effectiveIntervalMs, TimeUnit.MILLISECONDS,
-                effectiveFlexMs, TimeUnit.MILLISECONDS
-            )
-        } else {
-            PeriodicWorkRequest.Builder(workerClass, effectiveIntervalMs, TimeUnit.MILLISECONDS)
-        }
-
-        requestBuilder
-            .setConstraints(wmConstraintsBuilder.build())
-            .setInputData(dataBuilder.build())
-            .addTag(NativeTaskScheduler.TAG_KMP_TASK)
-            .addTag("worker-$workerClassName")
-            .addTag(taskId)
-            .addTag(workerClassName)
-        if (tag != null) requestBuilder.addTag(tag)
-
-        val wmBackoffPolicy = when (constraints.backoffPolicy) {
-            BackoffPolicy.LINEAR -> androidx.work.BackoffPolicy.LINEAR
-            else -> androidx.work.BackoffPolicy.EXPONENTIAL
-        }
-        requestBuilder.setBackoffCriteria(wmBackoffPolicy, constraints.backoffDelayMs, TimeUnit.MILLISECONDS)
-
-        // ExistingPeriodicWorkPolicy.REPLACE was deprecated in WorkManager 2.8.0;
-        // CANCEL_AND_REENQUEUE is the correct replacement.
-        val workPolicy = when (policy) {
-            ExistingPolicy.REPLACE -> ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE
-            else -> ExistingPeriodicWorkPolicy.KEEP
-        }
-
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(taskId, workPolicy, requestBuilder.build())
-        NativeLogger.d("✅ Periodic '$taskId' enqueued via direct WorkManager (interval=${effectiveIntervalMs}ms, flex=${flexMs}ms, policy=$workPolicy)")
-    }
 
     private fun handleInitialize(call: MethodCall, result: Result) {
         try {
@@ -1442,6 +276,11 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
             dev.brewkits.native_workmanager.workers.utils.SecurityValidator.enforceHttps = enforceHttps
             NativeLogger.d("enforceHttps=$enforceHttps")
 
+            // SSRF protection — block requests to private/loopback IP literals.
+            val blockPrivateIPs = call.argument<Boolean>("blockPrivateIPs") ?: false
+            dev.brewkits.native_workmanager.workers.utils.SecurityValidator.blockPrivateIPs = blockPrivateIPs
+            NativeLogger.d("blockPrivateIPs=$blockPrivateIPs")
+
             // Auto-cleanup: prune terminal-state records older than N days (prevents unbounded growth).
             val cleanupAfterDays = call.argument<Int>("cleanupAfterDays") ?: 30
             if (cleanupAfterDays > 0) {
@@ -1452,6 +291,9 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
                 }
             }
 
+            // Register weekly periodic DB cleanup via WorkManager (KEEP policy so re-init is idempotent).
+            scheduleWeeklyDbCleanup()
+
             result.success(null)
         } catch (e: Exception) {
             NativeLogger.e("Initialize error", e)
@@ -1459,7 +301,34 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
         }
     }
 
-    private fun isDebugBuild(): Boolean {
+    /**
+     * Enqueue a weekly WorkManager periodic job that prunes old SQLite task records.
+     *
+     * Uses [ExistingPeriodicWorkPolicy.KEEP] so that calling [initialize] multiple times
+     * (e.g. hot-restart) does not reset the 7-day interval clock.
+     * The job runs without network or charging constraints — it's pure local I/O.
+     */
+    private fun scheduleWeeklyDbCleanup() {
+        val dataBuilder = Data.Builder()
+            .putString("workerClassName", "DbCleanupWorker")
+        val request = PeriodicWorkRequest.Builder(
+            KmpWorker::class.java,
+            7L, TimeUnit.DAYS
+        )
+            .setInputData(dataBuilder.build())
+            .addTag("__native_wm_internal__")
+            .addTag("DbCleanupWorker")
+            .build()
+
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            DbCleanupWorker.TASK_ID,
+            ExistingPeriodicWorkPolicy.KEEP,
+            request
+        )
+        NativeLogger.d("📅 Weekly DB cleanup scheduled (KEEP policy)")
+    }
+
+    internal fun isDebugBuild(): Boolean {
         return try {
             (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
         } catch (e: Exception) {
@@ -1486,7 +355,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
     /** Recursively serialise a Flutter method-channel map to a JSON string.
      *  org.json.JSONObject(map) fails on nested LinkedHashMap / null values
      *  that Flutter's codec produces, so we build the tree manually. */
-    private fun toJson(value: Any?): String = buildJsonValue(value, 0)
+    internal fun toJson(value: Any?): String = buildJsonValue(value, 0)
 
     private fun buildJsonValue(value: Any?, depth: Int): String {
         // Guard against pathologically deep structures (e.g. circular-like graphs
@@ -1513,6 +382,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        context.unregisterComponentCallbacks(this)
         methodChannel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
         progressChannel.setStreamHandler(null)
@@ -1529,4 +399,42 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent 
         // which can leave injected dependencies pointing at a dead context.
         isKoinInitialized = false
     }
+
+    // ── ComponentCallbacks2 — low-memory response ─────────────────────────────
+
+    /**
+     * Dispose the Flutter background engine when the OS signals memory pressure.
+     *
+     * The engine consumes ~30-50 MB of RAM. Releasing it under memory pressure
+     * prevents the process from being killed by the OOM killer. The engine is
+     * re-created lazily the next time a DartWorker task is executed.
+     *
+     * Level thresholds (ascending severity):
+     * - TRIM_MEMORY_RUNNING_CRITICAL (15): system about to kill background processes
+     * - TRIM_MEMORY_UI_HIDDEN (20): UI no longer visible (good time to free caches)
+     * - TRIM_MEMORY_BACKGROUND (40): process in LRU cache — dispose now
+     * - TRIM_MEMORY_MODERATE (60): deeper in LRU — dispose now
+     * - TRIM_MEMORY_COMPLETE (80): about to be killed — dispose now
+     */
+    override fun onTrimMemory(level: Int) {
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+            if (FlutterEngineManager.isEngineAlive()) {
+                Log.d(TAG, "onTrimMemory(level=$level) — disposing Flutter engine to free RAM")
+                ioScope.launch { FlutterEngineManager.dispose() }
+            }
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        // No-op — required by ComponentCallbacks2 interface.
+    }
+
+    override fun onLowMemory() {
+        // onLowMemory is the older API (< API 14). Dispose engine here as well.
+        if (FlutterEngineManager.isEngineAlive()) {
+            Log.d(TAG, "onLowMemory() — disposing Flutter engine to free RAM")
+            ioScope.launch { FlutterEngineManager.dispose() }
+        }
+    }
+}
 }

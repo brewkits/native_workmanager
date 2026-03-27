@@ -12,7 +12,7 @@ repositories {
 android {
     namespace = "dev.brewkits.native_workmanager"
 
-    compileSdk = 34
+    compileSdk = 35
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -52,7 +52,7 @@ android {
 
         // HTTP Client for native workers
         implementation("com.squareup.okhttp3:okhttp:4.12.0")
-        implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+        implementation("com.squareup.okhttp3:logging-interceptor:4.12.0") // internal; not exposed to consumers
 
         // ExifInterface for image orientation handling
         implementation("androidx.exifinterface:exifinterface:1.3.7")

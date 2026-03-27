@@ -35,5 +35,10 @@ let package = Package(
                 .process("PrivacyInfo.xcprivacy"),
             ]
         ),
+        .testTarget(
+            name: "NativeWorkManagerTests",
+            dependencies: ["native_workmanager"],
+            path: "../Tests"
+        ),
     ]
 )

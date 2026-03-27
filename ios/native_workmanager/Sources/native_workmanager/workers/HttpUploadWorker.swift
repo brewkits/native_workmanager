@@ -186,7 +186,7 @@ class HttpUploadWorker: IosWorker {
 
         // 👇 NEW: Handle raw body upload
         if isRawBodyUpload {
-            return await handleRawBodyUpload(config: config, url: url)
+            return await handleRawBodyUpload(config: config, url: url, rawInputData: data)
         }
 
         // Validate all files exist and are valid
@@ -300,8 +300,9 @@ class HttpUploadWorker: IosWorker {
         body.append("--\(HttpUploadWorker.boundary)--\r\n".data(using: .utf8)!)
 
         // T3-7: HMAC-SHA256 request signing
-        let uploadRawDict = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
-        if let signingCfg = RequestSigner.Config.from(uploadRawDict?["requestSigning"] as? [String: Any]) {
+        let uploadRawDict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        if let signingDict = uploadRawDict?["requestSigning"] as? [String: Any],
+           let signingCfg: RequestSigner.Config = RequestSigner.Config.from(signingDict) {
             RequestSigner.sign(request: &request, config: signingCfg)
         }
 
@@ -354,7 +355,7 @@ class HttpUploadWorker: IosWorker {
     }
 
     /// Handle raw body upload (string or bytes).
-    private func handleRawBodyUpload(config: Config, url: URL) async -> WorkerResult {
+    private func handleRawBodyUpload(config: Config, url: URL, rawInputData: Data) async -> WorkerResult {
         // Validate content type is provided
         guard let contentType = config.contentType, !contentType.isEmpty else {
             print("HttpUploadWorker: Error - contentType is required for raw body upload")
@@ -396,8 +397,9 @@ class HttpUploadWorker: IosWorker {
         }
 
         // T3-7: HMAC-SHA256 request signing (raw body path)
-        let rawBodyDict = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
-        if let signingCfg = RequestSigner.Config.from(rawBodyDict?["requestSigning"] as? [String: Any]) {
+        let rawBodyDict = (try? JSONSerialization.jsonObject(with: rawInputData)) as? [String: Any]
+        if let signingDict = rawBodyDict?["requestSigning"] as? [String: Any],
+           let signingCfg: RequestSigner.Config = RequestSigner.Config.from(signingDict) {
             RequestSigner.sign(request: &request, config: signingCfg)
         }
 

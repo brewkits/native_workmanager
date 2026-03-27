@@ -115,7 +115,12 @@ final class ParallelHttpUploadWorker extends Worker {
   Map<String, dynamic> toMap() => {
         'workerType': 'parallelHttpUpload',
         'url': url,
-        'files': files.map((f) => f._toMap()).toList(),
+        'files': files.map((f) => {
+              'filePath': f.filePath,
+              'fieldName': f.fieldName,
+              if (f.fileName != null) 'fileName': f.fileName,
+              if (f.mimeType != null) 'mimeType': f.mimeType,
+            }).toList(),
         'headers': headers,
         'fields': fields,
         'maxConcurrent': maxConcurrent,
@@ -127,36 +132,4 @@ final class ParallelHttpUploadWorker extends Worker {
       };
 }
 
-/// Describes a single file to be uploaded by [ParallelHttpUploadWorker].
-@immutable
-final class UploadFile {
-  const UploadFile({
-    required this.filePath,
-    this.fieldName = 'file',
-    this.fileName,
-    this.mimeType,
-  });
-
-  /// Absolute path to the local file.
-  final String filePath;
-
-  /// Multipart form field name (default: `'file'`).
-  final String fieldName;
-
-  /// Override the file name sent in the `Content-Disposition` header.
-  ///
-  /// Defaults to the base name of [filePath].
-  final String? fileName;
-
-  /// Override the MIME type.
-  ///
-  /// Auto-detected from the file extension when omitted.
-  final String? mimeType;
-
-  Map<String, dynamic> _toMap() => {
-        'filePath': filePath,
-        'fieldName': fieldName,
-        if (fileName != null) 'fileName': fileName,
-        if (mimeType != null) 'mimeType': mimeType,
-      };
-}
+// UploadFile is defined in multi_upload_worker.dart and re-exported via worker.dart.

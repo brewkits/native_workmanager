@@ -154,11 +154,24 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Native WorkManager v1.0.5 Demo',
+      title: 'NativeWorkManager Demo',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF1565C0),
+        ),
         useMaterial3: true,
+        cardTheme: const CardThemeData(elevation: 0),
       ),
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF1565C0),
+          brightness: Brightness.dark,
+        ),
+        useMaterial3: true,
+        cardTheme: const CardThemeData(elevation: 0),
+      ),
+      themeMode: ThemeMode.system,
       home: const DemoHomePage(),
     );
   }
@@ -171,17 +184,33 @@ class DemoHomePage extends StatefulWidget {
   State<DemoHomePage> createState() => _DemoHomePageState();
 }
 
-class _DemoHomePageState extends State<DemoHomePage>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _DemoHomePageState extends State<DemoHomePage> {
+  int _selectedIndex = 0;
   final List<String> _logs = [];
   int _taskCounter = 0;
   bool _showMetricsOverlay = false;
 
+  static const _pageTitles = [
+    'Demo Scenarios',
+    'All Workers',
+    'Performance',
+    'Manual Benchmark',
+    'Production Impact',
+    'Bug Fix Demo',
+    'Basic API',
+    'Upload / Download',
+    'Retry / Backoff',
+    'Constraints',
+    'Task Chains',
+    'Scheduled Tasks',
+    'Custom Worker',
+    'Chain Resilience',
+    'Chain Data Flow',
+  ];
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 15, vsync: this);
 
     // Listen to task events (v2.3.0+: includes resultData)
     NativeWorkManager.events.listen((event) {
@@ -211,12 +240,11 @@ class _DemoHomePageState extends State<DemoHomePage>
       });
     });
 
-    _addLog('🚀 Native WorkManager v1.0.5 initialized (100% KMP parity)');
+    _addLog('🚀 NativeWorkManager v1.0.8 ready — KMP-powered background tasks');
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
     super.dispose();
   }
 
@@ -554,68 +582,130 @@ class _DemoHomePageState extends State<DemoHomePage>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Native WorkManager v1.0.5'),
+        title: Text(_pageTitles[_selectedIndex]),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
-          // Toggle metrics overlay button
           IconButton(
             icon: Icon(
               _showMetricsOverlay ? Icons.speed : Icons.speed_outlined,
               color: _showMetricsOverlay ? Colors.green : null,
             ),
             tooltip: 'Toggle Real-time Metrics',
-            onPressed: () {
-              setState(() {
-                _showMetricsOverlay = !_showMetricsOverlay;
-              });
-            },
+            onPressed: () => setState(() => _showMetricsOverlay = !_showMetricsOverlay),
           ),
         ],
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: true,
-          tabs: const [
-            Tab(text: 'Demo'),
-            Tab(text: '🐛 Bug Fix'),
-            Tab(text: '✨ All Workers'),
-            Tab(text: 'Performance'),
-            Tab(text: 'Basic'),
-            Tab(text: 'Upload/Download'),
-            Tab(text: 'Retry'),
-            Tab(text: 'Constraints'),
-            Tab(text: 'Chains'),
-            Tab(text: 'Scheduled'),
-            Tab(text: 'Custom Worker'),
-            Tab(text: 'Manual BM'),
-            Tab(text: 'Production'),
-            Tab(text: '🔄 Chain Test'),
-            Tab(text: '🔗 Data Flow'),
-          ],
-        ),
+      ),
+      drawer: NavigationDrawer(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (i) {
+          setState(() => _selectedIndex = i);
+          Navigator.pop(context);
+        },
+        children: const [
+          Padding(
+            padding: EdgeInsets.fromLTRB(28, 16, 16, 10),
+            child: Text('Featured', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          NavigationDrawerDestination(
+            icon: Icon(Icons.apps),
+            label: Text('Demo Scenarios'),
+          ),
+          NavigationDrawerDestination(
+            icon: Icon(Icons.construction),
+            label: Text('All Workers'),
+          ),
+          Divider(indent: 28, endIndent: 28),
+          Padding(
+            padding: EdgeInsets.fromLTRB(28, 10, 16, 10),
+            child: Text('Performance', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          NavigationDrawerDestination(
+            icon: Icon(Icons.speed),
+            label: Text('Performance'),
+          ),
+          NavigationDrawerDestination(
+            icon: Icon(Icons.timer_outlined),
+            label: Text('Manual Benchmark'),
+          ),
+          NavigationDrawerDestination(
+            icon: Icon(Icons.business_center_outlined),
+            label: Text('Production Impact'),
+          ),
+          Divider(indent: 28, endIndent: 28),
+          Padding(
+            padding: EdgeInsets.fromLTRB(28, 10, 16, 10),
+            child: Text('Developer Tools', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          NavigationDrawerDestination(
+            icon: Icon(Icons.bug_report_outlined),
+            label: Text('Bug Fix Demo'),
+          ),
+          NavigationDrawerDestination(
+            icon: Icon(Icons.play_arrow_outlined),
+            label: Text('Basic API'),
+          ),
+          NavigationDrawerDestination(
+            icon: Icon(Icons.swap_vert),
+            label: Text('Upload / Download'),
+          ),
+          NavigationDrawerDestination(
+            icon: Icon(Icons.refresh),
+            label: Text('Retry / Backoff'),
+          ),
+          NavigationDrawerDestination(
+            icon: Icon(Icons.security_outlined),
+            label: Text('Constraints'),
+          ),
+          NavigationDrawerDestination(
+            icon: Icon(Icons.link),
+            label: Text('Task Chains'),
+          ),
+          NavigationDrawerDestination(
+            icon: Icon(Icons.schedule_outlined),
+            label: Text('Scheduled Tasks'),
+          ),
+          NavigationDrawerDestination(
+            icon: Icon(Icons.extension_outlined),
+            label: Text('Custom Worker'),
+          ),
+          Divider(indent: 28, endIndent: 28),
+          Padding(
+            padding: EdgeInsets.fromLTRB(28, 10, 16, 10),
+            child: Text('Chain Testing', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          NavigationDrawerDestination(
+            icon: Icon(Icons.account_tree_outlined),
+            label: Text('Chain Resilience'),
+          ),
+          NavigationDrawerDestination(
+            icon: Icon(Icons.device_hub_outlined),
+            label: Text('Chain Data Flow'),
+          ),
+        ],
       ),
       body: Stack(
         children: [
           Column(
             children: [
               Expanded(
-                child: TabBarView(
-                  controller: _tabController,
+                child: IndexedStack(
+                  index: _selectedIndex,
                   children: [
-                    const DemoScenariosPage(),
-                    const BugFixDemoScreen(),
-                    const ComprehensiveDemoPage(),
-                    const PerformancePage(),
-                    _buildBasicTab(),
-                    _buildUploadDownloadTab(),
-                    _buildBackoffPolicyTab(),
-                    _buildConstraintsTab(),
-                    _buildChainsTab(),
-                    _buildScheduledTab(),
-                    _buildCustomWorkerTab(),
-                    const ManualBenchmarkPage(),
-                    const ProductionImpactPageImproved(),
-                    const ChainResilienceTest(),
-                    const ChainDataFlowDemo(),
+                    const DemoScenariosPage(),      // 0
+                    const ComprehensiveDemoPage(),  // 1
+                    const PerformancePage(),         // 2
+                    const ManualBenchmarkPage(),     // 3
+                    const ProductionImpactPageImproved(), // 4
+                    const BugFixDemoScreen(),        // 5
+                    _buildBasicTab(),               // 6
+                    _buildUploadDownloadTab(),       // 7
+                    _buildBackoffPolicyTab(),        // 8
+                    _buildConstraintsTab(),          // 9
+                    _buildChainsTab(),              // 10
+                    _buildScheduledTab(),            // 11
+                    _buildCustomWorkerTab(),         // 12
+                    const ChainResilienceTest(),     // 13
+                    const ChainDataFlowDemo(),       // 14
                   ],
                 ),
               ),
@@ -623,7 +713,6 @@ class _DemoHomePageState extends State<DemoHomePage>
               _buildLogSection(),
             ],
           ),
-          // Advanced floating metrics overlay
           if (_showMetricsOverlay) const AdvancedMetricsOverlay(),
         ],
       ),

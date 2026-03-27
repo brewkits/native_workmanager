@@ -386,6 +386,93 @@ enum TaskStatus {
   paused,
 }
 
+/// Typed error codes for failed [TaskEvent]s.
+///
+/// Maps the raw error-code string from the native side into a Dart enum so
+/// callers can switch on structured values instead of comparing arbitrary
+/// strings from [TaskEvent.message].
+///
+/// ## Usage
+///
+/// ```dart
+/// NativeWorkManager.events.listen((event) {
+///   if (!event.success) {
+///     switch (event.errorCode) {
+///       case NativeWorkManagerError.networkError:
+///         retryLater(event.taskId);
+///       case NativeWorkManagerError.timeout:
+///         showTimeoutDialog();
+///       case NativeWorkManagerError.securityViolation:
+///         log('Blocked by security policy: ${event.message}');
+///       case NativeWorkManagerError.unknown:
+///       case null:
+///         log('Unclassified failure: ${event.message}');
+///     }
+///   }
+/// });
+/// ```
+enum NativeWorkManagerError {
+  /// A network-layer failure (DNS, TCP, SSL, etc.).
+  networkError,
+
+  /// The worker exceeded its allowed execution time.
+  timeout,
+
+  /// The server returned a 4xx client-error response.
+  httpClientError,
+
+  /// The server returned a 5xx server-error response.
+  httpServerError,
+
+  /// The file was not found or could not be read/written.
+  fileNotFound,
+
+  /// Insufficient storage space to complete the operation.
+  insufficientStorage,
+
+  /// The request was blocked by the security validator
+  /// (e.g. SSRF attempt, invalid URL scheme).
+  securityViolation,
+
+  /// The task was cancelled before it could complete.
+  cancelled,
+
+  /// The native worker threw an unhandled exception.
+  workerException,
+
+  /// Error string received from native is not recognised by this version of
+  /// the Dart library.  Check [TaskEvent.message] for the raw value.
+  unknown;
+
+  /// Parse the raw error-code string sent by the native side.
+  static NativeWorkManagerError fromString(String? raw) => switch (raw) {
+        'NETWORK_ERROR' => networkError,
+        'TIMEOUT' => timeout,
+        'HTTP_CLIENT_ERROR' => httpClientError,
+        'HTTP_SERVER_ERROR' => httpServerError,
+        'FILE_NOT_FOUND' => fileNotFound,
+        'INSUFFICIENT_STORAGE' => insufficientStorage,
+        'SECURITY_VIOLATION' => securityViolation,
+        'CANCELLED' => cancelled,
+        'WORKER_EXCEPTION' => workerException,
+        _ => unknown,
+      };
+
+  /// The canonical string exchanged over the platform channel.
+  String get rawValue => switch (this) {
+        networkError => 'NETWORK_ERROR',
+        timeout => 'TIMEOUT',
+        httpClientError => 'HTTP_CLIENT_ERROR',
+        httpServerError => 'HTTP_SERVER_ERROR',
+        fileNotFound => 'FILE_NOT_FOUND',
+        insufficientStorage => 'INSUFFICIENT_STORAGE',
+        securityViolation => 'SECURITY_VIOLATION',
+        cancelled => 'CANCELLED',
+        workerException => 'WORKER_EXCEPTION',
+        unknown => 'UNKNOWN',
+      };
+}
+
 /// Event emitted when a task completes (success or failure).
 ///
 /// Listen to [NativeWorkManager.events] to receive notifications when
@@ -556,6 +643,7 @@ class TaskEvent {
     required this.taskId,
     required this.success,
     this.message,
+    this.errorCode,
     this.resultData,
     required this.timestamp,
   });
@@ -569,6 +657,13 @@ class TaskEvent {
   /// Optional message (error message if failed).
   final String? message;
 
+  /// Typed error code for failed tasks.
+  ///
+  /// `null` when [success] is `true` or when the native side did not supply an
+  /// error code (e.g. older plugin versions).  Switch on this field to handle
+  /// failure categories without parsing [message] strings.
+  final NativeWorkManagerError? errorCode;
+
   /// Optional result data from the worker.
   final Map<String, dynamic>? resultData;
 
@@ -580,23 +675,33 @@ class TaskEvent {
   /// FIX M5: Uses null-safe access on every field. A version mismatch between
   /// native and Dart (or a platform bug) could send null for required fields;
   /// an unchecked cast would throw and close the EventChannel stream silently.
-  factory TaskEvent.fromMap(Map<String, dynamic> map) => TaskEvent(
-        taskId: (map['taskId'] as String?) ?? '',
-        success: (map['success'] as bool?) ?? false,
-        message: map['message'] as String?,
-        resultData: map['resultData'] != null
-            ? Map<String, dynamic>.from(map['resultData'] as Map)
-            : null,
-        timestamp: map['timestamp'] != null
-            ? DateTime.fromMillisecondsSinceEpoch((map['timestamp'] as num).toInt())
-            : DateTime.now(),
-      );
+  factory TaskEvent.fromMap(Map<String, dynamic> map) {
+    final success = (map['success'] as bool?) ?? false;
+    final rawErrorCode = map['errorCode'] as String?;
+    return TaskEvent(
+      taskId: (map['taskId'] as String?) ?? '',
+      success: success,
+      message: map['message'] as String?,
+      // Only parse errorCode on failure; ignore stray codes on success.
+      errorCode: (!success && rawErrorCode != null)
+          ? NativeWorkManagerError.fromString(rawErrorCode)
+          : null,
+      resultData: map['resultData'] != null
+          ? Map<String, dynamic>.from(map['resultData'] as Map)
+          : null,
+      timestamp: map['timestamp'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(
+              (map['timestamp'] as num).toInt())
+          : DateTime.now(),
+    );
+  }
 
   /// Convert to map.
   Map<String, dynamic> toMap() => {
         'taskId': taskId,
         'success': success,
         'message': message,
+        if (errorCode != null) 'errorCode': errorCode!.rawValue,
         'resultData': resultData,
         'timestamp': timestamp.millisecondsSinceEpoch,
       };
@@ -607,17 +712,18 @@ class TaskEvent {
       other is TaskEvent &&
           taskId == other.taskId &&
           success == other.success &&
+          errorCode == other.errorCode &&
           message == other.message &&
           timestamp == other.timestamp;
 
-  // FIX L6: Include message in hashCode to match the updated == operator.
   @override
-  int get hashCode => Object.hash(taskId, success, message, timestamp);
+  int get hashCode => Object.hash(taskId, success, errorCode, message, timestamp);
 
   @override
   String toString() => 'TaskEvent('
       'taskId: $taskId, '
       'success: $success, '
+      '${errorCode != null ? "errorCode: ${errorCode!.rawValue}, " : ""}'
       'message: $message, '
       'timestamp: $timestamp)';
 }

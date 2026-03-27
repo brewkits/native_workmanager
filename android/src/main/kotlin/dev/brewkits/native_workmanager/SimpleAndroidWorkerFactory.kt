@@ -16,6 +16,7 @@ import dev.brewkits.native_workmanager.workers.ParallelHttpUploadWorker
 import dev.brewkits.native_workmanager.workers.HttpSyncWorker
 import dev.brewkits.native_workmanager.workers.HttpUploadWorker
 import dev.brewkits.native_workmanager.workers.ImageProcessWorker
+import dev.brewkits.native_workmanager.workers.DbCleanupWorker
 import dev.brewkits.native_workmanager.workers.MoveToSharedStorageWorker
 
 /**
@@ -138,6 +139,7 @@ class SimpleAndroidWorkerFactory(
             "CryptoWorker" -> CryptoWorker()
             "FileSystemWorker" -> FileSystemWorker()
             "MoveToSharedStorageWorker" -> MoveToSharedStorageWorker(context)
+            DbCleanupWorker.TASK_ID, "DbCleanupWorker" -> DbCleanupWorker()
             else -> {
                 Log.e(TAG, "Unknown worker class: '$workerClassName'. " +
                     "Register it via SimpleAndroidWorkerFactory.registerWorker() in MainActivity.")

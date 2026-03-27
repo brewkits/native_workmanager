@@ -9,8 +9,10 @@ import 'package:flutter/widgets.dart';
 import 'constraints.dart';
 import 'enqueue_request.dart';
 import 'events.dart';
+import 'observability.dart';
 import 'platform_interface.dart';
 import 'task_chain.dart';
+import 'task_graph.dart';
 import 'task_trigger.dart';
 import 'worker.dart';
 
@@ -150,6 +152,11 @@ class NativeWorkManager {
   static bool _initialized = false;
   static final Map<String, DartWorkerCallback> _dartWorkers = {};
 
+  // Observability
+  static StreamSubscription<TaskEvent>? _observabilityEventSub;
+  static StreamSubscription<TaskProgress>? _observabilityProgressSub;
+
+
   /// Map of callback IDs to their serializable handles.
   /// Handles can be passed across isolates, unlike function closures.
   static final Map<String, int> _callbackHandles = {};
@@ -248,6 +255,11 @@ class NativeWorkManager {
     /// Useful for apps that require transport security across all background tasks.
     /// Default: false (backward compatible).
     bool enforceHttps = false,
+    /// When true, HTTP workers block requests to private/loopback IP ranges
+    /// (10.x, 172.16-31.x, 192.168.x, 127.x, ::1) to prevent SSRF attacks.
+    /// Has no effect on hostnames — only parsed IP literals are checked.
+    /// Default: false (backward compatible).
+    bool blockPrivateIPs = false,
   }) async {
     if (_initialized) return;
 
@@ -307,6 +319,7 @@ class NativeWorkManager {
       diskSpaceBufferMB: diskSpaceBufferMB,
       cleanupAfterDays: cleanupAfterDays,
       enforceHttps: enforceHttps,
+      blockPrivateIPs: blockPrivateIPs,
     );
 
     _initialized = true;
@@ -1793,5 +1806,86 @@ class NativeWorkManager {
   /// Check if a Dart worker is registered.
   static bool isDartWorkerRegistered(String id) {
     return _dartWorkers.containsKey(id);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // OBSERVABILITY
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TASK GRAPH (DAG)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Schedule a [TaskGraph] (directed acyclic graph) of background tasks.
+  ///
+  /// Nodes with no dependencies run immediately in parallel.  A node starts
+  /// only when **all** its [TaskNode.dependsOn] nodes have succeeded.  If any
+  /// node fails, its transitive dependents are cancelled.
+  ///
+  /// Returns a [GraphExecution] handle whose [GraphExecution.result] future
+  /// resolves when the entire graph finishes.
+  ///
+  /// ```dart
+  /// final graph = TaskGraph(id: 'export')
+  ///   ..add(TaskNode(id: 'dl-a', worker: HttpDownloadWorker(url: urlA, savePath: pathA)))
+  ///   ..add(TaskNode(id: 'dl-b', worker: HttpDownloadWorker(url: urlB, savePath: pathB)))
+  ///   ..add(TaskNode(id: 'merge', worker: DartWorker(callbackId: 'merge'),
+  ///       dependsOn: ['dl-a', 'dl-b']))
+  ///   ..add(TaskNode(id: 'upload', worker: HttpUploadWorker(url: apiUrl, filePath: merged),
+  ///       dependsOn: ['merge']));
+  ///
+  /// final exec = await NativeWorkManager.enqueueGraph(graph);
+  /// final result = await exec.result;
+  /// print(result.success ? 'Done!' : 'Failed: ${result.failedNodes}');
+  /// ```
+  ///
+  /// **Note:** The graph executor uses [NativeWorkManager.events] for
+  /// fan-in synchronization, so the app must be running while the graph
+  /// executes. Graphs that must survive app termination should use
+  /// independent [enqueue] calls with chain logic instead.
+  static Future<GraphExecution> enqueueGraph(TaskGraph graph) {
+    _checkInitialized();
+    return enqueueTaskGraph(graph);
+  }
+
+  /// Configure observability hooks for all background tasks.
+  ///
+  /// Call after [initialize] to receive callbacks whenever a task starts,
+  /// completes, or fails — without manually subscribing to the [events] and
+  /// [progress] streams in every widget.
+  ///
+  /// Calling [configure] again replaces the previous observability config.
+  /// Pass `null` to remove the existing config.
+  ///
+  /// ```dart
+  /// NativeWorkManager.configure(
+  ///   observability: ObservabilityConfig(
+  ///     onTaskStart: (taskId, workerType) {
+  ///       analytics.track('bg_task_start', {'type': workerType});
+  ///     },
+  ///     onTaskComplete: (event) {
+  ///       performance.record('task_ok', {'id': event.taskId});
+  ///     },
+  ///     onTaskFail: (event) {
+  ///       crashlytics.log('Task failed: ${event.taskId} — ${event.message}');
+  ///     },
+  ///   ),
+  /// );
+  /// ```
+  static void configure({ObservabilityConfig? observability}) {
+    // Cancel existing observability subscriptions.
+    _observabilityEventSub?.cancel();
+    _observabilityProgressSub?.cancel();
+    _observabilityEventSub = null;
+    _observabilityProgressSub = null;
+
+    if (observability == null) return;
+
+    final dispatcher = ObservabilityDispatcher(observability);
+
+    _observabilityEventSub = NativeWorkManagerPlatform.instance.events
+        .listen(dispatcher.dispatchEvent);
+    _observabilityProgressSub = NativeWorkManagerPlatform.instance.progress
+        .listen(dispatcher.dispatchProgress);
   }
 }

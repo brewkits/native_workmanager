@@ -227,12 +227,17 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             SecurityValidator.enforceHttps = enforceHttps
             NativeLogger.d("enforceHttps=\(enforceHttps)")
 
+            // SSRF protection — block requests to private/loopback IP literals.
+            let blockPrivateIPs = args["blockPrivateIPs"] as? Bool ?? false
+            SecurityValidator.blockPrivateIPs = blockPrivateIPs
+            NativeLogger.d("blockPrivateIPs=\(blockPrivateIPs)")
+
             // Auto-cleanup: prune terminal-state records older than N days.
+            // Gated to run at most once per 7 days (stored in UserDefaults) so repeated
+            // initialize() calls (hot-restart, app foreground) don't thrash the DB.
             let cleanupAfterDays = args["cleanupAfterDays"] as? Int ?? 30
             if #available(iOS 13.0, *), cleanupAfterDays > 0 {
-                let thresholdMs = Int64(cleanupAfterDays) * 24 * 60 * 60 * 1000
-                taskStore?.deleteCompleted(olderThanMs: thresholdMs)
-                NativeLogger.d("Auto-cleanup: pruned task records older than \(cleanupAfterDays)d")
+                schedulePeriodicDbCleanup(retentionDays: cleanupAfterDays)
             }
         } else {
             NativeLogger.d("Initialized (KMP native workers)")
@@ -254,6 +259,32 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         }
 
         result(nil)
+    }
+
+    // MARK: - Periodic DB Cleanup
+
+    /// Run task-record cleanup at most once every 7 days.
+    ///
+    /// Uses `UserDefaults` to persist the last-run timestamp across app launches.
+    /// This avoids thrashing SQLite on every `initialize()` call while still
+    /// providing a predictable weekly maintenance cadence — the iOS equivalent
+    /// of Android's `PeriodicWorkRequest`.
+    @available(iOS 13.0, *)
+    private func schedulePeriodicDbCleanup(retentionDays: Int) {
+        let defaults = UserDefaults.standard
+        let lastCleanupKey = "NWM_last_db_cleanup"
+        let sevenDaysAgo = Date().addingTimeInterval(-7 * 24 * 60 * 60)
+
+        let lastCleanup = defaults.object(forKey: lastCleanupKey) as? Date ?? .distantPast
+        guard lastCleanup < sevenDaysAgo else {
+            NativeLogger.d("DB cleanup skipped — last run: \(lastCleanup)")
+            return
+        }
+
+        let thresholdMs = Int64(retentionDays) * 24 * 60 * 60 * 1000
+        taskStore?.deleteCompleted(olderThanMs: thresholdMs)
+        defaults.set(Date(), forKey: lastCleanupKey)
+        NativeLogger.d("🗑️ DB cleanup: pruned records older than \(retentionDays)d")
     }
 
     // See NativeWorkmanagerPlugin+Execution.swift for resumePendingChains() and resumeChain(chainState:)
