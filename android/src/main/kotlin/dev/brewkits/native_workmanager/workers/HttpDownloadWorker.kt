@@ -13,6 +13,8 @@ import dev.brewkits.native_workmanager.workers.utils.AuthInterceptor
 import dev.brewkits.native_workmanager.workers.utils.BandwidthThrottle
 import dev.brewkits.native_workmanager.workers.utils.HostConcurrencyManager
 import dev.brewkits.native_workmanager.workers.utils.ProgressResponseBody
+import dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper
+import dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper.applyCertificatePinning
 import dev.brewkits.native_workmanager.workers.utils.RequestSigner
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import kotlinx.coroutines.Dispatchers
@@ -114,6 +116,8 @@ class HttpDownloadWorker : AndroidWorker {
         val authHeaderTemplate: String = DEFAULT_AUTH_HEADER_TEMPLATE,
         val bandwidthLimitBytesPerSecond: Long? = null,
         val requestSigningConfig: RequestSigner.Config? = null,
+        val certificatePinningConfig: HttpSecurityHelper.CertificatePinningConfig? = null,
+        val tokenRefreshConfig: HttpSecurityHelper.TokenRefreshConfig? = null,
     ) {
         val timeout: Long get() = timeoutMs ?: DEFAULT_TIMEOUT_MS
         val effectiveChecksumAlgorithm: String get() = checksumAlgorithm ?: DEFAULT_CHECKSUM_ALGORITHM
@@ -150,6 +154,8 @@ class HttpDownloadWorker : AndroidWorker {
                 authHeaderTemplate = j.optString("authHeaderTemplate", DEFAULT_AUTH_HEADER_TEMPLATE),
                 bandwidthLimitBytesPerSecond = if (j.has("bandwidthLimitBytesPerSecond")) j.getLong("bandwidthLimitBytesPerSecond") else null,
                 requestSigningConfig = RequestSigner.fromMap(j.optJSONObject("requestSigning")),
+                certificatePinningConfig = HttpSecurityHelper.CertificatePinningConfig.fromMap(j.optJSONObject("certificatePinning")),
+                tokenRefreshConfig = HttpSecurityHelper.TokenRefreshConfig.fromMap(j.optJSONObject("tokenRefresh")),
             )
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid config JSON: ${e.message}", e)
@@ -253,11 +259,12 @@ class HttpDownloadWorker : AndroidWorker {
             0L
         }
 
-        // Build HTTP client with timeout and optional auth interceptor
-        val clientBuilder = OkHttpClient.Builder()
+        // Build HTTP client — derives from sharedClient to reuse ConnectionPool
+        val clientBuilder = HttpSecurityHelper.sharedClient.newBuilder()
             .connectTimeout(config.timeout, TimeUnit.MILLISECONDS)
             .readTimeout(config.timeout, TimeUnit.MILLISECONDS)
             .writeTimeout(config.timeout, TimeUnit.MILLISECONDS)
+            .applyCertificatePinning(config.url, config.certificatePinningConfig)
         if (config.authToken != null) {
             clientBuilder.addInterceptor(AuthInterceptor(config.authToken, config.authHeaderTemplate))
         }
@@ -322,6 +329,31 @@ class HttpDownloadWorker : AndroidWorker {
 
                 if (!isPartialContent && !isFullContent) {
                     Log.e(TAG, "Failed - Status $statusCode")
+                    // 401 + token refresh: attempt refresh and retry once
+                    if (statusCode == 401 && config.tokenRefreshConfig != null) {
+                        val newToken = HttpSecurityHelper.attemptTokenRefresh(client, config.tokenRefreshConfig)
+                        if (newToken != null) {
+                            val retryRequest = request.newBuilder()
+                                .header(config.tokenRefreshConfig.tokenHeaderName,
+                                        "${config.tokenRefreshConfig.tokenPrefix}$newToken")
+                                .build()
+                            return@downloadBlock try {
+                                client.newCall(retryRequest).execute().use { retryResponse ->
+                                    val retryStatus = retryResponse.code
+                                    if (retryStatus in 200..299) {
+                                        WorkerResult.Failure(
+                                            "Token refreshed but download retry not supported in single pass — re-enqueue",
+                                            shouldRetry = true
+                                        )
+                                    } else {
+                                        WorkerResult.Failure("HTTP $retryStatus (after token refresh)", shouldRetry = retryStatus >= 500)
+                                    }
+                                }
+                            } catch (retryEx: Exception) {
+                                WorkerResult.Failure(message = retryEx.message ?: "Retry failed", shouldRetry = true)
+                            }
+                        }
+                    }
                     return@downloadBlock WorkerResult.Failure("HTTP $statusCode", shouldRetry = statusCode >= 500)
                 }
 
@@ -452,10 +484,20 @@ class HttpDownloadWorker : AndroidWorker {
                 }
 
                 // Atomic rename from temp to final destination
-                if (!tempFile.renameTo(destinationFile)) {
-                    Log.e(TAG, "Error - Failed to rename temp file to destination")
+                try {
+                    java.nio.file.Files.move(
+                        tempFile.toPath(),
+                        destinationFile.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE
+                    )
+                } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+                    // Atomic move not supported across filesystems — fall back to copy+delete
+                    tempFile.copyTo(destinationFile, overwrite = true)
                     tempFile.delete()
-                    return@downloadBlock WorkerResult.Failure("Failed to rename temp file to destination")
+                } catch (e: Exception) {
+                    tempFile.delete()
+                    return@downloadBlock WorkerResult.Failure("Failed to rename file: ${e.message}")
                 }
 
                 // Clean up ETag sidecar after successful download

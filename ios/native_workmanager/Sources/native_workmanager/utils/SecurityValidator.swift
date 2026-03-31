@@ -16,7 +16,7 @@ enum SecurityValidator {
 
     /// When true, HTTP workers block requests to private/loopback IP literals.
     /// Covers: 10.x, 172.16-31.x, 192.168.x, 127.x, 169.254.x (link-local),
-    ///         ::1, and fc00::/7 (ULA).
+    ///         ::1, fc00::/7 (ULA), and fe80::/10 (IPv6 link-local).
     /// Only parsed IP literals are checked — hostnames are NOT resolved.
     /// Set by handleInitialize() when the Dart caller passes blockPrivateIPs=true.
     static var blockPrivateIPs: Bool = false
@@ -376,7 +376,7 @@ enum SecurityValidator {
     /// Only IP literals are matched — hostnames are NOT resolved (no DNS lookup).
     /// Covers:
     ///   IPv4: 127.x, 10.x, 172.16-31.x, 192.168.x, 169.254.x (link-local)
-    ///   IPv6: ::1, fc00::/7 (ULA)
+    ///   IPv6: ::1, fc00::/7 (ULA), fe80::/10 (link-local)
     static func isPrivateIP(_ host: String) -> Bool {
         guard !host.isEmpty else { return false }
         // Strip IPv6 brackets: [::1] → ::1
@@ -388,9 +388,9 @@ enum SecurityValidator {
         }
         // IPv6 loopback
         if h == "::1" { return true }
-        // IPv6 ULA (fc00::/7 — first byte fc or fd)
+        // IPv6 ULA (fc00::/7 — first byte fc or fd) and link-local (fe80::/10)
         let lower = h.lowercased()
-        if lower.hasPrefix("fc") || lower.hasPrefix("fd") { return true }
+        if lower.hasPrefix("fc") || lower.hasPrefix("fd") || lower.hasPrefix("fe80") { return true }
         // IPv4 — split on "." and validate octets
         let parts = h.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 4,

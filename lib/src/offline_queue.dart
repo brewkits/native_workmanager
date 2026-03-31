@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'constraints.dart';
 import 'events.dart';
@@ -22,10 +23,13 @@ class OfflineRetryPolicy {
     this.backoffMultiplier = 2.0,
     this.initialDelay = const Duration(seconds: 30),
     this.maxDelay = const Duration(hours: 6),
-  }) : assert(maxRetries >= 0),
-       assert(backoffMultiplier >= 1.0);
+  }) : assert(maxRetries >= 0 && maxRetries <= 100,
+              'maxRetries must be between 0 and 100'),
+      // NaN fails >= 1.0 already; Infinity is clamped to maxDelay in delayFor().
+      assert(backoffMultiplier >= 1.0,
+             'backoffMultiplier must be >= 1.0 (NaN and negative values not allowed)');
 
-  /// Maximum retry attempts. Set to 0 for no retries.
+  /// Maximum retry attempts (0–100). Set to 0 for no retries.
   final int maxRetries;
 
   /// Require any network connection before retrying.
@@ -34,7 +38,7 @@ class OfflineRetryPolicy {
   /// Require charging before retrying (useful for heavy tasks).
   final bool requiresCharging;
 
-  /// Exponential backoff multiplier (1.0 = constant interval).
+  /// Exponential backoff multiplier (finite number ≥ 1.0; 1.0 = constant interval).
   final double backoffMultiplier;
 
   /// Delay before the first retry.
@@ -68,18 +72,14 @@ class OfflineRetryPolicy {
         (backoffMultiplier == 1.0
             ? 1.0
             : _pow(backoffMultiplier, attempt.toDouble()));
-    return Duration(
-      milliseconds: ms.round().clamp(0, maxDelay.inMilliseconds),
-    );
+    final clamped = ms.isFinite
+        ? ms.round().clamp(0, maxDelay.inMilliseconds)
+        : maxDelay.inMilliseconds;
+    return Duration(milliseconds: clamped);
   }
 
   static double _pow(double base, double exp) {
-    if (exp == 0) return 1.0;
-    double result = 1.0;
-    for (var i = 0; i < exp; i++) {
-      result *= base;
-    }
-    return result;
+    return math.pow(base, exp).toDouble();
   }
 }
 
@@ -224,10 +224,22 @@ class OfflineQueue {
 
   /// Cancel all queued entries that match [taskId] or [tag].
   void cancel({String? taskId, String? tag}) {
+    // Snapshot matching slots and remove from list atomically before issuing
+    // native cancels — prevents a concurrent _scheduleNext from dequeuing
+    // a slot that is in the process of being cancelled.
+    final toCancel = _pending.where((slot) {
+      return (taskId != null && slot.entry.taskId == taskId) ||
+          (tag != null && slot.entry.tag == tag);
+    }).toList();
     _pending.removeWhere((slot) {
       return (taskId != null && slot.entry.taskId == taskId) ||
           (tag != null && slot.entry.tag == tag);
     });
+    // Fire native cancels after list removal so no further scheduling occurs.
+    for (final slot in toCancel) {
+      final nativeId = '${id}__${slot.entry.taskId}__${slot.attempt}';
+      NativeWorkManager.cancel(taskId: nativeId).ignore();
+    }
   }
 
   /// Remove all dead-letter entries.

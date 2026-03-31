@@ -76,7 +76,7 @@ import UniformTypeIdentifiers
 class HttpUploadWorker: IosWorker {
 
     private static let defaultTimeoutMs: Int64 = 120_000
-    private static let boundary = "Boundary-\(UUID().uuidString)"
+    private let boundary = "Boundary-\(UUID().uuidString)"
 
     struct FileConfig: Codable {
         let filePath: String
@@ -264,7 +264,7 @@ class HttpUploadWorker: IosWorker {
         }
 
         // Set multipart Content-Type AFTER custom headers — must include boundary.
-        request.setValue("multipart/form-data; boundary=\(HttpUploadWorker.boundary)",
+        request.setValue("multipart/form-data; boundary=\(boundary)",
                         forHTTPHeaderField: "Content-Type")
 
         // Build multipart body
@@ -273,7 +273,7 @@ class HttpUploadWorker: IosWorker {
         // Add form fields
         if let fields = config.fields {
             for (key, value) in fields {
-                body.append("--\(HttpUploadWorker.boundary)\r\n".data(using: .utf8)!)
+                body.append("--\(boundary)\r\n".data(using: .utf8)!)
                 body.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
                 body.append("\(value)\r\n".data(using: .utf8)!)
             }
@@ -283,7 +283,7 @@ class HttpUploadWorker: IosWorker {
         for (index, (fileURL, fileName, mimeType)) in validatedFiles.enumerated() {
             let fileFieldName = fileConfigs[index].effectiveFileFieldName
 
-            body.append("--\(HttpUploadWorker.boundary)\r\n".data(using: .utf8)!)
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
             body.append("Content-Disposition: form-data; name=\"\(fileFieldName)\"; filename=\"\(fileName)\"\r\n".data(using: .utf8)!)
             body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
 
@@ -297,7 +297,7 @@ class HttpUploadWorker: IosWorker {
         }
 
         // End boundary
-        body.append("--\(HttpUploadWorker.boundary)--\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
         // T3-7: HMAC-SHA256 request signing
         let uploadRawDict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
@@ -306,9 +306,13 @@ class HttpUploadWorker: IosWorker {
             RequestSigner.sign(request: &request, config: signingCfg)
         }
 
+        let uploadPinningConfig = CertificatePinningConfig.from(uploadRawDict?["certificatePinning"] as? [String: Any])
+        let uploadTokenRefreshConfig = TokenRefreshConfig.from(uploadRawDict?["tokenRefresh"] as? [String: Any])
+
         // Execute upload
         do {
-            let (data, response) = try await URLSession.shared.upload(for: request, from: body)
+            let uploadSession = makeURLSession(pinningConfig: uploadPinningConfig, timeoutInterval: config.timeout)
+            let (data, response) = try await uploadSession.upload(for: request, from: body)
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 print("HttpUploadWorker: Error - Invalid response type")
@@ -346,11 +350,37 @@ class HttpUploadWorker: IosWorker {
                 let truncatedError = SecurityValidator.truncateForLogging(responseBody, maxLength: 200)
                 print("HttpUploadWorker: Failed - Status \(statusCode)")
                 print("HttpUploadWorker: Error: \(truncatedError)")
-                return .failure(message: "HTTP \(statusCode)")
+
+                // 401 + token refresh: attempt refresh and retry once
+                if statusCode == 401, let refreshConfig = uploadTokenRefreshConfig {
+                    let refreshSession = makeURLSession(pinningConfig: uploadPinningConfig, timeoutInterval: config.timeout)
+                    if let newToken = await tokenRefreshCoalescer.refresh(config: refreshConfig, session: refreshSession) {
+                        var retryRequest = request
+                        retryRequest.setValue("\(refreshConfig.tokenPrefix)\(newToken)",
+                                              forHTTPHeaderField: refreshConfig.tokenHeaderName)
+                        if let (retryData, retryResponse) = try? await refreshSession.upload(for: retryRequest, from: body),
+                           let retryHttpResponse = retryResponse as? HTTPURLResponse,
+                           (200..<300).contains(retryHttpResponse.statusCode) {
+                            let retryBody = String(data: retryData, encoding: .utf8) ?? ""
+                            return .success(
+                                message: "Uploaded \(validatedFiles.count) file(s), \(totalSize) bytes (after token refresh)",
+                                data: [
+                                    "statusCode": retryHttpResponse.statusCode,
+                                    "uploadedSize": totalSize,
+                                    "fileCount": validatedFiles.count,
+                                    "fileNames": validatedFiles.map { $0.fileName },
+                                    "responseBody": retryBody
+                                ]
+                            )
+                        }
+                    }
+                }
+
+                return .failure(message: "HTTP \(statusCode)", shouldRetry: statusCode >= 500)
             }
         } catch {
             print("HttpUploadWorker: Error - \(error.localizedDescription)")
-            return .failure(message: error.localizedDescription)
+            return .failure(message: error.localizedDescription, shouldRetry: true)
         }
     }
 
@@ -403,9 +433,13 @@ class HttpUploadWorker: IosWorker {
             RequestSigner.sign(request: &request, config: signingCfg)
         }
 
+        let rawBodyPinningConfig = CertificatePinningConfig.from(rawBodyDict?["certificatePinning"] as? [String: Any])
+        let rawBodyTokenRefreshConfig = TokenRefreshConfig.from(rawBodyDict?["tokenRefresh"] as? [String: Any])
+
         // Execute upload
         do {
-            let (data, response) = try await URLSession.shared.upload(for: request, from: requestBody)
+            let rawBodySession = makeURLSession(pinningConfig: rawBodyPinningConfig, timeoutInterval: config.timeout)
+            let (data, response) = try await rawBodySession.upload(for: request, from: requestBody)
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 print("HttpUploadWorker: Error - Invalid response type")
@@ -442,11 +476,36 @@ class HttpUploadWorker: IosWorker {
                 let truncatedError = SecurityValidator.truncateForLogging(responseBody, maxLength: 200)
                 print("HttpUploadWorker: Failed - Status \(statusCode)")
                 print("HttpUploadWorker: Error: \(truncatedError)")
-                return .failure(message: "HTTP \(statusCode)")
+
+                // 401 + token refresh: attempt refresh and retry once
+                if statusCode == 401, let refreshConfig = rawBodyTokenRefreshConfig {
+                    let refreshSession = makeURLSession(pinningConfig: rawBodyPinningConfig, timeoutInterval: config.timeout)
+                    if let newToken = await tokenRefreshCoalescer.refresh(config: refreshConfig, session: refreshSession) {
+                        var retryRequest = request
+                        retryRequest.setValue("\(refreshConfig.tokenPrefix)\(newToken)",
+                                              forHTTPHeaderField: refreshConfig.tokenHeaderName)
+                        if let (retryData, retryResponse) = try? await refreshSession.upload(for: retryRequest, from: requestBody),
+                           let retryHttpResponse = retryResponse as? HTTPURLResponse,
+                           (200..<300).contains(retryHttpResponse.statusCode) {
+                            let retryBody = String(data: retryData, encoding: .utf8) ?? ""
+                            return .success(
+                                message: "Uploaded raw body (after token refresh)",
+                                data: [
+                                    "statusCode": retryHttpResponse.statusCode,
+                                    "uploadedSize": requestBody.count,
+                                    "contentType": contentType,
+                                    "responseBody": retryBody
+                                ]
+                            )
+                        }
+                    }
+                }
+
+                return .failure(message: "HTTP \(statusCode)", shouldRetry: statusCode >= 500)
             }
         } catch {
             print("HttpUploadWorker: Error - \(error.localizedDescription)")
-            return .failure(message: error.localizedDescription)
+            return .failure(message: error.localizedDescription, shouldRetry: true)
         }
     }
 
@@ -476,7 +535,7 @@ class HttpUploadWorker: IosWorker {
         // Add form fields
         if let fields = config.fields {
             for (key, value) in fields {
-                body.append("--\(HttpUploadWorker.boundary)\r\n".data(using: .utf8)!)
+                body.append("--\(boundary)\r\n".data(using: .utf8)!)
                 body.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
                 body.append("\(value)\r\n".data(using: .utf8)!)
             }
@@ -489,7 +548,7 @@ class HttpUploadWorker: IosWorker {
         for (index, (fileURL, fileName, mimeType)) in validatedFiles.enumerated() {
             let fileFieldName = fileConfigs[index].effectiveFileFieldName
 
-            body.append("--\(HttpUploadWorker.boundary)\r\n".data(using: .utf8)!)
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
             body.append("Content-Disposition: form-data; name=\"\(fileFieldName)\"; filename=\"\(fileName)\"\r\n".data(using: .utf8)!)
             body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
 
@@ -503,7 +562,7 @@ class HttpUploadWorker: IosWorker {
         }
 
         // End boundary
-        body.append("--\(HttpUploadWorker.boundary)--\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
         // Save multipart body to temp file (background session requires file upload)
         let tempFileURL = FileManager.default.temporaryDirectory
@@ -523,7 +582,7 @@ class HttpUploadWorker: IosWorker {
 
         // Build headers with multipart content-type
         var headers = config.headers ?? [:]
-        headers["Content-Type"] = "multipart/form-data; boundary=\(HttpUploadWorker.boundary)"
+        headers["Content-Type"] = "multipart/form-data; boundary=\(boundary)"
 
         // Execute upload using BackgroundSessionManager
         return await withCheckedContinuation { continuation in

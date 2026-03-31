@@ -337,16 +337,16 @@ object SecurityValidator {
      * Only IP literals are matched — hostnames are NOT resolved (no DNS lookup).
      * Covers:
      *   IPv4: 127.x, 10.x, 172.16-31.x, 192.168.x, 169.254.x (link-local)
-     *   IPv6: ::1, fc00::/7 (ULA: fc-- and fd--)
+     *   IPv6: ::1, fc00::/7 (ULA), fe80::/10 (link-local)
      */
     private fun isPrivateIP(host: String): Boolean {
         if (host.isEmpty()) return false
         // Strip IPv6 brackets: [::1] → ::1
         val h = if (host.startsWith("[") && host.endsWith("]")) host.drop(1).dropLast(1) else host
-        // IPv6 loopback and ULA
+        // IPv6 loopback, ULA (fc00::/7), and link-local (fe80::/10)
         if (h == "::1") return true
         val lower = h.lowercase()
-        if (lower.startsWith("fc") || lower.startsWith("fd")) return true
+        if (lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("fe80")) return true
         // IPv4 private ranges
         val ipv4Regex = Regex("""^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$""")
         val match = ipv4Regex.matchEntire(h) ?: return false

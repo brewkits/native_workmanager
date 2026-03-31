@@ -1,3 +1,5 @@
+
+
 import Foundation
 import BackgroundTasks
 
@@ -222,7 +224,8 @@ class BGTaskSchedulerManager {
         }
 
         // Execute worker
-        Task {
+        Task { [weak self] in
+            guard let self = self else { return }
             let success = await self.executeWorker(taskInfo: taskInfo)
 
             // Mark task complete
@@ -257,7 +260,8 @@ class BGTaskSchedulerManager {
             self?.onTaskComplete?(taskInfo.taskId, false, "Refresh expired")
         }
 
-        Task {
+        Task { [weak self] in
+            guard let self = self else { return }
             let success = await self.executeWorker(taskInfo: taskInfo)
             task.setTaskCompleted(success: success)
             self.onTaskComplete?(taskInfo.taskId, success, nil)

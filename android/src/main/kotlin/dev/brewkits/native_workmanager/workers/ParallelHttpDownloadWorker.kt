@@ -3,7 +3,10 @@ package dev.brewkits.native_workmanager.workers
 import android.util.Log
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
+import dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper
+import dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper.applyCertificatePinning
 import dev.brewkits.native_workmanager.workers.utils.ProgressReporter
+import dev.brewkits.native_workmanager.workers.utils.RequestSigner
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -63,7 +66,10 @@ class ParallelHttpDownloadWorker : AndroidWorker {
         val timeoutMs: Long = DEFAULT_TIMEOUT_MS,
         val expectedChecksum: String? = null,
         val checksumAlgorithm: String = "SHA-256",
-        val skipExisting: Boolean = false
+        val skipExisting: Boolean = false,
+        val requestSigningConfig: RequestSigner.Config? = null,
+        val certificatePinningConfig: HttpSecurityHelper.CertificatePinningConfig? = null,
+        val tokenRefreshConfig: HttpSecurityHelper.TokenRefreshConfig? = null,
     )
 
     override suspend fun doWork(input: String?): WorkerResult = withContext(Dispatchers.IO) {
@@ -81,7 +87,10 @@ class ParallelHttpDownloadWorker : AndroidWorker {
                 timeoutMs = if (j.has("timeoutMs")) j.getLong("timeoutMs") else DEFAULT_TIMEOUT_MS,
                 expectedChecksum = if (j.has("expectedChecksum")) j.getString("expectedChecksum") else null,
                 checksumAlgorithm = j.optString("checksumAlgorithm", "SHA-256"),
-                skipExisting = j.optBoolean("skipExisting", false)
+                skipExisting = j.optBoolean("skipExisting", false),
+                requestSigningConfig = RequestSigner.fromMap(j.optJSONObject("requestSigning")),
+                certificatePinningConfig = HttpSecurityHelper.CertificatePinningConfig.fromMap(j.optJSONObject("certificatePinning")),
+                tokenRefreshConfig = HttpSecurityHelper.TokenRefreshConfig.fromMap(j.optJSONObject("tokenRefresh")),
             )
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid config JSON: ${e.message}", e)
@@ -113,18 +122,22 @@ class ParallelHttpDownloadWorker : AndroidWorker {
         // Ensure parent directory exists
         destinationFile.parentFile?.let { if (!it.exists()) it.mkdirs() }
 
-        val client = OkHttpClient.Builder()
+        val client = HttpSecurityHelper.sharedClient.newBuilder()
             .connectTimeout(config.timeoutMs, TimeUnit.MILLISECONDS)
             .readTimeout(config.timeoutMs, TimeUnit.MILLISECONDS)
+            .applyCertificatePinning(config.url, config.certificatePinningConfig)
             .build()
 
         // ── Step 1: HEAD request ──────────────────────────────────────────────
         val sanitizedUrl = SecurityValidator.sanitizedURL(config.url)
         Log.d(TAG, "HEAD $sanitizedUrl")
 
-        val headRequest = Request.Builder().url(config.url).head().apply {
+        val headRequestBuilder = Request.Builder().url(config.url).head().apply {
             config.headers?.forEach { (k, v) -> addHeader(k, v) }
-        }.build()
+        }
+        val headRequest = config.requestSigningConfig
+            ?.let { RequestSigner.sign(headRequestBuilder.build(), it) }
+            ?: headRequestBuilder.build()
 
         val (contentLength, acceptsRanges) = try {
             client.newCall(headRequest).execute().use { r ->
@@ -185,10 +198,12 @@ class ParallelHttpDownloadWorker : AndroidWorker {
                 val rangeHeader = "bytes=$resumeFrom-$rangeEnd"
                 Log.d(TAG, "Downloading chunk $chunkIndex: $rangeHeader")
 
-                val req = Request.Builder().url(config.url)
+                val reqBuilder = Request.Builder().url(config.url)
                     .addHeader("Range", rangeHeader)
                     .apply { config.headers?.forEach { (k, v) -> addHeader(k, v) } }
-                    .build()
+                val req = config.requestSigningConfig
+                    ?.let { RequestSigner.sign(reqBuilder.build(), it) }
+                    ?: reqBuilder.build()
 
                 try {
                     client.newCall(req).execute().use { response ->
@@ -260,6 +275,15 @@ class ParallelHttpDownloadWorker : AndroidWorker {
 
         // ── Step 8: Checksum verification ────────────────────────────────────
         if (config.expectedChecksum != null) {
+            val supportedAlgorithms = setOf("MD5", "SHA-1", "SHA1", "SHA-256", "SHA256", "SHA-512", "SHA512")
+            if (config.checksumAlgorithm.uppercase() !in supportedAlgorithms) {
+                tempFile.delete()
+                return@withContext WorkerResult.Failure(
+                    "Unsupported checksum algorithm: '${config.checksumAlgorithm}'. " +
+                    "Supported: ${supportedAlgorithms.joinToString()}",
+                    shouldRetry = false
+                )
+            }
             Log.d(TAG, "Verifying checksum (${config.checksumAlgorithm})...")
             val actual = calculateChecksum(tempFile, config.checksumAlgorithm)
             if (!actual.equals(config.expectedChecksum, ignoreCase = true)) {
@@ -274,9 +298,20 @@ class ParallelHttpDownloadWorker : AndroidWorker {
 
         // ── Step 9: Atomic rename ─────────────────────────────────────────────
         destinationFile.delete()
-        if (!tempFile.renameTo(destinationFile)) {
+        try {
+            java.nio.file.Files.move(
+                tempFile.toPath(),
+                destinationFile.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE
+            )
+        } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+            // Atomic move not supported across filesystems — fall back to copy+delete
+            tempFile.copyTo(destinationFile, overwrite = true)
             tempFile.delete()
-            return@withContext WorkerResult.Failure("Failed to rename merged file")
+        } catch (e: Exception) {
+            tempFile.delete()
+            return@withContext WorkerResult.Failure("Failed to rename file: ${e.message}")
         }
 
         val finalSize = destinationFile.length()
@@ -307,10 +342,13 @@ class ParallelHttpDownloadWorker : AndroidWorker {
         val tempFile = File("${config.savePath}.tmp")
         val existingBytes = if (config.numChunks > 0 && tempFile.exists()) tempFile.length() else 0L
 
-        val req = Request.Builder().url(config.url).apply {
+        val reqBuilder = Request.Builder().url(config.url).apply {
             if (existingBytes > 0) addHeader("Range", "bytes=$existingBytes-")
             config.headers?.forEach { (k, v) -> addHeader(k, v) }
-        }.build()
+        }
+        val req = config.requestSigningConfig
+            ?.let { RequestSigner.sign(reqBuilder.build(), it) }
+            ?: reqBuilder.build()
 
         try {
             client.newCall(req).execute().use { response ->
@@ -340,6 +378,15 @@ class ParallelHttpDownloadWorker : AndroidWorker {
                 }
 
                 if (config.expectedChecksum != null) {
+                    val supportedAlgorithms = setOf("MD5", "SHA-1", "SHA1", "SHA-256", "SHA256", "SHA-512", "SHA512")
+                    if (config.checksumAlgorithm.uppercase() !in supportedAlgorithms) {
+                        tempFile.delete()
+                        return@withContext WorkerResult.Failure(
+                            "Unsupported checksum algorithm: '${config.checksumAlgorithm}'. " +
+                            "Supported: ${supportedAlgorithms.joinToString()}",
+                            shouldRetry = false
+                        )
+                    }
                     val actual = calculateChecksum(tempFile, config.checksumAlgorithm)
                     if (!actual.equals(config.expectedChecksum, ignoreCase = true)) {
                         tempFile.delete()
@@ -351,9 +398,20 @@ class ParallelHttpDownloadWorker : AndroidWorker {
                 }
 
                 destinationFile.delete()
-                if (!tempFile.renameTo(destinationFile)) {
+                try {
+                    java.nio.file.Files.move(
+                        tempFile.toPath(),
+                        destinationFile.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE
+                    )
+                } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+                    // Atomic move not supported across filesystems — fall back to copy+delete
+                    tempFile.copyTo(destinationFile, overwrite = true)
                     tempFile.delete()
-                    return@withContext WorkerResult.Failure("Failed to rename file")
+                } catch (e: Exception) {
+                    tempFile.delete()
+                    return@withContext WorkerResult.Failure("Failed to rename file: ${e.message}")
                 }
 
                 if (taskId != null) ProgressReporter.reportProgressNonBlocking(taskId, 100, "Download complete")

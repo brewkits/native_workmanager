@@ -85,15 +85,19 @@ class ParallelHttpDownloadWorker: IosWorker {
             )
         }
 
-        let sessionConfig = URLSessionConfiguration.default
-        sessionConfig.timeoutIntervalForRequest = config.timeout
-        sessionConfig.timeoutIntervalForResource = config.timeout * Double(config.effectiveNumChunks)
-        let session = URLSession(configuration: sessionConfig)
+        // Extract security configs from raw JSON (not Codable)
+        let rawDict = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let pinningConfig = CertificatePinningConfig.from(rawDict?["certificatePinning"] as? [String: Any])
+        let tokenRefreshConfig = TokenRefreshConfig.from(rawDict?["tokenRefresh"] as? [String: Any])
+        let signingConfig = RequestSigner.Config.from(rawDict?["requestSigning"] as? [String: Any])
+
+        let session = makeURLSession(pinningConfig: pinningConfig, timeoutInterval: config.timeout)
 
         // ── Step 1: HEAD request ──────────────────────────────────────────────
         var headRequest = URLRequest(url: url)
         headRequest.httpMethod = "HEAD"
         config.headers?.forEach { headRequest.setValue($1, forHTTPHeaderField: $0) }
+        if let sc = signingConfig { RequestSigner.sign(request: &headRequest, config: sc) }
 
         let (contentLength, acceptsRanges): (Int64, Bool) = await {
             do {
@@ -113,7 +117,9 @@ class ParallelHttpDownloadWorker: IosWorker {
             print("ParallelHttpDownloadWorker: No range support or unknown size — sequential fallback")
             return await downloadSequential(
                 session: session, url: url, config: config,
-                destinationURL: destinationURL, taskId: taskId
+                destinationURL: destinationURL, taskId: taskId,
+                signingConfig: signingConfig,
+                tokenRefreshConfig: tokenRefreshConfig
             )
         }
 
@@ -150,7 +156,9 @@ class ParallelHttpDownloadWorker: IosWorker {
                         url: url, config: config, session: session,
                         taskId: taskId, totalBytes: totalBytes,
                         downloadedAtomic: downloadedAtomic,
-                        tracker: tracker
+                        tracker: tracker,
+                        signingConfig: signingConfig,
+                        tokenRefreshConfig: tokenRefreshConfig
                     )
                 }
             }
@@ -246,7 +254,9 @@ class ParallelHttpDownloadWorker: IosWorker {
         taskId: String?,
         totalBytes: Int64,
         downloadedAtomic: AtomicInt64,
-        tracker: ProgressTracker
+        tracker: ProgressTracker,
+        signingConfig: RequestSigner.Config? = nil,
+        tokenRefreshConfig: TokenRefreshConfig? = nil
     ) async -> Bool {
         let partURL = URL(fileURLWithPath: "\(config.savePath).part\(index)")
         let (rangeStart, rangeEnd) = range
@@ -264,11 +274,25 @@ class ParallelHttpDownloadWorker: IosWorker {
         var request = URLRequest(url: url)
         request.setValue("bytes=\(resumeFrom)-\(rangeEnd)", forHTTPHeaderField: "Range")
         config.headers?.forEach { request.setValue($1, forHTTPHeaderField: $0) }
+        if let sc = signingConfig { RequestSigner.sign(request: &request, config: sc) }
 
         print("ParallelHttpDownloadWorker: Chunk \(index) — bytes=\(resumeFrom)-\(rangeEnd)")
 
         do {
-            let (data, response) = try await session.data(for: request)
+            var (data, response) = try await session.data(for: request)
+            // Handle 401 with token refresh
+            if let http = response as? HTTPURLResponse, http.statusCode == 401,
+               let trCfg = tokenRefreshConfig {
+                if let newToken = await attemptTokenRefresh(config: trCfg, currentSession: session) {
+                    var retryRequest = URLRequest(url: url)
+                    retryRequest.setValue("bytes=\(resumeFrom)-\(rangeEnd)", forHTTPHeaderField: "Range")
+                    retryRequest.setValue("\(trCfg.tokenPrefix)\(newToken)",
+                                         forHTTPHeaderField: trCfg.tokenHeaderName)
+                    config.headers?.forEach { retryRequest.setValue($1, forHTTPHeaderField: $0) }
+                    if let sc = signingConfig { RequestSigner.sign(request: &retryRequest, config: sc) }
+                    (data, response) = try await session.data(for: retryRequest)
+                }
+            }
             guard let http = response as? HTTPURLResponse,
                   (200 ..< 300).contains(http.statusCode) else {
                 let code = (response as? HTTPURLResponse)?.statusCode ?? -1
@@ -317,7 +341,9 @@ class ParallelHttpDownloadWorker: IosWorker {
         url: URL,
         config: Config,
         destinationURL: URL,
-        taskId: String?
+        taskId: String?,
+        signingConfig: RequestSigner.Config? = nil,
+        tokenRefreshConfig: TokenRefreshConfig? = nil
     ) async -> WorkerResult {
         let tempURL = URL(fileURLWithPath: config.savePath + ".tmp")
         let existingBytes: Int64 = {
@@ -330,9 +356,23 @@ class ParallelHttpDownloadWorker: IosWorker {
         var request = URLRequest(url: url)
         if existingBytes > 0 { request.setValue("bytes=\(existingBytes)-", forHTTPHeaderField: "Range") }
         config.headers?.forEach { request.setValue($1, forHTTPHeaderField: $0) }
+        if let sc = signingConfig { RequestSigner.sign(request: &request, config: sc) }
 
         do {
-            let (data, response) = try await session.data(for: request)
+            var (data, response) = try await session.data(for: request)
+            // Handle 401 with token refresh
+            if let http = response as? HTTPURLResponse, http.statusCode == 401,
+               let trCfg = tokenRefreshConfig {
+                if let newToken = await attemptTokenRefresh(config: trCfg, currentSession: session) {
+                    var retryRequest = URLRequest(url: url)
+                    if existingBytes > 0 { retryRequest.setValue("bytes=\(existingBytes)-", forHTTPHeaderField: "Range") }
+                    retryRequest.setValue("\(trCfg.tokenPrefix)\(newToken)",
+                                         forHTTPHeaderField: trCfg.tokenHeaderName)
+                    config.headers?.forEach { retryRequest.setValue($1, forHTTPHeaderField: $0) }
+                    if let sc = signingConfig { RequestSigner.sign(request: &retryRequest, config: sc) }
+                    (data, response) = try await session.data(for: retryRequest)
+                }
+            }
             guard let http = response as? HTTPURLResponse,
                   (200 ..< 300).contains(http.statusCode) else {
                 return .failure(message: "HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
