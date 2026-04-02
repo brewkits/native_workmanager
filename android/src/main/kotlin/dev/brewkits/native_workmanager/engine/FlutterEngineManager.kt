@@ -20,6 +20,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Manages FlutterEngine lifecycle for Dart worker execution.
@@ -68,88 +69,69 @@ object FlutterEngineManager {
         Log.d(TAG, "Callback handle set: $handle")
     }
 
+    // Reference counter (AtomicInteger) to prevent disposal while tasks are running.
+    // Multiple coroutines on different threads can call executeDartCallback() concurrently;
+    // plain var Int would race on ++ / -- (non-atomic read-modify-write).
+    private val activeTaskCount = AtomicInteger(0)
+
     /**
      * Execute a Dart callback with input data.
-     *
-     * This method:
-     * 1. Initializes engine if needed (lazy)
-     * 2. Invokes the Dart callback via MethodChannel
-     * 3. Waits for result with timeout
-     * 4. Returns success/failure
-     * 5. Disposes engine immediately if requested (aggressive disposal)
-     *
-     * @param context Android context
-     * @param callbackHandle Serializable handle of the callback function (from PluginUtilities.getCallbackHandle)
-     * @param input JSON input data for the callback
-     * @param timeoutMs Maximum time to wait for callback result (default: 5 minutes)
-     * @param disposeImmediately If true, engine is killed immediately after callback completes (saves ~50MB RAM)
-     * @return True if callback succeeded, false otherwise
      */
     suspend fun executeDartCallback(
         context: Context,
         callbackHandle: Long,
         input: String?,
-        timeoutMs: Long = 5 * 60 * 1000L, // 5 minutes default
-        disposeImmediately: Boolean = false // ✅ NEW: Aggressive disposal flag
+        timeoutMs: Long = 5 * 60 * 1000L,
+        disposeImmediately: Boolean = false
     ): Boolean = withContext(Dispatchers.Main) {
-        // FlutterEngine constructor and MethodChannel calls require the main thread.
         try {
             Log.d(TAG, "Executing Dart callback with handle: $callbackHandle")
 
             ensureEngineInitialized(context)
+            activeTaskCount.incrementAndGet()
 
             val channel = methodChannel
             if (channel == null) {
-                Log.e(TAG, "MethodChannel is null after initialization")
+                activeTaskCount.decrementAndGet()
                 return@withContext false
             }
 
             val resultDeferred = CompletableDeferred<Boolean>()
-
-            val args = mapOf(
-                "callbackHandle" to callbackHandle,
-                "input" to input
-            )
+            val args = mapOf("callbackHandle" to callbackHandle, "input" to input)
 
             channel.invokeMethod("executeCallback", args, object : MethodChannel.Result {
                 override fun success(result: Any?) {
-                    val success = (result as? Boolean) ?: false
-                    Log.d(TAG, "Dart callback result: $success")
-                    resultDeferred.complete(success)
+                    resultDeferred.complete((result as? Boolean) ?: false)
                 }
-
                 override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
-                    Log.e(TAG, "Dart callback error: $errorCode - $errorMessage")
                     resultDeferred.complete(false)
                 }
-
                 override fun notImplemented() {
-                    Log.e(TAG, "Dart callback not implemented")
                     resultDeferred.complete(false)
                 }
             })
 
-            val result = withTimeout(timeoutMs) {
-                resultDeferred.await()
+            val result = try {
+                withTimeout(timeoutMs) { resultDeferred.await() }
+            } finally {
+                activeTaskCount.decrementAndGet()
             }
 
-            // ✅ NEW: Aggressive disposal logic
-            if (disposeImmediately) {
-                Log.d(TAG, "🔥 Aggressive disposal: Killing engine immediately to free RAM")
+            if (disposeImmediately && activeTaskCount.get() <= 0) {
                 dispose()
             } else {
-                // Original behavior: Keep engine alive for 5 minutes
                 lastUsedTimestamp = System.currentTimeMillis()
                 scheduleDisposalCheck()
             }
 
             result
-
         } catch (e: Exception) {
             Log.e(TAG, "Error executing Dart callback", e)
-            // Always dispose on any error (including TimeoutCancellationException) — prevents zombie
-            // engines that hold ~50 MB of RAM indefinitely after a hung or timed-out Dart task.
-            try { dispose() } catch (_: Exception) {}
+            // Error occurred — likely a timeout or crash. Dispose immediately if no other tasks
+            // are running to ensure a clean slate and free RAM from a potentially hung Isolate.
+            if (activeTaskCount.get() <= 0) {
+                try { dispose() } catch (_: Exception) {}
+            }
             false
         }
     }
@@ -192,61 +174,71 @@ object FlutterEngineManager {
             // Create engine
             val flutterEngine = FlutterEngine(context.applicationContext)
 
-            // Get the correct app bundle path for the Flutter assets.
-            // context.assets.toString() returns the AssetManager object string, which is wrong.
-            // FlutterLoader provides the correct path for both debug (JIT) and release (AOT) modes.
-            val bundlePath = FlutterInjector.instance().flutterLoader().findAppBundlePath()
+            // DART-007 FIX: Destroy the engine on any init failure so we don't leak
+            // ~30-50MB of RAM per failed attempt (invalid callback handle, 10s timeout, etc.).
+            try {
+                // Get the correct app bundle path for the Flutter assets.
+                // context.assets.toString() returns the AssetManager object string, which is wrong.
+                // FlutterLoader provides the correct path for both debug (JIT) and release (AOT) modes.
+                val bundlePath = FlutterInjector.instance().flutterLoader().findAppBundlePath()
 
-            val dartCallback = DartExecutor.DartCallback(
-                context.assets,
-                bundlePath,
-                callbackInfo
-            )
+                val dartCallback = DartExecutor.DartCallback(
+                    context.assets,
+                    bundlePath,
+                    callbackInfo
+                )
 
-            // Create MethodChannel and register 'dartReady' handler BEFORE starting the Dart isolate.
-            // This eliminates the race condition where Dart sends 'dartReady' before the Kotlin
-            // handler is registered, which would cause the message to be dropped and the
-            // waitForDartReady() 10-second timeout to fire.
-            val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_NAME)
-            val readyDeferred = CompletableDeferred<Unit>()
-            channel.setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "dartReady" -> {
-                        Log.d(TAG, "Dart side ready")
-                        readyDeferred.complete(Unit)
-                        result.success(null)
+                // Create MethodChannel and register 'dartReady' handler BEFORE starting the Dart isolate.
+                // This eliminates the race condition where Dart sends 'dartReady' before the Kotlin
+                // handler is registered, which would cause the message to be dropped and the
+                // waitForDartReady() 10-second timeout to fire.
+                val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_NAME)
+                val readyDeferred = CompletableDeferred<Unit>()
+                channel.setMethodCallHandler { call, result ->
+                    when (call.method) {
+                        "dartReady" -> {
+                            Log.d(TAG, "Dart side ready")
+                            readyDeferred.complete(Unit)
+                            result.success(null)
+                        }
+                        // Progress reports emitted from inside a DartWorker callback.
+                        // The Dart side calls MethodChannel('dev.brewkits/dart_worker_channel')
+                        // .invokeMethod('reportProgress', {...}) which arrives here and is
+                        // forwarded to the shared ProgressReporter → Flutter EventChannel.
+                        "reportProgress" -> {
+                            val taskId  = call.argument<String>("taskId") ?: ""
+                            val progress = call.argument<Int>("progress") ?: 0
+                            val message  = call.argument<String>("message")
+                            ProgressReporter.reportProgressNonBlocking(taskId, progress, message)
+                            result.success(null)
+                        }
+                        else -> result.notImplemented()
                     }
-                    // Progress reports emitted from inside a DartWorker callback.
-                    // The Dart side calls MethodChannel('dev.brewkits/dart_worker_channel')
-                    // .invokeMethod('reportProgress', {...}) which arrives here and is
-                    // forwarded to the shared ProgressReporter → Flutter EventChannel.
-                    "reportProgress" -> {
-                        val taskId  = call.argument<String>("taskId") ?: ""
-                        val progress = call.argument<Int>("progress") ?: 0
-                        val message  = call.argument<String>("message")
-                        ProgressReporter.reportProgressNonBlocking(taskId, progress, message)
-                        result.success(null)
-                    }
-                    else -> result.notImplemented()
                 }
+
+                // Now start the Dart isolate — handler is already registered, no race possible.
+                flutterEngine.dartExecutor.executeDartCallback(dartCallback)
+
+                // Wait for Dart to signal it's ready (up to 10 seconds)
+                withTimeout(10_000L) {
+                    readyDeferred.await()
+                }
+                Log.d(TAG, "Dart ready signal received")
+
+                // Store references only after successful initialization
+                engine = flutterEngine
+                methodChannel = channel
+                lastUsedTimestamp = System.currentTimeMillis()
+                isInitialized.set(true)
+
+                Log.d(TAG, "Flutter engine initialized successfully")
+            } catch (e: Exception) {
+                // DART-007: Ensure engine is destroyed on any failure path to prevent memory leak.
+                withContext(Dispatchers.Main) {
+                    try { flutterEngine.destroy() } catch (_: Exception) {}
+                }
+                throw e
             }
-
-            // Now start the Dart isolate — handler is already registered, no race possible.
-            flutterEngine.dartExecutor.executeDartCallback(dartCallback)
-
-            // Wait for Dart to signal it's ready (up to 10 seconds)
-            withTimeout(10_000L) {
-                readyDeferred.await()
-            }
-            Log.d(TAG, "Dart ready signal received")
-
-            // Store references
-            engine = flutterEngine
-            methodChannel = channel
-            lastUsedTimestamp = System.currentTimeMillis()
-            isInitialized.set(true)
-
-            Log.d(TAG, "Flutter engine initialized successfully")
         }
     }
 
@@ -279,27 +271,33 @@ object FlutterEngineManager {
     /**
      * Dispose the Flutter engine.
      *
+     * Acquires [initializationMutex] to prevent a concurrent
+     * [ensureEngineInitialized] call from storing a reference to a destroyed
+     * engine, or vice-versa (H-2 fix).
+     *
      * This frees ~30-50MB of RAM but future tasks will be slower
      * (need to cold-start engine again).
      */
     suspend fun dispose() {
-        Log.d(TAG, "Disposing Flutter engine")
+        initializationMutex.withLock {
+            Log.d(TAG, "Disposing Flutter engine")
 
-        methodChannel?.setMethodCallHandler(null)
-        methodChannel = null
+            methodChannel?.setMethodCallHandler(null)
+            methodChannel = null
 
-        withContext(Dispatchers.Main) {
-            engine?.destroy()
+            withContext(Dispatchers.Main) {
+                engine?.destroy()
+            }
+            engine = null
+
+            isInitialized.set(false)
+
+            // Cancel disposal job to prevent unnecessary work
+            disposalJob?.cancel()
+            disposalJob = null
+
+            Log.d(TAG, "Flutter engine disposed")
         }
-        engine = null
-
-        isInitialized.set(false)
-
-        // ✅ NEW: Cancel disposal job to prevent unnecessary work
-        disposalJob?.cancel()
-        disposalJob = null
-
-        Log.d(TAG, "Flutter engine disposed")
     }
 
     /**

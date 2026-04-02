@@ -5,9 +5,11 @@ import 'package:native_workmanager/native_workmanager.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const MethodChannel channel = MethodChannel('dev.brewkits/native_workmanager');
+  const MethodChannel channel =
+      MethodChannel('dev.brewkits/native_workmanager');
   // ignore: unused_local_variable
-  const EventChannel eventChannel = EventChannel('dev.brewkits/native_workmanager/events');
+  const EventChannel eventChannel =
+      EventChannel('dev.brewkits/native_workmanager/events');
 
   group('BackoffPolicy Integration Tests', () {
     setUp(() {
@@ -222,24 +224,27 @@ void main() {
             backoffDelayMs: 30000,
           ),
         ),
-      ).then(
-        TaskRequest(
-          id: 'chain-step-2',
-          worker: HttpRequestWorker(
-          url: 'https://api.example.com/process',
-          method: HttpMethod.post,
-        ),
-          constraints: const Constraints(
-            backoffPolicy: BackoffPolicy.linear,
-            backoffDelayMs: 60000,
-          ),
-        ),
-      ).enqueue();
+      )
+          .then(
+            TaskRequest(
+              id: 'chain-step-2',
+              worker: HttpRequestWorker(
+                url: 'https://api.example.com/process',
+                method: HttpMethod.post,
+              ),
+              constraints: const Constraints(
+                backoffPolicy: BackoffPolicy.linear,
+                backoffDelayMs: 60000,
+              ),
+            ),
+          )
+          .enqueue();
 
       // Test passes if no exception thrown
     });
 
-    test('ContentUri with backoffPolicy (theoretical Android scenario)', () async {
+    test('ContentUri with backoffPolicy (theoretical Android scenario)',
+        () async {
       await NativeWorkManager.initialize();
 
       await NativeWorkManager.enqueue(

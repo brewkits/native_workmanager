@@ -568,12 +568,7 @@ class _ABTestingPageState extends State<ABTestingPage>
                   nativeWins,
                 ),
                 const Icon(Icons.compare_arrows),
-                _buildValueColumn(
-                  'workmanager',
-                  flutter,
-                  unit,
-                  !nativeWins,
-                ),
+                _buildValueColumn('workmanager', flutter, unit, !nativeWins),
               ],
             ),
             if (improvement > 0) ...[

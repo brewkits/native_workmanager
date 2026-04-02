@@ -65,8 +65,8 @@ import javax.crypto.spec.SecretKeySpec
  *
  * **Security:**
  * - Uses PBKDF2 for password-based key derivation (100,000 iterations)
- * - AES-256-CBC encryption with random IV
- * - IV is prepended to encrypted data for decryption
+ * - AES-256-GCM authenticated encryption (confidentiality + integrity)
+ * - Random 16-byte salt + 12-byte nonce prepended to each encrypted file
  *
  * **Performance:** ~2-5MB RAM, streaming for large files
  */
@@ -77,7 +77,7 @@ class CryptoWorker : AndroidWorker {
         private const val DEFAULT_ALGORITHM = "SHA-256"
         private const val AES_KEY_SIZE = 256
         private const val PBKDF2_ITERATIONS = 100_000
-        private const val IV_SIZE = 16  // AES block size
+        private const val GCM_IV_SIZE = 12  // GCM standard IV size
         private const val SALT_SIZE = 16 // Random salt size
     }
 
@@ -90,6 +90,11 @@ class CryptoWorker : AndroidWorker {
         val password: String? = null      // Password (for encrypt/decrypt)
     ) {
         val effectiveAlgorithm: String get() = algorithm ?: DEFAULT_ALGORITHM
+
+        // L-1: Override to prevent password leaking into logs via data class toString().
+        override fun toString() =
+            "Config(operation=$operation, filePath=$filePath, algorithm=$algorithm, " +
+            "password=${if (password != null) "[REDACTED]" else "null"})"
     }
 
     override suspend fun doWork(input: String?): WorkerResult = withContext(Dispatchers.IO) {
@@ -222,25 +227,34 @@ class CryptoWorker : AndroidWorker {
 
         val outputFile = File(outputPath)
 
+        // M-2: AES/GCM/NoPadding in JCE buffers the entire ciphertext in RAM during
+        // doFinal() to compute the authentication tag — it is NOT truly streaming.
+        // Applying maxFileSize here prevents OOM on large files.
+        if (!SecurityValidator.validateFileSize(inputFile)) {
+            Log.e(TAG, "Error - Input file too large for GCM encryption (not truly streaming)")
+            return WorkerResult.Failure("Input file exceeds max size for encryption (${SecurityValidator.maxFileSize / 1024 / 1024}MB)")
+        }
+
         Log.d(TAG, "Encrypting: ${inputFile.name} → ${outputFile.name}")
 
         return try {
-            // Generate random salt (unique per encryption — defeats rainbow tables)
+            // Generate random salt (unique per encryption)
             val salt = ByteArray(SALT_SIZE).also { SecureRandom().nextBytes(it) }
             val key = generateKey(config.password, salt)
 
-            // Encrypt file
-            val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-            cipher.init(Cipher.ENCRYPT_MODE, key)
-            val iv = cipher.iv
+            // ✅ SECURITY: Upgrade to AES-GCM (Authenticated Encryption)
+            // GCM provides both confidentiality and integrity (prevents tampering)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            val iv = ByteArray(12).also { SecureRandom().nextBytes(it) } // GCM standard IV size
+            val spec = javax.crypto.spec.GCMParameterSpec(128, iv)
+            cipher.init(Cipher.ENCRYPT_MODE, key, spec)
 
             inputFile.inputStream().use { input ->
                 outputFile.outputStream().use { output ->
-                    // Write salt + IV to output (both needed for decryption)
+                    // Write Header: SALT (16) + IV (12)
                     output.write(salt)
                     output.write(iv)
 
-                    // Encrypt and write data
                     val buffer = ByteArray(8192)
                     var bytesRead: Int
                     while (input.read(buffer).also { bytesRead = it } != -1) {
@@ -255,8 +269,7 @@ class CryptoWorker : AndroidWorker {
                     }
                 }
             }
-
-            Log.d(TAG, "Encryption complete: ${outputFile.length()} bytes")
+            Log.d(TAG, "Encryption complete (AES-GCM): ${outputFile.length()} bytes")
 
             WorkerResult.Success(
                 message = "File encrypted successfully",
@@ -265,7 +278,7 @@ class CryptoWorker : AndroidWorker {
                     put("outputPath", outputFile.absolutePath)
                     put("inputSize", inputFile.length())
                     put("outputSize", outputFile.length())
-                    put("algorithm", "AES-256-CBC")
+                    put("algorithm", "AES-256-GCM")
                 }
             )
         } catch (e: Exception) {
@@ -319,16 +332,17 @@ class CryptoWorker : AndroidWorker {
                 if (input.read(salt) != SALT_SIZE) {
                     throw IllegalArgumentException("Invalid encrypted file (missing or incomplete salt)")
                 }
-                val iv = ByteArray(IV_SIZE)
-                if (input.read(iv) != IV_SIZE) {
+                val iv = ByteArray(GCM_IV_SIZE)
+                if (input.read(iv) != GCM_IV_SIZE) {
                     throw IllegalArgumentException("Invalid encrypted file (missing or incomplete IV)")
                 }
 
                 val key = generateKey(config.password, salt)
 
-                // Decrypt file
-                val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-                cipher.init(Cipher.DECRYPT_MODE, key, IvParameterSpec(iv))
+                // ✅ SECURITY: Upgrade to AES-GCM (Authenticated Encryption)
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                val spec = javax.crypto.spec.GCMParameterSpec(128, iv)
+                cipher.init(Cipher.DECRYPT_MODE, key, spec)
 
                 outputFile.outputStream().use { output ->
                     val buffer = ByteArray(8192)
@@ -355,7 +369,7 @@ class CryptoWorker : AndroidWorker {
                     put("outputPath", outputFile.absolutePath)
                     put("inputSize", inputFile.length())
                     put("outputSize", outputFile.length())
-                    put("algorithm", "AES-256-CBC")
+                    put("algorithm", "AES-256-GCM")
                 }
             )
         } catch (e: Exception) {

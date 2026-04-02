@@ -77,16 +77,16 @@ File _createTextFile(String path, {String content = 'NativeWorkManager test'}) {
 /// Minimal 1×1 red pixel PNG (RGB, correct Adler-32 and CRC).
 /// Generated via Python's zlib to ensure valid checksums.
 Uint8List get _minimalPng => Uint8List.fromList([
-      0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // signature
-      0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR len+type
-      0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // width=1, height=1
-      0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, // depth=8, RGB
-      0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, // IHDR CRC, IDAT
-      0x54, 0x78, 0xDA, 0x63, 0xF8, 0xCF, 0xC0, 0x00, // IDAT zlib+data
-      0x00, 0x03, 0x01, 0x01, 0x00, 0xF7, 0x03, 0x41, // Adler-32 + CRC
-      0x43, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, // IEND
-      0x44, 0xAE, 0x42, 0x60, 0x82,                   // IEND CRC
-    ]);
+  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // signature
+  0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR len+type
+  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // width=1, height=1
+  0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, // depth=8, RGB
+  0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, // IHDR CRC, IDAT
+  0x54, 0x78, 0xDA, 0x63, 0xF8, 0xCF, 0xC0, 0x00, // IDAT zlib+data
+  0x00, 0x03, 0x01, 0x01, 0x00, 0xF7, 0x03, 0x41, // Adler-32 + CRC
+  0x43, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, // IEND
+  0x44, 0xAE, 0x42, 0x60, 0x82, // IEND CRC
+]);
 
 // ──────────────────────────────────────────────────────────────
 // Top-level DartWorker callbacks (must NOT be anonymous/closures)
@@ -175,13 +175,15 @@ void main() {
         constraints: const Constraints(requiresNetwork: true),
       );
 
-      expect(result, ScheduleResult.accepted,
-          reason: 'oneTime task must be accepted');
+      expect(
+        result,
+        ScheduleResult.accepted,
+        reason: 'oneTime task must be accepted',
+      );
 
       final event = await future;
       expect(event, isNotNull, reason: 'Must receive completion event');
-      expect(event!.success, isTrue,
-          reason: 'oneTime task must succeed');
+      expect(event!.success, isTrue, reason: 'oneTime task must succeed');
     });
 
     testWidgets('oneTime with delay – schedules without crash', (tester) async {
@@ -196,16 +198,19 @@ void main() {
         constraints: const Constraints(requiresNetwork: true),
       );
 
-      expect(result, ScheduleResult.accepted,
-          reason: 'Delayed oneTime must be accepted');
+      expect(
+        result,
+        ScheduleResult.accepted,
+        reason: 'Delayed oneTime must be accepted',
+      );
 
       // Clean up before the delay elapses.
       await NativeWorkManager.cancel(taskId: id);
     });
 
-    testWidgets(
-        'periodic – first execution fires; task survives first run',
-        (tester) async {
+    testWidgets('periodic – first execution fires; task survives first run', (
+      tester,
+    ) async {
       final id = _id('periodic');
       var execCount = 0;
       final firstExecCompleter = Completer<void>();
@@ -213,7 +218,9 @@ void main() {
       final sub = NativeWorkManager.events.listen((event) {
         if (event.taskId == id) {
           execCount++;
-          print('[periodic test] execution #$execCount success=${event.success}');
+          print(
+            '[periodic test] execution #$execCount success=${event.success}',
+          );
           if (!firstExecCompleter.isCompleted) firstExecCompleter.complete();
         }
       });
@@ -227,8 +234,11 @@ void main() {
         constraints: const Constraints(requiresNetwork: true),
       );
 
-      expect(result, ScheduleResult.accepted,
-          reason: 'Periodic task must be accepted');
+      expect(
+        result,
+        ScheduleResult.accepted,
+        reason: 'Periodic task must be accepted',
+      );
 
       // WorkManager 2.10+ changed periodic task scheduling: the first execution
       // now waits the full interval (15 min) before running, especially on
@@ -244,25 +254,38 @@ void main() {
         didFire = true;
       } catch (_) {
         // Timeout: likely Android 16 emulator deferring first periodic execution
-        print('[periodic test] First execution not observed within 2 min – '
-            'checking scheduled state instead (Android 16 emulator limitation)');
+        print(
+          '[periodic test] First execution not observed within 2 min – '
+          'checking scheduled state instead (Android 16 emulator limitation)',
+        );
       }
 
       if (didFire) {
-        expect(execCount, greaterThanOrEqualTo(1),
-            reason: 'Periodic task must execute at least once');
+        expect(
+          execCount,
+          greaterThanOrEqualTo(1),
+          reason: 'Periodic task must execute at least once',
+        );
 
         // Wait 3 s – a second execution should NOT happen (15-min interval).
         await Future.delayed(const Duration(seconds: 3));
-        expect(execCount, 1,
-            reason:
-                'Only 1 execution expected within 3s of a 15-min periodic task');
+        expect(
+          execCount,
+          1,
+          reason:
+              'Only 1 execution expected within 3s of a 15-min periodic task',
+        );
       } else {
         // Validate the task is still tracked as scheduled (not accidentally cancelled)
         final status = await NativeWorkManager.getTaskStatus(taskId: id);
-        expect(status, isNotNull,
-            reason: 'Periodic task should still be tracked after enqueue');
-        print('[periodic test] PASS – task is scheduled (execution skipped on emulator)');
+        expect(
+          status,
+          isNotNull,
+          reason: 'Periodic task should still be tracked after enqueue',
+        );
+        print(
+          '[periodic test] PASS – task is scheduled (execution skipped on emulator)',
+        );
       }
 
       await sub.cancel();
@@ -307,17 +330,16 @@ void main() {
         existingPolicy: ExistingTaskPolicy.replace,
         constraints: const Constraints(requiresNetwork: true),
       );
-      expect(r2, ScheduleResult.accepted,
-          reason: 'REPLACE must be accepted');
+      expect(r2, ScheduleResult.accepted, reason: 'REPLACE must be accepted');
 
       final event = await future;
-      expect(event, isNotNull,
-          reason: 'Replaced task must execute');
+      expect(event, isNotNull, reason: 'Replaced task must execute');
       expect(event!.success, isTrue);
     });
 
-    testWidgets('KEEP – ignores new request when task already exists',
-        (tester) async {
+    testWidgets('KEEP – ignores new request when task already exists', (
+      tester,
+    ) async {
       final id = _id('policy_keep');
 
       // First enqueue with a 60s delay (stays pending).
@@ -340,8 +362,11 @@ void main() {
         ),
         existingPolicy: ExistingTaskPolicy.keep,
       );
-      expect(r2, ScheduleResult.accepted,
-          reason: 'KEEP must be accepted without error');
+      expect(
+        r2,
+        ScheduleResult.accepted,
+        reason: 'KEEP must be accepted without error',
+      );
 
       await NativeWorkManager.cancel(taskId: id);
     });
@@ -353,8 +378,9 @@ void main() {
   // and silently ignored. Each field is now wired correctly.
   // ════════════════════════════════════════════════════════════
   group('Constraints', () {
-    testWidgets('requiresNetwork=true – runs when network available',
-        (tester) async {
+    testWidgets('requiresNetwork=true – runs when network available', (
+      tester,
+    ) async {
       final id = _id('constraint_network');
       final future = _waitEvent(id);
 
@@ -369,32 +395,41 @@ void main() {
 
       expect(result, ScheduleResult.accepted);
       final event = await future;
-      expect(event?.success, isTrue,
-          reason: 'Task with requiresNetwork must run on networked device');
-    });
-
-    testWidgets('isHeavyTask=true – runs as foreground service (Android) / DartWorker (iOS)',
-        (tester) async {
-      final id = _id('constraint_heavy');
-      final future = _waitEvent(id, timeout: const Duration(seconds: 45));
-
-      final result = await NativeWorkManager.enqueue(
-        taskId: id,
-        trigger: const TaskTrigger.oneTime(),
-        worker: DartWorker(callbackId: 'dit_pass', input: {'heavy': true}),
-        constraints: const Constraints(isHeavyTask: true),
+      expect(
+        event?.success,
+        isTrue,
+        reason: 'Task with requiresNetwork must run on networked device',
       );
-
-      expect(result, ScheduleResult.accepted,
-          reason: 'Heavy task must be accepted');
-
-      final event = await future;
-      expect(event, isNotNull, reason: 'Heavy task must emit event');
-      expect(event!.success, isTrue);
     });
 
-    testWidgets('backoffPolicy=linear + backoffDelayMs=10000 – accepted',
-        (tester) async {
+    testWidgets(
+      'isHeavyTask=true – runs as foreground service (Android) / DartWorker (iOS)',
+      (tester) async {
+        final id = _id('constraint_heavy');
+        final future = _waitEvent(id, timeout: const Duration(seconds: 45));
+
+        final result = await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: DartWorker(callbackId: 'dit_pass', input: {'heavy': true}),
+          constraints: const Constraints(isHeavyTask: true),
+        );
+
+        expect(
+          result,
+          ScheduleResult.accepted,
+          reason: 'Heavy task must be accepted',
+        );
+
+        final event = await future;
+        expect(event, isNotNull, reason: 'Heavy task must emit event');
+        expect(event!.success, isTrue);
+      },
+    );
+
+    testWidgets('backoffPolicy=linear + backoffDelayMs=10000 – accepted', (
+      tester,
+    ) async {
       final id = _id('constraint_backoff');
 
       final result = await NativeWorkManager.enqueue(
@@ -410,14 +445,18 @@ void main() {
         ),
       );
 
-      expect(result, ScheduleResult.accepted,
-          reason: 'Linear backoff constraint must be accepted');
+      expect(
+        result,
+        ScheduleResult.accepted,
+        reason: 'Linear backoff constraint must be accepted',
+      );
 
       await NativeWorkManager.cancel(taskId: id);
     });
 
-    testWidgets('requiresCharging=false – runs without charger',
-        (tester) async {
+    testWidgets('requiresCharging=false – runs without charger', (
+      tester,
+    ) async {
       final id = _id('constraint_no_charging');
       final future = _waitEvent(id);
 
@@ -438,9 +477,9 @@ void main() {
       expect(event?.success, isTrue);
     });
 
-    testWidgets(
-        'systemConstraints=requireBatteryNotLow – accepted (Android)',
-        (tester) async {
+    testWidgets('systemConstraints=requireBatteryNotLow – accepted (Android)', (
+      tester,
+    ) async {
       final id = _id('constraint_syscon');
 
       final result = await NativeWorkManager.enqueue(
@@ -452,8 +491,11 @@ void main() {
         ),
       );
 
-      expect(result, ScheduleResult.accepted,
-          reason: 'SystemConstraint must be accepted');
+      expect(
+        result,
+        ScheduleResult.accepted,
+        reason: 'SystemConstraint must be accepted',
+      );
 
       await NativeWorkManager.cancel(taskId: id);
     });
@@ -504,8 +546,9 @@ void main() {
       expect(event?.success, isTrue, reason: 'HttpRequestWorker POST failed');
     });
 
-    testWidgets('HttpDownloadWorker – downloads file successfully',
-        (tester) async {
+    testWidgets('HttpDownloadWorker – downloads file successfully', (
+      tester,
+    ) async {
       final id = _id('http_download');
       final savePath = '${tmpDir.path}/downloaded.json';
       final future = _waitEvent(id, timeout: const Duration(seconds: 60));
@@ -522,8 +565,11 @@ void main() {
 
       final event = await future;
       expect(event?.success, isTrue, reason: 'HttpDownloadWorker failed');
-      expect(File(savePath).existsSync(), isTrue,
-          reason: 'Downloaded file must exist on disk');
+      expect(
+        File(savePath).existsSync(),
+        isTrue,
+        reason: 'Downloaded file must exist on disk',
+      );
     });
 
     testWidgets('HttpUploadWorker – uploads file successfully', (tester) async {
@@ -569,8 +615,9 @@ void main() {
 
     // ── File Workers ─────────────────────────────────────────
 
-    testWidgets('FileCompressionWorker – compresses file to zip',
-        (tester) async {
+    testWidgets('FileCompressionWorker – compresses file to zip', (
+      tester,
+    ) async {
       final id = _id('file_compress');
       final inputPath = '${tmpDir.path}/to_compress.txt';
       final outputPath = '${tmpDir.path}/compressed.zip';
@@ -589,12 +636,16 @@ void main() {
 
       final event = await future;
       expect(event?.success, isTrue, reason: 'FileCompressionWorker failed');
-      expect(File(outputPath).existsSync(), isTrue,
-          reason: 'Zip file must exist after compression');
+      expect(
+        File(outputPath).existsSync(),
+        isTrue,
+        reason: 'Zip file must exist after compression',
+      );
     });
 
-    testWidgets('FileDecompressionWorker – extracts zip correctly',
-        (tester) async {
+    testWidgets('FileDecompressionWorker – extracts zip correctly', (
+      tester,
+    ) async {
       // First compress a file, then decompress it.
       final compressId = _id('file_compress_for_decomp');
       final inputPath = '${tmpDir.path}/to_zip.txt';
@@ -604,8 +655,10 @@ void main() {
       Directory(extractDir).createSync();
 
       // Compress.
-      final compressFuture = _waitEvent(compressId,
-          timeout: const Duration(seconds: 45));
+      final compressFuture = _waitEvent(
+        compressId,
+        timeout: const Duration(seconds: 45),
+      );
       await NativeWorkManager.enqueue(
         taskId: compressId,
         trigger: const TaskTrigger.oneTime(),
@@ -615,8 +668,11 @@ void main() {
         ),
       );
       final compressEvent = await compressFuture;
-      expect(compressEvent?.success, isTrue,
-          reason: 'Compression step failed, cannot test decompression');
+      expect(
+        compressEvent?.success,
+        isTrue,
+        reason: 'Compression step failed, cannot test decompression',
+      );
 
       // Decompress.
       final id = _id('file_decompress');
@@ -631,14 +687,14 @@ void main() {
       );
 
       final event = await future;
-      expect(event?.success, isTrue,
-          reason: 'FileDecompressionWorker failed');
+      expect(event?.success, isTrue, reason: 'FileDecompressionWorker failed');
     });
 
     // ── Image Worker ─────────────────────────────────────────
 
-    testWidgets('ImageProcessWorker – resizes image successfully',
-        (tester) async {
+    testWidgets('ImageProcessWorker – resizes image successfully', (
+      tester,
+    ) async {
       final id = _id('image_process');
       final inputPath = '${tmpDir.path}/input.png';
       final outputPath = '${tmpDir.path}/output.png';
@@ -687,8 +743,9 @@ void main() {
       // support. We verify success is true; resultData is a bonus if available.
     });
 
-    testWidgets('CryptoEncryptWorker – encrypts file successfully',
-        (tester) async {
+    testWidgets('CryptoEncryptWorker – encrypts file successfully', (
+      tester,
+    ) async {
       final id = _id('crypto_encrypt');
       final inputPath = '${tmpDir.path}/plaintext.txt';
       final outputPath = '${tmpDir.path}/encrypted.dat';
@@ -708,12 +765,16 @@ void main() {
 
       final event = await future;
       expect(event?.success, isTrue, reason: 'CryptoEncryptWorker failed');
-      expect(File(outputPath).existsSync(), isTrue,
-          reason: 'Encrypted file must exist');
+      expect(
+        File(outputPath).existsSync(),
+        isTrue,
+        reason: 'Encrypted file must exist',
+      );
     });
 
-    testWidgets('CryptoDecryptWorker – decrypts previously encrypted file',
-        (tester) async {
+    testWidgets('CryptoDecryptWorker – decrypts previously encrypted file', (
+      tester,
+    ) async {
       const password = 'test-password-decrypt';
       final encryptId = _id('crypto_enc_for_dec');
       final plainPath = '${tmpDir.path}/plain_dec.txt';
@@ -722,8 +783,10 @@ void main() {
       _createTextFile(plainPath, content: 'Hello NativeWorkManager!');
 
       // Encrypt first.
-      final encFuture =
-          _waitEvent(encryptId, timeout: const Duration(seconds: 45));
+      final encFuture = _waitEvent(
+        encryptId,
+        timeout: const Duration(seconds: 45),
+      );
       await NativeWorkManager.enqueue(
         taskId: encryptId,
         trigger: const TaskTrigger.oneTime(),
@@ -734,8 +797,11 @@ void main() {
         ),
       );
       final encEvent = await encFuture;
-      expect(encEvent?.success, isTrue,
-          reason: 'Encryption step failed, cannot test decryption');
+      expect(
+        encEvent?.success,
+        isTrue,
+        reason: 'Encryption step failed, cannot test decryption',
+      );
 
       // Decrypt.
       final id = _id('crypto_decrypt');
@@ -752,14 +818,18 @@ void main() {
 
       final event = await future;
       expect(event?.success, isTrue, reason: 'CryptoDecryptWorker failed');
-      expect(File(decPath).existsSync(), isTrue,
-          reason: 'Decrypted file must exist');
+      expect(
+        File(decPath).existsSync(),
+        isTrue,
+        reason: 'Decrypted file must exist',
+      );
     });
 
     // ── DartWorker ───────────────────────────────────────────
 
-    testWidgets('DartWorker – callback executes and returns true',
-        (tester) async {
+    testWidgets('DartWorker – callback executes and returns true', (
+      tester,
+    ) async {
       final id = _id('dart_worker_pass');
       final future = _waitEvent(id, timeout: const Duration(seconds: 45));
 
@@ -776,8 +846,9 @@ void main() {
       expect(event?.success, isTrue, reason: 'DartWorker callback failed');
     });
 
-    testWidgets('DartWorker – callback returning false emits failure event',
-        (tester) async {
+    testWidgets('DartWorker – callback returning false emits failure event', (
+      tester,
+    ) async {
       final id = _id('dart_worker_fail');
       final future = _waitEvent(id, timeout: const Duration(seconds: 45));
 
@@ -788,8 +859,11 @@ void main() {
       );
 
       final event = await future;
-      expect(event?.success, isFalse,
-          reason: 'DartWorker returning false must emit a failure event');
+      expect(
+        event?.success,
+        isFalse,
+        reason: 'DartWorker returning false must emit a failure event',
+      );
     });
   });
 
@@ -797,8 +871,9 @@ void main() {
   // GROUP 5 – Task Chains (sequential A → B → C)
   // ════════════════════════════════════════════════════════════
   group('Task Chains', () {
-    testWidgets('Sequential chain A→B→C – all steps complete in order',
-        (tester) async {
+    testWidgets('Sequential chain A→B→C – all steps complete in order', (
+      tester,
+    ) async {
       final ts = DateTime.now().millisecondsSinceEpoch;
       final idA = 'chain_a_$ts';
       final idB = 'chain_b_$ts';
@@ -819,34 +894,44 @@ void main() {
       });
 
       await NativeWorkManager.beginWith(
-        TaskRequest(
-          id: idA,
-          worker: DartWorker(callbackId: 'chain_a'),
-        ),
-      )
-          .then(TaskRequest(
-            id: idB,
-            worker: DartWorker(callbackId: 'chain_b'),
-          ))
-          .then(TaskRequest(
-            id: idC,
-            worker: DartWorker(callbackId: 'chain_c'),
-          ))
+            TaskRequest(
+              id: idA,
+              worker: DartWorker(callbackId: 'chain_a'),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: idB,
+              worker: DartWorker(callbackId: 'chain_b'),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: idC,
+              worker: DartWorker(callbackId: 'chain_c'),
+            ),
+          )
           .enqueue();
 
-      await chainDone.future
-          .timeout(const Duration(seconds: 90), onTimeout: () {
-        fail('Chain A→B→C did not complete within 90s');
-      });
+      await chainDone.future.timeout(
+        const Duration(seconds: 90),
+        onTimeout: () {
+          fail('Chain A→B→C did not complete within 90s');
+        },
+      );
 
       await sub.cancel();
 
-      expect(executionOrder, equals(['A', 'B', 'C']),
-          reason: 'Chain steps must execute in order A→B→C');
+      expect(
+        executionOrder,
+        equals(['A', 'B', 'C']),
+        reason: 'Chain steps must execute in order A→B→C',
+      );
     });
 
-    testWidgets('Chain cancel after first step stops remaining steps',
-        (tester) async {
+    testWidgets('Chain cancel after first step stops remaining steps', (
+      tester,
+    ) async {
       // Verify that cancelling a chain after step A prevents B and C from running.
       // This is fundamental to chain-resume: if we can stop a chain reliably we
       // can also restart it from a later step (the "manual resume" pattern).
@@ -865,16 +950,32 @@ void main() {
       });
 
       await NativeWorkManager.beginWith(
-        TaskRequest(id: idA, worker: DartWorker(callbackId: 'chain_a')),
-      )
-          .then(TaskRequest(id: idB, worker: DartWorker(callbackId: 'chain_b')))
-          .then(TaskRequest(id: idC, worker: DartWorker(callbackId: 'chain_c')))
+            TaskRequest(
+              id: idA,
+              worker: DartWorker(callbackId: 'chain_a'),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: idB,
+              worker: DartWorker(callbackId: 'chain_b'),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: idC,
+              worker: DartWorker(callbackId: 'chain_c'),
+            ),
+          )
           .enqueue();
 
       // Wait for step A to complete, then cancel before B starts.
-      await aCompleter.future.timeout(const Duration(seconds: 60), onTimeout: () {
-        fail('Step A did not complete within 60 s');
-      });
+      await aCompleter.future.timeout(
+        const Duration(seconds: 60),
+        onTimeout: () {
+          fail('Step A did not complete within 60 s');
+        },
+      );
 
       // Cancel remaining steps immediately after A completes.
       await NativeWorkManager.cancel(taskId: idB);
@@ -886,12 +987,16 @@ void main() {
       await sub.cancel();
 
       // B and C should not have run (or at most B if it was already dispatched).
-      expect(laterStepsRan, isNot(contains('C')),
-          reason: 'Step C must not run after cancellation');
+      expect(
+        laterStepsRan,
+        isNot(contains('C')),
+        reason: 'Step C must not run after cancellation',
+      );
     });
 
-    testWidgets('Chain resume – re-enqueue remaining steps after first step',
-        (tester) async {
+    testWidgets('Chain resume – re-enqueue remaining steps after first step', (
+      tester,
+    ) async {
       // Demonstrates the "manual chain resume" pattern:
       //   1. Run step A (first step of original chain).
       //   2. Enqueue a new chain B→C once A succeeds.
@@ -928,25 +1033,42 @@ void main() {
       );
 
       // Wait for A to finish.
-      await aCompleter.future.timeout(const Duration(seconds: 60), onTimeout: () {
-        fail('Step A did not complete within 60 s');
-      });
+      await aCompleter.future.timeout(
+        const Duration(seconds: 60),
+        onTimeout: () {
+          fail('Step A did not complete within 60 s');
+        },
+      );
 
       // Phase 2: enqueue B→C as a "resumed" chain (simulating chain resume).
       await NativeWorkManager.beginWith(
-        TaskRequest(id: idB, worker: DartWorker(callbackId: 'chain_b')),
-      )
-          .then(TaskRequest(id: idC, worker: DartWorker(callbackId: 'chain_c')))
+            TaskRequest(
+              id: idB,
+              worker: DartWorker(callbackId: 'chain_b'),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: idC,
+              worker: DartWorker(callbackId: 'chain_c'),
+            ),
+          )
           .enqueue();
 
-      await bcCompleter.future.timeout(const Duration(seconds: 90), onTimeout: () {
-        fail('Resumed chain B→C did not complete within 90 s');
-      });
+      await bcCompleter.future.timeout(
+        const Duration(seconds: 90),
+        onTimeout: () {
+          fail('Resumed chain B→C did not complete within 90 s');
+        },
+      );
 
       await sub.cancel();
 
-      expect(executionOrder, equals(['A', 'B', 'C']),
-          reason: 'Resumed chain must complete steps A→B→C in order');
+      expect(
+        executionOrder,
+        equals(['A', 'B', 'C']),
+        reason: 'Resumed chain must complete steps A→B→C in order',
+      );
     });
   });
 
@@ -974,13 +1096,18 @@ void main() {
       );
 
       final tasks = await NativeWorkManager.getTasksByTag(tag: tag);
-      expect(tasks, containsAll([id1, id2]),
-          reason: 'Both tagged tasks must appear in getTasksByTag');
+      expect(
+        tasks,
+        containsAll([id1, id2]),
+        reason: 'Both tagged tasks must appear in getTasksByTag',
+      );
 
       await NativeWorkManager.cancelByTag(tag: tag);
     });
 
-    testWidgets('cancelByTag – cancels all tasks with that tag', (tester) async {
+    testWidgets('cancelByTag – cancels all tasks with that tag', (
+      tester,
+    ) async {
       final tag = 'dit_cancel_tag_${DateTime.now().millisecondsSinceEpoch}';
       final ids = List.generate(3, (i) => _id('cancel_tag_$i'));
 
@@ -995,8 +1122,11 @@ void main() {
 
       // Verify tasks exist.
       final before = await NativeWorkManager.getTasksByTag(tag: tag);
-      expect(before.length, equals(3),
-          reason: '3 tasks must exist before cancelByTag');
+      expect(
+        before.length,
+        equals(3),
+        reason: '3 tasks must exist before cancelByTag',
+      );
 
       await NativeWorkManager.cancelByTag(tag: tag);
 
@@ -1030,8 +1160,11 @@ void main() {
       await Future.delayed(const Duration(seconds: 3));
       await sub.cancel();
 
-      expect(received, isFalse,
-          reason: 'Cancelled task must not emit any event');
+      expect(
+        received,
+        isFalse,
+        reason: 'Cancelled task must not emit any event',
+      );
     });
 
     testWidgets('cancelAll – clears all pending tasks', (tester) async {
@@ -1053,8 +1186,9 @@ void main() {
   // GROUP 8 – Events & Progress Streams
   // ════════════════════════════════════════════════════════════
   group('Events and Progress Streams', () {
-    testWidgets('events stream – delivers resultData from worker',
-        (tester) async {
+    testWidgets('events stream – delivers resultData from worker', (
+      tester,
+    ) async {
       final id = _id('events_result_data');
       final future = _waitEvent(id);
 
@@ -1069,52 +1203,63 @@ void main() {
 
       final event = await future;
       expect(event, isNotNull);
-      expect(event!.taskId, equals(id),
-          reason: 'taskId in event must match scheduled taskId');
+      expect(
+        event!.taskId,
+        equals(id),
+        reason: 'taskId in event must match scheduled taskId',
+      );
       expect(event.success, isTrue);
       // resultData is optional — availability depends on kmpworkmanager's output data support.
     });
 
-    testWidgets('progress stream – emits updates for workers that report progress',
-        (tester) async {
-      // HttpDownloadWorker emits progress during download.
-      final id = _id('progress_stream');
-      final progressValues = <int>[];
-      final completedOrTimeout = Completer<void>();
+    testWidgets(
+      'progress stream – emits updates for workers that report progress',
+      (tester) async {
+        // HttpDownloadWorker emits progress during download.
+        final id = _id('progress_stream');
+        final progressValues = <int>[];
+        final completedOrTimeout = Completer<void>();
 
-      final progressSub = NativeWorkManager.progress.listen((p) {
-        if (p.taskId == id) {
-          progressValues.add(p.progress);
-          if (p.progress >= 100 && !completedOrTimeout.isCompleted) {
-            completedOrTimeout.complete();
+        final progressSub = NativeWorkManager.progress.listen((p) {
+          if (p.taskId == id) {
+            progressValues.add(p.progress);
+            if (p.progress >= 100 && !completedOrTimeout.isCompleted) {
+              completedOrTimeout.complete();
+            }
           }
+        });
+
+        final eventFuture = _waitEvent(
+          id,
+          timeout: const Duration(seconds: 60),
+        );
+
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: HttpDownloadWorker(
+            url: 'https://jsonplaceholder.typicode.com/posts',
+            savePath: '${tmpDir.path}/progress_test.json',
+          ),
+          constraints: const Constraints(requiresNetwork: true),
+        );
+
+        final event = await eventFuture;
+        await progressSub.cancel();
+
+        expect(event?.success, isTrue, reason: 'Download task must succeed');
+        // Progress may or may not be emitted depending on file size;
+        // just ensure the stream does not crash if no progress is reported.
+        // If progress was emitted, values must be between 0 and 1.
+        for (final v in progressValues) {
+          expect(
+            v,
+            inInclusiveRange(0, 100),
+            reason: 'Progress value must be in [0, 100]',
+          );
         }
-      });
-
-      final eventFuture = _waitEvent(id, timeout: const Duration(seconds: 60));
-
-      await NativeWorkManager.enqueue(
-        taskId: id,
-        trigger: const TaskTrigger.oneTime(),
-        worker: HttpDownloadWorker(
-          url: 'https://jsonplaceholder.typicode.com/posts',
-          savePath: '${tmpDir.path}/progress_test.json',
-        ),
-        constraints: const Constraints(requiresNetwork: true),
-      );
-
-      final event = await eventFuture;
-      await progressSub.cancel();
-
-      expect(event?.success, isTrue, reason: 'Download task must succeed');
-      // Progress may or may not be emitted depending on file size;
-      // just ensure the stream does not crash if no progress is reported.
-      // If progress was emitted, values must be between 0 and 1.
-      for (final v in progressValues) {
-        expect(v, inInclusiveRange(0, 100),
-            reason: 'Progress value must be in [0, 100]');
-      }
-    });
+      },
+    );
   });
 
   // ════════════════════════════════════════════════════════════
@@ -1143,162 +1288,206 @@ void main() {
     // ── Delay enforcement ─────────────────────────────────────
 
     testWidgets(
-        'DartWorker initialDelay=8s – task must not fire before delay elapses',
-        (tester) async {
-      final id = _id('dart_delay_8s');
-      final enqueueTime = DateTime.now();
+      'DartWorker initialDelay=8s – task must not fire before delay elapses',
+      (tester) async {
+        final id = _id('dart_delay_8s');
+        final enqueueTime = DateTime.now();
 
-      print('[DIAG] Enqueueing DartWorker with 8s delay at $enqueueTime');
-      // 90s timeout: real devices under WorkManager queue load can take 30–60s
-      // to service a new task even when constraints are met immediately.
-      final future = _waitEvent(id, timeout: const Duration(seconds: 90));
+        print('[DIAG] Enqueueing DartWorker with 8s delay at $enqueueTime');
+        // 90s timeout: real devices under WorkManager queue load can take 30–60s
+        // to service a new task even when constraints are met immediately.
+        final future = _waitEvent(id, timeout: const Duration(seconds: 90));
 
-      final result = await NativeWorkManager.enqueue(
-        taskId: id,
-        trigger: const TaskTrigger.oneTime(Duration(seconds: 8)),
-        worker: DartWorker(
-          callbackId: 'dit_pass',
-          input: {'test': 'delay_enforcement', 'delayMs': 8000},
-        ),
-      );
+        final result = await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(Duration(seconds: 8)),
+          worker: DartWorker(
+            callbackId: 'dit_pass',
+            input: {'test': 'delay_enforcement', 'delayMs': 8000},
+          ),
+        );
 
-      expect(result, ScheduleResult.accepted,
-          reason: 'DartWorker with 8s delay must be accepted');
+        expect(
+          result,
+          ScheduleResult.accepted,
+          reason: 'DartWorker with 8s delay must be accepted',
+        );
 
-      final event = await future;
-      final elapsedMs = DateTime.now().difference(enqueueTime).inMilliseconds;
+        final event = await future;
+        final elapsedMs = DateTime.now().difference(enqueueTime).inMilliseconds;
 
-      print('[DIAG] DartWorker delay=8s: elapsed=${elapsedMs}ms '
-          'success=${event?.success}');
+        print(
+          '[DIAG] DartWorker delay=8s: elapsed=${elapsedMs}ms '
+          'success=${event?.success}',
+        );
 
-      expect(event, isNotNull,
-          reason: 'DartWorker with 8s delay must eventually complete '
-              '(waited up to 45s)');
-      expect(event!.success, isTrue,
-          reason: 'DartWorker callback must return true');
+        expect(
+          event,
+          isNotNull,
+          reason:
+              'DartWorker with 8s delay must eventually complete '
+              '(waited up to 45s)',
+        );
+        expect(
+          event!.success,
+          isTrue,
+          reason: 'DartWorker callback must return true',
+        );
 
-      // 7 s threshold: WorkManager may fire slightly early due to scheduling
-      // jitter, but firing within 1–2 s means the delay was completely ignored.
-      expect(
-        elapsedMs,
-        greaterThanOrEqualTo(7000),
-        reason: '[BUG #1] DartWorker fired after only ${elapsedMs}ms '
-            '— 8s delay was IGNORED. '
-            'Check logcat tag NativeWorkmanagerPlugin for WorkRequest details.',
-      );
-    });
+        // 7 s threshold: WorkManager may fire slightly early due to scheduling
+        // jitter, but firing within 1–2 s means the delay was completely ignored.
+        expect(
+          elapsedMs,
+          greaterThanOrEqualTo(7000),
+          reason:
+              '[BUG #1] DartWorker fired after only ${elapsedMs}ms '
+              '— 8s delay was IGNORED. '
+              'Check logcat tag NativeWorkmanagerPlugin for WorkRequest details.',
+        );
+      },
+    );
 
     testWidgets(
-        'DartWorker delay=8s + requiresNetwork=true – both constraints applied',
-        (tester) async {
-      final id = _id('dart_delay_net_8s');
-      final enqueueTime = DateTime.now();
+      'DartWorker delay=8s + requiresNetwork=true – both constraints applied',
+      (tester) async {
+        final id = _id('dart_delay_net_8s');
+        final enqueueTime = DateTime.now();
 
-      print('[DIAG] Enqueueing DartWorker with 8s delay + requiresNetwork=true');
-      final future = _waitEvent(id, timeout: const Duration(seconds: 90));
+        print(
+          '[DIAG] Enqueueing DartWorker with 8s delay + requiresNetwork=true',
+        );
+        final future = _waitEvent(id, timeout: const Duration(seconds: 90));
 
-      final result = await NativeWorkManager.enqueue(
-        taskId: id,
-        trigger: const TaskTrigger.oneTime(Duration(seconds: 8)),
-        worker: DartWorker(
-          callbackId: 'dit_pass',
-          input: {'test': 'delay_and_network'},
-        ),
-        constraints: const Constraints(requiresNetwork: true),
-      );
+        final result = await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(Duration(seconds: 8)),
+          worker: DartWorker(
+            callbackId: 'dit_pass',
+            input: {'test': 'delay_and_network'},
+          ),
+          constraints: const Constraints(requiresNetwork: true),
+        );
 
-      expect(result, ScheduleResult.accepted);
+        expect(result, ScheduleResult.accepted);
 
-      final event = await future;
-      final elapsedMs = DateTime.now().difference(enqueueTime).inMilliseconds;
+        final event = await future;
+        final elapsedMs = DateTime.now().difference(enqueueTime).inMilliseconds;
 
-      print('[DIAG] DartWorker delay=8s + requiresNetwork: elapsed=${elapsedMs}ms '
-          'success=${event?.success}');
+        print(
+          '[DIAG] DartWorker delay=8s + requiresNetwork: elapsed=${elapsedMs}ms '
+          'success=${event?.success}',
+        );
 
-      expect(event, isNotNull,
-          reason: 'DartWorker with delay+network must eventually complete');
-      expect(event!.success, isTrue);
-      expect(
-        elapsedMs,
-        greaterThanOrEqualTo(7000),
-        reason: '[BUG #1] DartWorker fired after only ${elapsedMs}ms '
-            '— 8s delay was IGNORED even with requiresNetwork=true set.',
-      );
-    });
+        expect(
+          event,
+          isNotNull,
+          reason: 'DartWorker with delay+network must eventually complete',
+        );
+        expect(event!.success, isTrue);
+        expect(
+          elapsedMs,
+          greaterThanOrEqualTo(7000),
+          reason:
+              '[BUG #1] DartWorker fired after only ${elapsedMs}ms '
+              '— 8s delay was IGNORED even with requiresNetwork=true set.',
+        );
+      },
+    );
 
     // ── Network constraint enforcement ────────────────────────
 
     testWidgets(
-        'DartWorker requiresNetwork=true – runs when network is available',
-        (tester) async {
-      final id = _id('dart_net_constraint');
+      'DartWorker requiresNetwork=true – runs when network is available',
+      (tester) async {
+        final id = _id('dart_net_constraint');
 
-      print('[DIAG] Enqueueing DartWorker with requiresNetwork=true '
-          '(device/emulator has network — task should run)');
+        print(
+          '[DIAG] Enqueueing DartWorker with requiresNetwork=true '
+          '(device/emulator has network — task should run)',
+        );
 
-      final future = _waitEvent(id, timeout: const Duration(seconds: 90));
+        final future = _waitEvent(id, timeout: const Duration(seconds: 90));
 
-      final result = await NativeWorkManager.enqueue(
-        taskId: id,
-        trigger: const TaskTrigger.oneTime(),
-        worker: DartWorker(
-          callbackId: 'dit_pass',
-          input: {'test': 'network_constraint'},
-        ),
-        constraints: const Constraints(requiresNetwork: true),
-      );
+        final result = await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: DartWorker(
+            callbackId: 'dit_pass',
+            input: {'test': 'network_constraint'},
+          ),
+          constraints: const Constraints(requiresNetwork: true),
+        );
 
-      expect(result, ScheduleResult.accepted,
-          reason: 'DartWorker with requiresNetwork must be accepted');
+        expect(
+          result,
+          ScheduleResult.accepted,
+          reason: 'DartWorker with requiresNetwork must be accepted',
+        );
 
-      final event = await future;
-      print('[DIAG] DartWorker requiresNetwork: success=${event?.success}');
+        final event = await future;
+        print('[DIAG] DartWorker requiresNetwork: success=${event?.success}');
 
-      expect(event, isNotNull,
-          reason: 'DartWorker with requiresNetwork must run when network is on');
-      expect(event!.success, isTrue,
-          reason: 'DartWorker callback must succeed');
-    });
+        expect(
+          event,
+          isNotNull,
+          reason: 'DartWorker with requiresNetwork must run when network is on',
+        );
+        expect(
+          event!.success,
+          isTrue,
+          reason: 'DartWorker callback must succeed',
+        );
+      },
+    );
 
     // ── Control: HttpRequestWorker with delay (not DartWorker) ──
 
     testWidgets(
-        'HttpRequestWorker initialDelay=8s – control: verify delay enforced '
-        '(if this ALSO fails, bug is systemic, not DartWorker-specific)',
-        (tester) async {
-      final id = _id('http_delay_8s_ctrl');
-      final enqueueTime = DateTime.now();
+      'HttpRequestWorker initialDelay=8s – control: verify delay enforced '
+      '(if this ALSO fails, bug is systemic, not DartWorker-specific)',
+      (tester) async {
+        final id = _id('http_delay_8s_ctrl');
+        final enqueueTime = DateTime.now();
 
-      print('[DIAG] Enqueueing HttpRequestWorker with 8s delay (control test)');
-      final future = _waitEvent(id, timeout: const Duration(seconds: 90));
+        print(
+          '[DIAG] Enqueueing HttpRequestWorker with 8s delay (control test)',
+        );
+        final future = _waitEvent(id, timeout: const Duration(seconds: 90));
 
-      final result = await NativeWorkManager.enqueue(
-        taskId: id,
-        trigger: const TaskTrigger.oneTime(Duration(seconds: 8)),
-        worker: HttpRequestWorker(
-          url: 'https://jsonplaceholder.typicode.com/posts/1',
-        ),
-        constraints: const Constraints(requiresNetwork: true),
-      );
+        final result = await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(Duration(seconds: 8)),
+          worker: HttpRequestWorker(
+            url: 'https://jsonplaceholder.typicode.com/posts/1',
+          ),
+          constraints: const Constraints(requiresNetwork: true),
+        );
 
-      expect(result, ScheduleResult.accepted);
+        expect(result, ScheduleResult.accepted);
 
-      final event = await future;
-      final elapsedMs = DateTime.now().difference(enqueueTime).inMilliseconds;
+        final event = await future;
+        final elapsedMs = DateTime.now().difference(enqueueTime).inMilliseconds;
 
-      print('[DIAG] HttpRequestWorker delay=8s control: elapsed=${elapsedMs}ms '
-          'success=${event?.success}');
+        print(
+          '[DIAG] HttpRequestWorker delay=8s control: elapsed=${elapsedMs}ms '
+          'success=${event?.success}',
+        );
 
-      expect(event, isNotNull,
-          reason: 'HttpRequestWorker with 8s delay must complete within 45s');
-      expect(event!.success, isTrue);
-      expect(
-        elapsedMs,
-        greaterThanOrEqualTo(7000),
-        reason: '[CONTROL] HttpRequestWorker fired after only ${elapsedMs}ms '
-            '— delay was IGNORED. Bug is NOT DartWorker-specific.',
-      );
-    });
+        expect(
+          event,
+          isNotNull,
+          reason: 'HttpRequestWorker with 8s delay must complete within 45s',
+        );
+        expect(event!.success, isTrue);
+        expect(
+          elapsedMs,
+          greaterThanOrEqualTo(7000),
+          reason:
+              '[CONTROL] HttpRequestWorker fired after only ${elapsedMs}ms '
+              '— delay was IGNORED. Bug is NOT DartWorker-specific.',
+        );
+      },
+    );
   });
 
   // ════════════════════════════════════════════════════════════
@@ -1314,88 +1503,113 @@ void main() {
     // UIImage and BitmapFactory both support PNG input; the worker outputs JPEG.
 
     testWidgets(
-        'ImageCompressWorker – compresses image and creates output file',
-        (tester) async {
-      final id = _id('custom_compress_ok');
-      final inputPath = '${tmpDir.path}/custom_input.png';
-      final outputPath = '${tmpDir.path}/custom_compressed.jpg';
+      'ImageCompressWorker – compresses image and creates output file',
+      (tester) async {
+        final id = _id('custom_compress_ok');
+        final inputPath = '${tmpDir.path}/custom_input.png';
+        final outputPath = '${tmpDir.path}/custom_compressed.jpg';
 
-      await File(inputPath).writeAsBytes(_minimalPng);
+        await File(inputPath).writeAsBytes(_minimalPng);
 
-      final future = _waitEvent(id, timeout: const Duration(seconds: 45));
+        final future = _waitEvent(id, timeout: const Duration(seconds: 45));
 
-      await NativeWorkManager.enqueue(
-        taskId: id,
-        trigger: const TaskTrigger.oneTime(),
-        worker: NativeWorker.custom(
-          className: 'ImageCompressWorker',
-          input: {
-            'inputPath': inputPath,
-            'outputPath': outputPath,
-            'quality': 80,
-          },
-        ),
-      );
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: NativeWorker.custom(
+            className: 'ImageCompressWorker',
+            input: {
+              'inputPath': inputPath,
+              'outputPath': outputPath,
+              'quality': 80,
+            },
+          ),
+        );
 
-      final event = await future;
-      expect(event, isNotNull,
-          reason: 'Must receive a completion event from ImageCompressWorker');
-      expect(event!.success, isTrue,
-          reason: 'ImageCompressWorker must succeed with a valid image');
-      expect(File(outputPath).existsSync(), isTrue,
-          reason: 'Output file must be created on disk after compression');
-    });
-
-    testWidgets(
-        'ImageCompressWorker – fails gracefully when input file is missing',
-        (tester) async {
-      final id = _id('custom_compress_no_input');
-      final outputPath = '${tmpDir.path}/custom_missing_out.jpg';
-
-      final future = _waitEvent(id, timeout: const Duration(seconds: 30));
-
-      await NativeWorkManager.enqueue(
-        taskId: id,
-        trigger: const TaskTrigger.oneTime(),
-        worker: NativeWorker.custom(
-          className: 'ImageCompressWorker',
-          input: {
-            'inputPath': '/nonexistent/path/does_not_exist.jpg',
-            'outputPath': outputPath,
-            'quality': 80,
-          },
-        ),
-      );
-
-      final event = await future;
-      expect(event, isNotNull,
-          reason: 'Worker must emit a completion event, not hang');
-      expect(event!.success, isFalse,
-          reason: 'Worker must return failure when input file does not exist');
-    });
+        final event = await future;
+        expect(
+          event,
+          isNotNull,
+          reason: 'Must receive a completion event from ImageCompressWorker',
+        );
+        expect(
+          event!.success,
+          isTrue,
+          reason: 'ImageCompressWorker must succeed with a valid image',
+        );
+        expect(
+          File(outputPath).existsSync(),
+          isTrue,
+          reason: 'Output file must be created on disk after compression',
+        );
+      },
+    );
 
     testWidgets(
-        'Custom worker – unregistered className emits failure event (no crash)',
-        (tester) async {
-      final id = _id('custom_unknown_class');
+      'ImageCompressWorker – fails gracefully when input file is missing',
+      (tester) async {
+        final id = _id('custom_compress_no_input');
+        final outputPath = '${tmpDir.path}/custom_missing_out.jpg';
 
-      final future = _waitEvent(id, timeout: const Duration(seconds: 30));
+        final future = _waitEvent(id, timeout: const Duration(seconds: 30));
 
-      await NativeWorkManager.enqueue(
-        taskId: id,
-        trigger: const TaskTrigger.oneTime(),
-        worker: NativeWorker.custom(
-          className: 'ThisWorkerIsNotRegistered_xyz123',
-          input: {'key': 'value'},
-        ),
-      );
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: NativeWorker.custom(
+            className: 'ImageCompressWorker',
+            input: {
+              'inputPath': '/nonexistent/path/does_not_exist.jpg',
+              'outputPath': outputPath,
+              'quality': 80,
+            },
+          ),
+        );
 
-      final event = await future;
-      expect(event, isNotNull,
-          reason: 'Unknown worker must emit a completion event, not hang');
-      expect(event!.success, isFalse,
-          reason: 'Unknown className must produce a failure, not silently succeed');
-    });
+        final event = await future;
+        expect(
+          event,
+          isNotNull,
+          reason: 'Worker must emit a completion event, not hang',
+        );
+        expect(
+          event!.success,
+          isFalse,
+          reason: 'Worker must return failure when input file does not exist',
+        );
+      },
+    );
+
+    testWidgets(
+      'Custom worker – unregistered className emits failure event (no crash)',
+      (tester) async {
+        final id = _id('custom_unknown_class');
+
+        final future = _waitEvent(id, timeout: const Duration(seconds: 30));
+
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: NativeWorker.custom(
+            className: 'ThisWorkerIsNotRegistered_xyz123',
+            input: {'key': 'value'},
+          ),
+        );
+
+        final event = await future;
+        expect(
+          event,
+          isNotNull,
+          reason: 'Unknown worker must emit a completion event, not hang',
+        );
+        expect(
+          event!.success,
+          isFalse,
+          reason:
+              'Unknown className must produce a failure, not silently succeed',
+        );
+      },
+    );
   });
 
   // ════════════════════════════════════════════════════════════
@@ -1413,224 +1627,270 @@ void main() {
     // ── ParallelHttpDownloadWorker ─────────────────────────────
 
     testWidgets(
-        'ParallelHttpDownloadWorker – downloads file with parallel chunks',
-        (tester) async {
-      final id = _id('parallel_dl');
-      final savePath = '${tmpDir.path}/parallel_download.zip';
-      // A publicly available file that supports Range requests (~1 MB):
-      const url =
-          'https://github.com/nicehash/NiceHashQuickMiner/releases/download/v0.9.2.4/NiceHashQuickMiner_v0.9.2.4.zip';
+      'ParallelHttpDownloadWorker – downloads file with parallel chunks',
+      (tester) async {
+        final id = _id('parallel_dl');
+        final savePath = '${tmpDir.path}/parallel_download.zip';
+        // A publicly available file that supports Range requests (~1 MB):
+        const url =
+            'https://github.com/nicehash/NiceHashQuickMiner/releases/download/v0.9.2.4/NiceHashQuickMiner_v0.9.2.4.zip';
 
-      // Use a smaller well-known test file that supports Range requests
-      const testUrl = 'https://httpbin.org/bytes/102400'; // 100 KB, supports Range
-      final future = _waitEvent(id, timeout: const Duration(seconds: 120));
+        // Use a smaller well-known test file that supports Range requests
+        const testUrl =
+            'https://httpbin.org/bytes/102400'; // 100 KB, supports Range
+        final future = _waitEvent(id, timeout: const Duration(seconds: 120));
 
-      await NativeWorkManager.enqueue(
-        taskId: id,
-        trigger: const TaskTrigger.oneTime(),
-        worker: NativeWorker.parallelHttpDownload(
-          url: testUrl,
-          savePath: savePath,
-          numChunks: 4,
-        ),
-        constraints: const Constraints(requiresNetwork: true),
-      );
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: NativeWorker.parallelHttpDownload(
+            url: testUrl,
+            savePath: savePath,
+            numChunks: 4,
+          ),
+          constraints: const Constraints(requiresNetwork: true),
+        );
 
-      final event = await future;
-      expect(event, isNotNull,
-          reason: 'ParallelHttpDownloadWorker must emit a completion event');
-      expect(event!.success, isTrue,
-          reason: 'Parallel download must succeed');
-      expect(File(savePath).existsSync(), isTrue,
-          reason: 'Downloaded file must exist on disk');
-    });
+        final event = await future;
+        expect(
+          event,
+          isNotNull,
+          reason: 'ParallelHttpDownloadWorker must emit a completion event',
+        );
+        expect(
+          event!.success,
+          isTrue,
+          reason: 'Parallel download must succeed',
+        );
+        expect(
+          File(savePath).existsSync(),
+          isTrue,
+          reason: 'Downloaded file must exist on disk',
+        );
+      },
+    );
 
     testWidgets(
-        'ParallelHttpDownloadWorker – falls back to sequential when no Range support',
-        (tester) async {
-      final id = _id('parallel_dl_fallback');
-      final savePath = '${tmpDir.path}/parallel_fallback.json';
-      // httpbin /get does not advertise Accept-Ranges: bytes → sequential fallback
-      const url = 'https://httpbin.org/get';
-      final future = _waitEvent(id, timeout: const Duration(seconds: 60));
+      'ParallelHttpDownloadWorker – falls back to sequential when no Range support',
+      (tester) async {
+        final id = _id('parallel_dl_fallback');
+        final savePath = '${tmpDir.path}/parallel_fallback.json';
+        // httpbin /get does not advertise Accept-Ranges: bytes → sequential fallback
+        const url = 'https://httpbin.org/get';
+        final future = _waitEvent(id, timeout: const Duration(seconds: 60));
 
-      await NativeWorkManager.enqueue(
-        taskId: id,
-        trigger: const TaskTrigger.oneTime(),
-        worker: NativeWorker.parallelHttpDownload(
-          url: url,
-          savePath: savePath,
-          numChunks: 4,
-        ),
-        constraints: const Constraints(requiresNetwork: true),
-      );
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: NativeWorker.parallelHttpDownload(
+            url: url,
+            savePath: savePath,
+            numChunks: 4,
+          ),
+          constraints: const Constraints(requiresNetwork: true),
+        );
 
-      final event = await future;
-      expect(event, isNotNull,
-          reason: 'Sequential fallback must emit a completion event');
-      expect(event!.success, isTrue,
-          reason: 'Sequential fallback must succeed');
-      expect(File(savePath).existsSync(), isTrue,
-          reason: 'Fallback file must exist on disk');
-    });
+        final event = await future;
+        expect(
+          event,
+          isNotNull,
+          reason: 'Sequential fallback must emit a completion event',
+        );
+        expect(
+          event!.success,
+          isTrue,
+          reason: 'Sequential fallback must succeed',
+        );
+        expect(
+          File(savePath).existsSync(),
+          isTrue,
+          reason: 'Fallback file must exist on disk',
+        );
+      },
+    );
 
     // ── Rich Progress ──────────────────────────────────────────
 
     testWidgets(
-        'Rich progress – HttpDownloadWorker emits bytesDownloaded and totalBytes',
-        (tester) async {
-      final id = _id('rich_progress_http');
-      final savePath = '${tmpDir.path}/rich_progress.json';
-      // Use a URL that has a known Content-Length so rich progress fires
-      const url = 'https://httpbin.org/bytes/51200'; // 50 KB
+      'Rich progress – HttpDownloadWorker emits bytesDownloaded and totalBytes',
+      (tester) async {
+        final id = _id('rich_progress_http');
+        final savePath = '${tmpDir.path}/rich_progress.json';
+        // Use a URL that has a known Content-Length so rich progress fires
+        const url = 'https://httpbin.org/bytes/51200'; // 50 KB
 
-      final richUpdates = <TaskProgress>[];
-      late StreamSubscription<TaskProgress> sub;
-      final progressDone = Completer<void>();
+        final richUpdates = <TaskProgress>[];
+        late StreamSubscription<TaskProgress> sub;
+        final progressDone = Completer<void>();
 
-      sub = NativeWorkManager.progress.listen((p) {
-        if (p.taskId == id) {
-          richUpdates.add(p);
-          if (p.progress >= 100 && !progressDone.isCompleted) {
-            progressDone.complete();
+        sub = NativeWorkManager.progress.listen((p) {
+          if (p.taskId == id) {
+            richUpdates.add(p);
+            if (p.progress >= 100 && !progressDone.isCompleted) {
+              progressDone.complete();
+            }
+          }
+        });
+
+        final eventFuture = _waitEvent(
+          id,
+          timeout: const Duration(seconds: 60),
+        );
+
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: HttpDownloadWorker(url: url, savePath: savePath),
+          constraints: const Constraints(requiresNetwork: true),
+        );
+
+        final event = await eventFuture;
+        await sub.cancel();
+
+        expect(event?.success, isTrue, reason: 'Download must succeed');
+
+        // All emitted progress values must be in range
+        for (final p in richUpdates) {
+          expect(p.progress, inInclusiveRange(0, 100));
+          // If bytesDownloaded is present, it must be non-negative
+          if (p.bytesDownloaded != null) {
+            expect(p.bytesDownloaded, greaterThanOrEqualTo(0));
+          }
+          if (p.totalBytes != null) {
+            expect(p.totalBytes, greaterThan(0));
+          }
+          if (p.networkSpeed != null) {
+            expect(p.networkSpeed, greaterThan(0));
+          }
+          if (p.timeRemaining != null) {
+            expect(p.timeRemaining!.inMilliseconds, greaterThanOrEqualTo(0));
           }
         }
-      });
-
-      final eventFuture = _waitEvent(id, timeout: const Duration(seconds: 60));
-
-      await NativeWorkManager.enqueue(
-        taskId: id,
-        trigger: const TaskTrigger.oneTime(),
-        worker: HttpDownloadWorker(
-          url: url,
-          savePath: savePath,
-        ),
-        constraints: const Constraints(requiresNetwork: true),
-      );
-
-      final event = await eventFuture;
-      await sub.cancel();
-
-      expect(event?.success, isTrue, reason: 'Download must succeed');
-
-      // All emitted progress values must be in range
-      for (final p in richUpdates) {
-        expect(p.progress, inInclusiveRange(0, 100));
-        // If bytesDownloaded is present, it must be non-negative
-        if (p.bytesDownloaded != null) {
-          expect(p.bytesDownloaded, greaterThanOrEqualTo(0));
-        }
-        if (p.totalBytes != null) {
-          expect(p.totalBytes, greaterThan(0));
-        }
-        if (p.networkSpeed != null) {
-          expect(p.networkSpeed, greaterThan(0));
-        }
-        if (p.timeRemaining != null) {
-          expect(p.timeRemaining!.inMilliseconds, greaterThanOrEqualTo(0));
-        }
-      }
-    });
+      },
+    );
 
     testWidgets(
-        'Rich progress – ParallelHttpDownloadWorker emits bytesDownloaded',
-        (tester) async {
-      final id = _id('rich_progress_parallel');
-      final savePath = '${tmpDir.path}/rich_progress_parallel.bin';
-      const url = 'https://httpbin.org/bytes/102400'; // 100 KB, supports Range
+      'Rich progress – ParallelHttpDownloadWorker emits bytesDownloaded',
+      (tester) async {
+        final id = _id('rich_progress_parallel');
+        final savePath = '${tmpDir.path}/rich_progress_parallel.bin';
+        const url =
+            'https://httpbin.org/bytes/102400'; // 100 KB, supports Range
 
-      final richUpdates = <TaskProgress>[];
-      late StreamSubscription<TaskProgress> sub;
+        final richUpdates = <TaskProgress>[];
+        late StreamSubscription<TaskProgress> sub;
 
-      sub = NativeWorkManager.progress.listen((p) {
-        if (p.taskId == id) richUpdates.add(p);
-      });
+        sub = NativeWorkManager.progress.listen((p) {
+          if (p.taskId == id) richUpdates.add(p);
+        });
 
-      final eventFuture = _waitEvent(id, timeout: const Duration(seconds: 120));
+        final eventFuture = _waitEvent(
+          id,
+          timeout: const Duration(seconds: 120),
+        );
 
-      await NativeWorkManager.enqueue(
-        taskId: id,
-        trigger: const TaskTrigger.oneTime(),
-        worker: NativeWorker.parallelHttpDownload(
-          url: url,
-          savePath: savePath,
-          numChunks: 2,
-        ),
-        constraints: const Constraints(requiresNetwork: true),
-      );
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: NativeWorker.parallelHttpDownload(
+            url: url,
+            savePath: savePath,
+            numChunks: 2,
+          ),
+          constraints: const Constraints(requiresNetwork: true),
+        );
 
-      final event = await eventFuture;
-      await sub.cancel();
+        final event = await eventFuture;
+        await sub.cancel();
 
-      expect(event?.success, isTrue, reason: 'Parallel download must succeed');
-      // At least some progress events should have been emitted
-      for (final p in richUpdates) {
-        expect(p.progress, inInclusiveRange(0, 100));
-        if (p.bytesDownloaded != null) {
-          expect(p.bytesDownloaded, greaterThanOrEqualTo(0));
+        expect(
+          event?.success,
+          isTrue,
+          reason: 'Parallel download must succeed',
+        );
+        // At least some progress events should have been emitted
+        for (final p in richUpdates) {
+          expect(p.progress, inInclusiveRange(0, 100));
+          if (p.bytesDownloaded != null) {
+            expect(p.bytesDownloaded, greaterThanOrEqualTo(0));
+          }
         }
-      }
-    });
+      },
+    );
 
     // ── skipExisting ───────────────────────────────────────────
 
     testWidgets(
-        'HttpDownloadWorker skipExisting=true – skips download when file exists',
-        (tester) async {
-      final id = _id('skip_existing_http');
-      final savePath = '${tmpDir.path}/skip_existing.txt';
-      // Pre-create the file
-      File(savePath).writeAsStringSync('existing content');
-      final originalContent = File(savePath).readAsStringSync();
+      'HttpDownloadWorker skipExisting=true – skips download when file exists',
+      (tester) async {
+        final id = _id('skip_existing_http');
+        final savePath = '${tmpDir.path}/skip_existing.txt';
+        // Pre-create the file
+        File(savePath).writeAsStringSync('existing content');
+        final originalContent = File(savePath).readAsStringSync();
 
-      final future = _waitEvent(id, timeout: const Duration(seconds: 30));
+        final future = _waitEvent(id, timeout: const Duration(seconds: 30));
 
-      await NativeWorkManager.enqueue(
-        taskId: id,
-        trigger: const TaskTrigger.oneTime(),
-        worker: HttpDownloadWorker(
-          url: 'https://httpbin.org/get',
-          savePath: savePath,
-          skipExisting: true,
-        ),
-        constraints: const Constraints(requiresNetwork: true),
-      );
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: HttpDownloadWorker(
+            url: 'https://httpbin.org/get',
+            savePath: savePath,
+            skipExisting: true,
+          ),
+          constraints: const Constraints(requiresNetwork: true),
+        );
 
-      final event = await future;
-      expect(event?.success, isTrue,
-          reason: 'skipExisting must return success, not failure');
-      // File must NOT have been overwritten
-      expect(File(savePath).readAsStringSync(), equals(originalContent),
-          reason: 'Pre-existing file must not be overwritten');
-    });
+        final event = await future;
+        expect(
+          event?.success,
+          isTrue,
+          reason: 'skipExisting must return success, not failure',
+        );
+        // File must NOT have been overwritten
+        expect(
+          File(savePath).readAsStringSync(),
+          equals(originalContent),
+          reason: 'Pre-existing file must not be overwritten',
+        );
+      },
+    );
 
     testWidgets(
-        'ParallelHttpDownloadWorker skipExisting=true – skips when file exists',
-        (tester) async {
-      final id = _id('skip_existing_parallel');
-      final savePath = '${tmpDir.path}/skip_existing_parallel.bin';
-      File(savePath).writeAsStringSync('pre-existing content');
-      final originalContent = File(savePath).readAsStringSync();
+      'ParallelHttpDownloadWorker skipExisting=true – skips when file exists',
+      (tester) async {
+        final id = _id('skip_existing_parallel');
+        final savePath = '${tmpDir.path}/skip_existing_parallel.bin';
+        File(savePath).writeAsStringSync('pre-existing content');
+        final originalContent = File(savePath).readAsStringSync();
 
-      final future = _waitEvent(id, timeout: const Duration(seconds: 30));
+        final future = _waitEvent(id, timeout: const Duration(seconds: 30));
 
-      await NativeWorkManager.enqueue(
-        taskId: id,
-        trigger: const TaskTrigger.oneTime(),
-        worker: NativeWorker.parallelHttpDownload(
-          url: 'https://httpbin.org/bytes/1024',
-          savePath: savePath,
-          skipExisting: true,
-        ),
-        constraints: const Constraints(requiresNetwork: true),
-      );
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: NativeWorker.parallelHttpDownload(
+            url: 'https://httpbin.org/bytes/1024',
+            savePath: savePath,
+            skipExisting: true,
+          ),
+          constraints: const Constraints(requiresNetwork: true),
+        );
 
-      final event = await future;
-      expect(event?.success, isTrue, reason: 'skipExisting must return success');
-      expect(File(savePath).readAsStringSync(), equals(originalContent),
-          reason: 'Pre-existing file must not be overwritten');
-    });
+        final event = await future;
+        expect(
+          event?.success,
+          isTrue,
+          reason: 'skipExisting must return success',
+        );
+        expect(
+          File(savePath).readAsStringSync(),
+          equals(originalContent),
+          reason: 'Pre-existing file must not be overwritten',
+        );
+      },
+    );
 
     // ── enqueueAll ─────────────────────────────────────────────
 
@@ -1658,10 +1918,16 @@ void main() {
       ]);
 
       expect(results.length, equals(2));
-      expect(results[0], equals(ScheduleResult.accepted),
-          reason: 'First batch task must be accepted');
-      expect(results[1], equals(ScheduleResult.accepted),
-          reason: 'Second batch task must be accepted');
+      expect(
+        results[0],
+        equals(ScheduleResult.accepted),
+        reason: 'First batch task must be accepted',
+      );
+      expect(
+        results[1],
+        equals(ScheduleResult.accepted),
+        reason: 'Second batch task must be accepted',
+      );
 
       // Wait for both to complete
       final e1 = await _waitEvent(id1, timeout: const Duration(seconds: 60));
@@ -1672,8 +1938,9 @@ void main() {
 
     // ── pauseByTag / resumeByTag ───────────────────────────────
 
-    testWidgets('pauseByTag + resumeByTag – group control via tag',
-        (tester) async {
+    testWidgets('pauseByTag + resumeByTag – group control via tag', (
+      tester,
+    ) async {
       const tag = 'v11_group_tag';
       final id1 = _id('tagged_a');
       final id2 = _id('tagged_b');
@@ -1701,8 +1968,11 @@ void main() {
 
       // Verify both tasks are in the store
       final byTag = await NativeWorkManager.getTasksByTag(tag: tag);
-      expect(byTag.length, greaterThanOrEqualTo(2),
-          reason: 'Both tasks must be retrievable by tag');
+      expect(
+        byTag.length,
+        greaterThanOrEqualTo(2),
+        reason: 'Both tasks must be retrievable by tag',
+      );
 
       // pauseByTag must not throw
       await expectLater(
@@ -1726,16 +1996,23 @@ void main() {
 
     testWidgets('pauseAll + resumeAll – global control', (tester) async {
       // Both methods must complete without throwing, even when no tasks exist
-      await expectLater(NativeWorkManager.pauseAll(), completes,
-          reason: 'pauseAll must complete without throwing');
-      await expectLater(NativeWorkManager.resumeAll(), completes,
-          reason: 'resumeAll must complete without throwing');
+      await expectLater(
+        NativeWorkManager.pauseAll(),
+        completes,
+        reason: 'pauseAll must complete without throwing',
+      );
+      await expectLater(
+        NativeWorkManager.resumeAll(),
+        completes,
+        reason: 'resumeAll must complete without throwing',
+      );
     });
 
     // ── getTasksByStatus ───────────────────────────────────────
 
-    testWidgets('getTasksByStatus – returns tasks filtered by status',
-        (tester) async {
+    testWidgets('getTasksByStatus – returns tasks filtered by status', (
+      tester,
+    ) async {
       final id = _id('status_filter');
 
       await NativeWorkManager.enqueue(
@@ -1751,15 +2028,21 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 500));
 
       final allTasks = await NativeWorkManager.allTasks();
-      expect(allTasks, isNotEmpty,
-          reason: 'allTasks must return at least the newly enqueued task');
+      expect(
+        allTasks,
+        isNotEmpty,
+        reason: 'allTasks must return at least the newly enqueued task',
+      );
 
       // getTasksByStatus must not throw for any status value
       for (final status in TaskStatus.values) {
         final filtered = await NativeWorkManager.getTasksByStatus(status);
         for (final task in filtered) {
-          expect(task.status.toLowerCase(), equals(status.name.toLowerCase()),
-              reason: 'getTasksByStatus($status) must only return $status tasks');
+          expect(
+            task.status.toLowerCase(),
+            equals(status.name.toLowerCase()),
+            reason: 'getTasksByStatus($status) must only return $status tasks',
+          );
         }
       }
 

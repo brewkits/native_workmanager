@@ -5,10 +5,12 @@ import 'dart:developer' as developer;
 
 void main(List<String> args) async {
   developer.log('');
-  developer.log('╔═══════════════════════════════════════════════════════════╗');
+  developer
+      .log('╔═══════════════════════════════════════════════════════════╗');
   developer.log('║   native_workmanager Migration Tool                      ║');
   developer.log('║   workmanager → native_workmanager               ║');
-  developer.log('╚═══════════════════════════════════════════════════════════╝');
+  developer
+      .log('╚═══════════════════════════════════════════════════════════╝');
   developer.log('');
 
   final dryRun = args.contains('--dry-run');
@@ -36,7 +38,8 @@ class MigrationTool {
     final pubspecPath = '$projectPath/pubspec.yaml';
     if (!File(pubspecPath).existsSync()) {
       developer.log('❌ Error: pubspec.yaml not found');
-      developer.log('   Make sure you\'re running this from your Flutter project root');
+      developer.log(
+          '   Make sure you\'re running this from your Flutter project root');
       exit(1);
     }
 
@@ -142,9 +145,12 @@ class MigrationTool {
   }
 
   void _displayReport(MigrationAnalysis analysis) {
-    developer.log('╔═══════════════════════════════════════════════════════════╗');
-    developer.log('║   Migration Analysis Report                              ║');
-    developer.log('╚═══════════════════════════════════════════════════════════╝');
+    developer
+        .log('╔═══════════════════════════════════════════════════════════╗');
+    developer
+        .log('║   Migration Analysis Report                              ║');
+    developer
+        .log('╚═══════════════════════════════════════════════════════════╝');
     developer.log('');
 
     // Summary
@@ -162,7 +168,8 @@ class MigrationTool {
     developer.log('✅ Compatibility: $compatibilityPercent%');
     developer.log('   $totalTasks tasks → Automatic migration possible');
     if (analysis.callbackFiles.isNotEmpty) {
-      developer.log('   ⚠️  ${analysis.callbackFiles.length} callback(s) → Manual review needed');
+      developer.log(
+          '   ⚠️  ${analysis.callbackFiles.length} callback(s) → Manual review needed');
     }
     developer.log('');
 
@@ -251,7 +258,8 @@ class MigrationTool {
   }
 
   Future<void> _generatePubspec(Directory dir) async {
-    final originalPubspec = await File('$projectPath/pubspec.yaml').readAsString();
+    final originalPubspec =
+        await File('$projectPath/pubspec.yaml').readAsString();
     final newPubspec = originalPubspec.replaceAll(
       RegExp(r'workmanager:\s*[\^\~]?\d+\.\d+\.\d+'),
       'native_workmanager: ^1.0.0',

@@ -34,25 +34,25 @@ class _FileSystemDemoPageState extends State<FileSystemDemoPage> {
     _eventSubscription = NativeWorkManager.events
         .where((event) => event.taskId.startsWith('fs-'))
         .listen((event) {
-      if (mounted) {
-        _addLog(
-          '${event.success ? "✅" : "❌"} ${event.taskId}: ${event.message}',
-        );
-
-        // Show result data if available
-        if (event.resultData != null) {
-          final data = event.resultData!;
-          if (data.containsKey('fileCount')) {
-            _addLog('   → ${data['fileCount']} files affected');
-          }
-          if (data.containsKey('totalSize')) {
+          if (mounted) {
             _addLog(
-              '   → Total size: ${_formatBytes(data['totalSize'] as int)}',
+              '${event.success ? "✅" : "❌"} ${event.taskId}: ${event.message}',
             );
+
+            // Show result data if available
+            if (event.resultData != null) {
+              final data = event.resultData!;
+              if (data.containsKey('fileCount')) {
+                _addLog('   → ${data['fileCount']} files affected');
+              }
+              if (data.containsKey('totalSize')) {
+                _addLog(
+                  '   → Total size: ${_formatBytes(data['totalSize'] as int)}',
+                );
+              }
+            }
           }
-        }
-      }
-    });
+        });
   }
 
   @override

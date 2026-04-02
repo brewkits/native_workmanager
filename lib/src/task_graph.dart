@@ -36,6 +36,17 @@ class TaskNode {
 
   /// Optional scheduling constraints for this node.
   final Constraints constraints;
+
+  /// Convert to map for platform channel.
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'workerClassName': worker.workerClassName,
+      'workerConfig': worker.toMap(),
+      'dependsOn': dependsOn,
+      'constraints': constraints.toMap(),
+    };
+  }
 }
 
 /// A directed acyclic graph (DAG) of background tasks.
@@ -113,8 +124,7 @@ class TaskGraph {
 
   final List<TaskNode> _nodes = [];
 
-  Map<String, TaskNode> get _nodeMap =>
-      {for (final n in _nodes) n.id: n};
+  Map<String, TaskNode> get _nodeMap => {for (final n in _nodes) n.id: n};
 
   /// Add a [TaskNode] to the graph.
   ///
@@ -195,6 +205,14 @@ class TaskGraph {
   /// Returns the set of node IDs that are roots (no dependencies).
   Set<String> get _roots =>
       _nodes.where((n) => n.dependsOn.isEmpty).map((n) => n.id).toSet();
+
+  /// Convert to map for platform channel.
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'nodes': _nodes.map((n) => n.toMap()).toList(),
+    };
+  }
 }
 
 /// Result of a [TaskGraph] execution.
@@ -223,8 +241,7 @@ class GraphResult {
   final List<String> cancelledNodes;
 
   @override
-  String toString() =>
-      'GraphResult($graphId: success=$success, '
+  String toString() => 'GraphResult($graphId: success=$success, '
       'completed=$completedCount, '
       'failed=${failedNodes.length}, '
       'cancelled=${cancelledNodes.length})';
@@ -262,7 +279,7 @@ class _GraphExecutor {
   late Completer<GraphResult> _completer;
   StreamSubscription<TaskEvent>? _eventSub;
 
-  Future<GraphResult> execute() async {
+  Future<GraphResult> execute({bool isAlreadyEnqueued = false}) async {
     _graph.validate();
 
     _completer = Completer<GraphResult>();
@@ -281,9 +298,16 @@ class _GraphExecutor {
     // Listen to events before scheduling to avoid race conditions.
     _eventSub = NativeWorkManagerPlatform.instance.events.listen(_onEvent);
 
-    // Schedule all root nodes immediately.
-    for (final nodeId in _graph._roots) {
-      await _scheduleNode(_graph._nodeMap[nodeId]!);
+    if (!isAlreadyEnqueued) {
+      // Schedule all root nodes immediately (legacy behavior).
+      for (final nodeId in _graph._roots) {
+        await _scheduleNode(_graph._nodeMap[nodeId]!);
+      }
+    } else {
+      // Mark all nodes as in-flight since they are being handled by native.
+      for (final node in _graph._nodes) {
+        _inFlight.add(node.id);
+      }
     }
 
     return _completer.future;
@@ -394,7 +418,16 @@ class _GraphExecutor {
 /// This is the internal implementation called by
 /// [NativeWorkManager.enqueueGraph]. Not part of the public API.
 Future<GraphExecution> enqueueTaskGraph(TaskGraph graph) async {
+  graph.validate();
+
+  // 1. Send graph to native for persistent orchestration.
+  // This ensures the graph continues even if the app is killed.
+  await NativeWorkManagerPlatform.instance.enqueueGraph(graph.toMap());
+
+  // 2. Start the Dart-side listener so we can resolve the result future
+  // if the app stays alive.
   final executor = _GraphExecutor(graph);
-  final resultFuture = executor.execute();
+  final resultFuture = executor.execute(isAlreadyEnqueued: true);
+
   return GraphExecution._(graph.id, resultFuture);
 }

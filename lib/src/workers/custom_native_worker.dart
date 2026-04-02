@@ -28,7 +28,7 @@ final class CustomNativeWorker extends Worker {
         className,
         'className',
         'className contains invalid characters. Use letters, digits, dots, underscores, '
-        'or dollar signs only (e.g. "com.example.MyWorker" or "MyWorker").',
+            'or dollar signs only (e.g. "com.example.MyWorker" or "MyWorker").',
       );
     }
     // Guard against excessively long class names (> 256 chars is unrealistic and may indicate abuse).

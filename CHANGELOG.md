@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] - 2026-04-01
+
+### Added
+- **25+ Built-in Native Workers**: Massive expansion of the native worker library, including PDF generation, Video compression, WebSocket long-running tasks, and advanced File System operations.
+- **Zero-Flutter-Engine Architecture**: Enhanced engine that runs complex I/O and processing tasks without spawning a Dart Isolate, saving up to 50MB RAM per task.
+- **Smart Isolate Caching**: Flutter Engine is now cached for 5 minutes after a `DartWorker` completes, enabling near-instant execution for subsequent steps in a `TaskChain`.
+- **Enterprise-Grade Security**:
+    - **Certificate Pinning**: Secure your background HTTP requests against MITM attacks.
+    - **HMAC Request Signing**: Ensure data integrity with automatic request signing.
+    - **SSRF Protection**: Built-in blocking of private and loopback IP addresses for background tasks.
+    - **Zip-Bomb & Zip-Slip Protection**: Hardened archive extraction logic.
+- **Remote Trigger Support**: Support for FCM (Android) and APNs (iOS) data messages to trigger native workers without waking Flutter.
+- **Improved Task Chaining**: Support for more complex sequential and parallel task graphs with native SQLite persistence for state recovery.
+- **DevTools Extension**: New Flutter DevTools integration for inspecting scheduled tasks, monitoring real-time progress, and debugging the background engine.
+- **Adaptive Resource Management**: Automatically disposes the Flutter engine under system memory pressure (`onTrimMemory` on Android).
+
+### Fixed
+
+- Fixed iOS `DartWorker` initialization in JIT/Debug mode.
+- Hardened Path Traversal checks across all platforms using canonical path validation.
+- Fixed several race conditions in task event reporting on iOS.
+- Improved reliability of periodic tasks on Android by correctly observing all execution cycles.
+
+**CRITICAL**
+- **iOS Graph: `WorkerResult` type mismatch** — `executeGraphNode` passed the `WorkerResult` struct directly to `handleGraphNodeCompletion(success:)` instead of `.success`. Graph tasks always appeared to fail. Also fixed: failure message is now forwarded to the completion handler.
+- **OfflineQueue double-enqueue** — `OfflineQueue.enqueue()` was calling both `offlineQueueEnqueue` (native path, triggers immediate execution) and adding to the in-memory `_pending` list (triggers `NativeWorkManager.enqueue`). Every task was executed twice.
+- **OfflineQueue `_awaitEvent` matched `isStarted` events** — the queue waited for the first task event including "started" lifecycle events, so it treated every task start as a successful completion and moved to the next entry without waiting for the real outcome.
+
+**HIGH**
+- **Android `getTasksByTag` / `getAllTags` / `getTaskStatus` only checked in-memory maps** — tasks enqueued in a previous app session were invisible. Now falls back to SQLite `TaskStore` when the in-memory map misses.
+- **iOS `resumePendingGraphs()` was empty stub** — implemented using `GraphStore.getAllNodes()` to restart pending/interrupted graph nodes on app launch.
+- **iOS `executeOfflineEntry` silently succeeded for non-download workers** — returned `true` without executing anything. Now calls `executeWorkerSync` for all worker types.
+- **iOS `executeWorkerStateless` only handled `HttpDownloadWorker`** — remote-triggered tasks using any other worker type silently did nothing. Now uses `IosWorkerFactory` to run all worker types.
+- **Android Graph: wrong WorkInfo observation API** — `observeWorkCompletion` (which uses `getWorkInfosForUniqueWorkFlow`) was used for `WorkContinuation` nodes. WorkContinuation nodes are not unique work and return empty. Fixed to `observeChainStepCompletion` (tag-based observation).
+- **Android Graph: no cycle detection** — a cyclic dependency graph caused infinite recursion and `StackOverflowError`. Now detects cycles with a DFS visited-set before building `WorkContinuation`.
+- **Android `handleCancelByTag` missing `taskStore.updateStatus`** — cancelled tasks were not persisted to SQLite. Also now dismisses active download notifications.
+- **iOS `processOfflineQueue` non-atomic concurrency guard** — the read-then-write pattern (`sync` read, `async` write) had a race window where two invocations could both see `false` and both proceed. Fixed to atomic `sync(flags: .barrier)` check-and-set.
+- **iOS `handleEnqueue` barrier race** — task state was set with `async(flags: .barrier)` then `result("ACCEPTED")` was called before the barrier completed, so an immediate `getTaskStatus` query could see `nil`. Changed to `sync(flags: .barrier)`.
+
+**MEDIUM**
+- **Android `applyMiddleware` created a new `MiddlewareStore` on every call** — opening a new `SQLiteOpenHelper` per worker execution. Fixed to `MiddlewareStore.getInstance(context)` singleton.
+- **Android SQLite version conflict** — `TaskStore` (v2), `OfflineQueueStore` (v5), `RemoteTriggerStore` (v4) all share `native_workmanager.db` but declared different version numbers. The highest-versioned helper triggers `onUpgrade` on first open; other helpers' `onUpgrade` handlers never run, leaving tables missing. Unified all stores to version 6 with additive migrations.
+- **iOS Graph returns `"ACCEPTED"` on iOS < 13** — no nodes were scheduled but the result said success. Now returns `UNSUPPORTED_OS` `FlutterError` for iOS < 13.
+- **Android `handleCancelAll` did not dismiss notifications** — active download notifications persisted after `cancelAll()`. Now calls `DownloadNotificationManager.dismiss` for all tracked tasks before clearing state.
+- **iOS Middleware only accepted `[String: String]` headers** — numeric/boolean header values were silently dropped. Changed to `[String: Any]`.
+- **Android `enqueueFromRemote` did not apply middleware** — remote-triggered tasks bypassed header-injection and URL-pattern rules. Now calls `applyMiddleware` before enqueue.
+- **Android TaskStore double-write on `upsert`** — `INSERT OR IGNORE` + unconditional `UPDATE` performed two database writes per task. Replaced with single `INSERT OR REPLACE` that preserves `created_at`.
+
+**LOW**
+- **iOS `_executeWorker` set `taskStartTimes` redundantly** — `emitTaskStarted` (called in `executeWorkerSync`) already sets it. Removed duplicate assignment.
+- **iOS dead code `isFinal || false`** — always evaluates to `false`. Removed `isFinal` variable; `shouldEmitEvent: false` is now explicit.
+- **Android duplicate imports** — `androidx.work.Data` and `androidx.work.NetworkType` were imported twice in `NativeWorkmanagerPlugin.kt`.
+- **OfflineQueue docstring stated `StateError` on overflow** — the method actually returns silently. Docstring corrected. Also logs when an entry is dropped.
+- **iOS Graph nodes not persisted to `TaskStore`** — graph nodes were stored in `GraphStore` but not `TaskStore`, so `allTasks()` never surfaced them. Now calls `taskStore?.upsert` for each graph node.
+- **Android `allTasks()` included `DbCleanupWorker`** — the internal weekly cleanup task appeared in the list returned to Dart. Now filtered by `__native_wm_internal__` tag.
+- **iOS `RetryConfig.from` defaulted `maxRetries` to 3** — mismatched Android's default of 0 (no retries). Changed to 0.
+- **Android periodic task `taskBusSignals` memory growth** — periodic task event signals were never removed from the map since `observeWorkCompletion` for periodic tasks does not await the deferred. Now cleans up after each cycle.
+- **iOS GraphStore `depends_on` JSON force-unwrap** — `.data(using: .utf8)!` could crash on a corrupted database value. Replaced with safe optional binding + `NSLog` on failure.
+- **iOS SQLite write error codes ignored** — `sqlite3_step()` return codes were discarded; failures were silent. Added `NSLog` for non-SQLITE_DONE results in `TaskStore`.
+
+---
+
 ## [1.0.8] - 2026-03-07
 
 ### Fixed

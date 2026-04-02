@@ -69,6 +69,18 @@ class FileCompressionWorker: IosWorker {
     }
 
     func doWork(input: String?) async throws -> WorkerResult {
+        // ✅ IOS: Register background task to request extra execution time
+        // iOS will freeze the app shortly after moving to background otherwise.
+        var bgTaskId = UIBackgroundTaskIdentifier.invalid
+        bgTaskId = UIApplication.shared.beginBackgroundTask(withName: "BrewkitsFileCompression") {
+            NativeLogger.d("FileCompressionWorker: Background time expired — ending task")
+            UIApplication.shared.endBackgroundTask(bgTaskId)
+        }
+
+        defer {
+            UIApplication.shared.endBackgroundTask(bgTaskId)
+        }
+
         print("FileCompressionWorker: Starting compression...")
 
         // ════════════════════════════════════════════════════════════
@@ -270,6 +282,14 @@ class FileCompressionWorker: IosWorker {
         guard fileManager.fileExists(atPath: inputURL.path, isDirectory: &isDirectory) else {
             throw NSError(domain: "FileCompressionWorker", code: -1,
                          userInfo: [NSLocalizedDescriptionKey: "Input path does not exist"])
+        }
+
+        // EDGE-002: warn (but do not fail) when input is a zero-byte file — the resulting
+        // ZIP will contain a valid but empty entry, which may surprise callers.
+        if !isDirectory.boolValue,
+           let attrs = try? fileManager.attributesOfItem(atPath: inputURL.path),
+           (attrs[.size] as? Int64 ?? 0) == 0 {
+            print("FileCompressionWorker: WARNING — input file is zero bytes, ZIP will contain an empty entry: \(inputURL.lastPathComponent)")
         }
 
         // Create ZIP archive

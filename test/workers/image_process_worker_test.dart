@@ -64,7 +64,8 @@ void main() {
         );
 
         expect(worker, isA<ImageProcessWorker>());
-        expect((worker as ImageProcessWorker).inputPath, '/photos/original.jpg');
+        expect(
+            (worker as ImageProcessWorker).inputPath, '/photos/original.jpg');
         expect(worker.outputPath, '/photos/resized.jpg');
       });
 

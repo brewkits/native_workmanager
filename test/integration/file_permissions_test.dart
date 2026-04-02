@@ -450,8 +450,10 @@ void main() {
       test('should handle iOS app sandbox paths', () {
         expect(
           () => NativeWorker.fileCopy(
-            sourcePath: '/var/mobile/Containers/Data/Application/UUID/Documents/file.txt',
-            destinationPath: '/var/mobile/Containers/Data/Application/UUID/Library/Caches/file.txt',
+            sourcePath:
+                '/var/mobile/Containers/Data/Application/UUID/Documents/file.txt',
+            destinationPath:
+                '/var/mobile/Containers/Data/Application/UUID/Library/Caches/file.txt',
           ),
           returnsNormally,
         );

@@ -45,4 +45,29 @@ internal object NativeLogger {
     fun e(msg: String, t: Throwable? = null) {
         if (t != null) Log.e(TAG, msg, t) else Log.e(TAG, msg)
     }
+
+    /** 
+     * Logs a URL after redacting sensitive query parameters.
+     * FIX #05: Prevents sensitive tokens from leaking via Logcat.
+     */
+    fun url(prefix: String, url: String) {
+        if (!enabled) return
+        val sanitized = try {
+            val uri = android.net.Uri.parse(url)
+            if (uri.query == null) url
+            else {
+                val builder = uri.buildUpon().clearQuery()
+                val sensitiveKeys = setOf("token", "key", "auth", "secret", "apikey", "access_token")
+                uri.queryParameterNames.forEach { key ->
+                    val value = if (sensitiveKeys.any { key.contains(it, ignoreCase = true) }) "[REDACTED]"
+                                else uri.getQueryParameter(key)
+                    builder.appendQueryParameter(key, value)
+                }
+                builder.build().toString()
+            }
+        } catch (_: Exception) {
+            "[REDACTED URL]"
+        }
+        d("$prefix $sanitized")
+    }
 }

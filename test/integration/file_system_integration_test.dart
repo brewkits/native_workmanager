@@ -279,10 +279,8 @@ void main() {
       await deepDir.create();
       await File('${deepDir.path}/deep.txt').writeAsString('Deep');
 
-      final allFiles = await testDir
-          .list(recursive: true)
-          .where((e) => e is File)
-          .toList();
+      final allFiles =
+          await testDir.list(recursive: true).where((e) => e is File).toList();
 
       expect(allFiles.length, 3);
     });

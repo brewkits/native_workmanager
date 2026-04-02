@@ -55,6 +55,18 @@ class ImageProcessWorker: IosWorker {
     }
 
     func doWork(input: String?) async throws -> WorkerResult {
+        // ✅ IOS: Register background task to request extra execution time
+        // iOS will freeze the app shortly after moving to background otherwise.
+        var bgTaskId = UIBackgroundTaskIdentifier.invalid
+        bgTaskId = UIApplication.shared.beginBackgroundTask(withName: "BrewkitsImageProcess") {
+            NativeLogger.d("ImageProcessWorker: Background time expired — ending task")
+            UIApplication.shared.endBackgroundTask(bgTaskId)
+        }
+
+        defer {
+            UIApplication.shared.endBackgroundTask(bgTaskId)
+        }
+
         guard let input = input, !input.isEmpty else {
             return .failure(message: "Input JSON is required")
         }
@@ -92,17 +104,30 @@ class ImageProcessWorker: IosWorker {
             return .failure(message: "Failed to read file attributes: \(error.localizedDescription)")
         }
 
-        // Load image
-        guard let image = UIImage(contentsOfFile: inputURL.path) else {
-            return .failure(message: "Failed to decode image")
+        // Read original image dimensions without decoding pixels (CGImageSource properties).
+        guard let source = CGImageSourceCreateWithURL(inputURL as CFURL, nil) else {
+            return .failure(message: "Failed to open image source")
         }
+        let imageProperties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let originalWidth = imageProperties?[kCGImagePropertyPixelWidth] as? Int ?? 0
+        let originalHeight = imageProperties?[kCGImagePropertyPixelHeight] as? Int ?? 0
 
-        let originalWidth = Int(image.size.width * image.scale)
-        let originalHeight = Int(image.size.height * image.scale)
+        // ✅ MEMORY: Downsample using ImageIO (Prevents OOM)
+        // Never load a full UIImage directly in a background task.
+        // This technique uses 1/10th of the memory for high-res photos.
+        let maxPixel = max(config.maxWidth ?? originalWidth, config.maxHeight ?? originalHeight)
+        let downsampleOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel > 0 ? maxPixel : max(originalWidth, originalHeight)
+        ]
 
-        print("ImageProcessWorker: Original image: \(originalWidth)x\(originalHeight), \(originalSize) bytes")
-
-        var processedImage = image
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, downsampleOptions as CFDictionary) else {
+            return .failure(message: "Failed to downsample image")
+        }
+        
+        var processedImage = UIImage(cgImage: cgImage)
 
         // Apply crop if specified
         if let cropRect = config.cropRect {

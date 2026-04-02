@@ -283,11 +283,12 @@ class ParallelHttpDownloadWorker: IosWorker {
             // Handle 401 with token refresh
             if let http = response as? HTTPURLResponse, http.statusCode == 401,
                let trCfg = tokenRefreshConfig {
-                if let newToken = await attemptTokenRefresh(config: trCfg, currentSession: session) {
+                // ✅ NEW: Uses AuthTokenManager actor to ensure serialized refresh across all chunks
+                if let newToken = await AuthTokenManager.shared.refreshToken(config: trCfg, currentSession: session) {
                     var retryRequest = URLRequest(url: url)
                     retryRequest.setValue("bytes=\(resumeFrom)-\(rangeEnd)", forHTTPHeaderField: "Range")
-                    retryRequest.setValue("\(trCfg.tokenPrefix)\(newToken)",
-                                         forHTTPHeaderField: trCfg.tokenHeaderName)
+                    retryRequest.setValue("\(trCfg.effectiveTokenPrefix)\(newToken)",
+                                         forHTTPHeaderField: trCfg.effectiveTokenHeaderName)
                     config.headers?.forEach { retryRequest.setValue($1, forHTTPHeaderField: $0) }
                     if let sc = signingConfig { RequestSigner.sign(request: &retryRequest, config: sc) }
                     (data, response) = try await session.data(for: retryRequest)
@@ -363,11 +364,12 @@ class ParallelHttpDownloadWorker: IosWorker {
             // Handle 401 with token refresh
             if let http = response as? HTTPURLResponse, http.statusCode == 401,
                let trCfg = tokenRefreshConfig {
-                if let newToken = await attemptTokenRefresh(config: trCfg, currentSession: session) {
+                // ✅ NEW: Uses AuthTokenManager actor to ensure serialized refresh
+                if let newToken = await AuthTokenManager.shared.refreshToken(config: trCfg, currentSession: session) {
                     var retryRequest = URLRequest(url: url)
                     if existingBytes > 0 { retryRequest.setValue("bytes=\(existingBytes)-", forHTTPHeaderField: "Range") }
-                    retryRequest.setValue("\(trCfg.tokenPrefix)\(newToken)",
-                                         forHTTPHeaderField: trCfg.tokenHeaderName)
+                    retryRequest.setValue("\(trCfg.effectiveTokenPrefix)\(newToken)",
+                                         forHTTPHeaderField: trCfg.effectiveTokenHeaderName)
                     config.headers?.forEach { retryRequest.setValue($1, forHTTPHeaderField: $0) }
                     if let sc = signingConfig { RequestSigner.sign(request: &retryRequest, config: sc) }
                     (data, response) = try await session.data(for: retryRequest)

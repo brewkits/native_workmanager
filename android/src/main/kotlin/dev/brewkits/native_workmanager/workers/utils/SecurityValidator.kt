@@ -17,36 +17,17 @@ object SecurityValidator {
 
     private const val TAG = "SecurityValidator"
 
-    /**
-     * When true, plain HTTP URLs are rejected globally across all workers.
-     * Set by handleInitialize() when the Dart caller passes enforceHttps=true.
-     */
     @Volatile
     var enforceHttps: Boolean = false
 
-    /**
-     * When true, HTTP workers block requests to private/loopback IP literals.
-     * Covers: 10.x, 172.16-31.x, 192.168.x, 127.x, 169.254.x (link-local),
-     *         ::1, and fc00::/7 (ULA).
-     * Only parsed IP literals are checked — hostnames are not resolved.
-     * Set by handleInitialize() when the Dart caller passes blockPrivateIPs=true.
-     */
     @Volatile
     var blockPrivateIPs: Boolean = false
 
-    // MARK: - Constants
-
-    /** Maximum allowed request body size (10MB) */
-    const val MAX_REQUEST_BODY_SIZE = 10 * 1024 * 1024
-
-    /** Maximum allowed response body size (50MB) */
-    const val MAX_RESPONSE_BODY_SIZE = 50 * 1024 * 1024
-
-    /** Maximum allowed file size for uploads/downloads (100MB) */
-    const val MAX_FILE_SIZE = 100 * 1024 * 1024
-
-    /** Maximum allowed compressed archive size (200MB) */
-    const val MAX_ARCHIVE_SIZE = 200 * 1024 * 1024
+    // MARK: - Configurable Limits (Allow users to override these)
+    @Volatile var maxRequestBodySize = 10 * 1024 * 1024L
+    @Volatile var maxResponseBodySize = 50 * 1024 * 1024L
+    @Volatile var maxFileSize = 500 * 1024 * 1024L // Increased to 500MB default
+    @Volatile var maxArchiveSize = 1024 * 1024 * 1024L // Increased to 1GB default
 
     // MARK: - URL Validation
 
@@ -70,6 +51,8 @@ object SecurityValidator {
             // ✅ SECURITY: Only allow HTTP and HTTPS schemes
             val allowedSchemes = listOf("http", "https")
             if (scheme !in allowedSchemes) {
+                // FIX #06: Explicitly reject content:// and file:// schemes for URL-based workers
+                // unless they are specifically designed to handle them.
                 Log.e(TAG, "Unsafe URL scheme '$scheme'. Only HTTP/HTTPS allowed.")
                 return false
             }
@@ -231,8 +214,8 @@ object SecurityValidator {
      * @return true if size is acceptable, false if too large
      */
     fun validateRequestSize(data: ByteArray): Boolean {
-        if (data.size > MAX_REQUEST_BODY_SIZE) {
-            Log.e(TAG, "Request body too large (${data.size} bytes, max $MAX_REQUEST_BODY_SIZE)")
+        if (data.size > maxRequestBodySize) {
+            Log.e(TAG, "Request body too large (${data.size} bytes, max $maxRequestBodySize)")
             return false
         }
         return true
@@ -245,8 +228,8 @@ object SecurityValidator {
      * @return true if size is acceptable, false if too large
      */
     fun validateResponseSize(data: ByteArray): Boolean {
-        if (data.size > MAX_RESPONSE_BODY_SIZE) {
-            Log.e(TAG, "Response body too large (${data.size} bytes, max $MAX_RESPONSE_BODY_SIZE)")
+        if (data.size > maxResponseBodySize) {
+            Log.e(TAG, "Response body too large (${data.size} bytes, max $maxResponseBodySize)")
             return false
         }
         return true
@@ -269,9 +252,9 @@ object SecurityValidator {
         }
 
         val fileSize = file.length()
-        if (fileSize > MAX_FILE_SIZE) {
+        if (fileSize > maxFileSize) {
             val sizeMB = fileSize / 1024 / 1024
-            val maxMB = MAX_FILE_SIZE / 1024 / 1024
+            val maxMB = maxFileSize / 1024 / 1024
             Log.e(TAG, "File too large: ${sizeMB}MB (max ${maxMB}MB)")
             return false
         }
@@ -294,9 +277,9 @@ object SecurityValidator {
             return true
         }
 
-        if (contentLength > MAX_FILE_SIZE) {
+        if (contentLength > maxFileSize) {
             val sizeMB = contentLength / 1024 / 1024
-            val maxMB = MAX_FILE_SIZE / 1024 / 1024
+            val maxMB = maxFileSize / 1024 / 1024
             Log.e(TAG, "Download too large: ${sizeMB}MB (max ${maxMB}MB)")
             return false
         }
@@ -319,9 +302,9 @@ object SecurityValidator {
         }
 
         val fileSize = file.length()
-        if (fileSize > MAX_ARCHIVE_SIZE) {
+        if (fileSize > maxArchiveSize) {
             val sizeMB = fileSize / 1024 / 1024
-            val maxMB = MAX_ARCHIVE_SIZE / 1024 / 1024
+            val maxMB = maxArchiveSize / 1024 / 1024
             Log.e(TAG, "Archive too large: ${sizeMB}MB (max ${maxMB}MB)")
             return false
         }

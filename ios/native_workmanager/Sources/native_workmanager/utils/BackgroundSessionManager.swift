@@ -102,6 +102,30 @@ public class BackgroundSessionManager: NSObject {
         }
     }
 
+    /// Synchronizes active URLSession tasks with the persistent TaskStore.
+    /// FIX #08: Detects tasks that were lost or finished while the app was killed.
+    public func syncWithTaskStore() async {
+        let tasks = await session.allTasks
+        let activeTaskIds = tasks.compactMap { task -> String? in
+            return queue.sync { taskIdMap[task.taskIdentifier] }
+        }
+        
+        let storedTasks = TaskStore.shared.getAllTasks()
+        for record in storedTasks where record.status == "running" {
+            // If it's a background-session task but not found in active URLSession tasks
+            if record.workerClassName.contains("Http") && !activeTaskIds.contains(record.taskId) {
+                // Task is lost. Check if it finished via delegate first (avoid race)
+                // If still running in store but not in session, mark as failed.
+                TaskStore.shared.updateStatus(
+                    taskId: record.taskId,
+                    status: "failed",
+                    resultData: "{\"message\": \"Background transfer lost by system\", \"shouldRetry\": true}"
+                )
+                NativeLogger.w("Sync: Fixed lost background task \(record.taskId)")
+            }
+        }
+    }
+
     /// Progress delegate for reporting download/upload progress to Flutter
     public var progressDelegate: ((String, Double) -> Void)?
 
@@ -199,6 +223,26 @@ public class BackgroundSessionManager: NSObject {
     }
 
     // MARK: - Download API
+
+    /// Convenience method to start a download from a worker config dictionary.
+    @discardableResult
+    public func download(
+        taskId: String,
+        config: [String: Any],
+        completion: @escaping (Result<URL, Error>) -> Void
+    ) -> URLSessionDownloadTask? {
+        guard let urlStr = config["url"] as? String,
+              let url = URL(string: urlStr) else {
+            completion(.failure(NSError(domain: "BackgroundSessionManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])))
+            return nil
+        }
+
+        let savePath = config["savePath"] as? String ?? ""
+        let destination = URL(fileURLWithPath: savePath)
+        let headers = config["headers"] as? [String: String]
+
+        return download(url: url, to: destination, taskId: taskId, headers: headers, completion: completion)
+    }
 
     /// Start a background download task.
     ///

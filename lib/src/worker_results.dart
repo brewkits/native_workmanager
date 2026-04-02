@@ -142,8 +142,9 @@ class ParallelDownloadResult {
       failedCount: (data['failedCount'] as num?)?.toInt() ?? 0,
       totalBytes: (data['totalBytes'] as num?)?.toInt() ?? 0,
       files: rawFiles
-              ?.map((e) => DownloadFileOutcome._from(
-                  Map<String, dynamic>.from(e as Map)))
+              ?.whereType<Map>()
+              .map((e) => DownloadFileOutcome._from(
+                  Map<String, dynamic>.from(e)))
               .toList() ??
           const [],
     );
@@ -241,8 +242,9 @@ class ParallelUploadResult {
       failedCount: (data['failedCount'] as num?)?.toInt() ?? 0,
       totalBytes: (data['totalBytes'] as num?)?.toInt() ?? 0,
       files: rawFiles
-              ?.map((e) =>
-                  UploadFileOutcome._from(Map<String, dynamic>.from(e as Map)))
+              ?.whereType<Map>()
+              .map((e) =>
+                  UploadFileOutcome._from(Map<String, dynamic>.from(e)))
               .toList() ??
           const [],
     );

@@ -2,8 +2,6 @@ package dev.brewkits.native_workmanager
 
 import android.content.Intent
 import androidx.core.content.FileProvider
-import androidx.work.BackoffPolicy
-import androidx.work.Constraints
 import androidx.work.Data
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
@@ -17,6 +15,7 @@ import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.*
 import dev.brewkits.native_workmanager.notification.DownloadNotificationManager
 import dev.brewkits.native_workmanager.store.TaskStore.Companion.sanitizeConfig
+import dev.brewkits.native_workmanager.workers.HttpDownloadWorker
 import dev.brewkits.native_workmanager.workers.utils.HostConcurrencyManager
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import io.flutter.plugin.common.MethodCall
@@ -111,13 +110,32 @@ internal fun NativeWorkmanagerPlugin.handleResume(call: MethodCall, result: Resu
             val inputJson = record.workerConfig
             val tag = record.tag
 
-            // Re-enqueue with the same config
+            // M-5: restore original constraints from the persisted JSON so the
+            // resumed task respects requiresNetwork, requiresCharging, etc.
+            @Suppress("UNCHECKED_CAST")
+            val restoredConstraintsMap = record.constraintsJson?.let { json ->
+                try {
+                    val jObj = org.json.JSONObject(json)
+                    jObj.keys().asSequence().associateWith { key ->
+                        when (val v = jObj.get(key)) {
+                            is Boolean -> v
+                            is Int     -> v
+                            is Long    -> v
+                            is Double  -> v
+                            else       -> v.toString()
+                        }
+                    } as Map<String, Any?>
+                } catch (_: Exception) { null }
+            }
+            val constraints = parseConstraints(restoredConstraintsMap)
+
+            // Re-enqueue with the same config and restored constraints
             enqueueOneTimeWorkDirect(
                 taskId = taskId,
                 workerClassName = workerClassName,
                 inputJson = inputJson,
                 tag = tag,
-                constraints = Constraints(),
+                constraints = constraints,
                 delayMs = 0L,
                 policy = ExistingPolicy.REPLACE
             )
@@ -139,9 +157,11 @@ internal fun NativeWorkmanagerPlugin.handleAllTasks(result: Result) {
     scope.launch {
         try {
             val maps = withContext(Dispatchers.IO) {
-                taskStore.getAllTasks().map { record ->
-                    with(taskStore) { record.toFlutterMap() }
-                }
+                taskStore.getAllTasks()
+                    .filter { it.tag != "__native_wm_internal__" } // exclude internal cleanup worker
+                    .map { record ->
+                        with(taskStore) { record.toFlutterMap() }
+                    }
             }
             result.success(maps)
         } catch (e: Exception) {
@@ -163,10 +183,13 @@ internal fun NativeWorkmanagerPlugin.handleGetServerFilename(call: MethodCall, r
             }
 
             val filename = kotlinx.coroutines.withContext(Dispatchers.IO) {
-                val client = OkHttpClient.Builder()
+                // L-5: Use shared plugin-level OkHttpClient (singleton) instead of
+                // creating a new one per call. Per-call clients leak connection pools.
+                // For custom timeout, build a derived client with newBuilder() which
+                // reuses the underlying dispatcher and connection pool.
+                val client = NativeWorkmanagerPlugin.sharedHttpClient.newBuilder()
                     .connectTimeout(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
                     .readTimeout(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
-                    .followRedirects(true)
                     .build()
 
                 val requestBuilder = okhttp3.Request.Builder().url(url).head()
@@ -214,16 +237,29 @@ internal fun NativeWorkmanagerPlugin.handleEnqueue(call: MethodCall, result: Res
                 NativeLogger.d("Stored tag '$tag' for task '$taskId'")
             }
 
+            // C-001 FIX: constraintsMap must be declared BEFORE it is used for constraintsJson.
+            // Previously declared at line ~316 (after the upsert block) — Kotlin forward reference
+            // to a local variable is a compile error.  Moved here so both constraintsJson
+            // persistence (below) and parseConstraints() call (below trigger parsing) share the
+            // same parsed value.
+            @Suppress("UNCHECKED_CAST")
+            val constraintsMap = call.argument<Map<String, Any?>>("constraints")
+
             // Store task in persistent SQLite store (IO dispatcher — SQLite must not run on Main).
-            // Sanitize config before persisting: strip auth tokens / cookies to prevent leaking
-            // sensitive data via adb backup. The full inputJson is used for execution above.
+            // H-001 FIX: Store the FULL (unsanitized) inputJson so that handleResume() can
+            // re-enqueue with the original auth headers, cookies, and tokens intact.
+            // toFlutterMap() does NOT include workerConfig, so sensitive fields are never sent
+            // to the Dart layer.  The Android app sandbox protects the DB file from other apps.
+            // M-5: also persist constraints JSON so resume() can restore original constraints.
+            val constraintsJson = constraintsMap?.let { toJson(it) }
             withContext(Dispatchers.IO) {
                 taskStore.upsert(
                     taskId = taskId,
                     tag = tag,
                     status = "pending",
                     workerClassName = workerClassName,
-                    workerConfig = TaskStore.sanitizeConfig(inputJson)
+                    workerConfig = inputJson,
+                    constraintsJson = constraintsJson
                 )
             }
 
@@ -285,8 +321,7 @@ internal fun NativeWorkmanagerPlugin.handleEnqueue(call: MethodCall, result: Res
                 else -> ExistingPolicy.KEEP
             }
 
-            @Suppress("UNCHECKED_CAST")
-            val constraintsMap = call.argument<Map<String, Any?>>("constraints")
+            // constraintsMap already declared above (before SQLite upsert — C-001 fix).
             val constraints = parseConstraints(constraintsMap)
 
             // Fix: WorkManager 2.10+ rejects expedited work (all kmpworkmanager OneTime tasks)
@@ -372,11 +407,18 @@ internal suspend fun NativeWorkmanagerPlugin.cleanupTempFilesForTask(taskId: Str
         val savePath = try {
             org.json.JSONObject(config).optString("savePath").takeIf { it.isNotBlank() }
         } catch (_: Exception) { null } ?: return
+        // L-003 FIX: ETag sidecar is now stored next to the .tmp file (tempFile.path + .etag),
+        // which may be a sentinel "__pending__.tmp.etag" in directory mode.  Delete both the
+        // savePath-relative sentinel AND the savePath+suffix fallback to handle tasks persisted
+        // before the L-003 fix was applied.
+        val tempPath = if (savePath.endsWith("/")) savePath + "__pending__.tmp" else savePath + ".tmp"
         for (suffix in listOf(".tmp", ".tmp.etag")) {
-            val f = java.io.File(savePath + suffix)
-            if (f.exists()) {
-                f.delete()
-                NativeLogger.d("Deleted orphan $suffix for cancelled task '$taskId'")
+            for (base in listOf(savePath, tempPath).distinct()) {
+                val f = java.io.File(base + suffix)
+                if (f.exists()) {
+                    f.delete()
+                    NativeLogger.d("Deleted orphan $suffix for cancelled task '$taskId'")
+                }
             }
         }
     } catch (e: Exception) {
@@ -423,6 +465,9 @@ internal fun NativeWorkmanagerPlugin.handleCancelAll(result: Result) {
                 }
             }
             scheduler.cancelAll()
+            // Dismiss all active download notifications before clearing state
+            taskNotifTitles.keys.forEach { DownloadNotificationManager.dismiss(context, it) }
+            taskNotifTitles.clear()
             // Clear all tag mappings and status tracking
             taskTags.clear()
             taskStatuses.clear()
@@ -453,8 +498,18 @@ internal fun NativeWorkmanagerPlugin.handleCancelByTag(call: MethodCall, result:
                     cleanupTempFilesForTask(taskId)
                     taskTags.remove(taskId)
                     taskStatuses[taskId] = "cancelled"
+                    taskNotifTitles.remove(taskId)?.let { DownloadNotificationManager.dismiss(context, taskId) }
+                    taskAllowPause.remove(taskId)
+                    taskFilenames.remove(taskId)
                 } catch (e: Exception) {
                     NativeLogger.w("Failed to cancel task $taskId: ${e.message}")
+                }
+            }
+
+            // Persist cancellation status for all affected tasks
+            withContext(Dispatchers.IO) {
+                tasksToCancel.forEach { taskId ->
+                    taskStore.updateStatus(taskId = taskId, status = "cancelled")
                 }
             }
 
@@ -466,36 +521,59 @@ internal fun NativeWorkmanagerPlugin.handleCancelByTag(call: MethodCall, result:
 }
 
 internal fun NativeWorkmanagerPlugin.handleGetTasksByTag(call: MethodCall, result: Result) {
-    try {
-        val tag = call.argument<String>("tag")
-            ?: return result.error("INVALID_ARGS", "tag required", null)
+    scope.launch {
+        try {
+            val tag = call.argument<String>("tag")
+                ?: return@launch result.error("INVALID_ARGS", "tag required", null)
 
-        // Find all tasks with this tag
-        val tasks = taskTags.filterValues { it == tag }.keys.toList()
-        result.success(tasks)
-    } catch (e: Exception) {
-        result.error("GET_TASKS_ERROR", e.message, null)
+            // Check in-memory first (running tasks); fall back to DB for persisted tasks
+            val inMemory = taskTags.filterValues { it == tag }.keys.toList()
+            if (inMemory.isNotEmpty()) {
+                result.success(inMemory)
+                return@launch
+            }
+            val fromDb = withContext(Dispatchers.IO) {
+                taskStore.getTasksByTag(tag).map { it.taskId }
+            }
+            result.success(fromDb)
+        } catch (e: Exception) {
+            result.error("GET_TASKS_ERROR", e.message, null)
+        }
     }
 }
 
 internal fun NativeWorkmanagerPlugin.handleGetAllTags(result: Result) {
-    try {
-        // Get all unique tags
-        val tags = taskTags.values.distinct()
-        result.success(tags)
-    } catch (e: Exception) {
-        result.error("GET_TAGS_ERROR", e.message, null)
+    scope.launch {
+        try {
+            // Merge in-memory and persisted tags (DB is the source of truth for completed tasks)
+            val inMemoryTags = taskTags.values.toSet()
+            val dbTags = withContext(Dispatchers.IO) {
+                taskStore.getAllTasks().mapNotNull { it.tag }.toSet()
+            }
+            result.success((inMemoryTags + dbTags).toList())
+        } catch (e: Exception) {
+            result.error("GET_TAGS_ERROR", e.message, null)
+        }
     }
 }
 
 internal fun NativeWorkmanagerPlugin.handleGetTaskStatus(call: MethodCall, result: Result) {
-    try {
-        val taskId = call.argument<String>("taskId")
-            ?: return result.error("INVALID_ARGS", "taskId required", null)
+    scope.launch {
+        try {
+            val taskId = call.argument<String>("taskId")
+                ?: return@launch result.error("INVALID_ARGS", "taskId required", null)
 
-        result.success(taskStatuses[taskId])
-    } catch (e: Exception) {
-        result.success(null)
+            // Check in-memory first; fall back to DB for completed/historical tasks
+            val inMemory = taskStatuses[taskId]
+            if (inMemory != null) {
+                result.success(inMemory)
+                return@launch
+            }
+            val fromDb = withContext(Dispatchers.IO) { taskStore.getTask(taskId)?.status }
+            result.success(fromDb)
+        } catch (e: Exception) {
+            result.success(null)
+        }
     }
 }
 
@@ -567,7 +645,13 @@ internal fun NativeWorkmanagerPlugin.enqueueOneTimeWorkDirect(
     val workerClass = if (constraints.isHeavyTask) KmpHeavyWorker::class.java else KmpWorker::class.java
 
     val dataBuilder = Data.Builder().putString("workerClassName", workerClassName)
-    if (inputJson != null) dataBuilder.putString("inputJson", inputJson)
+    
+    // Apply middleware to inputJson before enqueuing (Phase 2)
+    val effectiveInputJson = if (inputJson != null) {
+        NativeWorkmanagerPlugin.applyMiddleware(context, workerClassName, inputJson)
+    } else inputJson
+    
+    if (effectiveInputJson != null) dataBuilder.putString("inputJson", effectiveInputJson)
 
     val networkType = when {
         constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
@@ -642,7 +726,13 @@ internal fun NativeWorkmanagerPlugin.enqueuePeriodicWorkDirect(
     val workerClass = if (constraints.isHeavyTask) KmpHeavyWorker::class.java else KmpWorker::class.java
 
     val dataBuilder = Data.Builder().putString("workerClassName", workerClassName)
-    if (inputJson != null) dataBuilder.putString("inputJson", inputJson)
+    
+    // Apply middleware to inputJson before enqueuing (Phase 2)
+    val effectiveInputJson = if (inputJson != null) {
+        NativeWorkmanagerPlugin.applyMiddleware(context, workerClassName, inputJson)
+    } else inputJson
+    
+    if (effectiveInputJson != null) dataBuilder.putString("inputJson", effectiveInputJson)
 
     val networkType = when {
         constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED

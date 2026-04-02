@@ -88,7 +88,11 @@ class DartCallbackWorkerWrapper(
             // ✅ NEW: Extract autoDispose flag (default: false)
             val autoDispose = json.optBoolean("autoDispose", false)
 
-            Log.d(TAG, "Executing callback: $callbackId (handle: $callbackHandle, autoDispose: $autoDispose)")
+            // EDGE-004: respect caller-supplied timeoutMs; default 5 minutes
+            val timeoutMs = if (json.has("timeoutMs")) json.getLong("timeoutMs")
+                            else 5 * 60 * 1000L
+
+            Log.d(TAG, "Executing callback: $callbackId (handle: $callbackHandle, autoDispose: $autoDispose, timeoutMs: $timeoutMs)")
 
             // Execute Dart callback via FlutterEngineManager
             // ✅ Pass callbackHandle (not callbackId) to enable cross-isolate execution
@@ -96,7 +100,7 @@ class DartCallbackWorkerWrapper(
                 context = context,
                 callbackHandle = callbackHandle,  // ✅ Serializable handle
                 input = callbackInput,
-                timeoutMs = 5 * 60 * 1000L, // 5 minutes timeout
+                timeoutMs = timeoutMs,
                 disposeImmediately = autoDispose // ✅ NEW: Aggressive disposal flag
             )
 

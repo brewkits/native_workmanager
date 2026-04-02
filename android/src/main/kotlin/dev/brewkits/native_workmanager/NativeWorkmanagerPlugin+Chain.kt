@@ -1,5 +1,7 @@
 package dev.brewkits.native_workmanager
 
+import androidx.work.Data
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkManager
 import dev.brewkits.kmpworkmanager.background.data.KmpHeavyWorker

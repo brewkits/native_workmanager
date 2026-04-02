@@ -118,8 +118,15 @@ class KMPSchedulerBridge {
         default:                     exactAlarmBehavior = .showNotification
         }
 
-        // systemConstraints, allowWhileIdle, backoffPolicy, backoffDelayMs,
-        // requiresUnmeteredNetwork are Android-only — iOS ignores them.
+        // BRIDGE-009: requiresUnmeteredNetwork (WiFi-only) is not supported by BGTaskScheduler.
+        // iOS only supports requiresNetworkConnectivity (any network). Log a warning so
+        // developers are not surprised when a task runs on cellular despite the constraint.
+        if map?["requiresUnmeteredNetwork"] as? Bool == true {
+            NativeLogger.d("WARNING: requiresUnmeteredNetwork is not supported on iOS. " +
+                           "BGTaskScheduler only supports binary network connectivity — the task " +
+                           "will run on any available network including cellular.")
+        }
+        // systemConstraints, allowWhileIdle, backoffPolicy, backoffDelayMs are Android-only.
         return Constraints(
             requiresNetwork: requiresNetwork,
             requiresUnmeteredNetwork: false,

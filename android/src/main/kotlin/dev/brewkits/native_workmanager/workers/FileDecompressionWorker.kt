@@ -191,12 +191,19 @@ class FileDecompressionWorker : AndroidWorker {
                                 bytesWritten += len
                                 totalBytes += len
 
-                                // ✅ SECURITY: Prevent zip bombs (check extracted size)
-                                // Guard: entry.size == -1 when ZIP uses data descriptors (most modern ZIPs)
-                                if (entry.size > 0 && bytesWritten > entry.size * 2) {
-                                    Log.e(TAG, "Security - Possible zip bomb detected: $entryName")
+                                // ✅ SECURITY: Robust Zip Bomb Protection
+                                // Check 1: Absolute Total Size Limit (2GB)
+                                if (totalBytes > 2L * 1024 * 1024 * 1024) {
+                                    Log.e(TAG, "Security - Total extracted size exceeded limit (2GB)")
                                     cleanupExtractedFiles(extractedPaths)
-                                    return@withContext WorkerResult.Failure("Possible zip bomb detected")
+                                    return@withContext WorkerResult.Failure("Total extracted size too large (Zip Bomb protection)")
+                                }
+                                
+                                // Check 2: Dynamic Compression Ratio (Max 100:1)
+                                if (entry.size > 0 && bytesWritten > entry.size * 100) {
+                                    Log.e(TAG, "Security - Suspicious compression ratio detected (>100:1) for: $entryName")
+                                    cleanupExtractedFiles(extractedPaths)
+                                    return@withContext WorkerResult.Failure("Suspicious compression ratio (Zip Bomb protection)")
                                 }
                             }
                         }

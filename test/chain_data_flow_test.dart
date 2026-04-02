@@ -9,7 +9,8 @@ import 'package:native_workmanager/native_workmanager.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const MethodChannel channel = MethodChannel('dev.brewkits/native_workmanager');
+  const MethodChannel channel =
+      MethodChannel('dev.brewkits/native_workmanager');
 
   group('Chain Data Flow Tests', () {
     setUp(() {
@@ -202,23 +203,25 @@ void main() {
             method: HttpMethod.get,
           ),
         ),
-      ).then(
-        TaskRequest(
-          id: 'process',
-          worker: NativeWorker.imageProcess(
-            inputPath: '/tmp/downloaded.jpg',
-            outputPath: '/tmp/processed.jpg',
-          ),
-        ),
-      ).then(
-        TaskRequest(
-          id: 'compress',
-          worker: NativeWorker.fileCompress(
-            inputPath: '/tmp/processed.jpg',
-            outputPath: '/tmp/final.zip',
-          ),
-        ),
-      );
+      )
+          .then(
+            TaskRequest(
+              id: 'process',
+              worker: NativeWorker.imageProcess(
+                inputPath: '/tmp/downloaded.jpg',
+                outputPath: '/tmp/processed.jpg',
+              ),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: 'compress',
+              worker: NativeWorker.fileCompress(
+                inputPath: '/tmp/processed.jpg',
+                outputPath: '/tmp/final.zip',
+              ),
+            ),
+          );
 
       expect(chain.steps.length, equals(3));
     });
@@ -233,27 +236,29 @@ void main() {
             method: HttpMethod.get,
           ),
         ),
-      ).then(
-        TaskRequest(
-          id: 'post-data',
-          worker: HttpRequestWorker(
-            url: 'https://httpbin.org/post',
-            method: HttpMethod.post,
-            headers: const {'Content-Type': 'application/json'},
-            body: '{"processed": true}',
-          ),
-        ),
-      ).then(
-        TaskRequest(
-          id: 'put-data',
-          worker: HttpRequestWorker(
-            url: 'https://httpbin.org/put',
-            method: HttpMethod.put,
-            headers: const {'Content-Type': 'application/json'},
-            body: '{"final": true}',
-          ),
-        ),
-      );
+      )
+          .then(
+            TaskRequest(
+              id: 'post-data',
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/post',
+                method: HttpMethod.post,
+                headers: const {'Content-Type': 'application/json'},
+                body: '{"processed": true}',
+              ),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: 'put-data',
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/put',
+                method: HttpMethod.put,
+                headers: const {'Content-Type': 'application/json'},
+                body: '{"final": true}',
+              ),
+            ),
+          );
 
       expect(chain.steps.length, equals(3));
     });
@@ -298,45 +303,48 @@ void main() {
             method: HttpMethod.get,
           ),
         ),
-      ).thenAll([
-        TaskRequest(
-          id: 'process-a',
-          worker: NativeWorker.fileCopy(
-            sourcePath: '/tmp/a.txt',
-            destinationPath: '/tmp/processed_a.txt',
-          ),
-        ),
-        TaskRequest(
-          id: 'process-b',
-          worker: NativeWorker.fileCopy(
-            sourcePath: '/tmp/b.txt',
-            destinationPath: '/tmp/processed_b.txt',
-          ),
-        ),
-        TaskRequest(
-          id: 'process-c',
-          worker: NativeWorker.fileCopy(
-            sourcePath: '/tmp/c.txt',
-            destinationPath: '/tmp/processed_c.txt',
-          ),
-        ),
-      ]).then(
-        TaskRequest(
-          id: 'compress-all',
-          worker: NativeWorker.fileCompress(
-            inputPath: '/tmp',
-            outputPath: '/tmp/final.zip',
-          ),
-        ),
-      ).then(
-        TaskRequest(
-          id: 'upload',
-          worker: HttpUploadWorker(
-            url: 'https://httpbin.org/post',
-            filePath: '/tmp/final.zip',
-          ),
-        ),
-      );
+      )
+          .thenAll([
+            TaskRequest(
+              id: 'process-a',
+              worker: NativeWorker.fileCopy(
+                sourcePath: '/tmp/a.txt',
+                destinationPath: '/tmp/processed_a.txt',
+              ),
+            ),
+            TaskRequest(
+              id: 'process-b',
+              worker: NativeWorker.fileCopy(
+                sourcePath: '/tmp/b.txt',
+                destinationPath: '/tmp/processed_b.txt',
+              ),
+            ),
+            TaskRequest(
+              id: 'process-c',
+              worker: NativeWorker.fileCopy(
+                sourcePath: '/tmp/c.txt',
+                destinationPath: '/tmp/processed_c.txt',
+              ),
+            ),
+          ])
+          .then(
+            TaskRequest(
+              id: 'compress-all',
+              worker: NativeWorker.fileCompress(
+                inputPath: '/tmp',
+                outputPath: '/tmp/final.zip',
+              ),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: 'upload',
+              worker: HttpUploadWorker(
+                url: 'https://httpbin.org/post',
+                filePath: '/tmp/final.zip',
+              ),
+            ),
+          );
 
       expect(chain.steps.length, equals(4));
       expect(chain.steps[0].length, equals(1)); // Fetch
@@ -404,26 +412,29 @@ void main() {
             savePath: '/tmp/downloaded.jpg',
           ),
         ),
-      ).then(
-        TaskRequest(
-          id: 'process',
-          worker: NativeWorker.imageProcess(
-            inputPath: '/tmp/downloaded.jpg',
-            outputPath: '/tmp/processed.jpg',
-            maxWidth: 1920,
-            maxHeight: 1080,
-            quality: 85,
-          ),
-        ),
-      ).then(
-        TaskRequest(
-          id: 'upload',
-          worker: HttpUploadWorker(
-            url: 'https://example.com/upload',
-            filePath: '/tmp/processed.jpg',
-          ),
-        ),
-      ).named('download-process-upload');
+      )
+          .then(
+            TaskRequest(
+              id: 'process',
+              worker: NativeWorker.imageProcess(
+                inputPath: '/tmp/downloaded.jpg',
+                outputPath: '/tmp/processed.jpg',
+                maxWidth: 1920,
+                maxHeight: 1080,
+                quality: 85,
+              ),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: 'upload',
+              worker: HttpUploadWorker(
+                url: 'https://example.com/upload',
+                filePath: '/tmp/processed.jpg',
+              ),
+            ),
+          )
+          .named('download-process-upload');
 
       expect(chain.steps.length, equals(3));
     });
@@ -439,24 +450,27 @@ void main() {
             password: 'SecurePassword123!',
           ),
         ),
-      ).then(
-        TaskRequest(
-          id: 'decrypt',
-          worker: NativeWorker.cryptoDecrypt(
-            inputPath: '/tmp/encrypted.bin',
-            outputPath: '/tmp/decrypted.txt',
-            password: 'SecurePassword123!',
-          ),
-        ),
-      ).then(
-        TaskRequest(
-          id: 'upload',
-          worker: HttpUploadWorker(
-            url: 'https://secure.example.com/upload',
-            filePath: '/tmp/encrypted.bin',
-          ),
-        ),
-      ).named('encrypt-decrypt-upload');
+      )
+          .then(
+            TaskRequest(
+              id: 'decrypt',
+              worker: NativeWorker.cryptoDecrypt(
+                inputPath: '/tmp/encrypted.bin',
+                outputPath: '/tmp/decrypted.txt',
+                password: 'SecurePassword123!',
+              ),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: 'upload',
+              worker: HttpUploadWorker(
+                url: 'https://secure.example.com/upload',
+                filePath: '/tmp/encrypted.bin',
+              ),
+            ),
+          )
+          .named('encrypt-decrypt-upload');
 
       expect(chain.steps.length, equals(3));
     });
@@ -471,34 +485,38 @@ void main() {
             savePath: '/tmp/file1.txt',
           ),
         ),
-      ).thenAll([
-        TaskRequest(
-          id: 'download-2',
-          worker: HttpDownloadWorker(
-            url: 'https://example.com/file2.txt',
-            savePath: '/tmp/file2.txt',
-          ),
-        ),
-        TaskRequest(
-          id: 'download-3',
-          worker: HttpDownloadWorker(
-            url: 'https://example.com/file3.txt',
-            savePath: '/tmp/file3.txt',
-          ),
-        ),
-      ]).then(
-        TaskRequest(
-          id: 'compress',
-          worker: NativeWorker.fileCompress(
-            inputPath: '/tmp',
-            outputPath: '/tmp/archive.zip',
-            level: CompressionLevel.high,
-          ),
-        ),
-      ).named('multi-download-compress');
+      )
+          .thenAll([
+            TaskRequest(
+              id: 'download-2',
+              worker: HttpDownloadWorker(
+                url: 'https://example.com/file2.txt',
+                savePath: '/tmp/file2.txt',
+              ),
+            ),
+            TaskRequest(
+              id: 'download-3',
+              worker: HttpDownloadWorker(
+                url: 'https://example.com/file3.txt',
+                savePath: '/tmp/file3.txt',
+              ),
+            ),
+          ])
+          .then(
+            TaskRequest(
+              id: 'compress',
+              worker: NativeWorker.fileCompress(
+                inputPath: '/tmp',
+                outputPath: '/tmp/archive.zip',
+                level: CompressionLevel.high,
+              ),
+            ),
+          )
+          .named('multi-download-compress');
 
       expect(chain.steps.length, equals(3));
-      expect(chain.steps[1].length, equals(2)); // 2 parallel downloads in step 2
+      expect(
+          chain.steps[1].length, equals(2)); // 2 parallel downloads in step 2
     });
   });
 }

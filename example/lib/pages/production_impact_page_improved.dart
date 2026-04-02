@@ -163,7 +163,8 @@ class _ProductionImpactPageImprovedState
     ImpactMetric(
       type: MetricType.heavyIO,
       title: 'Heavy I/O Performance',
-      description: 'REAL ${BenchmarkConstants.downloadSizeKB} KB download benchmark',
+      description:
+          'REAL ${BenchmarkConstants.downloadSizeKB} KB download benchmark',
       explanation:
           'REAL MEASUREMENT: Downloads ${BenchmarkConstants.downloadSizeKB} KB using native OkHttp/URLSession. workmanager estimate based on typical Dart http + isolate overhead (~35% slower).',
       icon: Icons.speed_outlined,
@@ -329,7 +330,8 @@ class _ProductionImpactPageImprovedState
     try {
       // Get temporary directory for saving files
       final tempDir = await getTemporaryDirectory();
-      final savePath = '${tempDir.path}/benchmark_${DateTime.now().millisecondsSinceEpoch}.bin';
+      final savePath =
+          '${tempDir.path}/benchmark_${DateTime.now().millisecondsSinceEpoch}.bin';
 
       // Enqueue the download task
       // Note: iOS may delay execution on simulator
@@ -567,7 +569,9 @@ class _ProductionImpactPageImprovedState
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.onTertiaryContainer,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onTertiaryContainer,
                       ),
                     ),
                     if (result.isSimulated) ...[
@@ -578,7 +582,9 @@ class _ProductionImpactPageImprovedState
                         child: Icon(
                           Icons.science_outlined,
                           size: 14,
-                          color: Theme.of(context).colorScheme.onTertiaryContainer,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onTertiaryContainer,
                         ),
                       ),
                     ],

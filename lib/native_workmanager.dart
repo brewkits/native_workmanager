@@ -40,6 +40,8 @@ export 'src/events.dart';
 export 'src/native_work_manager.dart';
 export 'src/observability.dart';
 export 'src/offline_queue.dart';
+export 'src/middleware.dart';
+export 'src/remote_trigger.dart';
 export 'src/performance/performance_monitor.dart';
 export 'src/task_chain.dart';
 export 'src/task_graph.dart';

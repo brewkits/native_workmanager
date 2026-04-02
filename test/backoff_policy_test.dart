@@ -24,7 +24,8 @@ void main() {
   group('ContentUri Trigger Tests', () {
     test('ContentUriTrigger creates with required uri', () {
       final uri = Uri.parse('content://media/external/images/media');
-      final trigger = TaskTrigger.contentUri(uri: uri, triggerForDescendants: false);
+      final trigger =
+          TaskTrigger.contentUri(uri: uri, triggerForDescendants: false);
 
       expect(trigger, isA<ContentUriTrigger>());
       expect((trigger as ContentUriTrigger).uri, equals(uri));
@@ -76,14 +77,19 @@ void main() {
       final uri2 = Uri.parse('content://media/external/images/media');
       final uri3 = Uri.parse('content://media/external/video/media');
 
-      final trigger1 = TaskTrigger.contentUri(uri: uri1, triggerForDescendants: false);
-      final trigger2 = TaskTrigger.contentUri(uri: uri2, triggerForDescendants: false);
-      final trigger3 = TaskTrigger.contentUri(uri: uri3, triggerForDescendants: false);
-      final trigger4 = TaskTrigger.contentUri(uri: uri1, triggerForDescendants: true);
+      final trigger1 =
+          TaskTrigger.contentUri(uri: uri1, triggerForDescendants: false);
+      final trigger2 =
+          TaskTrigger.contentUri(uri: uri2, triggerForDescendants: false);
+      final trigger3 =
+          TaskTrigger.contentUri(uri: uri3, triggerForDescendants: false);
+      final trigger4 =
+          TaskTrigger.contentUri(uri: uri1, triggerForDescendants: true);
 
       expect(trigger1, equals(trigger2));
       expect(trigger1, isNot(equals(trigger3)));
-      expect(trigger1, isNot(equals(trigger4))); // Different triggerForDescendants
+      expect(
+          trigger1, isNot(equals(trigger4))); // Different triggerForDescendants
     });
 
     test('ContentUriTrigger handles various content URIs', () {
@@ -97,7 +103,8 @@ void main() {
 
       for (final uriString in testUris) {
         final uri = Uri.parse(uriString);
-        final trigger = TaskTrigger.contentUri(uri: uri, triggerForDescendants: false);
+        final trigger =
+            TaskTrigger.contentUri(uri: uri, triggerForDescendants: false);
 
         expect((trigger as ContentUriTrigger).uri, equals(uri));
         expect(trigger.toMap()['uriString'], equals(uriString));
@@ -164,7 +171,8 @@ void main() {
 
       final constraints = Constraints.fromMap(map);
 
-      expect(constraints.backoffPolicy, equals(BackoffPolicy.exponential)); // Default
+      expect(constraints.backoffPolicy,
+          equals(BackoffPolicy.exponential)); // Default
       expect(constraints.backoffDelayMs, equals(30000)); // Default
     });
 
@@ -176,7 +184,8 @@ void main() {
 
       final constraints = Constraints.fromMap(map);
 
-      expect(constraints.backoffPolicy, equals(BackoffPolicy.exponential)); // Fallback
+      expect(constraints.backoffPolicy,
+          equals(BackoffPolicy.exponential)); // Fallback
       expect(constraints.backoffDelayMs, equals(15000));
     });
 
@@ -257,9 +266,11 @@ void main() {
   group('Edge Cases & Validation Tests', () {
     test('ContentUriTrigger handles empty path URI', () {
       final uri = Uri.parse('content://media/external/images');
-      final trigger = TaskTrigger.contentUri(uri: uri, triggerForDescendants: false);
+      final trigger =
+          TaskTrigger.contentUri(uri: uri, triggerForDescendants: false);
 
-      expect((trigger as ContentUriTrigger).uri.toString(), equals(uri.toString()));
+      expect((trigger as ContentUriTrigger).uri.toString(),
+          equals(uri.toString()));
     });
 
     test('Constraints handles minimum backoffDelayMs', () {
@@ -355,7 +366,8 @@ void main() {
         final uri = Uri.parse(uriString);
         expect(uri.scheme, equals('content'));
 
-        final trigger = TaskTrigger.contentUri(uri: uri, triggerForDescendants: false);
+        final trigger =
+            TaskTrigger.contentUri(uri: uri, triggerForDescendants: false);
         expect((trigger as ContentUriTrigger).uri.scheme, equals('content'));
       }
     });
@@ -414,13 +426,16 @@ void main() {
           earliest: const Duration(hours: 1),
           latest: const Duration(hours: 2),
         ): 'windowed',
-        TaskTrigger.contentUri(uri: Uri.parse('content://test'), triggerForDescendants: false): 'contentUri',
+        TaskTrigger.contentUri(
+            uri: Uri.parse('content://test'),
+            triggerForDescendants: false): 'contentUri',
       };
 
       for (final entry in triggers.entries) {
         final map = entry.key.toMap();
         expect(map['type'], equals(entry.value),
-            reason: 'Trigger ${entry.key.runtimeType} should have type ${entry.value}');
+            reason:
+                'Trigger ${entry.key.runtimeType} should have type ${entry.value}');
       }
     });
   });

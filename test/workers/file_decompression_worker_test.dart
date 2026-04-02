@@ -48,7 +48,8 @@ void main() {
         );
 
         expect(worker, isA<FileDecompressionWorker>());
-        expect((worker as FileDecompressionWorker).zipPath, '/downloads/data.zip');
+        expect(
+            (worker as FileDecompressionWorker).zipPath, '/downloads/data.zip');
         expect(worker.targetDir, '/data');
       });
 
@@ -284,7 +285,8 @@ void main() {
         );
 
         final decompression = worker as FileDecompressionWorker;
-        expect(decompression.zipPath, '/downloads/file with spaces (copy 1).zip');
+        expect(
+            decompression.zipPath, '/downloads/file with spaces (copy 1).zip');
         expect(decompression.targetDir, '/data/extracted files');
       });
 
@@ -316,7 +318,8 @@ void main() {
           targetDir: '/x/y/z/extracted',
         );
 
-        expect((worker as FileDecompressionWorker).zipPath, '/a/b/c/d/e/f/archive.zip');
+        expect((worker as FileDecompressionWorker).zipPath,
+            '/a/b/c/d/e/f/archive.zip');
       });
     });
 

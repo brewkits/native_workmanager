@@ -1,5 +1,42 @@
+import 'dart:convert';
+import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
 import 'events.dart';
+import 'platform_interface.dart';
+
+/// Register the DevTools service extensions for native_workmanager.
+/// This allows the DevTools Extension to request real-time task metrics,
+/// queue sizes, and DAG states without needing continuous polling.
+@pragma('vm:entry-point')
+void registerDevToolsExtensions() {
+  if (!kDebugMode && !kProfileMode) return;
+  
+  developer.registerExtension('ext.native_workmanager.getMetrics',
+      (method, parameters) async {
+    try {
+      final metrics = await NativeWorkManagerPlatform.instance.getMetrics();
+      return developer.ServiceExtensionResponse.result(jsonEncode(metrics));
+    } catch (e) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.extensionError,
+        e.toString(),
+      );
+    }
+  });
+
+  developer.registerExtension('ext.native_workmanager.syncQueue',
+      (method, parameters) async {
+    try {
+      final success = await NativeWorkManagerPlatform.instance.syncOfflineQueue();
+      return developer.ServiceExtensionResponse.result(jsonEncode({'success': success}));
+    } catch (e) {
+      return developer.ServiceExtensionResponse.error(
+        developer.ServiceExtensionResponse.extensionError,
+        e.toString(),
+      );
+    }
+  });
+}
 
 /// Configuration for built-in observability hooks.
 ///
@@ -44,9 +81,9 @@ import 'events.dart';
 /// - All callbacks are invoked on the **main thread** (same as the events/progress streams).
 /// - Callbacks are **fire-and-forget** — exceptions inside them are caught and logged
 ///   to avoid disrupting the events stream.
-/// - `onTaskStart` fires on the **first progress update** for a task.  Workers that
-///   do not emit progress (e.g. quick HTTP requests) will not trigger `onTaskStart`,
-///   but will always trigger `onTaskComplete` or `onTaskFail`.
+/// - `onTaskStart` fires when the native worker **actually begins execution**, driven by
+///   a dedicated lifecycle event from the native side. It fires for **all** tasks —
+///   including fast workers that never emit a progress update.
 /// - `onTaskComplete` / `onTaskFail` are mutually exclusive for a given task.
 @immutable
 class ObservabilityConfig {
@@ -57,15 +94,16 @@ class ObservabilityConfig {
     this.onProgress,
   });
 
-  /// Called when the first progress update is received for [taskId].
+  /// Called when the native worker begins execution for [taskId].
   ///
-  /// [workerType] is the `workerType` field from the task config (e.g.
-  /// `'httpDownload'`, `'httpUpload'`, `'parallelHttpUpload'`), or an empty
-  /// string if the worker does not report a type.
+  /// [workerType] is the worker class name (e.g. `'HttpDownloadWorker'`,
+  /// `'HttpUploadWorker'`, `'DartCallbackWorker'`), or an empty string if
+  /// the native side does not report a type.
   ///
-  /// **Note:** Workers that emit no progress events (e.g. quick HTTP requests)
-  /// will not trigger this callback. Subscribe to [NativeWorkManager.events]
-  /// for guaranteed start/end signals on all tasks.
+  /// This callback fires reliably for **all** tasks — including fast workers
+  /// that never emit progress. It is driven by a native "started" lifecycle
+  /// event emitted when the worker actually begins execution, not by the first
+  /// progress update.
   final void Function(String taskId, String workerType)? onTaskStart;
 
   /// Called when a task completes successfully.
@@ -89,28 +127,27 @@ class ObservabilityDispatcher {
 
   final ObservabilityConfig _config;
 
-  /// Track which taskIds have already fired `onTaskStart`.
-  final _startedTasks = <String>{};
-
   /// Called by [NativeWorkManager] internals when a progress update arrives.
   void dispatchProgress(TaskProgress progress) {
-    // Fire onTaskStart on first progress for this task.
-    if (_config.onTaskStart != null &&
-        _startedTasks.add(progress.taskId)) {
-      _safeCall(
-        () => _config.onTaskStart!(progress.taskId, ''),
-        'onTaskStart',
-      );
-    }
     if (_config.onProgress != null) {
       _safeCall(() => _config.onProgress!(progress), 'onProgress');
     }
   }
 
   /// Called by [NativeWorkManager] internals when a task event arrives.
+  ///
+  /// Handles both lifecycle events ([TaskEvent.isStarted]) and completion
+  /// events (success / failure).
   void dispatchEvent(TaskEvent event) {
-    // Clean up start-tracking for finished tasks.
-    _startedTasks.remove(event.taskId);
+    if (event.isStarted) {
+      if (_config.onTaskStart != null) {
+        _safeCall(
+          () => _config.onTaskStart!(event.taskId, event.workerType ?? ''),
+          'onTaskStart',
+        );
+      }
+      return;
+    }
 
     if (event.success) {
       if (_config.onTaskComplete != null) {

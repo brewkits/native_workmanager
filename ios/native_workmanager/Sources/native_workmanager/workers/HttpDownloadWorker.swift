@@ -41,6 +41,15 @@ import ZIPFoundation
 class HttpDownloadWorker: IosWorker {
 
     // Timeout default lives in HttpConstants.downloadTimeoutMs
+    
+    private var currentDownloadTask: URLSessionDownloadTask?
+    private var isStopped: Bool = false
+
+    func stop() {
+        isStopped = true
+        currentDownloadTask?.cancel()
+        print("HttpDownloadWorker: Stop signal received, download cancelled.")
+    }
 
     struct Config: Codable {
         let url: String
@@ -303,6 +312,14 @@ class HttpDownloadWorker: IosWorker {
                 // Invalidate progress observer once the download finishes.
                 progressObserver?.invalidate()
                 progressObserver = nil
+                
+                // If stopped by expiration handler
+                if self.isStopped {
+                    try? FileManager.default.removeItem(at: tempURL)
+                    continuation.resume(returning: .failure(message: "Task stopped by OS expiration"))
+                    return
+                }
+                
                 // Handle errors
                 if let error = error {
                     print("HttpDownloadWorker: Error - \(error.localizedDescription)")
@@ -379,7 +396,9 @@ class HttpDownloadWorker: IosWorker {
                         ?? self.sanitizeFilename(httpResponse.url?.lastPathComponent ?? "download")
                     let name = resolvedName.isEmpty ? "download" : resolvedName
                     destinationURL = URL(fileURLWithPath: config.savePath + name)
-                    tempURL = URL(fileURLWithPath: config.savePath + name + ".tmp")
+                    // LOGIC-001: keep tempURL as the sentinel file in directory mode so that partial
+                    // download data is preserved across retries. Only destinationURL changes here;
+                    // the final rename moves tempURL (sentinel) → destinationURL (resolved name).
                     print("HttpDownloadWorker: Directory mode — resolved filename: \(name)")
 
                     // skipExisting check for directory mode (now we know actual path)
@@ -449,7 +468,7 @@ class HttpDownloadWorker: IosWorker {
                     if let expectedChecksum = config.expectedChecksum {
                         print("HttpDownloadWorker: Verifying checksum with \(config.effectiveChecksumAlgorithm)...")
 
-                        guard let actualChecksum = self.calculateChecksum(fileURL: tempURL, algorithm: config.effectiveChecksumAlgorithm) else {
+                        guard let actualChecksum = self.calculateChecksum(fileURL: tempURL, algorithm: config.effectiveChecksumAlgorithm, taskId: taskIdForProgress) else {
                             print("HttpDownloadWorker: Error - Failed to calculate checksum")
                             try? FileManager.default.removeItem(at: tempURL)
                             continuation.resume(returning: .failure(message: "Failed to calculate checksum"))
@@ -794,6 +813,9 @@ class HttpDownloadWorker: IosWorker {
     // MARK: - Post-download actions
 
     /// Resolve a free filename by appending _1, _2, … when `onDuplicate=rename`.
+    /// M-001 FIX: Capped at 10,000 iterations to prevent an unbounded loop on directories
+    /// that already contain thousands of similarly-named files.  Falls back to a timestamp
+    /// suffix so the download always completes.
     func resolveRenamedURL(_ url: URL) -> URL {
         guard FileManager.default.fileExists(atPath: url.path) else { return url }
         let dir = url.deletingLastPathComponent()
@@ -805,7 +827,12 @@ class HttpDownloadWorker: IosWorker {
             let newName = ext.isEmpty ? "\(base)_\(index)" : "\(base)_\(index).\(ext)"
             candidate = dir.appendingPathComponent(newName)
             index += 1
-        } while FileManager.default.fileExists(atPath: candidate.path)
+        } while FileManager.default.fileExists(atPath: candidate.path) && index <= 10_000
+        if FileManager.default.fileExists(atPath: candidate.path) {
+            let ts = Int64(Date().timeIntervalSince1970 * 1000)
+            let fallbackName = ext.isEmpty ? "\(base)_\(ts)" : "\(base)_\(ts).\(ext)"
+            candidate = dir.appendingPathComponent(fallbackName)
+        }
         return candidate
     }
 
@@ -895,18 +922,35 @@ class HttpDownloadWorker: IosWorker {
     /// - Parameters:
     ///   - fileURL: URL of the file to calculate checksum for
     ///   - algorithm: Hash algorithm (MD5, SHA-1, SHA-256, SHA-512)
+    ///   - taskId: Task ID for progress reporting
     /// - Returns: Hexadecimal checksum string, or nil if algorithm is unsupported
-    private func calculateChecksum(fileURL: URL, algorithm: String) -> String? {
+    private func calculateChecksum(fileURL: URL, algorithm: String, taskId: String?) -> String? {
         guard let fileHandle = try? FileHandle(forReadingFrom: fileURL) else {
             return nil
         }
         defer { try? fileHandle.close() }
 
-        let bufferSize = 8192
+        let bufferSize = 1024 * 1024 // 1MB buffer
         let algorithmUpper = algorithm.uppercased()
+        
+        let totalSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path))?[.size] as? Int64 ?? 0
+        var readSoFar: Int64 = 0
 
         // Use CryptoKit for hashing
         if #available(iOS 13.0, *) {
+            // Internal helper to update progress
+            let reportProgress: (Int) -> Void = { pct in
+                if let tid = taskId, totalSize > 10 * 1024 * 1024 {
+                    ProgressReporter.shared.report(
+                        taskId: tid,
+                        progress: pct,
+                        message: "Verifying checksum (\(pct)%)…",
+                        bytesDownloaded: readSoFar,
+                        totalBytes: totalSize
+                    )
+                }
+            }
+
             switch algorithmUpper {
             case "MD5":
                 var hasher = Insecure.MD5()
@@ -914,6 +958,8 @@ class HttpDownloadWorker: IosWorker {
                     let data = fileHandle.readData(ofLength: bufferSize)
                     if data.isEmpty { return false }
                     hasher.update(data: data)
+                    readSoFar += Int64(data.count)
+                    reportProgress(Int(readSoFar * 100 / totalSize))
                     return true
                 }) {}
                 let digest = hasher.finalize()
@@ -925,6 +971,8 @@ class HttpDownloadWorker: IosWorker {
                     let data = fileHandle.readData(ofLength: bufferSize)
                     if data.isEmpty { return false }
                     hasher.update(data: data)
+                    readSoFar += Int64(data.count)
+                    reportProgress(Int(readSoFar * 100 / totalSize))
                     return true
                 }) {}
                 let digest = hasher.finalize()
@@ -936,6 +984,8 @@ class HttpDownloadWorker: IosWorker {
                     let data = fileHandle.readData(ofLength: bufferSize)
                     if data.isEmpty { return false }
                     hasher.update(data: data)
+                    readSoFar += Int64(data.count)
+                    reportProgress(Int(readSoFar * 100 / totalSize))
                     return true
                 }) {}
                 let digest = hasher.finalize()
@@ -947,6 +997,8 @@ class HttpDownloadWorker: IosWorker {
                     let data = fileHandle.readData(ofLength: bufferSize)
                     if data.isEmpty { return false }
                     hasher.update(data: data)
+                    readSoFar += Int64(data.count)
+                    reportProgress(Int(readSoFar * 100 / totalSize))
                     return true
                 }) {}
                 let digest = hasher.finalize()
@@ -987,7 +1039,10 @@ class HttpDownloadWorker: IosWorker {
                 name = String(name[name.index(after: eqIdx)...])
                     .trimmingCharacters(in: .init(charactersIn: "\" "))
             }
-            let sanitized = sanitizeFilename(name)
+            // CROSS-002: percent-decode the plain filename= value (e.g. "hello%20world.pdf" → "hello world.pdf")
+            // to match Android's URLDecoder.decode() behaviour.
+            let decoded = name.removingPercentEncoding ?? name
+            let sanitized = sanitizeFilename(decoded)
             return sanitized.isEmpty ? nil : sanitized
         }
         return nil

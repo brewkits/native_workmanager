@@ -5,16 +5,14 @@ import android.content.Context
 import androidx.core.app.NotificationCompat
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import dev.brewkits.kmpworkmanager.background.data.TaskEventBus
+import dev.brewkits.native_workmanager.engine.TaskEventBus
 import dev.brewkits.native_workmanager.notification.DownloadNotificationManager
 import dev.brewkits.native_workmanager.workers.utils.ProgressReporter
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.takeWhile
+import android.util.Log
 
 // ── EventChannel: progress subscriptions, task-event subscriptions,
 // ── work completion observation, and error-code derivation.
@@ -83,14 +81,14 @@ internal fun NativeWorkmanagerPlugin.subscribeToTaskEvents() {
                             }
                         }
 
-                        val notification = NotificationCompat.Builder(context, DEBUG_NOTIFICATION_CHANNEL_ID)
+                        val notification = NotificationCompat.Builder(context, NativeWorkmanagerPlugin.DEBUG_NOTIFICATION_CHANNEL_ID)
                             .setSmallIcon(android.R.drawable.ic_dialog_info)
                             .setContentTitle(title)
                             .setContentText(text)
                             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
                             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                             .setAutoCancel(true)
-                            .setTimeoutAfter(DEBUG_NOTIFICATION_TIMEOUT_MS)
+                            .setTimeoutAfter(NativeWorkmanagerPlugin.DEBUG_NOTIFICATION_TIMEOUT_MS)
                             .build()
 
                         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -100,21 +98,32 @@ internal fun NativeWorkmanagerPlugin.subscribeToTaskEvents() {
                     }
                 }
 
-                // Update in-memory status
-                taskStatuses[event.taskName] = if (event.success) "completed" else "failed"
+                val terminalStatus = if (event.success) "completed" else "failed"
 
-                // Persist status change to SQLite store (IO dispatcher — SQLite must not run on Main)
+                // BRIDGE-010 FIX: Persist to SQLite BEFORE updating in-memory.
+                // If the process dies between the two, SQLite is the durable record —
+                // on restart, Dart sees "pending" (the old value) and can decide to re-enqueue
+                // rather than silently believing the task completed.
                 val resultJson = event.outputData?.let { toJson(it) }
                 withContext(Dispatchers.IO) {
                     taskStore.updateStatus(
                         taskId = event.taskName,
-                        status = if (event.success) "completed" else "failed",
+                        status = terminalStatus,
                         resultData = resultJson
                     )
                 }
 
+                // Update in-memory status AFTER durable SQLite write.
+                // taskBusSignals.complete() below is called after this, so observeWorkCompletion
+                // always sees taskStatuses[taskId] == terminalStatus when it wakes up.
+                taskStatuses[event.taskName] = terminalStatus
+
                 // Show download completion/failure notification if enabled for this task
                 val notifTitle = taskNotifTitles.remove(event.taskName)
+                taskFilenames.remove(event.taskName)
+                taskAllowPause.remove(event.taskName)
+                taskStartTimes.remove(event.taskName)
+
                 if (notifTitle != null) {
                     if (event.success) {
                         DownloadNotificationManager.showCompleted(
@@ -134,16 +143,11 @@ internal fun NativeWorkmanagerPlugin.subscribeToTaskEvents() {
                 }
 
                 // Signal any observeWorkCompletion waiter so it can skip the fallback path.
-                // computeIfAbsent is atomic: creates a new deferred only if absent, then
-                // completes it. If observeWorkCompletion created the deferred first it gets
-                // resolved here; if TaskEventBus fires first the deferred is pre-completed
-                // and observeWorkCompletion's await() returns immediately.
-                taskBusSignals.computeIfAbsent(event.taskName) { CompletableDeferred() }
-                    .complete(Unit)
+                taskBusSignals.remove(event.taskName)?.complete(Unit)
 
                 // Always emit event to Dart (v2.3.1+: includes outputData)
                 val eventMap = mutableMapOf<String, Any?>(
-                    "taskId" to event.taskName,  // Map taskName to taskId for Dart compatibility
+                    "taskId" to event.taskName,
                     "success" to event.success,
                     "message" to event.message,
                     "resultData" to event.outputData,
@@ -151,6 +155,9 @@ internal fun NativeWorkmanagerPlugin.subscribeToTaskEvents() {
                 )
                 if (!event.success) eventMap["errorCode"] = deriveErrorCode(event.message)
                 eventSink?.success(eventMap)
+
+                // Final cleanup of the terminal status after emission
+                taskStatuses.remove(event.taskName)
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e  // Re-throw so coroutine cancellation propagates normally
@@ -166,7 +173,7 @@ internal fun NativeWorkmanagerPlugin.observeChainStepCompletion(taskId: String, 
             val workManager = WorkManager.getInstance(context)
             workManager.getWorkInfosByTagFlow(taskId)
                 .collect { infos ->
-                    val workInfo = infos.firstOrNull { it.state in TERMINAL_STATES }
+                    val workInfo = infos.firstOrNull { it.state in NativeWorkmanagerPlugin.TERMINAL_STATES }
                         ?: return@collect
                     if (taskStatuses[taskId] == "completed" || taskStatuses[taskId] == "failed") return@collect
 
@@ -257,21 +264,26 @@ internal fun NativeWorkmanagerPlugin.observeWorkCompletion(taskId: String, isPer
 
                         when (state) {
                             WorkInfo.State.RUNNING -> {
-                                // Task started a new execution cycle
+                                // Task started a new execution cycle — emit lifecycle event
                                 taskStatuses[taskId] = "running"
+                                eventSink?.success(mapOf(
+                                    "taskId" to taskId,
+                                    "isStarted" to true,
+                                    "workerType" to "",
+                                    "timestamp" to System.currentTimeMillis()
+                                ))
                             }
                             WorkInfo.State.ENQUEUED -> {
-                                // RUNNING → ENQUEUED: one execution cycle just completed.
-                                // Any other → ENQUEUED is the initial schedule or re-queue after failure.
                                 if (previousState == WorkInfo.State.RUNNING) {
+                                    // BRIDGE-003 FIX: Do NOT emit success here. WorkInfo.State
+                                    // transitions RUNNING→ENQUEUED regardless of whether the worker
+                                    // returned Success or Failure (WorkManager retries periodic tasks).
+                                    // Emitting success here would falsely report success when the
+                                    // worker actually failed. TaskEventBus (subscribeToTaskEvents)
+                                    // is the authoritative source for per-cycle results — it already
+                                    // emits the correct success/failure event from the worker's output.
                                     taskStatuses[taskId] = "pending"
-                                    NativeLogger.d("✅ Periodic task cycle completed: $taskId")
-                                    eventSink?.success(mapOf(
-                                        "taskId" to taskId,
-                                        "success" to true,
-                                        "message" to "Task completed",
-                                        "timestamp" to System.currentTimeMillis()
-                                    ))
+                                    NativeLogger.d("Periodic task cycle: RUNNING→ENQUEUED for $taskId (result from TaskEventBus)")
                                 } else {
                                     // Initial enqueue or re-enqueue after backoff
                                     if (taskStatuses[taskId] == "running") taskStatuses[taskId] = "pending"
@@ -299,14 +311,41 @@ internal fun NativeWorkmanagerPlugin.observeWorkCompletion(taskId: String, isPer
                 taskStatuses[taskId] = "cancelled"
                 NativeLogger.d("⚠️ Periodic task cancelled: $taskId")
             } else {
-                // One-time task: observe until terminal state.
+                // One-time task: emit "started" lifecycle event when RUNNING is detected,
+                // then observe until terminal state.
+                // The started watcher runs concurrently and stops as soon as the task
+                // reaches any terminal state (including RUNNING→terminal in one step).
+                scope.launch {
+                    try {
+                        workManager.getWorkInfosForUniqueWorkFlow(taskId)
+                            .takeWhile { infos ->
+                                infos.isEmpty() || infos.first().state !in NativeWorkmanagerPlugin.TERMINAL_STATES
+                            }
+                            .collect { infos ->
+                                if (infos.firstOrNull()?.state == WorkInfo.State.RUNNING &&
+                                    taskStatuses[taskId] != "running") {
+                                    taskStatuses[taskId] = "running"
+                                    eventSink?.success(mapOf(
+                                        "taskId" to taskId,
+                                        "isStarted" to true,
+                                        "workerType" to "",
+                                        "timestamp" to System.currentTimeMillis()
+                                    ))
+                                }
+                            }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        NativeLogger.e("Error watching start state for $taskId", e)
+                    }
+                }
                 // With ExistingWorkPolicy.REPLACE, WorkManager briefly emits CANCELLED
                 // for the old task before ENQUEUED appears for the new task.
                 // We retry once if CANCELLED is immediately followed by a new task.
                 var retries = 0
                 while (retries <= 1) {
                     val terminalInfos = workManager.getWorkInfosForUniqueWorkFlow(taskId).first { infos ->
-                        infos.isNotEmpty() && infos.first().state in TERMINAL_STATES
+                        infos.isNotEmpty() && infos.first().state in NativeWorkmanagerPlugin.TERMINAL_STATES
                     }
                     val workInfo = terminalInfos.first()
                     val state = workInfo.state
@@ -361,7 +400,7 @@ internal fun NativeWorkmanagerPlugin.observeWorkCompletion(taskId: String, isPer
                             kotlinx.coroutines.delay(500L)
                             val recheck = workManager.getWorkInfosForUniqueWorkFlow(taskId).first()
                             if (retries == 0 && recheck.isNotEmpty() &&
-                                recheck.first().state !in TERMINAL_STATES) {
+                                recheck.first().state !in NativeWorkmanagerPlugin.TERMINAL_STATES) {
                                 // New task is alive — this was a REPLACE cancellation, retry.
                                 NativeLogger.d("🔄 REPLACE detected, retrying observation: $taskId")
                                 retries++
@@ -416,8 +455,3 @@ internal fun NativeWorkmanagerPlugin.deriveErrorCode(message: String?): String {
     }
 }
 
-/**
- * Parse kmpworkmanager [Constraints] from the Flutter method channel map.
- * Every field sent by Dart's [Constraints.toMap()] is honoured here.
- */
-@Suppress("UNCHECKED_CAST")

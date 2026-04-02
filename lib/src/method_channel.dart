@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'constraints.dart';
 import 'events.dart';
 import 'platform_interface.dart';
+import 'remote_trigger.dart';
 import 'task_trigger.dart';
 import 'worker.dart';
 
@@ -43,6 +44,9 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
 
   Future<bool> Function(String, Map<String, dynamic>?)? _callbackExecutor;
 
+  /// Session start time (ms). Used to drop stale events from previous app runs.
+  int _sessionStartTime = 0;
+
   @override
   Future<void> initialize({
     int? callbackHandle,
@@ -55,6 +59,9 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   }) async {
     // Setup method call handler for Dart callbacks
     methodChannel.setMethodCallHandler(_handleMethodCall);
+
+    // Record session start time to filter out "zombie" events from previous runs.
+    _sessionStartTime = DateTime.now().millisecondsSinceEpoch;
 
     // Initialize event streams
     _initEventStreams();
@@ -73,6 +80,13 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   }
 
   void _initEventStreams() {
+    // FIX: Cancel existing subscriptions and close old controllers before re-initializing.
+    // This prevents memory leaks and duplicate event emissions during hot restarts.
+    _eventSubscription?.cancel();
+    _progressSubscription?.cancel();
+    _eventController?.close();
+    _progressController?.close();
+
     // Clear stale terminal-state entries from any previous session so that
     // re-initialisation (hot restart, engine re-attach) starts clean.
     _completedTaskIds.clear();
@@ -84,11 +98,16 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
         eventChannel.receiveBroadcastStream().listen((dynamic event) {
       if (event is Map) {
         final map = Map<String, dynamic>.from(event);
+
+        // Drop stale zombie events from previous sessions (pre-hot-restart).
+        final timestamp = map['timestamp'] as int? ?? 0;
+        if (timestamp < _sessionStartTime) return;
+
         final taskEvent = TaskEvent.fromMap(map);
-        // Any TaskEvent (success or failure) is a terminal event for this
-        // execution. Track the taskId so stale progress events that arrive
-        // afterward (due to bridge queueing) are silently dropped below.
-        _completedTaskIds.add(taskEvent.taskId);
+        // Only terminal events (success/failure) block future progress events.
+        if (!taskEvent.isStarted) {
+          _completedTaskIds.add(taskEvent.taskId);
+        }
         _eventController?.add(taskEvent);
       }
     }, onError: (error) {
@@ -99,8 +118,12 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
         progressChannel.receiveBroadcastStream().listen((dynamic event) {
       if (event is Map) {
         final map = Map<String, dynamic>.from(event);
+
+        // Drop stale progress events (stale session or already completed).
+        final timestamp = map['timestamp'] as int? ?? 0;
+        if (timestamp < _sessionStartTime) return;
+
         final taskProgress = TaskProgress.fromMap(map);
-        // Drop stale progress events for already-completed tasks.
         if (_completedTaskIds.contains(taskProgress.taskId)) return;
         _progressController?.add(taskProgress);
       }
@@ -178,13 +201,15 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
 
   @override
   Future<List<String>> getTasksByTag({required String tag}) async {
-    final result = await methodChannel.invokeMethod<List<dynamic>>('getTasksByTag', {'tag': tag});
+    final result = await methodChannel
+        .invokeMethod<List<dynamic>>('getTasksByTag', {'tag': tag});
     return result?.cast<String>() ?? [];
   }
 
   @override
   Future<List<String>> getAllTags() async {
-    final result = await methodChannel.invokeMethod<List<dynamic>>('getAllTags');
+    final result =
+        await methodChannel.invokeMethod<List<dynamic>>('getAllTags');
     return result?.cast<String>() ?? [];
   }
 
@@ -244,8 +269,7 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
 
   @override
   Future<List<TaskRecord>> allTasks() async {
-    final result =
-        await methodChannel.invokeMethod<List<dynamic>>('allTasks');
+    final result = await methodChannel.invokeMethod<List<dynamic>>('allTasks');
     if (result == null) return [];
     return result
         .map((e) => TaskRecord.fromMap(Map<String, dynamic>.from(e as Map)))
@@ -291,7 +315,54 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
 
   @override
   Future<void> setMaxConcurrentPerHost(int max) async {
-    await methodChannel.invokeMethod<void>('setMaxConcurrentPerHost', {'max': max});
+    await methodChannel
+        .invokeMethod<void>('setMaxConcurrentPerHost', {'max': max});
+  }
+
+  @override
+  Future<void> registerRemoteTrigger({
+    required RemoteTriggerSource source,
+    required RemoteTriggerRule rule,
+  }) async {
+    await methodChannel.invokeMethod<void>('registerRemoteTrigger', {
+      'source': source.name,
+      'rule': rule.toMap(),
+    });
+  }
+
+  @override
+  Future<String> enqueueGraph(Map<String, dynamic> graphMap) async {
+    return await methodChannel.invokeMethod<String>('enqueueGraph', {
+          'graph': graphMap,
+        }) ??
+        'ACCEPTED';
+  }
+
+  @override
+  Future<void> offlineQueueEnqueue(
+      String queueId, Map<String, dynamic> entryMap) async {
+    await methodChannel.invokeMethod<void>('offlineQueueEnqueue', {
+      'queueId': queueId,
+      'entry': entryMap,
+    });
+  }
+
+  @override
+  Future<void> registerMiddleware(Map<String, dynamic> middlewareMap) async {
+    await methodChannel.invokeMethod<void>('registerMiddleware', middlewareMap);
+  }
+
+  @override
+  Future<Map<String, dynamic>> getMetrics() async {
+    final result = await methodChannel.invokeMethod<Map<dynamic, dynamic>>('getMetrics');
+    if (result == null) return {};
+    return result.map((key, value) => MapEntry(key.toString(), value));
+  }
+
+  @override
+  Future<bool> syncOfflineQueue() async {
+    final result = await methodChannel.invokeMethod<bool>('syncOfflineQueue');
+    return result ?? false;
   }
 
   /// Dispose resources.

@@ -10,6 +10,30 @@ extension NativeWorkmanagerPlugin {
 
     // MARK: - Event Emission
 
+    /// Emit a "started" lifecycle event when a worker begins execution.
+    ///
+    /// Called from `executeWorkerSync` before the first attempt so that
+    /// `ObservabilityConfig.onTaskStart` fires reliably for all tasks —
+    /// including fast workers that never emit a progress update.
+    func emitTaskStarted(taskId: String, workerType: String) {
+        stateQueue.async(flags: .barrier) {
+            self.taskStates[taskId] = "running"
+            self.taskStartTimes[taskId] = Date()
+        }
+        if #available(iOS 13.0, *) {
+            taskStore?.updateStatus(taskId: taskId, status: "running", resultData: nil)
+        }
+        let event: [String: Any] = [
+            "taskId": taskId,
+            "isStarted": true,
+            "workerType": workerType,
+            "timestamp": Int(Date().timeIntervalSince1970 * 1000)
+        ]
+        DispatchQueue.main.async {
+            self.eventSink?(event)
+        }
+    }
+
     func emitTaskEvent(taskId: String, success: Bool, message: String?, resultData: [String: Any]? = nil) {
         // Update task state
         stateQueue.async(flags: .barrier) {

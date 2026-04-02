@@ -369,6 +369,11 @@ class HttpUploadWorker : AndroidWorker {
      * Handle raw body upload (string or bytes).
      */
     private suspend fun handleRawBodyUpload(config: Config, taskId: String?): WorkerResult = withContext(Dispatchers.IO) {
+        // LOGIC-003: additionalFields are ignored in raw body mode — warn so callers aren't surprised.
+        if (!config.fields.isNullOrEmpty()) {
+            Log.w(TAG, "additionalFields are silently ignored in raw body mode. " +
+                "Use multipart/form-data (filePath/files) if you need form fields.")
+        }
         // Validate content type is provided
         if (config.contentType.isNullOrEmpty()) {
             Log.e(TAG, "Error - contentType is required for raw body upload")

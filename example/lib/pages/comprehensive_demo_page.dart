@@ -327,14 +327,20 @@ NativeWorker.fileCompress(
 )''',
           onRun: () async {
             // Setup paths
-            final inputDir = Directory('${Directory.systemTemp.path}/documents');
+            final inputDir = Directory(
+              '${Directory.systemTemp.path}/documents',
+            );
             final outputPath = '${Directory.systemTemp.path}/backup.zip';
 
             // Create dummy input content
             if (!await inputDir.exists()) {
               await inputDir.create(recursive: true);
-              await File('${inputDir.path}/doc1.txt').writeAsString('Content 1');
-              await File('${inputDir.path}/doc2.txt').writeAsString('Content 2');
+              await File(
+                '${inputDir.path}/doc1.txt',
+              ).writeAsString('Content 1');
+              await File(
+                '${inputDir.path}/doc2.txt',
+              ).writeAsString('Content 2');
             }
 
             await NativeWorkManager.enqueue(
@@ -396,7 +402,8 @@ NativeWorker.fileCopy(
 )''',
           onRun: () async {
             final sourcePath = '${Directory.systemTemp.path}/file.txt';
-            final destinationPath = '${Directory.systemTemp.path}/backup/file.txt';
+            final destinationPath =
+                '${Directory.systemTemp.path}/backup/file.txt';
 
             // Create dummy source file
             final file = File(sourcePath);
@@ -405,7 +412,9 @@ NativeWorker.fileCopy(
             }
 
             // Ensure destination dir
-            await Directory('${Directory.systemTemp.path}/backup').create(recursive: true);
+            await Directory(
+              '${Directory.systemTemp.path}/backup',
+            ).create(recursive: true);
 
             await NativeWorkManager.enqueue(
               taskId: 'comprehensive-file-copy',
@@ -432,7 +441,8 @@ NativeWorker.fileMove(
 )''',
           onRun: () async {
             final sourcePath = '${Directory.systemTemp.path}/move_me.txt';
-            final destinationPath = '${Directory.systemTemp.path}/moved/move_me.txt';
+            final destinationPath =
+                '${Directory.systemTemp.path}/moved/move_me.txt';
 
             // Create dummy source file
             final file = File(sourcePath);
@@ -472,10 +482,7 @@ NativeWorker.fileDelete(
             await NativeWorkManager.enqueue(
               taskId: 'comprehensive-file-delete',
               trigger: TaskTrigger.oneTime(),
-              worker: NativeWorker.fileDelete(
-                path: path,
-                recursive: true,
-              ),
+              worker: NativeWorker.fileDelete(path: path, recursive: true),
             );
             onResult('🗑️ File Delete scheduled');
           },
@@ -530,10 +537,7 @@ NativeWorker.fileMkdir(
             await NativeWorkManager.enqueue(
               taskId: 'comprehensive-file-mkdir',
               trigger: TaskTrigger.oneTime(),
-              worker: NativeWorker.fileMkdir(
-                path: path,
-                createParents: true,
-              ),
+              worker: NativeWorker.fileMkdir(path: path, createParents: true),
             );
             onResult('📂 Directory Creation scheduled');
           },
@@ -635,7 +639,8 @@ NativeWorker.imageProcess(
 )''',
           onRun: () async {
             final inputPath = '${Directory.systemTemp.path}/photo.jpg';
-            final outputPath = '${Directory.systemTemp.path}/photo_compressed.jpg';
+            final outputPath =
+                '${Directory.systemTemp.path}/photo_compressed.jpg';
 
             // Create dummy image
             final file = File(inputPath);
@@ -908,7 +913,8 @@ NativeWorker.cryptoDecrypt(
 )''',
           onRun: () async {
             final inputPath = '${Directory.systemTemp.path}/secret.encrypted';
-            final outputPath = '${Directory.systemTemp.path}/secret_decrypted.txt';
+            final outputPath =
+                '${Directory.systemTemp.path}/secret_decrypted.txt';
 
             // Create input file (dummy)
             final file = File(inputPath);
@@ -962,36 +968,37 @@ NativeWorkManager.beginWith(
   TaskRequest(id: 'upload', worker: ...),
 ).enqueue()''',
           onRun: () async {
-            final downloadPath = '${Directory.systemTemp.path}/chain_download.bin';
+            final downloadPath =
+                '${Directory.systemTemp.path}/chain_download.bin';
 
             await NativeWorkManager.beginWith(
-              TaskRequest(
-                id: 'comprehensive-chain-download',
-                worker: NativeWorker.httpDownload(
-                  url: 'https://httpbin.org/bytes/10240',
-                  savePath: downloadPath,
-                ),
-              ),
-            )
+                  TaskRequest(
+                    id: 'comprehensive-chain-download',
+                    worker: NativeWorker.httpDownload(
+                      url: 'https://httpbin.org/bytes/10240',
+                      savePath: downloadPath,
+                    ),
+                  ),
+                )
                 .then(
-              TaskRequest(
-                id: 'comprehensive-chain-hash',
-                worker: NativeWorker.hashFile(
-                  filePath: downloadPath,
-                  algorithm: HashAlgorithm.sha256,
-                ),
-              ),
-            )
+                  TaskRequest(
+                    id: 'comprehensive-chain-hash',
+                    worker: NativeWorker.hashFile(
+                      filePath: downloadPath,
+                      algorithm: HashAlgorithm.sha256,
+                    ),
+                  ),
+                )
                 .then(
-              TaskRequest(
-                id: 'comprehensive-chain-upload',
-                worker: NativeWorker.httpUpload(
-                  url: 'https://httpbin.org/post',
-                  filePath: downloadPath,
-                  fileFieldName: 'file',
-                ),
-              ),
-            )
+                  TaskRequest(
+                    id: 'comprehensive-chain-upload',
+                    worker: NativeWorker.httpUpload(
+                      url: 'https://httpbin.org/post',
+                      filePath: downloadPath,
+                      fileFieldName: 'file',
+                    ),
+                  ),
+                )
                 .enqueue();
             onResult('⛓️ Sequential Chain started (Download → Hash → Upload)');
           },
@@ -1013,31 +1020,31 @@ NativeWorkManager.beginWith(
 ).enqueue()''',
           onRun: () async {
             await NativeWorkManager.beginWith(
-              TaskRequest(
-                id: 'comprehensive-parallel-fetch',
-                worker: DartWorker(callbackId: 'customTask'),
-              ),
-            )
+                  TaskRequest(
+                    id: 'comprehensive-parallel-fetch',
+                    worker: DartWorker(callbackId: 'customTask'),
+                  ),
+                )
                 .thenAll([
-              TaskRequest(
-                id: 'comprehensive-parallel-process-1',
-                worker: DartWorker(callbackId: 'customTask'),
-              ),
-              TaskRequest(
-                id: 'comprehensive-parallel-process-2',
-                worker: DartWorker(callbackId: 'customTask'),
-              ),
-              TaskRequest(
-                id: 'comprehensive-parallel-process-3',
-                worker: DartWorker(callbackId: 'customTask'),
-              ),
-            ])
+                  TaskRequest(
+                    id: 'comprehensive-parallel-process-1',
+                    worker: DartWorker(callbackId: 'customTask'),
+                  ),
+                  TaskRequest(
+                    id: 'comprehensive-parallel-process-2',
+                    worker: DartWorker(callbackId: 'customTask'),
+                  ),
+                  TaskRequest(
+                    id: 'comprehensive-parallel-process-3',
+                    worker: DartWorker(callbackId: 'customTask'),
+                  ),
+                ])
                 .then(
-              TaskRequest(
-                id: 'comprehensive-parallel-merge',
-                worker: DartWorker(callbackId: 'customTask'),
-              ),
-            )
+                  TaskRequest(
+                    id: 'comprehensive-parallel-merge',
+                    worker: DartWorker(callbackId: 'customTask'),
+                  ),
+                )
                 .enqueue();
             onResult('⚡ Parallel Chain started (3 parallel tasks)');
           },
@@ -1046,7 +1053,7 @@ NativeWorkManager.beginWith(
         _DemoCard(
           title: '3. Complete Native Chain',
           description:
-          'Download → Move → Hash → Compress → Upload (all native!)',
+              'Download → Move → Hash → Compress → Upload (all native!)',
           icon: Icons.all_inclusive,
           code: '''
 // 100% Native - Zero Flutter Engine!
@@ -1057,8 +1064,10 @@ beginWith(download)
   .then(upload)
   .enqueue()''',
           onRun: () async {
-            final downloadPath = '${Directory.systemTemp.path}/native_chain.bin';
-            final processingPath = '${Directory.systemTemp.path}/processing/native_chain.bin';
+            final downloadPath =
+                '${Directory.systemTemp.path}/native_chain.bin';
+            final processingPath =
+                '${Directory.systemTemp.path}/processing/native_chain.bin';
             final archivePath = '${Directory.systemTemp.path}/archive.zip';
             final processingDir = '${Directory.systemTemp.path}/processing';
 
@@ -1066,62 +1075,62 @@ beginWith(download)
             await Directory(processingDir).create(recursive: true);
 
             await NativeWorkManager.beginWith(
-              TaskRequest(
-                id: 'comprehensive-native-download',
-                worker: NativeWorker.httpDownload(
-                  url: 'https://httpbin.org/bytes/51200',
-                  savePath: downloadPath,
-                ),
-              ),
-            )
+                  TaskRequest(
+                    id: 'comprehensive-native-download',
+                    worker: NativeWorker.httpDownload(
+                      url: 'https://httpbin.org/bytes/51200',
+                      savePath: downloadPath,
+                    ),
+                  ),
+                )
                 .then(
-              TaskRequest(
-                id: 'comprehensive-native-move',
-                worker: NativeWorker.fileMove(
-                  sourcePath: downloadPath,
-                  destinationPath: processingPath,
-                  overwrite: true,
-                ),
-              ),
-            )
+                  TaskRequest(
+                    id: 'comprehensive-native-move',
+                    worker: NativeWorker.fileMove(
+                      sourcePath: downloadPath,
+                      destinationPath: processingPath,
+                      overwrite: true,
+                    ),
+                  ),
+                )
                 .then(
-              TaskRequest(
-                id: 'comprehensive-native-hash',
-                worker: NativeWorker.hashFile(
-                  filePath: processingPath,
-                  algorithm: HashAlgorithm.sha256,
-                ),
-              ),
-            )
+                  TaskRequest(
+                    id: 'comprehensive-native-hash',
+                    worker: NativeWorker.hashFile(
+                      filePath: processingPath,
+                      algorithm: HashAlgorithm.sha256,
+                    ),
+                  ),
+                )
                 .then(
-              TaskRequest(
-                id: 'comprehensive-native-compress',
-                worker: NativeWorker.fileCompress(
-                  inputPath: processingPath,
-                  outputPath: archivePath,
-                  level: CompressionLevel.medium,
-                ),
-              ),
-            )
+                  TaskRequest(
+                    id: 'comprehensive-native-compress',
+                    worker: NativeWorker.fileCompress(
+                      inputPath: processingPath,
+                      outputPath: archivePath,
+                      level: CompressionLevel.medium,
+                    ),
+                  ),
+                )
                 .then(
-              TaskRequest(
-                id: 'comprehensive-native-upload',
-                worker: NativeWorker.httpUpload(
-                  url: 'https://httpbin.org/post',
-                  filePath: archivePath,
-                  fileFieldName: 'file',
-                ),
-              ),
-            )
+                  TaskRequest(
+                    id: 'comprehensive-native-upload',
+                    worker: NativeWorker.httpUpload(
+                      url: 'https://httpbin.org/post',
+                      filePath: archivePath,
+                      fileFieldName: 'file',
+                    ),
+                  ),
+                )
                 .then(
-              TaskRequest(
-                id: 'comprehensive-native-cleanup',
-                worker: NativeWorker.fileDelete(
-                  path: processingDir,
-                  recursive: true,
-                ),
-              ),
-            )
+                  TaskRequest(
+                    id: 'comprehensive-native-cleanup',
+                    worker: NativeWorker.fileDelete(
+                      path: processingDir,
+                      recursive: true,
+                    ),
+                  ),
+                )
                 .enqueue();
             onResult('🚀 Complete Native Chain (6 steps, 0MB RAM!)');
           },
@@ -1216,7 +1225,7 @@ class _CustomWorkersTab extends StatelessWidget {
     0x54, 0x78, 0xDA, 0x63, 0xF8, 0xCF, 0xC0, 0x00, // zlib data
     0x00, 0x03, 0x01, 0x01, 0x00, 0xF7, 0x03, 0x41, // Adler-32 + CRC
     0x43, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, // IEND
-    0x44, 0xAE, 0x42, 0x60, 0x82,                   // IEND CRC
+    0x44, 0xAE, 0x42, 0x60, 0x82, // IEND CRC
   ];
 
   @override
@@ -1250,7 +1259,8 @@ DartWorker(
 
         _DemoCard(
           title: '2. Custom Native Worker (Kotlin)',
-          description: 'ImageCompressWorker registered in MainActivity.kt — runs real Kotlin code',
+          description:
+              'ImageCompressWorker registered in MainActivity.kt — runs real Kotlin code',
           icon: Icons.android,
           code: '''
 // Kotlin: class ImageCompressWorker : AndroidWorker {
@@ -1283,13 +1293,16 @@ NativeWorker.custom(
                 },
               ),
             );
-            onResult('ImageCompressWorker (Kotlin) enqueued — real native worker');
+            onResult(
+              'ImageCompressWorker (Kotlin) enqueued — real native worker',
+            );
           },
         ),
 
         _DemoCard(
           title: '3. Custom Native Worker (Swift)',
-          description: 'ImageCompressWorker registered in AppDelegate.swift — runs real Swift code',
+          description:
+              'ImageCompressWorker registered in AppDelegate.swift — runs real Swift code',
           icon: Icons.apple,
           code: '''
 // Swift: class ImageCompressWorker: IosWorker {
@@ -1321,7 +1334,9 @@ NativeWorker.custom(
                 },
               ),
             );
-            onResult('ImageCompressWorker (Swift) enqueued — real native worker');
+            onResult(
+              'ImageCompressWorker (Swift) enqueued — real native worker',
+            );
           },
         ),
       ],
@@ -1416,24 +1431,24 @@ class _DemoCardState extends State<_DemoCard> {
                 ),
                 _isRunning
                     ? const SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : IconButton(
-                  icon: const Icon(Icons.play_arrow),
-                  tooltip: 'Run demo',
-                  onPressed: () async {
-                    setState(() => _isRunning = true);
-                    try {
-                      await widget.onRun();
-                    } finally {
-                      if (mounted) {
-                        setState(() => _isRunning = false);
-                      }
-                    }
-                  },
-                ),
+                        icon: const Icon(Icons.play_arrow),
+                        tooltip: 'Run demo',
+                        onPressed: () async {
+                          setState(() => _isRunning = true);
+                          try {
+                            await widget.onRun();
+                          } finally {
+                            if (mounted) {
+                              setState(() => _isRunning = false);
+                            }
+                          }
+                        },
+                      ),
               ],
             ),
           ),

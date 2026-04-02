@@ -884,8 +884,17 @@ Worker _buildParallelHttpDownload({
   }
 
   if (expectedChecksum != null) {
-    final validAlgorithms = ['MD5', 'SHA-1', 'SHA1', 'SHA-256', 'SHA256', 'SHA-512', 'SHA512'];
-    if (!validAlgorithms.contains(checksumAlgorithm.toUpperCase().replaceAll('-', ''))) {
+    final validAlgorithms = [
+      'MD5',
+      'SHA-1',
+      'SHA1',
+      'SHA-256',
+      'SHA256',
+      'SHA-512',
+      'SHA512'
+    ];
+    if (!validAlgorithms
+        .contains(checksumAlgorithm.toUpperCase().replaceAll('-', ''))) {
       throw ArgumentError(
         'Invalid checksumAlgorithm: "$checksumAlgorithm"\n'
         'Supported algorithms: MD5, SHA-1, SHA-256, SHA-512',

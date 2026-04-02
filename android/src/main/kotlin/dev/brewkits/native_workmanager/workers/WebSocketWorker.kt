@@ -3,7 +3,6 @@ package dev.brewkits.native_workmanager.workers
 import android.util.Log
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
-import dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -134,8 +133,8 @@ class WebSocketWorker : AndroidWorker {
         val messagesSent = AtomicInteger(0)
         val closedCleanly = AtomicBoolean(false)
 
-        // Build OkHttp client — derives from sharedClient to reuse ConnectionPool
-        val client = HttpSecurityHelper.sharedClient.newBuilder()
+        // Build OkHttp client
+        val client = OkHttpClient.Builder()
             .connectTimeout(config.timeout.toLong(), TimeUnit.SECONDS)
             .readTimeout(config.timeout.toLong(), TimeUnit.SECONDS)
             .writeTimeout(config.timeout.toLong(), TimeUnit.SECONDS)
@@ -198,29 +197,34 @@ class WebSocketWorker : AndroidWorker {
 
         val webSocket = client.newWebSocket(request, listener)
 
-        // Optional: send periodic pings in a separate coroutine launched in this
-        // withContext(Dispatchers.IO) scope so it is automatically cancelled when
-        // the outer coroutine is cancelled.
-        val pingJob: Job? = if (config.pingIntervalSeconds != null && config.pingIntervalSeconds > 0) {
-            launch(Dispatchers.IO) {
-                while (isActive) {
-                    delay(config.pingIntervalSeconds * 1000L)
-                    // Note: OkHttp's public API has no sendPing(); sending an empty binary
-                    // frame acts as a keepalive. It is NOT a WebSocket PING control frame.
-                    if (!webSocket.send(ByteString.EMPTY)) break
-                    Log.d(TAG, "Ping sent")
+        // LEAK-002: declare timedOut before try so it is visible after the finally block.
+        // The try/finally guarantees close() on ALL exit paths including coroutine cancellation.
+        var timedOut = false
+        try {
+            // Optional: send periodic pings in a separate coroutine launched in this
+            // withContext(Dispatchers.IO) scope so it is automatically cancelled when
+            // the outer coroutine is cancelled.
+            val pingJob: Job? = if (config.pingIntervalSeconds != null && config.pingIntervalSeconds > 0) {
+                launch(Dispatchers.IO) {
+                    while (isActive) {
+                        delay(config.pingIntervalSeconds * 1000L)
+                        // Note: OkHttp's public API has no sendPing(); sending an empty binary
+                        // frame acts as a keepalive. It is NOT a WebSocket PING control frame.
+                        if (!webSocket.send(ByteString.EMPTY)) break
+                        Log.d(TAG, "Ping sent")
+                    }
                 }
+            } else null
+
+            // Wait for the expected messages (or timeout)
+            timedOut = !receiveLatch.await(config.timeout.toLong(), TimeUnit.SECONDS)
+
+            pingJob?.cancel()
+        } finally {
+            // Close WebSocket on ALL exit paths including coroutine cancellation.
+            if (!closedCleanly.get()) {
+                webSocket.close(WS_CLOSE_GOING_AWAY, "Worker finished")
             }
-        } else null
-
-        // Wait for the expected messages (or timeout)
-        val timedOut = !receiveLatch.await(config.timeout.toLong(), TimeUnit.SECONDS)
-
-        pingJob?.cancel()
-
-        // Clean close — send CLOSE frame if server hasn't closed already
-        if (!closedCleanly.get()) {
-            webSocket.close(WS_CLOSE_GOING_AWAY, "Worker finished")
         }
 
         // Give the close frame time to flush (shared dispatcher — shutdown() not safe to call).

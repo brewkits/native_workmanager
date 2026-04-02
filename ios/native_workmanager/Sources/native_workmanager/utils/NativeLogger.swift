@@ -43,4 +43,27 @@ struct NativeLogger {
     static func e(_ message: String) {
         NSLog("%@ ERROR: %@", prefix, message)
     }
+
+    /// Logs a URL after redacting sensitive query parameters.
+    /// FIX #05: Prevents sensitive tokens from leaking via Console.
+    static func url(_ prefixStr: String, _ urlStr: String) {
+        guard enabled else { return }
+        guard var components = URLComponents(string: urlStr) else {
+            d("\(prefixStr) [REDACTED URL]")
+            return
+        }
+        
+        let sensitiveKeys = ["token", "key", "auth", "secret", "apikey", "access_token"]
+        if let queryItems = components.queryItems {
+            components.queryItems = queryItems.map { item in
+                if sensitiveKeys.contains(where: { item.name.lowercased().contains($0) }) {
+                    return URLQueryItem(name: item.name, value: "[REDACTED]")
+                }
+                return item
+            }
+        }
+        
+        let sanitized = components.url?.absoluteString ?? "[REDACTED URL]"
+        d("\(prefixStr) \(sanitized)")
+    }
 }

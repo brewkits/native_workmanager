@@ -115,6 +115,12 @@ class FileCompressionWorker : AndroidWorker {
                 return WorkerResult.Failure("Input file/directory does not exist: $inputPath")
             }
 
+            // EDGE-002: warn (but do not fail) when input is a zero-byte file — the resulting
+            // ZIP will contain a valid but empty entry, which may surprise callers.
+            if (inputFile.isFile && inputFile.length() == 0L) {
+                Log.w(TAG, "Input file is zero bytes — ZIP will contain an empty entry: $inputPath")
+            }
+
             // Check output path is valid
             if (!outputPath.endsWith(".zip", ignoreCase = true)) {
                 Log.e(TAG, "Output path must end with .zip: $outputPath")

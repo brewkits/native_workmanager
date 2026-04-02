@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import '../worker.dart';
-import 'request_signing.dart';
 
 export 'request_signing.dart';
 
@@ -289,7 +288,8 @@ final class HttpDownloadWorker extends Worker {
       authToken: authToken ?? this.authToken,
       authHeaderTemplate: authHeaderTemplate ?? this.authHeaderTemplate,
       onDuplicate: onDuplicate ?? this.onDuplicate,
-      moveToPublicDownloads: moveToPublicDownloads ?? this.moveToPublicDownloads,
+      moveToPublicDownloads:
+          moveToPublicDownloads ?? this.moveToPublicDownloads,
       saveToGallery: saveToGallery ?? this.saveToGallery,
       extractAfterDownload: extractAfterDownload ?? this.extractAfterDownload,
       extractPath: extractPath ?? this.extractPath,

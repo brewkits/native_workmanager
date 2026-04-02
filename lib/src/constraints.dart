@@ -1191,21 +1191,27 @@ class Constraints {
         backoffDelayMs: map['backoffDelayMs'] as int? ?? 30000,
         maxRetries: map['maxRetries'] as int? ?? 3,
         systemConstraints: (map['systemConstraints'] as List<dynamic>?)
-                ?.map((name) => SystemConstraint.values.where(
+                ?.map((name) => SystemConstraint.values
+                    .where(
                       (e) => e.name == name,
-                    ).firstOrNull)
+                    )
+                    .firstOrNull)
                 .whereType<SystemConstraint>()
                 .toSet() ??
             {},
         bgTaskType: map['bgTaskType'] != null
-            ? BGTaskType.values.where(
-                (e) => e.name == map['bgTaskType'],
-              ).firstOrNull
+            ? BGTaskType.values
+                .where(
+                  (e) => e.name == map['bgTaskType'],
+                )
+                .firstOrNull
             : null,
         foregroundServiceType: map['foregroundServiceType'] != null
-            ? ForegroundServiceType.values.where(
-                (e) => e.name == map['foregroundServiceType'],
-              ).firstOrNull
+            ? ForegroundServiceType.values
+                .where(
+                  (e) => e.name == map['foregroundServiceType'],
+                )
+                .firstOrNull
             : null,
       );
 

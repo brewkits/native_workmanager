@@ -42,7 +42,7 @@ internal class DbCleanupWorker : AndroidWorker {
         } catch (e: Exception) {
             NativeLogger.e("DbCleanupWorker error", e)
             // Don't fail permanently — WorkManager will retry on next schedule cycle.
-            WorkerResult.Retry
+            WorkerResult.Failure(e.message ?: "Retry", shouldRetry = true)
         }
     }
 }

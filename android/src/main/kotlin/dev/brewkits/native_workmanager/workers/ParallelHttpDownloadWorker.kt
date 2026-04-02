@@ -159,10 +159,13 @@ class ParallelHttpDownloadWorker : AndroidWorker {
         Log.d(TAG, "Content-Length=$contentLength  Accept-Ranges=bytes  chunks=${config.numChunks}")
 
         // ── Step 3: Compute byte ranges ───────────────────────────────────────
-        val chunkSize = contentLength / config.numChunks
+        // CRIT-001: use explicit Long arithmetic throughout to prevent Int overflow
+        // on files > 2 GB (Int.MAX_VALUE ≈ 2.1 GB).
+        val numChunksL = config.numChunks.toLong()
+        val chunkSize = contentLength / numChunksL
         val ranges = (0 until config.numChunks).map { i ->
-            val start = i * chunkSize
-            val end = if (i == config.numChunks - 1) contentLength - 1 else start + chunkSize - 1
+            val start = i.toLong() * chunkSize
+            val end = if (i == config.numChunks - 1) contentLength - 1L else start + chunkSize - 1L
             Pair(start, end)
         }
 
@@ -366,8 +369,10 @@ class ParallelHttpDownloadWorker : AndroidWorker {
                         while (stream.read(buf).also { n = it } != -1) {
                             out.write(buf, 0, n)
                             downloaded += n
-                            if (taskId != null && totalSize > 0) {
-                                val pct = ((downloaded.toFloat() / (totalSize + existingBytes)) * 100).toInt()
+                            // LOGIC-002: guard totalSize > 0 to avoid 0/0 when Content-Length is -1
+                            val effectiveTotal = totalSize + existingBytes
+                            if (taskId != null && effectiveTotal > 0) {
+                                val pct = ((downloaded.toDouble() / effectiveTotal) * 100).toInt()
                                 ProgressReporter.reportProgressNonBlocking(
                                     taskId, pct,
                                     "Downloading... ${formatBytes(downloaded)}/${formatBytes(totalSize + existingBytes)}"
@@ -432,7 +437,14 @@ class ParallelHttpDownloadWorker : AndroidWorker {
     }
 
     private fun calculateChecksum(file: File, algorithm: String): String {
-        val digest = MessageDigest.getInstance(algorithm)
+        // CROSS-001: normalize short-form aliases to JCE canonical names
+        val jceAlgorithm = when (algorithm.uppercase().replace("-", "")) {
+            "SHA256" -> "SHA-256"
+            "SHA512" -> "SHA-512"
+            "SHA1"   -> "SHA-1"
+            else     -> algorithm
+        }
+        val digest = MessageDigest.getInstance(jceAlgorithm)
         val buf = ByteArray(8192)
         file.inputStream().use { stream ->
             var n: Int

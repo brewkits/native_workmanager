@@ -32,7 +32,7 @@ class TaskRecord {
         tag: m['tag'] as String?,
         status: m['status'] as String? ?? 'unknown',
         workerClassName: m['workerClassName'] as String? ?? '',
-        resultData: m['resultData'] != null
+        resultData: m['resultData'] is Map
             ? Map<String, dynamic>.from(m['resultData'] as Map)
             : null,
         createdAt: DateTime.fromMillisecondsSinceEpoch(
@@ -473,11 +473,30 @@ enum NativeWorkManagerError {
       };
 }
 
-/// Event emitted when a task completes (success or failure).
+/// Event emitted for task lifecycle transitions (started, completed, failed).
 ///
 /// Listen to [NativeWorkManager.events] to receive notifications when
-/// background tasks finish executing. Useful for updating UI, logging,
+/// background tasks start or finish executing. Useful for updating UI, logging,
 /// or triggering follow-up actions.
+///
+/// ## Distinguishing Event Types
+///
+/// Check [isStarted] to determine whether this is a lifecycle notification or
+/// a completion event:
+///
+/// ```dart
+/// NativeWorkManager.events.listen((event) {
+///   if (event.isStarted) {
+///     print('Task ${event.taskId} began executing');
+///     return;
+///   }
+///   if (event.success) {
+///     print('Task ${event.taskId} completed');
+///   } else {
+///     print('Task ${event.taskId} failed: ${event.message}');
+///   }
+/// });
+/// ```
 ///
 /// ## Basic Event Listening
 ///
@@ -646,10 +665,28 @@ class TaskEvent {
     this.errorCode,
     this.resultData,
     required this.timestamp,
+    this.isStarted = false,
+    this.workerType,
   });
 
-  /// ID of the completed task.
+  /// ID of the task.
   final String taskId;
+
+  /// `true` when the native worker has just begun execution.
+  ///
+  /// When this flag is set the event is a **lifecycle notification**, not a
+  /// completion event. [success], [message], [errorCode], and [resultData] are
+  /// irrelevant for started events. [workerType] carries the worker class name.
+  ///
+  /// Use this to implement `onTaskStart` semantics without depending on
+  /// progress events — reliable even for fast workers that emit no progress.
+  final bool isStarted;
+
+  /// Worker class name, set when [isStarted] is `true`.
+  ///
+  /// Examples: `'HttpDownloadWorker'`, `'HttpUploadWorker'`, `'DartCallbackWorker'`.
+  /// `null` for completion events.
+  final String? workerType;
 
   /// Whether the task succeeded.
   final bool success;
@@ -667,7 +704,7 @@ class TaskEvent {
   /// Optional result data from the worker.
   final Map<String, dynamic>? resultData;
 
-  /// When the task completed.
+  /// When the event occurred.
   final DateTime timestamp;
 
   /// Create from platform channel map.
@@ -676,17 +713,20 @@ class TaskEvent {
   /// native and Dart (or a platform bug) could send null for required fields;
   /// an unchecked cast would throw and close the EventChannel stream silently.
   factory TaskEvent.fromMap(Map<String, dynamic> map) {
+    final started = (map['isStarted'] as bool?) ?? false;
     final success = (map['success'] as bool?) ?? false;
     final rawErrorCode = map['errorCode'] as String?;
     return TaskEvent(
       taskId: (map['taskId'] as String?) ?? '',
+      isStarted: started,
+      workerType: map['workerType'] as String?,
       success: success,
       message: map['message'] as String?,
       // Only parse errorCode on failure; ignore stray codes on success.
-      errorCode: (!success && rawErrorCode != null)
+      errorCode: (!success && !started && rawErrorCode != null)
           ? NativeWorkManagerError.fromString(rawErrorCode)
           : null,
-      resultData: map['resultData'] != null
+      resultData: map['resultData'] is Map
           ? Map<String, dynamic>.from(map['resultData'] as Map)
           : null,
       timestamp: map['timestamp'] != null
@@ -699,6 +739,8 @@ class TaskEvent {
   /// Convert to map.
   Map<String, dynamic> toMap() => {
         'taskId': taskId,
+        if (isStarted) 'isStarted': isStarted,
+        if (workerType != null) 'workerType': workerType,
         'success': success,
         'message': message,
         if (errorCode != null) 'errorCode': errorCode!.rawValue,
@@ -711,21 +753,41 @@ class TaskEvent {
       identical(this, other) ||
       other is TaskEvent &&
           taskId == other.taskId &&
+          isStarted == other.isStarted &&
+          workerType == other.workerType &&
           success == other.success &&
           errorCode == other.errorCode &&
           message == other.message &&
+          // M-7: include resultData so events with different result payloads are not equal.
+          _mapsEqual(resultData, other.resultData) &&
           timestamp == other.timestamp;
 
-  @override
-  int get hashCode => Object.hash(taskId, success, errorCode, message, timestamp);
+  static bool _mapsEqual(Map<String, dynamic>? a, Map<String, dynamic>? b) {
+    if (identical(a, b)) return true;
+    if (a == null || b == null) return a == b;
+    if (a.length != b.length) return false;
+    for (final key in a.keys) {
+      if (!b.containsKey(key) || b[key] != a[key]) return false;
+    }
+    return true;
+  }
 
   @override
-  String toString() => 'TaskEvent('
-      'taskId: $taskId, '
-      'success: $success, '
-      '${errorCode != null ? "errorCode: ${errorCode!.rawValue}, " : ""}'
-      'message: $message, '
-      'timestamp: $timestamp)';
+  int get hashCode => Object.hash(
+      taskId, isStarted, workerType, success, errorCode, message,
+      resultData == null ? null : Object.hashAll(
+        resultData!.entries.map((e) => Object.hash(e.key, e.value))),
+      timestamp);
+
+  @override
+  String toString() => isStarted
+      ? 'TaskEvent(taskId: $taskId, isStarted: true, workerType: $workerType, timestamp: $timestamp)'
+      : 'TaskEvent('
+          'taskId: $taskId, '
+          'success: $success, '
+          '${errorCode != null ? "errorCode: ${errorCode!.rawValue}, " : ""}'
+          'message: $message, '
+          'timestamp: $timestamp)';
 }
 
 /// Progress update during task execution.
@@ -1043,4 +1105,3 @@ class TaskProgress {
       'bytes: $bytesDownloaded/$totalBytes, '
       'speed: ${networkSpeed != null ? "${(networkSpeed! / 1024).toStringAsFixed(1)} KB/s" : "n/a"})';
 }
-

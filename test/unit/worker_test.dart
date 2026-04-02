@@ -485,7 +485,8 @@ void main() {
       expect(map['checksumAlgorithm'], 'SHA-512');
     });
 
-    test('should create HttpDownloadWorker with background session enabled', () {
+    test('should create HttpDownloadWorker with background session enabled',
+        () {
       final worker = const HttpDownloadWorker(
         url: 'https://cdn.example.com/large-file.mp4',
         savePath: '/downloads/video.mp4',
@@ -701,7 +702,8 @@ void main() {
       expect(map['input'], contains('settings'));
     });
 
-    test('should throw ArgumentError on empty className via direct constructor', () {
+    test('should throw ArgumentError on empty className via direct constructor',
+        () {
       // assert() is debug-only; this verifies the real throw works in all builds.
       expect(
         () => CustomNativeWorker(className: ''),
@@ -811,7 +813,10 @@ void main() {
       final w = MultiUploadWorker(
         url: 'https://api.example.com/upload',
         files: [
-          const UploadFile(filePath: '/tmp/a.jpg', fieldName: 'photo', mimeType: 'image/jpeg'),
+          const UploadFile(
+              filePath: '/tmp/a.jpg',
+              fieldName: 'photo',
+              mimeType: 'image/jpeg'),
           const UploadFile(filePath: '/tmp/b.pdf', fileName: 'report.pdf'),
         ],
         headers: {'Authorization': 'Bearer tok'},
@@ -895,7 +900,16 @@ void main() {
 
     test('all expected statuses present', () {
       final names = TaskStatus.values.map((s) => s.name).toList();
-      expect(names, containsAll(['pending', 'running', 'completed', 'failed', 'cancelled', 'paused']));
+      expect(
+          names,
+          containsAll([
+            'pending',
+            'running',
+            'completed',
+            'failed',
+            'cancelled',
+            'paused'
+          ]));
     });
   });
 }

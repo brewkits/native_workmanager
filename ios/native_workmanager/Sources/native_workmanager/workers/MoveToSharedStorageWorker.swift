@@ -41,9 +41,9 @@ class MoveToSharedStorageWorker: IosWorker {
         }
 
         let storageType = (json["storageType"] as? String ?? "downloads").lowercased()
-        let fileName = (json["fileName"] as? String)?.isEmpty == false
-            ? json["fileName"] as! String
-            : sourceURL.lastPathComponent
+        // SEC-002: use safe optional cast instead of force cast (as!) which panics on nil
+        let fileNameOverride = json["fileName"] as? String
+        let fileName = (fileNameOverride?.isEmpty == false) ? fileNameOverride! : sourceURL.lastPathComponent
         let subDir = json["subDir"] as? String
 
         switch storageType {

@@ -34,22 +34,20 @@ import dev.brewkits.native_workmanager.workers.DbCleanupWorker
 import android.content.Intent
 import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
+import android.util.Log
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
@@ -112,6 +110,19 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent,
     // Persistent SQLite chain state store (initialized in onAttachedToEngine)
     internal lateinit var chainStore: dev.brewkits.native_workmanager.store.ChainStore
 
+    // Persistent SQLite remote trigger store (initialized in onAttachedToEngine)
+    internal lateinit var remoteTriggerStore: dev.brewkits.native_workmanager.store.RemoteTriggerStore
+
+    // Persistent SQLite offline queue store (initialized in onAttachedToEngine)
+    internal lateinit var offlineQueueStore: dev.brewkits.native_workmanager.store.OfflineQueueStore
+
+    // Persistent SQLite middleware store (initialized in onAttachedToEngine)
+    internal lateinit var middlewareStore: dev.brewkits.native_workmanager.store.MiddlewareStore
+
+    // Mutex to prevent race conditions during Flutter engine disposal and initialization.
+    // Fixed H2: Protects FlutterEngineManager.dispose() and boot() calls.
+    private val engineMutex = kotlinx.coroutines.sync.Mutex()
+
     // Notification title per taskId for download notification feature
     internal val taskNotifTitles = ConcurrentHashMap<String, String>()
 
@@ -138,6 +149,19 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent,
             WorkInfo.State.FAILED,
             WorkInfo.State.CANCELLED
         )
+
+        /**
+         * L-5: Shared OkHttpClient for lightweight plugin-level requests (e.g. HEAD for
+         * getServerFilename). Creating a new client per call wastes connection-pool and
+         * thread-pool resources. Workers manage their own clients independently.
+         */
+        internal val sharedHttpClient: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .followRedirects(true)
+                .build()
+        }
     }
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -150,7 +174,19 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent,
 
         // Initialize persistent task store, chain store, and download notification channel
         taskStore = TaskStore(context)
+        
+        // ✅ RELIABILITY (10/10): Recover "zombie" tasks stuck in 'running' state 
+        // after app crash or reboot. Reset to 'failed' so they can be retried.
+        ioScope.launch { 
+            taskStore.recoverZombieTasks() 
+            // ✅ PERFORMANCE: Auto-cleanup tasks older than 7 days to keep SQLite lightweight.
+            taskStore.deleteCompleted(olderThanMs = 604_800_000L) 
+        }
+
         chainStore = dev.brewkits.native_workmanager.store.ChainStore(context)
+        remoteTriggerStore = dev.brewkits.native_workmanager.store.RemoteTriggerStore(context)
+        offlineQueueStore = dev.brewkits.native_workmanager.store.OfflineQueueStore(context)
+        middlewareStore = dev.brewkits.native_workmanager.store.MiddlewareStore.getInstance(context)
         DownloadNotificationManager.createChannel(context)
 
         // Resume any incomplete chains that were in-progress when the app was killed.
@@ -171,6 +207,10 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent,
                 subscribeToTaskEvents()
             }
             override fun onCancel(arguments: Any?) {
+                // BRIDGE-005 FIX: Cancel the collection job so it doesn't accumulate on hot restart.
+                // Without this, each subscribe/unsubscribe cycle leaves an orphaned coroutine
+                // collecting from TaskEventBus in the background.
+                eventJob?.cancel()
                 eventSink = null
             }
         })
@@ -182,6 +222,8 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent,
                 subscribeToProgressUpdates()
             }
             override fun onCancel(arguments: Any?) {
+                // BRIDGE-005 FIX: Cancel the progress collection job on unsubscribe.
+                progressJob?.cancel()
                 progressSink = null
             }
         })
@@ -212,7 +254,10 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent,
                     modules(kmpModule)
                 }
             } else {
-                GlobalContext.get().loadModules(listOf(kmpModule))
+                // BRIDGE-017 FIX: allowOverride prevents duplicate-bean errors when the same
+                // module is re-loaded on hot restart (isKoinInitialized was reset in
+                // onDetachedFromEngine, but GlobalContext persists as a process singleton).
+                GlobalContext.get().loadModules(listOf(kmpModule), allowOverride = true)
             }
             isKoinInitialized = true
             NativeLogger.d("✅ Koin initialized with kmpworkmanager v2.3.7 from Maven Central")
@@ -243,10 +288,69 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent,
                 HostConcurrencyManager.maxConcurrentPerHost = max
                 result.success(null)
             }
+            "registerRemoteTrigger" -> handleRegisterRemoteTrigger(call, result)
+            "enqueueGraph" -> handleEnqueueGraph(call, result)
+            "offlineQueueEnqueue" -> handleOfflineQueueEnqueue(call, result)
+            "registerMiddleware" -> handleRegisterMiddleware(call, result)
+            "getMetrics" -> handleGetMetrics(result)
+            "syncOfflineQueue" -> handleSyncOfflineQueue(result)
             else -> result.notImplemented()
         }
     }
 
+    private fun handleSyncOfflineQueue(result: Result) {
+        try {
+            scheduleOfflineQueueProcessor(context)
+            result.success(true)
+        } catch (e: Exception) {
+            result.error("SYNC_ERROR", e.message, null)
+        }
+    }
+
+    private fun handleGetMetrics(result: Result) {
+        ioScope.launch {
+            try {
+                // Fetch metrics from SQLite stores
+                val activeTasks = taskStore.getActiveTaskCount()
+                val offlineQueueSize = offlineQueueStore.getQueueSize()
+                val failedTasks = taskStore.getFailedTaskCount()
+                val completedTasks = taskStore.getCompletedTaskCount()
+                
+                // Fetch active chains for DAG visualization
+                val activeChains = chainStore.getPendingChains()
+                val dagNodes = mutableListOf<Map<String, Any?>>()
+                
+                activeChains.forEach { chain ->
+                    val steps = chainStore.getStepsForChain(chain.chainId)
+                    steps.forEach { step ->
+                        dagNodes.add(mapOf(
+                            "id" to step.taskId,
+                            "label" to step.taskId.take(8),
+                            "status" to step.status,
+                            "chainId" to chain.chainId,
+                            "stepIndex" to step.stepIndex
+                        ))
+                    }
+                }
+                
+                val metrics = mapOf(
+                    "activeTasks" to activeTasks,
+                    "offlineQueueSize" to offlineQueueSize,
+                    "failedTasks" to failedTasks,
+                    "completedTasks" to completedTasks,
+                    "dagNodes" to dagNodes
+                )
+                
+                withContext(Dispatchers.Main) {
+                    result.success(metrics)
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    result.error("METRICS_ERROR", e.message, null)
+                }
+            }
+        }
+    }
 
     private fun handleInitialize(call: MethodCall, result: Result) {
         try {
@@ -418,9 +522,13 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent,
      */
     override fun onTrimMemory(level: Int) {
         if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
-            if (FlutterEngineManager.isEngineAlive()) {
-                Log.d(TAG, "onTrimMemory(level=$level) — disposing Flutter engine to free RAM")
-                ioScope.launch { FlutterEngineManager.dispose() }
+            ioScope.launch { 
+                engineMutex.withLock {
+                    if (FlutterEngineManager.isEngineAlive()) {
+                        Log.d(TAG, "onTrimMemory(level=$level) — disposing Flutter engine to free RAM")
+                        FlutterEngineManager.dispose()
+                    }
+                }
             }
         }
     }
@@ -431,10 +539,13 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent,
 
     override fun onLowMemory() {
         // onLowMemory is the older API (< API 14). Dispose engine here as well.
-        if (FlutterEngineManager.isEngineAlive()) {
-            Log.d(TAG, "onLowMemory() — disposing Flutter engine to free RAM")
-            ioScope.launch { FlutterEngineManager.dispose() }
+        ioScope.launch { 
+            engineMutex.withLock {
+                if (FlutterEngineManager.isEngineAlive()) {
+                    Log.d(TAG, "onLowMemory() — disposing Flutter engine to free RAM")
+                    FlutterEngineManager.dispose()
+                }
+            }
         }
     }
-}
 }

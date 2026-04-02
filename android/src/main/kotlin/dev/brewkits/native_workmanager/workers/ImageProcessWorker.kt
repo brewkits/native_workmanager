@@ -2,6 +2,7 @@ package dev.brewkits.native_workmanager.workers
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapRegionDecoder
 import android.graphics.Matrix
 import android.graphics.Rect
 import androidx.exifinterface.media.ExifInterface
@@ -15,6 +16,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import kotlin.math.ceil
 import kotlin.math.min
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -176,7 +178,7 @@ class ImageProcessWorker : AndroidWorker {
 
             // Apply crop if specified
             if (config.cropRect != null) {
-                bitmap = cropBitmap(bitmap, config.cropRect)
+                bitmap = cropBitmap(config.inputPath, config.cropRect)
                     ?: return@withContext WorkerResult.Failure("Failed to crop image")
                 Log.d(TAG, "Cropped to: ${bitmap.width}x${bitmap.height}")
 
@@ -331,30 +333,37 @@ class ImageProcessWorker : AndroidWorker {
         var sampleSize = 1
 
         if (width > maxWidth || height > maxHeight) {
-            val widthRatio = (width.toFloat() / maxWidth.toFloat()).toInt()
-            val heightRatio = (height.toFloat() / maxHeight.toFloat()).toInt()
-            // max(1, ...) prevents sampleSize=0 when one dimension fits within bounds
+            // Use ceil so the decoded dimension is guaranteed ≤ target.
+            // floor (toInt) could produce a sample that decodes slightly larger than target.
+            val widthRatio = ceil(width.toFloat() / maxWidth.toFloat()).toInt()
+            val heightRatio = ceil(height.toFloat() / maxHeight.toFloat()).toInt()
             sampleSize = maxOf(1, min(widthRatio, heightRatio))
         }
 
         return sampleSize
     }
 
-    private fun cropBitmap(source: Bitmap, cropRect: CropRect): Bitmap? {
+    private fun cropBitmap(sourcePath: String, cropRect: CropRect): Bitmap? {
         return try {
+            // Use the InputStream overload (non-deprecated on all API levels).
+            val decoder = java.io.FileInputStream(sourcePath).use { fis ->
+                @Suppress("DEPRECATION")
+                BitmapRegionDecoder.newInstance(fis, false)
+            } ?: return null
+
             val rect = Rect(
                 cropRect.x.coerceAtLeast(0),
                 cropRect.y.coerceAtLeast(0),
-                (cropRect.x + cropRect.width).coerceAtMost(source.width),
-                (cropRect.y + cropRect.height).coerceAtMost(source.height)
+                (cropRect.x + cropRect.width).coerceAtMost(decoder.width),
+                (cropRect.y + cropRect.height).coerceAtMost(decoder.height)
             )
 
-            if (rect.width() <= 0 || rect.height() <= 0) {
-                Log.e(TAG, "Invalid crop rectangle")
-                return null
-            }
+            if (rect.width() <= 0 || rect.height() <= 0) return null
 
-            Bitmap.createBitmap(source, rect.left, rect.top, rect.width(), rect.height())
+            val options = BitmapFactory.Options().apply {
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            decoder.decodeRegion(rect, options)
         } catch (e: Exception) {
             Log.e(TAG, "Crop failed: ${e.message}", e)
             null

@@ -76,13 +76,16 @@ class _BugFixDemoScreenState extends State<BugFixDemoScreen> {
     final taskId = 'bug-fix-expedited-${DateTime.now().millisecondsSinceEpoch}';
 
     setState(() {
-      _results.add(TestResult(
-        testName: 'OneTime Expedited Task',
-        taskId: taskId,
-        description: 'Original crash scenario - WorkManager 2.10.0+ calls getForegroundInfoAsync()',
-        status: TestStatus.running,
-        startTime: DateTime.now(),
-      ));
+      _results.add(
+        TestResult(
+          testName: 'OneTime Expedited Task',
+          taskId: taskId,
+          description:
+              'Original crash scenario - WorkManager 2.10.0+ calls getForegroundInfoAsync()',
+          status: TestStatus.running,
+          startTime: DateTime.now(),
+        ),
+      );
       _pendingTasks.add(taskId);
     });
 
@@ -112,17 +115,22 @@ class _BugFixDemoScreenState extends State<BugFixDemoScreen> {
   }
 
   Future<void> _testConcurrentExpeditedTasks() async {
-    final taskIds = List.generate(3, (i) => 'bug-fix-concurrent-${DateTime.now().millisecondsSinceEpoch}-$i');
+    final taskIds = List.generate(
+      3,
+      (i) => 'bug-fix-concurrent-${DateTime.now().millisecondsSinceEpoch}-$i',
+    );
 
     for (var i = 0; i < taskIds.length; i++) {
       setState(() {
-        _results.add(TestResult(
-          testName: 'Concurrent Task #${i + 1}',
-          taskId: taskIds[i],
-          description: 'Concurrent expedited task with ${i + 1}s delay',
-          status: TestStatus.running,
-          startTime: DateTime.now(),
-        ));
+        _results.add(
+          TestResult(
+            testName: 'Concurrent Task #${i + 1}',
+            taskId: taskIds[i],
+            description: 'Concurrent expedited task with ${i + 1}s delay',
+            status: TestStatus.running,
+            startTime: DateTime.now(),
+          ),
+        );
         _pendingTasks.add(taskIds[i]);
       });
 
@@ -157,44 +165,48 @@ class _BugFixDemoScreenState extends State<BugFixDemoScreen> {
     final task2 = 'bug-fix-chain-2-${DateTime.now().millisecondsSinceEpoch}';
 
     setState(() {
-      _results.add(TestResult(
-        testName: 'Task Chain Step 1',
-        taskId: task1,
-        description: 'First task in chain - expedited HTTP GET',
-        status: TestStatus.running,
-        startTime: DateTime.now(),
-      ));
-      _results.add(TestResult(
-        testName: 'Task Chain Step 2',
-        taskId: task2,
-        description: 'Second task in chain - expedited HTTP POST',
-        status: TestStatus.running,
-        startTime: DateTime.now(),
-      ));
+      _results.add(
+        TestResult(
+          testName: 'Task Chain Step 1',
+          taskId: task1,
+          description: 'First task in chain - expedited HTTP GET',
+          status: TestStatus.running,
+          startTime: DateTime.now(),
+        ),
+      );
+      _results.add(
+        TestResult(
+          testName: 'Task Chain Step 2',
+          taskId: task2,
+          description: 'Second task in chain - expedited HTTP POST',
+          status: TestStatus.running,
+          startTime: DateTime.now(),
+        ),
+      );
       _pendingTasks.add(task1);
       _pendingTasks.add(task2);
     });
 
     try {
       await NativeWorkManager.beginWith(
-        TaskRequest(
-          id: task1,
-          worker: HttpRequestWorker(
-            url: 'https://httpbin.org/get',
-            method: HttpMethod.get,
-          ),
-        ),
-      )
+            TaskRequest(
+              id: task1,
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/get',
+                method: HttpMethod.get,
+              ),
+            ),
+          )
           .then(
-        TaskRequest(
-          id: task2,
-          worker: HttpRequestWorker(
-            url: 'https://httpbin.org/post',
-            method: HttpMethod.post,
-            body: '{"step": 2}',
-          ),
-        ),
-      )
+            TaskRequest(
+              id: task2,
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/post',
+                method: HttpMethod.post,
+                body: '{"step": 2}',
+              ),
+            ),
+          )
           .enqueue();
     } catch (e) {
       setState(() {
@@ -223,7 +235,9 @@ class _BugFixDemoScreenState extends State<BugFixDemoScreen> {
   void _showSummaryDialog() {
     final passed = _results.where((r) => r.status == TestStatus.passed).length;
     final failed = _results.where((r) => r.status == TestStatus.failed).length;
-    final running = _results.where((r) => r.status == TestStatus.running).length;
+    final running = _results
+        .where((r) => r.status == TestStatus.running)
+        .length;
 
     showDialog(
       context: context,
@@ -240,7 +254,10 @@ class _BugFixDemoScreenState extends State<BugFixDemoScreen> {
             if (failed == 0 && passed > 0)
               const Text(
                 '🎉 All tests passed!\n\nWorkManager 2.10.0+ bug is FIXED.',
-                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green,
+                ),
               )
             else if (running > 0)
               Text(
@@ -288,7 +305,10 @@ class _BugFixDemoScreenState extends State<BugFixDemoScreen> {
                       const SizedBox(width: 8),
                       const Text(
                         'Original Bug',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ],
                   ),
@@ -305,7 +325,10 @@ class _BugFixDemoScreenState extends State<BugFixDemoScreen> {
                       const SizedBox(width: 8),
                       const Text(
                         'Fix',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ],
                   ),
@@ -362,10 +385,16 @@ class _BugFixDemoScreenState extends State<BugFixDemoScreen> {
                         SizedBox(
                           width: 20,
                           height: 20,
-                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
                         ),
                         SizedBox(width: 12),
-                        Text('Running Tests...', style: TextStyle(fontSize: 16)),
+                        Text(
+                          'Running Tests...',
+                          style: TextStyle(fontSize: 16),
+                        ),
                       ],
                     )
                   : const Text('Run All Tests', style: TextStyle(fontSize: 16)),
@@ -398,7 +427,10 @@ class _TestResultCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     result.testName,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],

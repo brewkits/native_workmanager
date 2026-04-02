@@ -33,7 +33,8 @@ void main() {
     testWidgets('OneTime expedited task should not crash', (tester) async {
       await tester.pumpAndSettle();
 
-      final taskId = 'bug-fix-test-onetime-expedited-${DateTime.now().millisecondsSinceEpoch}';
+      final taskId =
+          'bug-fix-test-onetime-expedited-${DateTime.now().millisecondsSinceEpoch}';
       var taskCompleted = false;
       String? taskMessage;
 
@@ -68,18 +69,27 @@ void main() {
       await eventsSub.cancel();
 
       // Verify task completed without crash
-      expect(taskCompleted, true, reason: 'Task should complete without crashing');
+      expect(
+        taskCompleted,
+        true,
+        reason: 'Task should complete without crashing',
+      );
       expect(taskMessage, isNotNull, reason: 'Task should return output');
     });
 
     /// Test 2: Multiple concurrent expedited tasks
     ///
     /// Stress test to ensure getForegroundInfo() handles concurrent calls
-    testWidgets('Multiple concurrent expedited tasks should not crash', (tester) async {
+    testWidgets('Multiple concurrent expedited tasks should not crash', (
+      tester,
+    ) async {
       await tester.pumpAndSettle();
 
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final taskIds = List.generate(5, (i) => 'bug-fix-test-concurrent-$timestamp-$i');
+      final taskIds = List.generate(
+        5,
+        (i) => 'bug-fix-test-concurrent-$timestamp-$i',
+      );
       final completedTasks = <String>{};
 
       StreamSubscription? eventsSub;
@@ -112,8 +122,11 @@ void main() {
 
       await eventsSub.cancel();
 
-      expect(completedTasks.length, taskIds.length,
-          reason: 'All concurrent tasks should complete without crashing');
+      expect(
+        completedTasks.length,
+        taskIds.length,
+        reason: 'All concurrent tasks should complete without crashing',
+      );
     });
 
     /// Test 3: Periodic task (should not crash even though not expedited)
@@ -122,7 +135,8 @@ void main() {
     testWidgets('Periodic task should work correctly', (tester) async {
       await tester.pumpAndSettle();
 
-      final taskId = 'bug-fix-test-periodic-${DateTime.now().millisecondsSinceEpoch}';
+      final taskId =
+          'bug-fix-test-periodic-${DateTime.now().millisecondsSinceEpoch}';
 
       await NativeWorkManager.enqueue(
         taskId: taskId,
@@ -143,7 +157,9 @@ void main() {
     /// Test 4: Task chain with expedited tasks
     ///
     /// Verify chain routing fix (heavy tasks use KmpHeavyWorker, regular use KmpWorker)
-    testWidgets('Task chain should handle expedited tasks correctly', (tester) async {
+    testWidgets('Task chain should handle expedited tasks correctly', (
+      tester,
+    ) async {
       await tester.pumpAndSettle();
 
       final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -164,31 +180,35 @@ void main() {
 
       // Create chain with mixed task types
       await NativeWorkManager.beginWith(
-        TaskRequest(
-          id: task1,
-          worker: HttpRequestWorker(
-            url: 'https://httpbin.org/get',
-            method: HttpMethod.get,
-          ),
-        ),
-      ).then(
-        TaskRequest(
-          id: task2,
-          worker: HttpRequestWorker(
-            url: 'https://httpbin.org/delay/2',
-            method: HttpMethod.get,
-          ),
-        ),
-      ).then(
-        TaskRequest(
-          id: task3,
-          worker: HttpRequestWorker(
-            url: 'https://httpbin.org/post',
-            method: HttpMethod.post,
-            body: '{"test": "data"}',
-          ),
-        ),
-      ).named(chainName).enqueue();
+            TaskRequest(
+              id: task1,
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/get',
+                method: HttpMethod.get,
+              ),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: task2,
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/delay/2',
+                method: HttpMethod.get,
+              ),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: task3,
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/post',
+                method: HttpMethod.post,
+                body: '{"test": "data"}',
+              ),
+            ),
+          )
+          .named(chainName)
+          .enqueue();
 
       // Wait for chain completion (max 60s)
       var attempts = 0;
@@ -199,7 +219,11 @@ void main() {
 
       await eventsSub.cancel();
 
-      expect(chainCompleted, true, reason: 'Chain should complete without crashing');
+      expect(
+        chainCompleted,
+        true,
+        reason: 'Chain should complete without crashing',
+      );
     });
 
     /// Test 5: Verify WorkManager version
@@ -218,7 +242,9 @@ void main() {
 
   group('Notification Localization Tests (v2.3.3)', () {
     /// Test that notification strings can be overridden
-    testWidgets('Notification strings should support localization', (tester) async {
+    testWidgets('Notification strings should support localization', (
+      tester,
+    ) async {
       await tester.pumpAndSettle();
 
       // Note: To test localization, the host app would need to provide
@@ -227,7 +253,8 @@ void main() {
       // For now, we just verify the task executes without crashing,
       // which confirms the string resource system is working
 
-      final taskId = 'notification-i18n-test-${DateTime.now().millisecondsSinceEpoch}';
+      final taskId =
+          'notification-i18n-test-${DateTime.now().millisecondsSinceEpoch}';
       var taskCompleted = false;
 
       StreamSubscription? eventsSub;

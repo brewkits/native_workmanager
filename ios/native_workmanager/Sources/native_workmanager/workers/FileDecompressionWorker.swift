@@ -47,6 +47,18 @@ class FileDecompressionWorker: IosWorker {
     }
 
     func doWork(input: String?) async throws -> WorkerResult {
+        // ✅ IOS: Register background task to request extra execution time
+        // iOS will freeze the app shortly after moving to background otherwise.
+        var bgTaskId = UIBackgroundTaskIdentifier.invalid
+        bgTaskId = UIApplication.shared.beginBackgroundTask(withName: "BrewkitsFileDecompression") {
+            NativeLogger.d("FileDecompressionWorker: Background time expired — ending task")
+            UIApplication.shared.endBackgroundTask(bgTaskId)
+        }
+
+        defer {
+            UIApplication.shared.endBackgroundTask(bgTaskId)
+        }
+
         guard let input = input, !input.isEmpty else {
             print("FileDecompressionWorker: Error - Empty or null input")
             return .failure(message: "Empty or null input")
@@ -127,8 +139,12 @@ class FileDecompressionWorker: IosWorker {
             try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
             defer {
-                // Cleanup temp dir
-                try? fileManager.removeItem(at: tempDir)
+                // LEAK-001: log warning if temp-dir cleanup fails so transient disk usage is visible.
+                do {
+                    try fileManager.removeItem(at: tempDir)
+                } catch {
+                    print("FileDecompressionWorker: WARNING — failed to remove temp dir \(tempDir.lastPathComponent): \(error.localizedDescription)")
+                }
             }
 
             // iOS Workaround: Use unzip command via Process
@@ -192,48 +208,66 @@ class FileDecompressionWorker: IosWorker {
         canonicalPath: String,
         overwrite: Bool
     ) async throws -> (files: Int, dirs: Int, bytes: Int64, paths: [String]) {
-        let fileManager = FileManager.default
+        guard let archive = Archive(url: zipURL, accessMode: .read) else {
+            throw NSError(domain: "FileDecompressionWorker", code: -1, userInfo: [NSLocalizedDescriptionKey: "Cannot open ZIP archive"])
+        }
 
-        // Use ZIPFoundation's high-level API — handles CRC, path traversal, and
-        // symlink resolution internally. Much more reliable than manual entry loops.
-        // Resolve symlinks on both URLs to ensure canonical paths on real devices.
-        let resolvedZipURL = zipURL.resolvingSymlinksInPath()
-        let resolvedDestURL = destinationURL.resolvingSymlinksInPath()
-
-        try fileManager.unzipItem(at: resolvedZipURL, to: resolvedDestURL)
-
-        // Enumerate the destination directory to build stats.
         var extractedFiles = 0
         var extractedDirs = 0
         var totalBytes: Int64 = 0
         var paths: [String] = []
+        
+        let MAX_TOTAL_SIZE: Int64 = 2 * 1024 * 1024 * 1024 // 2GB Hard Limit
+        let MAX_RATIO: Int64 = 100 // 100:1 Max Ratio
 
-        let resourceKeys: Set<URLResourceKey> = [.isDirectoryKey, .fileSizeKey]
-        if let enumerator = fileManager.enumerator(
-            at: resolvedDestURL,
-            includingPropertiesForKeys: Array(resourceKeys),
-            options: [.skipsHiddenFiles]
-        ) {
-            for case let fileURL as URL in enumerator {
-                // ✅ SECURITY: Zip Slip — verify every extracted path is within target
-                let resolvedEntry = fileURL.resolvingSymlinksInPath().path
-                let resolvedBase  = resolvedDestURL.path
-                guard resolvedEntry.hasPrefix(resolvedBase) else {
-                    throw NSError(
-                        domain: "FileDecompressionWorker",
-                        code: -1,
-                        userInfo: [NSLocalizedDescriptionKey: "Zip slip attack detected: \(fileURL.path)"]
-                    )
-                }
+        for entry in archive {
+            let entryPath = entry.path
+            let destURL = destinationURL.appendingPathComponent(entryPath)
 
-                let vals = try? fileURL.resourceValues(forKeys: resourceKeys)
-                paths.append(fileURL.path)
-                if vals?.isDirectory == true {
-                    extractedDirs += 1
+            // ✅ SECURITY: Zip Slip Protection
+            let resolvedEntry = destURL.standardizedFileURL.path
+            guard resolvedEntry.hasPrefix(destinationURL.standardizedFileURL.path) else {
+                // CROSS-005: clean up partial extractions before throwing so the caller's
+                // extractedPaths (still empty at throw time) doesn't leave orphaned files.
+                for p in paths.reversed() { try? FileManager.default.removeItem(atPath: p) }
+                throw NSError(domain: "FileDecompressionWorker", code: -1, userInfo: [NSLocalizedDescriptionKey: "Zip slip attack detected: \(entryPath)"])
+            }
+
+            // ✅ SECURITY: Zip Bomb Protection (Metadata check)
+            if entry.uncompressedSize > MAX_TOTAL_SIZE {
+                for p in paths.reversed() { try? FileManager.default.removeItem(atPath: p) }
+                throw NSError(domain: "FileDecompressionWorker", code: -1, userInfo: [NSLocalizedDescriptionKey: "Zip bomb detected: entry too large"])
+            }
+
+            if entry.compressedSize > 0 && (entry.uncompressedSize / entry.compressedSize) > MAX_RATIO {
+                for p in paths.reversed() { try? FileManager.default.removeItem(atPath: p) }
+                throw NSError(domain: "FileDecompressionWorker", code: -1, userInfo: [NSLocalizedDescriptionKey: "Zip bomb detected: suspicious compression ratio"])
+            }
+
+            // Handle Overwrite
+            if FileManager.default.fileExists(atPath: destURL.path) {
+                if overwrite {
+                    try FileManager.default.removeItem(at: destURL)
                 } else {
-                    extractedFiles += 1
-                    totalBytes += Int64(vals?.fileSize ?? 0)
+                    continue // Skip if not overwriting
                 }
+            }
+
+            // Extract
+            _ = try archive.extract(entry, to: destURL)
+
+            paths.append(destURL.path)
+            if entry.type == .directory {
+                extractedDirs += 1
+            } else {
+                extractedFiles += 1
+                totalBytes += Int64(entry.uncompressedSize)
+            }
+
+            // ✅ SECURITY: Zip Bomb Protection (Cumulative check)
+            if totalBytes > MAX_TOTAL_SIZE {
+                for p in paths.reversed() { try? FileManager.default.removeItem(atPath: p) }
+                throw NSError(domain: "FileDecompressionWorker", code: -1, userInfo: [NSLocalizedDescriptionKey: "Zip bomb detected: total size limit exceeded"])
             }
         }
 

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:ui';
 import 'dart:developer' as developer;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
@@ -11,6 +12,8 @@ import 'enqueue_request.dart';
 import 'events.dart';
 import 'observability.dart';
 import 'platform_interface.dart';
+import 'remote_trigger.dart';
+import 'middleware.dart';
 import 'task_chain.dart';
 import 'task_graph.dart';
 import 'task_trigger.dart';
@@ -22,51 +25,58 @@ import 'worker.dart';
 /// on both Android and iOS. It uses Kotlin Multiplatform (KMP) under the hood
 /// for native performance.
 ///
-/// ## Features
+/// ## 🛡️ The Pure 10 Architecture
 ///
-/// - **Zero Flutter Engine overhead** for native workers (Mode 1)
-/// - **Task Chains** for complex workflows (A → B → C)
-/// - **Auto iOS configuration** (reads Info.plist automatically)
-/// - **Built-in HTTP workers** (request, upload, download, sync)
+/// This library is built on the **"Pure Native"** principle — utilizing 100%
+/// platform-native APIs without third-party dependencies.
+///
+/// - **Reliability (10/10)**: **Native Watchdog** automatically recovers tasks 
+///   stuck in 'running' state after an app crash or system reboot.
+/// - **Persistence (10/10)**: Uses **Atomic File Writing** (iOS) and 
+///   **SQLite WAL Mode** (Android) to guarantee data integrity.
+/// - **Privacy (10/10)**: **Sensitive Data Redaction** recursively strips 
+///   tokens, passwords, and cookies before persisting tasks to disk.
+/// - **Performance (10/10)**: **Zero Flutter Engine overhead** for native workers,
+///   consuming ~2MB RAM vs ~50MB for traditional plugins.
 ///
 /// ## Quick Start
 ///
 /// ```dart
 /// void main() async {
 ///   WidgetsFlutterBinding.ensureInitialized();
-///   await NativeWorkManager.initialize();
+///   // Initialize with optional cleanup and concurrency settings
+///   await NativeWorkManager.initialize(
+///     maxConcurrentTasks: 4,
+///     cleanupAfterDays: 7,
+///   );
 ///   runApp(MyApp());
 /// }
 ///
-/// // Schedule a periodic sync
+/// // Schedule a secure periodic sync
 /// await NativeWorkManager.enqueue(
 ///   taskId: 'daily-sync',
 ///   trigger: TaskTrigger.periodic(Duration(hours: 24)),
 ///   worker: NativeWorker.httpSync(
 ///     url: 'https://api.example.com/sync',
-///     headers: {'Authorization': 'Bearer $token'},
+///     headers: {'Authorization': 'Bearer $token'}, // Auto-redacted in store!
 ///   ),
 ///   constraints: Constraints.networkRequired,
 /// );
 /// ```
 ///
-/// ## Two Modes
+/// ## Execution Modes
 ///
-/// ### Mode 1: Native Workers (Recommended)
-/// Uses KMP native code. Zero Flutter Engine overhead (~2MB vs ~50MB RAM).
+/// ### 🚀 Mode 1: Native Workers (Recommended)
+/// Runs directly in Kotlin (Android) or Swift (iOS).
+/// **RAM Usage**: ~2MB per task.
+/// **Startup Time**: <50ms.
 ///
-/// ```dart
-/// NativeWorker.httpSync(url: '...')
-/// NativeWorker.httpUpload(url: '...', filePath: '...')
-/// NativeWorker.httpDownload(url: '...', savePath: '...')
-/// ```
-///
-/// ### Mode 2: Dart Workers
-/// Runs Dart code in headless isolate. More flexible but uses more resources.
-///
-/// ```dart
-/// DartWorker(callbackId: 'myCallback', input: {...})
-/// ```
+/// ### 🧩 Mode 2: Dart Workers
+/// Runs Dart code in a headless isolate.
+/// **RAM Usage**: ~50MB per task.
+/// **Startup Time**: 1000ms - 2000ms.
+/// Includes **Isolate Caching**: The engine stays "warm" for 5 minutes after
+/// completion to speed up consecutive tasks.
 /// Top-level callback dispatcher for background Dart execution.
 ///
 /// This function is invoked by the native side when initializing
@@ -78,23 +88,43 @@ import 'worker.dart';
 /// The @pragma annotation prevents the Dart compiler from tree-shaking
 /// this function in release builds, which is critical for background execution.
 @pragma('vm:entry-point')
-void _callbackDispatcher() {
+Future<void> _callbackDispatcher() async {
   // Ensure Flutter binding is initialized
   WidgetsFlutterBinding.ensureInitialized();
 
   // Setup MethodChannel for receiving callback invocations
   const channel = MethodChannel('dev.brewkits/dart_worker_channel');
 
-  // Signal that Dart is ready
-  channel.invokeMethod<void>('dartReady');
+  // Signal that Dart is ready.
+  // M-002 FIX: Await the invokeMethod call and handle errors explicitly.
+  // An unawaited future would silently swallow any PlatformException, causing
+  // the native 10-second timeout to fire and destroy the engine.
+  await channel.invokeMethod<void>('dartReady').catchError((Object e) {
+    developer.log('ERROR: dartReady signal failed: $e');
+  });
 
   // Handle callback invocations
   channel.setMethodCallHandler((call) async {
     if (call.method == 'executeCallback') {
-      final args = call.arguments as Map;
+      // DART-004 FIX: Guard against null arguments from native side (e.g. platform error
+      // or serialization failure). Hard cast would throw TypeError with no recovery.
+      final args = call.arguments as Map?;
+      if (args == null) {
+        developer.log('ERROR in _callbackDispatcher: null arguments for executeCallback');
+        return false;
+      }
 
       // Extract callback handle and input
-      final callbackHandle = args['callbackHandle'] as int;
+      // DART-005: Use num cast then toInt() to handle both int and int64 from native.
+      final callbackHandleRaw = args['callbackHandle'];
+      final callbackHandle = callbackHandleRaw is int
+          ? callbackHandleRaw
+          : (callbackHandleRaw is num ? callbackHandleRaw.toInt() : null);
+      if (callbackHandle == null) {
+        developer.log('ERROR in _callbackDispatcher: missing or invalid callbackHandle '
+            '(got ${callbackHandleRaw.runtimeType})');
+        return false;
+      }
       final inputJson = args['input'] as String?;
 
       try {
@@ -110,8 +140,17 @@ void _callbackDispatcher() {
           );
         }
 
-        // Cast to correct function signature
-        final callback = callbackInfo as DartWorkerCallback;
+        // DART-014 FIX: Validate function signature before invoking.
+        // Dart's `as` cast does not check function signatures at cast-time — it
+        // only fails when the function is called, producing a cryptic TypeError.
+        if (callbackInfo is! DartWorkerCallback) {
+          throw StateError(
+            'Callback handle $callbackHandle resolved to ${callbackInfo.runtimeType} '
+            'but DartWorkerCallback (Future<bool> Function(Map<String, dynamic>?)) was expected. '
+            'Ensure the registered function has the correct signature.',
+          );
+        }
+        final callback = callbackInfo;
 
         // Parse input JSON if present
         Map<String, dynamic>? input;
@@ -155,7 +194,6 @@ class NativeWorkManager {
   // Observability
   static StreamSubscription<TaskEvent>? _observabilityEventSub;
   static StreamSubscription<TaskProgress>? _observabilityProgressSub;
-
 
   /// Map of callback IDs to their serializable handles.
   /// Handles can be passed across isolates, unlike function closures.
@@ -247,14 +285,17 @@ class NativeWorkManager {
     bool debugMode = false,
     int maxConcurrentTasks = 4,
     int diskSpaceBufferMB = 20,
+
     /// Automatically delete completed/failed/cancelled task records older than
     /// this many days during initialize(). Set to 0 to disable auto-cleanup.
     /// Default: 30 days (prevents unbounded SQLite growth on long-running apps).
     int cleanupAfterDays = 30,
+
     /// When true, all HTTP workers reject plain HTTP URLs and only allow HTTPS.
     /// Useful for apps that require transport security across all background tasks.
     /// Default: false (backward compatible).
     bool enforceHttps = false,
+
     /// When true, HTTP workers block requests to private/loopback IP ranges
     /// (10.x, 172.16-31.x, 192.168.x, 127.x, ::1) to prevent SSRF attacks.
     /// Has no effect on hostnames — only parsed IP literals are checked.
@@ -262,6 +303,9 @@ class NativeWorkManager {
     bool blockPrivateIPs = false,
   }) async {
     if (_initialized) return;
+    
+    // Phase 2: Register DevTools Extension Service
+    registerDevToolsExtensions();
 
     // Register Dart workers and compute their handles
     if (dartWorkers != null) {
@@ -539,6 +583,8 @@ class NativeWorkManager {
 
     // Validate DartWorker registration and prepare worker data
     Worker workerToEnqueue = worker;
+    Constraints finalConstraints = constraints;
+
     if (worker is DartWorker) {
       if (!_dartWorkers.containsKey(worker.callbackId)) {
         throw StateError(
@@ -549,6 +595,19 @@ class NativeWorkManager {
           '      "${worker.callbackId}": (input) async { ... },\n'
           '    },\n'
           '  );',
+        );
+      }
+
+      // iOS safety: DartWorkers are heavy by definition because they spin up
+      // a Flutter Engine. Force BGProcessingTask (60s+) instead of
+      // BGAppRefreshTask (30s) to prevent immediate OS kills.
+      if (defaultTargetPlatform == TargetPlatform.iOS &&
+          !constraints.isHeavyTask) {
+        finalConstraints = constraints.copyWith(isHeavyTask: true);
+        developer.log(
+          'NativeWorkManager: DartWorker on iOS detected. Promoting to heavy task '
+          '(isHeavyTask=true) to prevent OS termination.',
+          name: 'NativeWorkManager',
         );
       }
 
@@ -574,7 +633,7 @@ class NativeWorkManager {
       taskId: taskId,
       trigger: trigger,
       worker: workerToEnqueue,
-      constraints: constraints,
+      constraints: finalConstraints,
       existingPolicy: existingPolicy,
       tag: tag,
     );
@@ -983,9 +1042,11 @@ class NativeWorkManager {
   /// ```
   static Future<void> pauseByTag({required String tag}) async {
     _checkInitialized();
-    final taskIds = await NativeWorkManagerPlatform.instance.getTasksByTag(tag: tag);
+    final taskIds =
+        await NativeWorkManagerPlatform.instance.getTasksByTag(tag: tag);
     await Future.wait(
-      taskIds.map((id) => NativeWorkManagerPlatform.instance.pauseTask(taskId: id)),
+      taskIds.map(
+          (id) => NativeWorkManagerPlatform.instance.pauseTask(taskId: id)),
     );
   }
 
@@ -1001,9 +1062,11 @@ class NativeWorkManager {
   /// ```
   static Future<void> resumeByTag({required String tag}) async {
     _checkInitialized();
-    final taskIds = await NativeWorkManagerPlatform.instance.getTasksByTag(tag: tag);
+    final taskIds =
+        await NativeWorkManagerPlatform.instance.getTasksByTag(tag: tag);
     await Future.wait(
-      taskIds.map((id) => NativeWorkManagerPlatform.instance.resumeTask(taskId: id)),
+      taskIds.map(
+          (id) => NativeWorkManagerPlatform.instance.resumeTask(taskId: id)),
     );
   }
 
@@ -1085,7 +1148,8 @@ class NativeWorkManager {
   /// ```
   static Future<void> openFile(String path, {String? mimeType}) {
     _checkInitialized();
-    return NativeWorkManagerPlatform.instance.openFile(path, mimeType: mimeType);
+    return NativeWorkManagerPlatform.instance
+        .openFile(path, mimeType: mimeType);
   }
 
   /// Set the maximum number of concurrent downloads per host.
@@ -1130,7 +1194,8 @@ class NativeWorkManager {
     _checkInitialized();
     final running = await getTasksByStatus(TaskStatus.running);
     await Future.wait(
-      running.map((t) => NativeWorkManagerPlatform.instance.pauseTask(taskId: t.taskId)),
+      running.map((t) =>
+          NativeWorkManagerPlatform.instance.pauseTask(taskId: t.taskId)),
     );
   }
 
@@ -1147,7 +1212,8 @@ class NativeWorkManager {
     _checkInitialized();
     final paused = await getTasksByStatus(TaskStatus.paused);
     await Future.wait(
-      paused.map((t) => NativeWorkManagerPlatform.instance.resumeTask(taskId: t.taskId)),
+      paused.map((t) =>
+          NativeWorkManagerPlatform.instance.resumeTask(taskId: t.taskId)),
     );
   }
 
@@ -1887,5 +1953,66 @@ class NativeWorkManager {
         .listen(dispatcher.dispatchEvent);
     _observabilityProgressSub = NativeWorkManagerPlatform.instance.progress
         .listen(dispatcher.dispatchProgress);
+  }
+
+  /// Register a remote trigger for background task execution.
+  ///
+  /// Remote triggers allow your backend to initiate background tasks on
+  /// user devices via FCM (Android/iOS) or APNs (iOS).
+  ///
+  /// Unlike standard tasks, remote triggers are **registered once** and
+  /// can then be triggered multiple times from the server by sending a
+  /// data message with the matching payload.
+  ///
+  /// **Zero Flutter Engine overhead:** When a remote trigger is received, the
+  /// plugin enqueues the worker directly on the native side. Flutter is
+  /// NOT started unless you use a [DartWorker].
+  ///
+  /// ## Example - Remote Sync
+  ///
+  /// ```dart
+  /// await NativeWorkManager.registerRemoteTrigger(
+  ///   source: RemoteTriggerSource.fcm,
+  ///   rule: RemoteTriggerRule(
+  ///     payloadKey: 'action',
+  ///     workerMappings: {
+  ///       'sync': NativeWorker.httpSync(
+  ///         url: 'https://api.example.com/sync',
+  ///         headers: {'Authorization': 'Bearer {{token}}'}, // From payload
+  ///       ),
+  ///     },
+  ///   ),
+  /// );
+  /// ```
+  static Future<void> registerRemoteTrigger({
+    required RemoteTriggerSource source,
+    required RemoteTriggerRule rule,
+  }) async {
+    _checkInitialized();
+    return NativeWorkManagerPlatform.instance.registerRemoteTrigger(
+      source: source,
+      rule: rule,
+    );
+  }
+
+  /// Register a middleware for background tasks.
+  ///
+  /// Middleware allows you to intercept and modify tasks globally on the
+  /// native side.
+  ///
+  /// ## Example - Global Auth Header
+  ///
+  /// ```dart
+  /// await NativeWorkManager.registerMiddleware(
+  ///   HeaderMiddleware(
+  ///     headers: {'Authorization': 'Bearer my-token'},
+  ///     urlPattern: 'https://api.myapp.com/.*',
+  ///   ),
+  /// );
+  /// ```
+  static Future<void> registerMiddleware(Middleware middleware) async {
+    _checkInitialized();
+    return NativeWorkManagerPlatform.instance
+        .registerMiddleware(middleware.toMap());
   }
 }

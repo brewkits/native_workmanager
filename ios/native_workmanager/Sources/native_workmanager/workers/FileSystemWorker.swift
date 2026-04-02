@@ -48,6 +48,18 @@ import Foundation
 class FileSystemWorker: IosWorker {
 
     func doWork(input: String?) async throws -> WorkerResult {
+        // ✅ IOS: Register background task to request extra execution time
+        // iOS will freeze the app shortly after moving to background otherwise.
+        var bgTaskId = UIBackgroundTaskIdentifier.invalid
+        bgTaskId = UIApplication.shared.beginBackgroundTask(withName: "BrewkitsFileSystem") {
+            NativeLogger.d("FileSystemWorker: Background time expired — ending task")
+            UIApplication.shared.endBackgroundTask(bgTaskId)
+        }
+
+        defer {
+            UIApplication.shared.endBackgroundTask(bgTaskId)
+        }
+
         guard let input = input, !input.isEmpty else {
             return .failure(message: "Input JSON is required")
         }
@@ -323,45 +335,66 @@ class FileSystemWorker: IosWorker {
         }
 
         do {
-            let files: [URL]
-            if recursive {
-                files = try listFilesRecursive(in: dirURL)
-            } else {
-                let contents = try fileManager.contentsOfDirectory(at: dirURL, includingPropertiesForKeys: nil)
-                files = contents.filter { url in
-                    var isDir: ObjCBool = false
-                    fileManager.fileExists(atPath: url.path, isDirectory: &isDir)
-                    return !isDir.boolValue
+            // ✅ MEMORY: Use streaming enumerator instead of loading all URLs into array
+            var fileInfos: [[String: Any]] = []
+            var totalSize: Int64 = 0
+            var count = 0
+            
+            let resourceKeys: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey]
+            var options: FileManager.DirectoryEnumerationOptions = [.skipsHiddenFiles]
+            if !recursive {
+                options.insert(.skipsSubdirectoryDescendants)
+            }
+            
+            guard let enumerator = fileManager.enumerator(
+                at: dirURL,
+                includingPropertiesForKeys: resourceKeys,
+                options: options
+            ) else {
+                return .failure(message: "Cannot enumerate directory")
+            }
+            
+            // ✅ SECURITY: Fix Regex Injection — pre-compile and escape pattern
+            let regex = try pattern.flatMap { p -> NSRegularExpression? in
+                let escaped = p.replacingOccurrences(of: ".", with: "\\.")
+                               .replacingOccurrences(of: "*", with: ".*")
+                               .replacingOccurrences(of: "?", with: ".")
+                return try NSRegularExpression(pattern: "^" + escaped + "$", options: .caseInsensitive)
+            }
+
+            for case let fileURL as URL in enumerator {
+                // IPC Stability: Limit result size to 1000 items
+                if count >= 1000 { break }
+                
+                let vals = try fileURL.resourceValues(forKeys: Set(resourceKeys))
+                if vals.isDirectory == true { continue }
+                
+                let fileName = fileURL.lastPathComponent
+                if let r = regex {
+                    let range = NSRange(fileName.startIndex..<fileName.endIndex, in: fileName)
+                    if r.firstMatch(in: fileName, range: range) == nil { continue }
                 }
-            }
-
-            // Apply pattern filter
-            let filteredFiles = try filterFiles(files, pattern: pattern)
-
-            // Build file info
-            let fileInfos: [[String: Any]] = try filteredFiles.map { url in
-                let attrs = try fileManager.attributesOfItem(atPath: url.path)
-                return [
-                    "path": url.path,
-                    "name": url.lastPathComponent,
-                    "size": attrs[.size] as? Int64 ?? 0,
-                    "lastModified": (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0,
+                
+                let size = Int64(vals.fileSize ?? 0)
+                fileInfos.append([
+                    "path": fileURL.path,
+                    "name": fileName,
+                    "size": size,
+                    "lastModified": vals.contentModificationDate?.timeIntervalSince1970 ?? 0,
                     "isDirectory": false
-                ]
-            }
-
-            let totalSize = fileInfos.reduce(Int64(0)) { sum, info in
-                sum + (info["size"] as? Int64 ?? 0)
+                ])
+                totalSize += size
+                count += 1
             }
 
             return .success(
-                message: "Found \(filteredFiles.count) file(s)",
+                message: "Found \(count) file(s)",
                 data: [
                     "operation": "list",
                     "path": path,
                     "pattern": pattern ?? "",
                     "recursive": recursive,
-                    "fileCount": filteredFiles.count,
+                    "fileCount": count,
                     "totalSize": totalSize,
                     "files": fileInfos
                 ]

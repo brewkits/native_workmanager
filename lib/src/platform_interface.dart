@@ -3,6 +3,7 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'constraints.dart';
 import 'events.dart';
 import 'method_channel.dart';
+import 'remote_trigger.dart';
 import 'task_trigger.dart';
 import 'worker.dart';
 
@@ -160,7 +161,48 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
   /// When multiple downloads target the same host, this limits how many run
   /// simultaneously. Defaults to 2.
   Future<void> setMaxConcurrentPerHost(int max) {
-    throw UnimplementedError('setMaxConcurrentPerHost() has not been implemented.');
+    throw UnimplementedError(
+        'setMaxConcurrentPerHost() has not been implemented.');
+  }
+
+  /// Register a remote trigger for background task execution.
+  ///
+  /// This allows the plugin to automatically enqueue native workers when a
+  /// remote message (FCM/APNs) is received, without waking the Flutter Engine.
+  ///
+  /// Rules are persisted on the native side.
+  Future<void> registerRemoteTrigger({
+    required RemoteTriggerSource source,
+    required RemoteTriggerRule rule,
+  }) {
+    throw UnimplementedError(
+        'registerRemoteTrigger() has not been implemented.');
+  }
+
+  /// Enqueue a task graph for native execution.
+  ///
+  /// This moves graph orchestration to the native layer, allowing it to
+  /// survive app termination.
+  Future<String> enqueueGraph(Map<String, dynamic> graphMap) {
+    throw UnimplementedError('enqueueGraph() has not been implemented.');
+  }
+
+  /// Enqueue a task to the native offline queue.
+  ///
+  /// This moves queue management to the native layer, allowing tasks to
+  /// be enqueued while offline and automatically processed when network
+  /// is restored, even if the app is killed.
+  Future<void> offlineQueueEnqueue(
+      String queueId, Map<String, dynamic> entryMap) {
+    throw UnimplementedError('offlineQueueEnqueue() has not been implemented.');
+  }
+
+  /// Register a middleware for background tasks.
+  ///
+  /// Middleware allows you to intercept and modify tasks globally on the
+  /// native side.
+  Future<void> registerMiddleware(Map<String, dynamic> middlewareMap) {
+    throw UnimplementedError('registerMiddleware() has not been implemented.');
   }
 
   /// Set the Dart callback executor.
@@ -168,5 +210,16 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
       Future<bool> Function(String callbackId, Map<String, dynamic>? input)
           executor) {
     throw UnimplementedError('setCallbackExecutor() has not been implemented.');
+  }
+
+  /// Get real-time metrics from the native task store for DevTools.
+  /// Returns a map with activeTasks, offlineQueueSize, failedTasks, completedTasks.
+  Future<Map<String, dynamic>> getMetrics() {
+    throw UnimplementedError('getMetrics() has not been implemented.');
+  }
+
+  /// Manually trigger processing of the native offline queue.
+  Future<bool> syncOfflineQueue() {
+    throw UnimplementedError('syncOfflineQueue() has not been implemented.');
   }
 }

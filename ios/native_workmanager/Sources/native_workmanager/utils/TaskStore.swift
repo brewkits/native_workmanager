@@ -1,238 +1,245 @@
 import Foundation
-import SQLite3
 
-/// Lightweight SQLite-backed task store for native_workmanager.
+/// Persistent task storage for iOS using atomic file-based JSON records.
+/// 
+/// Instead of a database, each task is stored as a separate .json file in the
+/// app's Application Support directory. This ensures high reliability and
+/// performance without the overhead of SQLite or CoreData.
 ///
-/// Schema (v2):
-/// ```
-/// tasks (task_id TEXT PK, tag TEXT, status TEXT, worker_class TEXT,
-///         worker_config TEXT, created_at INTEGER, updated_at INTEGER, result_data TEXT)
-/// ```
+/// Uses .atomic writing to guarantee data integrity across app crashes and reboots.
 @available(iOS 13.0, *)
-final class TaskStore {
-
-    static let shared = TaskStore()
-
-    struct TaskRecord {
-        let taskId: String
-        let tag: String?
-        let status: String
-        let workerClassName: String
-        let workerConfig: String?
-        let createdAt: Int64
-        let updatedAt: Int64
-        let resultData: String?
-
-        func toFlutterMap() -> [String: Any?] {
-            [
-                "taskId":          taskId,
-                "tag":             tag as Any,
-                "status":          status,
+public class TaskStore {
+    
+    public struct TaskRecord: Codable {
+        public let taskId: String
+        public let tag: String?
+        public let status: String
+        public let workerClassName: String
+        public let workerConfig: String?
+        public let createdAt: Int64
+        public let updatedAt: Int64
+        public let resultData: String?
+        public let constraintsJson: String?
+        
+        /// Returns a sanitized version of the record with sensitive config fields removed.
+        /// Prevents leaking auth tokens or passwords via backups or file system dumps.
+        public func sanitized() -> TaskRecord {
+            guard let config = workerConfig else { return self }
+            return TaskRecord(
+                taskId: taskId,
+                tag: tag,
+                status: status,
+                workerClassName: workerClassName,
+                workerConfig: TaskStore.sanitizeConfig(config),
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                resultData: resultData,
+                constraintsJson: constraintsJson
+            )
+        }
+        
+        /// For backward compatibility with existing plugin logic.
+        public func toFlutterMap() -> [String: Any?] {
+            return [
+                "taskId": taskId,
+                "tag": tag,
+                "status": status,
                 "workerClassName": workerClassName,
-                "createdAt":       createdAt,
-                "updatedAt":       updatedAt,
-                "resultData":      resultData as Any
+                "createdAt": createdAt,
+                "updatedAt": updatedAt,
+                "resultData": resultData
             ]
         }
     }
-
-    private var db: OpaquePointer?
-    private let queue = DispatchQueue(label: "dev.brewkits.taskstore", attributes: .concurrent)
-
+    
+    public static let shared = TaskStore()
+    
+    private let fileManager = FileManager.default
+    private let tasksDir: URL
+    
     private init() {
-        openDatabase()
-        createTable()
-    }
-
-    deinit { sqlite3_close(db) }
-
-    // MARK: - Setup
-
-    private func openDatabase() {
-        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let path = dir.appendingPathComponent("native_workmanager.db").path
-        if sqlite3_open(path, &db) != SQLITE_OK {
-            NSLog("TaskStore: Failed to open database at \(path)")
+        // Use Application Support directory for persistent data (standard iOS practice).
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        tasksDir = appSupport.appendingPathComponent("native_workmanager/tasks", isDirectory: true)
+        
+        // Ensure the directory exists.
+        if !fileManager.fileExists(atPath: tasksDir.path) {
+            try? fileManager.createDirectory(at: tasksDir, withIntermediateDirectories: true)
         }
     }
-
-    private func createTable() {
-        let sql = """
-            CREATE TABLE IF NOT EXISTS tasks (
-                task_id       TEXT PRIMARY KEY,
-                tag           TEXT,
-                status        TEXT NOT NULL,
-                worker_class  TEXT NOT NULL,
-                worker_config TEXT,
-                created_at    INTEGER NOT NULL,
-                updated_at    INTEGER NOT NULL,
-                result_data   TEXT
-            );
-        """
-        queue.sync(flags: .barrier) {
-            _ = sqlite3_exec(db, sql, nil, nil, nil)
-        }
-    }
-
-    // MARK: - Write
-
-    func upsert(
+    
+    /// Persist or update a task record.
+    /// Uses .atomic writing to prevent file corruption.
+    public func upsert(
         taskId: String,
         tag: String?,
         status: String,
         workerClassName: String,
-        workerConfig: String?
+        workerConfig: String?,
+        constraintsJson: String? = nil
     ) {
         let now = Int64(Date().timeIntervalSince1970 * 1000)
-        queue.async(flags: .barrier) {
-            // INSERT OR IGNORE so created_at is preserved on update
-            let insert = "INSERT OR IGNORE INTO tasks (task_id,tag,status,worker_class,worker_config,created_at,updated_at) VALUES (?,?,?,?,?,?,?)"
-            if let stmt = self.prepare(insert) {
-                sqlite3_bind_text(stmt, 1, taskId, -1, Self.TRANSIENT)
-                self.bindNullableText(stmt, 2, tag)
-                sqlite3_bind_text(stmt, 3, status, -1, Self.TRANSIENT)
-                sqlite3_bind_text(stmt, 4, workerClassName, -1, Self.TRANSIENT)
-                self.bindNullableText(stmt, 5, workerConfig)
-                sqlite3_bind_int64(stmt, 6, now)
-                sqlite3_bind_int64(stmt, 7, now)
-                sqlite3_step(stmt)
-                sqlite3_finalize(stmt)
-            }
-            // UPDATE mutable columns
-            let update = "UPDATE tasks SET status=?, updated_at=?, tag=COALESCE(?,tag) WHERE task_id=?"
-            if let stmt = self.prepare(update) {
-                sqlite3_bind_text(stmt, 1, status, -1, Self.TRANSIENT)
-                sqlite3_bind_int64(stmt, 2, now)
-                self.bindNullableText(stmt, 3, tag)
-                sqlite3_bind_text(stmt, 4, taskId, -1, Self.TRANSIENT)
-                sqlite3_step(stmt)
-                sqlite3_finalize(stmt)
-            }
+        let existing = getTask(taskId: taskId)
+        
+        let record = TaskRecord(
+            taskId: taskId,
+            tag: tag,
+            status: status,
+            workerClassName: workerClassName,
+            workerConfig: workerConfig,
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now,
+            resultData: existing?.resultData,
+            constraintsJson: constraintsJson
+        )
+        
+        save(record)
+    }
+    
+    /// Update status and optional result data for an existing task.
+    public func updateStatus(taskId: String, status: String, resultData: String? = nil) {
+        guard var record = getTask(taskId: taskId) else { return }
+        
+        record = TaskRecord(
+            taskId: record.taskId,
+            tag: record.tag,
+            status: status,
+            workerClassName: record.workerClassName,
+            workerConfig: record.workerConfig,
+            createdAt: record.createdAt,
+            updatedAt: Int64(Date().timeIntervalSince1970 * 1000),
+            resultData: resultData ?? record.resultData,
+            constraintsJson: record.constraintsJson
+        )
+        
+        save(record)
+    }
+    
+    /// Retrieve a task by ID.
+    public func getTask(taskId: String) -> TaskRecord? {
+        let fileURL = tasksDir.appendingPathComponent("\(taskId).json")
+        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+        return try? JSONDecoder().decode(TaskRecord.self, from: data)
+    }
+    
+    /// Compatibility alias for getTask
+    public func task(taskId: String) -> TaskRecord? {
+        return getTask(taskId: taskId)
+    }
+    
+    /// Retrieve all tasks, sorted by updatedAt descending.
+    public func getAllTasks() -> [TaskRecord] {
+        guard let files = try? fileManager.contentsOfDirectory(at: tasksDir, includingPropertiesForKeys: nil) else {
+            return []
         }
+        
+        let records = files.compactMap { fileURL -> TaskRecord? in
+            guard fileURL.pathExtension == "json" else { return nil }
+            guard let data = try? Data(contentsOf: fileURL) else { return nil }
+            return try? JSONDecoder().decode(TaskRecord.self, from: data)
+        }
+        
+        return records.sorted { $0.updatedAt > $1.updatedAt }
+    }
+    
+    /// Compatibility alias for getAllTasks
+    public func allTasks() -> [TaskRecord] {
+        return getAllTasks()
+    }
+    
+    /// Delete a task record.
+    public func delete(taskId: String) {
+        let fileURL = tasksDir.appendingPathComponent("\(taskId).json")
+        try? fileManager.removeItem(at: fileURL)
     }
 
-    func updateStatus(taskId: String, status: String, resultData: String? = nil) {
+    /// Recover "Zombie" tasks that are stuck in 'running' state.
+    /// 
+    /// FIX #03: Added Heartbeat check. Only recover tasks that have been in 'running'
+    /// state without any update for more than 5 minutes. This prevents killing
+    /// tasks that were just started by the OS during app launch.
+    public func recoverZombieTasks() {
+        let all = getAllTasks()
         let now = Int64(Date().timeIntervalSince1970 * 1000)
-        queue.async(flags: .barrier) {
-            let sql = "UPDATE tasks SET status=?, updated_at=?, result_data=COALESCE(?,result_data) WHERE task_id=?"
-            if let stmt = self.prepare(sql) {
-                sqlite3_bind_text(stmt, 1, status, -1, Self.TRANSIENT)
-                sqlite3_bind_int64(stmt, 2, now)
-                self.bindNullableText(stmt, 3, resultData)
-                sqlite3_bind_text(stmt, 4, taskId, -1, Self.TRANSIENT)
-                sqlite3_step(stmt)
-                sqlite3_finalize(stmt)
+        let timeoutMs: Int64 = 5 * 60 * 1000 // 5 minutes heartbeat timeout
+        
+        var recoveredCount = 0
+        for record in all where record.status == "running" {
+            if (now - record.updatedAt) > timeoutMs {
+                updateStatus(
+                    taskId: record.taskId,
+                    status: "failed",
+                    resultData: "{\"message\": \"Process died or hung (heartbeat timeout)\", \"shouldRetry\": true}"
+                )
+                recoveredCount += 1
+            }
+        }
+        if recoveredCount > 0 {
+            print("TaskStore: Recovered \(recoveredCount) zombie tasks (heartbeat based)")
+        }
+    }
+
+    /// Delete old tasks (cleanup).
+    public func deleteCompleted(olderThanMs: Int64 = 0) {
+        let threshold = olderThanMs > 0 ? Int64(Date().timeIntervalSince1970 * 1000) - olderThanMs : Int64.max
+        let all = getAllTasks()
+        
+        for record in all {
+            let s = record.status
+            if (s == "completed" || s == "failed" || s == "cancelled") && record.updatedAt < threshold {
+                delete(taskId: record.taskId)
             }
         }
     }
-
-    // MARK: - Read
-
-    func allTasks() -> [TaskRecord] {
-        return queue.sync {
-            readRecords("SELECT * FROM tasks ORDER BY updated_at DESC", params: [])
+    
+    private func save(_ record: TaskRecord) {
+        let fileURL = tasksDir.appendingPathComponent("\(record.taskId).json")
+        
+        // Sanitize before persisting to prevent sensitive data leakage.
+        let sanitized = record.sanitized()
+        
+        if let data = try? JSONEncoder().encode(sanitized) {
+            // .atomic writing ensures the old file is only replaced if the new write succeeds.
+            try? data.write(to: fileURL, options: .atomic)
         }
     }
-
-    func task(taskId: String) -> TaskRecord? {
-        return queue.sync {
-            readRecords("SELECT * FROM tasks WHERE task_id = ?", params: [taskId]).first
-        }
-    }
-
-    func tasks(forTag tag: String) -> [TaskRecord] {
-        return queue.sync {
-            readRecords("SELECT * FROM tasks WHERE tag = ? ORDER BY updated_at DESC", params: [tag])
-        }
-    }
-
-    func delete(taskId: String) {
-        queue.async(flags: .barrier) {
-            if let stmt = self.prepare("DELETE FROM tasks WHERE task_id = ?") {
-                sqlite3_bind_text(stmt, 1, taskId, -1, Self.TRANSIENT)
-                sqlite3_step(stmt)
-                sqlite3_finalize(stmt)
-            }
-        }
-    }
-
-    /// Delete terminal-state tasks older than [olderThanMs] milliseconds.
-    ///
-    /// Call on initialize() to auto-prune the task store and prevent unbounded growth.
-    func deleteCompleted(olderThanMs: Int64 = 0) {
-        let threshold = olderThanMs > 0
-            ? Int64(Date().timeIntervalSince1970 * 1000) - olderThanMs
-            : Int64.max
-        queue.async(flags: .barrier) {
-            let sql = "DELETE FROM tasks WHERE status IN ('completed','failed','cancelled') AND updated_at < ?"
-            if let stmt = self.prepare(sql) {
-                sqlite3_bind_int64(stmt, 1, threshold)
-                sqlite3_step(stmt)
-                sqlite3_finalize(stmt)
-            }
-        }
-    }
-
-    /// Returns a sanitized copy of a JSON worker-config string with sensitive
-    /// fields (auth tokens, cookies) removed before persisting to disk.
-    ///
-    /// Sensitive keys stripped: `authToken`, `cookies`, `password`, `secret`.
-    /// The worker runtime always receives the full in-memory config; only the
-    /// persisted (SQLite) copy is sanitized.
-    static func sanitizeConfig(_ json: String?) -> String? {
-        guard let json = json,
-              let data = json.data(using: .utf8),
-              var dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+    
+    // MARK: - Security & Sanitization
+    
+    private static let sensitiveKeys = [
+        "authToken", "authorization", "cookies", "password", "secret",
+        "accessToken", "refreshToken", "apiKey", "token", "bearer"
+    ]
+    
+    /// Recursively strips sensitive keys from JSON config before persistence.
+    public static func sanitizeConfig(_ json: String) -> String {
+        guard let data = json.data(using: .utf8),
+              var dict = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) else {
             return json
         }
-        let sensitiveKeys: Set<String> = ["authToken", "cookies", "password", "secret"]
-        sensitiveKeys.forEach { dict.removeValue(forKey: $0) }
-        guard let sanitized = try? JSONSerialization.data(withJSONObject: dict),
-              let result = String(data: sanitized, encoding: .utf8) else { return json }
-        return result
-    }
-
-    // MARK: - Helpers
-
-    private func prepare(_ sql: String) -> OpaquePointer? {
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) != SQLITE_OK { return nil }
-        return stmt
-    }
-
-    private func bindNullableText(_ stmt: OpaquePointer, _ idx: Int32, _ value: String?) {
-        if let v = value {
-            sqlite3_bind_text(stmt, idx, v, -1, Self.TRANSIENT)
-        } else {
-            sqlite3_bind_null(stmt, idx)
+        
+        sanitizeDictionary(&dict)
+        
+        if let sanitizedData = try? JSONSerialization.data(withJSONObject: dict, options: []),
+           let result = String(data: sanitizedData, encoding: .utf8) {
+            return result
         }
+        return json
     }
-
-    private func readRecords(_ sql: String, params: [String]) -> [TaskRecord] {
-        guard let stmt = prepare(sql) else { return [] }
-        defer { sqlite3_finalize(stmt) }
-        for (i, p) in params.enumerated() {
-            sqlite3_bind_text(stmt, Int32(i + 1), p, -1, Self.TRANSIENT)
-        }
-        var records: [TaskRecord] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            func col(_ i: Int32) -> String? {
-                guard let ptr = sqlite3_column_text(stmt, i) else { return nil }
-                return String(cString: ptr)
+    
+    public static func sanitizeDictionary(_ dict: inout [String: Any]) {
+        for key in dict.keys {
+            if sensitiveKeys.contains(where: { $0.lowercased() == key.lowercased() }) {
+                dict[key] = "[REDACTED]"
+            } else if var nestedDict = dict[key] as? [String: Any] {
+                sanitizeDictionary(&nestedDict)
+                dict[key] = nestedDict
+            } else if var nestedArray = dict[key] as? [[String: Any]] {
+                for i in 0..<nestedArray.count {
+                    sanitizeDictionary(&nestedArray[i])
+                }
+                dict[key] = nestedArray
             }
-            records.append(TaskRecord(
-                taskId:          col(0) ?? "",
-                tag:             col(1),
-                status:          col(2) ?? "unknown",
-                workerClassName: col(3) ?? "",
-                workerConfig:    col(4),
-                createdAt:       sqlite3_column_int64(stmt, 5),
-                updatedAt:       sqlite3_column_int64(stmt, 6),
-                resultData:      col(7)
-            ))
         }
-        return records
     }
-
-    private static let TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 }

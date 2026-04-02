@@ -195,17 +195,17 @@ enum SecurityValidator {
 
     // MARK: - File Size Limits
 
-    /// Maximum allowed file size for uploads/downloads (100MB).
-    static let maxFileSize: Int64 = 100 * 1024 * 1024
+    /// Maximum allowed file size for uploads/downloads (500MB).
+    static var maxFileSize: Int64 = 500 * 1024 * 1024
 
-    /// Maximum allowed archive size (200MB).
-    static let maxArchiveSize: Int64 = 200 * 1024 * 1024
+    /// Maximum allowed archive size (1GB).
+    static var maxArchiveSize: Int64 = 1024 * 1024 * 1024
 
     /// Maximum allowed request body size (10MB).
-    static let maxRequestBodySize = 10 * 1024 * 1024
+    static var maxRequestBodySize: Int = 10 * 1024 * 1024
 
     /// Maximum allowed response body size (50MB).
-    static let maxResponseBodySize = 50 * 1024 * 1024
+    static var maxResponseBodySize: Int = 50 * 1024 * 1024
 
     // MARK: - Request Size Validation
 

@@ -97,8 +97,9 @@ void main() {
   // GROUP 1 — Basic chain sequencing
   // ──────────────────────────────────────────────────────────
   group('Chain — basic sequencing', () {
-    testWidgets('linear 3-step chain completes all steps in order',
-        (tester) async {
+    testWidgets('linear 3-step chain completes all steps in order', (
+      tester,
+    ) async {
       await tester.pumpAndSettle();
 
       final ts = DateTime.now().millisecondsSinceEpoch;
@@ -117,28 +118,32 @@ void main() {
       });
 
       await NativeWorkManager.beginWith(
-        TaskRequest(
-          id: step1,
-          worker: HttpRequestWorker(
-            url: 'https://httpbin.org/get',
-            method: HttpMethod.get,
-          ),
-        ),
-      )
-          .then(TaskRequest(
-            id: step2,
-            worker: HttpRequestWorker(
-              url: 'https://httpbin.org/get',
-              method: HttpMethod.get,
+            TaskRequest(
+              id: step1,
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/get',
+                method: HttpMethod.get,
+              ),
             ),
-          ))
-          .then(TaskRequest(
-            id: step3,
-            worker: HttpRequestWorker(
-              url: 'https://httpbin.org/get',
-              method: HttpMethod.get,
+          )
+          .then(
+            TaskRequest(
+              id: step2,
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/get',
+                method: HttpMethod.get,
+              ),
             ),
-          ))
+          )
+          .then(
+            TaskRequest(
+              id: step3,
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/get',
+                method: HttpMethod.get,
+              ),
+            ),
+          )
           .named(chainName)
           .enqueue();
 
@@ -172,30 +177,30 @@ void main() {
       final eventsFuture = _waitAllEvents([step1, step2]);
 
       await NativeWorkManager.beginWith(
-        TaskRequest(
-          id: step1,
-          worker: HttpRequestWorker(
-            url: 'https://httpbin.org/get',
-            method: HttpMethod.get,
-          ),
-        ),
-      )
-          .then(TaskRequest(
-            id: step2,
-            worker: HttpRequestWorker(
-              url: 'https://httpbin.org/post',
-              method: HttpMethod.post,
-              body: '{"chain":"resume"}',
+            TaskRequest(
+              id: step1,
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/get',
+                method: HttpMethod.get,
+              ),
             ),
-          ))
+          )
+          .then(
+            TaskRequest(
+              id: step2,
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/post',
+                method: HttpMethod.post,
+                body: '{"chain":"resume"}',
+              ),
+            ),
+          )
           .enqueue();
 
       final events = await eventsFuture;
 
-      expect(events[step1]?.success, isTrue,
-          reason: 'step 1 should succeed');
-      expect(events[step2]?.success, isTrue,
-          reason: 'step 2 should succeed');
+      expect(events[step1]?.success, isTrue, reason: 'step 1 should succeed');
+      expect(events[step2]?.success, isTrue, reason: 'step 2 should succeed');
     });
   });
 
@@ -203,8 +208,9 @@ void main() {
   // GROUP 2 — Chain failure propagation
   // ──────────────────────────────────────────────────────────
   group('Chain — failure propagation', () {
-    testWidgets('failed step prevents downstream steps from running',
-        (tester) async {
+    testWidgets('failed step prevents downstream steps from running', (
+      tester,
+    ) async {
       await tester.pumpAndSettle();
 
       final ts = DateTime.now().millisecondsSinceEpoch;
@@ -221,30 +227,34 @@ void main() {
       });
 
       await NativeWorkManager.beginWith(
-        TaskRequest(
-          id: step1,
-          worker: HttpRequestWorker(
-            url: 'https://httpbin.org/get',
-            method: HttpMethod.get,
-          ),
-        ),
-      )
-          .then(TaskRequest(
-            id: step2,
-            // Invalid host — step should fail.
-            worker: HttpRequestWorker(
-              url: 'https://this-host-does-not-exist-xyzxyz.invalid/fail',
-              method: HttpMethod.get,
-              timeout: const Duration(seconds: 5),
+            TaskRequest(
+              id: step1,
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/get',
+                method: HttpMethod.get,
+              ),
             ),
-          ))
-          .then(TaskRequest(
-            id: step3,
-            worker: HttpRequestWorker(
-              url: 'https://httpbin.org/get',
-              method: HttpMethod.get,
+          )
+          .then(
+            TaskRequest(
+              id: step2,
+              // Invalid host — step should fail.
+              worker: HttpRequestWorker(
+                url: 'https://this-host-does-not-exist-xyzxyz.invalid/fail',
+                method: HttpMethod.get,
+                timeout: const Duration(seconds: 5),
+              ),
             ),
-          ))
+          )
+          .then(
+            TaskRequest(
+              id: step3,
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/get',
+                method: HttpMethod.get,
+              ),
+            ),
+          )
           .enqueue();
 
       // Wait long enough for step 1 + step 2 to settle.
@@ -257,12 +267,17 @@ void main() {
       await tester.pump(const Duration(seconds: 5));
       await sub.cancel();
 
-      expect(results[step1]?.success, isTrue,
-          reason: 'step 1 should succeed');
-      expect(results[step2]?.success, isFalse,
-          reason: 'step 2 should fail (invalid host)');
-      expect(results.containsKey(step3), isFalse,
-          reason: 'step 3 must NOT run after step 2 fails');
+      expect(results[step1]?.success, isTrue, reason: 'step 1 should succeed');
+      expect(
+        results[step2]?.success,
+        isFalse,
+        reason: 'step 2 should fail (invalid host)',
+      );
+      expect(
+        results.containsKey(step3),
+        isFalse,
+        reason: 'step 3 must NOT run after step 2 fails',
+      );
     });
   });
 
@@ -270,8 +285,9 @@ void main() {
   // GROUP 3 — Chain persistence / resume after re-init
   // ──────────────────────────────────────────────────────────
   group('Chain — persistence across plugin re-initialisation', () {
-    testWidgets('chain steps persisted to SQLite survive a re-init call',
-        (tester) async {
+    testWidgets('chain steps persisted to SQLite survive a re-init call', (
+      tester,
+    ) async {
       await tester.pumpAndSettle();
 
       // This test verifies the ChainStore (Android) / TaskStore (iOS)
@@ -284,34 +300,41 @@ void main() {
       final step2 = 'chain-persist-2-$ts';
 
       // Start listening BEFORE enqueuing so we don't miss early events.
-      final eventsFuture = _waitAllEvents(
-        [step1, step2],
-        timeout: const Duration(seconds: 90),
-      );
+      final eventsFuture = _waitAllEvents([
+        step1,
+        step2,
+      ], timeout: const Duration(seconds: 90));
 
       await NativeWorkManager.beginWith(
-        TaskRequest(
-          id: step1,
-          worker: HttpRequestWorker(
-            url: 'https://httpbin.org/get',
-            method: HttpMethod.get,
-          ),
-        ),
-      )
-          .then(TaskRequest(
-            id: step2,
-            worker: HttpRequestWorker(
-              url: 'https://httpbin.org/get',
-              method: HttpMethod.get,
+            TaskRequest(
+              id: step1,
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/get',
+                method: HttpMethod.get,
+              ),
             ),
-          ))
+          )
+          .then(
+            TaskRequest(
+              id: step2,
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/get',
+                method: HttpMethod.get,
+              ),
+            ),
+          )
           .enqueue();
 
       // Wait for step 1 to complete before simulating re-init.
-      final step1Event = await _waitEvent(step1,
-          timeout: const Duration(seconds: 60));
-      expect(step1Event?.success, isTrue,
-          reason: 'step 1 must complete before re-init');
+      final step1Event = await _waitEvent(
+        step1,
+        timeout: const Duration(seconds: 60),
+      );
+      expect(
+        step1Event?.success,
+        isTrue,
+        reason: 'step 1 must complete before re-init',
+      );
 
       // Simulate plugin re-attach (e.g., app hot-restart).
       // initialize() is idempotent; calling it again exercises
@@ -327,9 +350,12 @@ void main() {
       // Now wait for step 2 (the "resumed" step).
       final events = await eventsFuture;
 
-      expect(events[step2]?.success, isTrue,
-          reason:
-              'step 2 must complete after plugin re-init (chain resumed from SQLite)');
+      expect(
+        events[step2]?.success,
+        isTrue,
+        reason:
+            'step 2 must complete after plugin re-init (chain resumed from SQLite)',
+      );
     });
   });
 
@@ -337,8 +363,9 @@ void main() {
   // GROUP 4 — Named chain deduplication
   // ──────────────────────────────────────────────────────────
   group('Chain — named chain deduplication', () {
-    testWidgets('enqueueing same chain name twice keeps the existing chain',
-        (tester) async {
+    testWidgets('enqueueing same chain name twice keeps the existing chain', (
+      tester,
+    ) async {
       await tester.pumpAndSettle();
 
       final ts = DateTime.now().millisecondsSinceEpoch;
@@ -370,10 +397,11 @@ void main() {
       ).named(chainName).enqueue();
 
       // At minimum, the first chain step should complete without error.
-      final event = await _waitEvent(firstStep,
-          timeout: const Duration(seconds: 60));
-      expect(event, isNotNull,
-          reason: 'first chain step must complete');
+      final event = await _waitEvent(
+        firstStep,
+        timeout: const Duration(seconds: 60),
+      );
+      expect(event, isNotNull, reason: 'first chain step must complete');
       expect(event!.success, isTrue);
 
       // Cleanup.
@@ -392,28 +420,32 @@ void main() {
       // Enqueue with a delay on step 1 so steps 2/3 are still pending
       // when we call cancelAll.
       await NativeWorkManager.beginWith(
-        TaskRequest(
-          id: step1,
-          worker: HttpRequestWorker(
-            url: 'https://httpbin.org/delay/5',
-            method: HttpMethod.get,
-          ),
-        ),
-      )
-          .then(TaskRequest(
-            id: step2,
-            worker: HttpRequestWorker(
-              url: 'https://httpbin.org/get',
-              method: HttpMethod.get,
+            TaskRequest(
+              id: step1,
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/delay/5',
+                method: HttpMethod.get,
+              ),
             ),
-          ))
-          .then(TaskRequest(
-            id: step3,
-            worker: HttpRequestWorker(
-              url: 'https://httpbin.org/get',
-              method: HttpMethod.get,
+          )
+          .then(
+            TaskRequest(
+              id: step2,
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/get',
+                method: HttpMethod.get,
+              ),
             ),
-          ))
+          )
+          .then(
+            TaskRequest(
+              id: step3,
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/get',
+                method: HttpMethod.get,
+              ),
+            ),
+          )
           .enqueue();
 
       // Give the OS a moment to register the tasks then cancel everything.
@@ -434,8 +466,11 @@ void main() {
 
       // After cancelAll there should be no completions for our tasks
       // (they were cancelled before step 1 could finish the 5-second delay).
-      expect(received, isEmpty,
-          reason: 'cancelAll should prevent all chain steps from completing');
+      expect(
+        received,
+        isEmpty,
+        reason: 'cancelAll should prevent all chain steps from completing',
+      );
     });
   });
 
@@ -443,47 +478,57 @@ void main() {
   // GROUP 5 — Chain with per-step constraints
   // ──────────────────────────────────────────────────────────
   group('Chain — per-step constraints', () {
-    testWidgets('chain step with requiresNetwork constraint waits for network',
-        (tester) async {
-      await tester.pumpAndSettle();
+    testWidgets(
+      'chain step with requiresNetwork constraint waits for network',
+      (tester) async {
+        await tester.pumpAndSettle();
 
-      // This test simply verifies that a chain with network constraints
-      // can be enqueued and eventually completes (device is online).
-      final ts = DateTime.now().millisecondsSinceEpoch;
-      final step1 = 'chain-constraint-1-$ts';
-      final step2 = 'chain-constraint-2-$ts';
+        // This test simply verifies that a chain with network constraints
+        // can be enqueued and eventually completes (device is online).
+        final ts = DateTime.now().millisecondsSinceEpoch;
+        final step1 = 'chain-constraint-1-$ts';
+        final step2 = 'chain-constraint-2-$ts';
 
-      final eventsFuture = _waitAllEvents(
-        [step1, step2],
-        timeout: const Duration(seconds: 90),
-      );
+        final eventsFuture = _waitAllEvents([
+          step1,
+          step2,
+        ], timeout: const Duration(seconds: 90));
 
-      await NativeWorkManager.beginWith(
-        TaskRequest(
-          id: step1,
-          worker: HttpRequestWorker(
-            url: 'https://httpbin.org/get',
-            method: HttpMethod.get,
-          ),
-          constraints: const Constraints(requiresNetwork: true),
-        ),
-      )
-          .then(TaskRequest(
-            id: step2,
-            worker: HttpRequestWorker(
-              url: 'https://httpbin.org/get',
-              method: HttpMethod.get,
-            ),
-            constraints: const Constraints(requiresNetwork: true),
-          ))
-          .enqueue();
+        await NativeWorkManager.beginWith(
+              TaskRequest(
+                id: step1,
+                worker: HttpRequestWorker(
+                  url: 'https://httpbin.org/get',
+                  method: HttpMethod.get,
+                ),
+                constraints: const Constraints(requiresNetwork: true),
+              ),
+            )
+            .then(
+              TaskRequest(
+                id: step2,
+                worker: HttpRequestWorker(
+                  url: 'https://httpbin.org/get',
+                  method: HttpMethod.get,
+                ),
+                constraints: const Constraints(requiresNetwork: true),
+              ),
+            )
+            .enqueue();
 
-      final events = await eventsFuture;
+        final events = await eventsFuture;
 
-      expect(events[step1]?.success, isTrue,
-          reason: 'step 1 (requiresNetwork) should succeed on connected device');
-      expect(events[step2]?.success, isTrue,
-          reason: 'step 2 (requiresNetwork) should succeed on connected device');
-    });
+        expect(
+          events[step1]?.success,
+          isTrue,
+          reason: 'step 1 (requiresNetwork) should succeed on connected device',
+        );
+        expect(
+          events[step2]?.success,
+          isTrue,
+          reason: 'step 2 (requiresNetwork) should succeed on connected device',
+        );
+      },
+    );
   });
 }

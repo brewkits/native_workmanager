@@ -122,7 +122,8 @@ void main() {
       expect(event.timestamp, isNotNull); // Falls back to DateTime.now()
     });
 
-    test('should support equality based on taskId, success, message, timestamp', () {
+    test('should support equality based on taskId, success, message, timestamp',
+        () {
       final timestamp = DateTime(2026, 2, 1, 12, 0);
       final event1 = TaskEvent(
         taskId: 'task-1',
@@ -157,10 +158,10 @@ void main() {
 
     test('should support hashCode', () {
       final timestamp = DateTime(2026, 2, 1, 12, 0);
-      final event1 = TaskEvent(
-        taskId: 'task-1', success: true, timestamp: timestamp);
-      final event2 = TaskEvent(
-        taskId: 'task-1', success: true, timestamp: timestamp);
+      final event1 =
+          TaskEvent(taskId: 'task-1', success: true, timestamp: timestamp);
+      final event2 =
+          TaskEvent(taskId: 'task-1', success: true, timestamp: timestamp);
 
       expect(event1.hashCode, equals(event2.hashCode));
     });
@@ -284,10 +285,8 @@ void main() {
     });
 
     test('should support equality based on taskId and progress', () {
-      final p1 = TaskProgress(
-        taskId: 'task-1', progress: 50, message: 'msg-A');
-      final p2 = TaskProgress(
-        taskId: 'task-1', progress: 50, message: 'msg-B');
+      final p1 = TaskProgress(taskId: 'task-1', progress: 50, message: 'msg-A');
+      final p2 = TaskProgress(taskId: 'task-1', progress: 50, message: 'msg-B');
       final p3 = TaskProgress(taskId: 'task-1', progress: 75);
 
       expect(p1, equals(p2)); // Same taskId + progress
@@ -337,9 +336,10 @@ void main() {
       // registerDartWorker must detect this and throw immediately (fail-fast).
       expect(
         () => NativeWorkManager.registerDartWorker(
-          'test-worker', (input) async => true),
+            'test-worker', (input) async => true),
         throwsA(isA<StateError>()),
-        reason: 'Anonymous functions have no callback handle and must be rejected early',
+        reason:
+            'Anonymous functions have no callback handle and must be rejected early',
       );
     });
 
@@ -376,12 +376,11 @@ void main() {
     });
 
     test('should have distinct enum values', () {
-      expect(ScheduleResult.accepted, isNot(equals(
-          ScheduleResult.rejectedOsPolicy)));
-      expect(ScheduleResult.accepted, isNot(equals(
-          ScheduleResult.throttled)));
-      expect(ScheduleResult.rejectedOsPolicy, isNot(equals(
-          ScheduleResult.throttled)));
+      expect(ScheduleResult.accepted,
+          isNot(equals(ScheduleResult.rejectedOsPolicy)));
+      expect(ScheduleResult.accepted, isNot(equals(ScheduleResult.throttled)));
+      expect(ScheduleResult.rejectedOsPolicy,
+          isNot(equals(ScheduleResult.throttled)));
     });
   });
 
@@ -395,8 +394,8 @@ void main() {
     });
 
     test('should have distinct enum values', () {
-      expect(ExistingTaskPolicy.keep, isNot(equals(
-          ExistingTaskPolicy.replace)));
+      expect(
+          ExistingTaskPolicy.keep, isNot(equals(ExistingTaskPolicy.replace)));
     });
   });
 

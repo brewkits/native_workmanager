@@ -15,6 +15,7 @@ import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.put
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream

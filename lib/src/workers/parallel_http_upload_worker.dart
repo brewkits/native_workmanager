@@ -115,12 +115,14 @@ final class ParallelHttpUploadWorker extends Worker {
   Map<String, dynamic> toMap() => {
         'workerType': 'parallelHttpUpload',
         'url': url,
-        'files': files.map((f) => {
-              'filePath': f.filePath,
-              'fieldName': f.fieldName,
-              if (f.fileName != null) 'fileName': f.fileName,
-              if (f.mimeType != null) 'mimeType': f.mimeType,
-            }).toList(),
+        'files': files
+            .map((f) => {
+                  'filePath': f.filePath,
+                  'fieldName': f.fieldName,
+                  if (f.fileName != null) 'fileName': f.fileName,
+                  if (f.mimeType != null) 'mimeType': f.mimeType,
+                })
+            .toList(),
         'headers': headers,
         'fields': fields,
         'maxConcurrent': maxConcurrent,

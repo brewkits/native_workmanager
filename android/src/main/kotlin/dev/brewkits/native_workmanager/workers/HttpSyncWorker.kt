@@ -196,7 +196,9 @@ class HttpSyncWorker : AndroidWorker {
     private fun parseStringMap(obj: org.json.JSONObject?): Map<String, String>? {
         if (obj == null) return null
         val map = mutableMapOf<String, String>()
-        obj.keys().forEach { key -> map[key] = obj.getString(key) }
+        // CRIT-003: use opt().toString() instead of getString() so non-string values
+        // (numbers, booleans) are coerced safely instead of throwing JSONException.
+        obj.keys().forEach { key -> map[key] = obj.opt(key)?.toString() ?: "" }
         return map
     }
 }

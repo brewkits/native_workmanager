@@ -23,11 +23,11 @@ class OfflineRetryPolicy {
     this.backoffMultiplier = 2.0,
     this.initialDelay = const Duration(seconds: 30),
     this.maxDelay = const Duration(hours: 6),
-  }) : assert(maxRetries >= 0 && maxRetries <= 100,
-              'maxRetries must be between 0 and 100'),
-      // NaN fails >= 1.0 already; Infinity is clamped to maxDelay in delayFor().
-      assert(backoffMultiplier >= 1.0,
-             'backoffMultiplier must be >= 1.0 (NaN and negative values not allowed)');
+  })  : assert(maxRetries >= 0 && maxRetries <= 100,
+            'maxRetries must be between 0 and 100'),
+        // NaN fails >= 1.0 already; Infinity is clamped to maxDelay in delayFor().
+        assert(backoffMultiplier >= 1.0,
+            'backoffMultiplier must be >= 1.0 (NaN and negative values not allowed)');
 
   /// Maximum retry attempts (0–100). Set to 0 for no retries.
   final int maxRetries;
@@ -81,6 +81,18 @@ class OfflineRetryPolicy {
   static double _pow(double base, double exp) {
     return math.pow(base, exp).toDouble();
   }
+
+  /// Convert to map for platform channel.
+  Map<String, dynamic> toMap() {
+    return {
+      'maxRetries': maxRetries,
+      'requiresNetwork': requiresNetwork,
+      'requiresCharging': requiresCharging,
+      'backoffMultiplier': backoffMultiplier,
+      'initialDelayMs': initialDelay.inMilliseconds,
+      'maxDelayMs': maxDelay.inMilliseconds,
+    };
+  }
 }
 
 /// An entry in an [OfflineQueue].
@@ -104,6 +116,17 @@ class QueueEntry {
 
   /// Optional tag for grouping / cancellation.
   final String? tag;
+
+  /// Convert to map for platform channel.
+  Map<String, dynamic> toMap() {
+    return {
+      'taskId': taskId,
+      'workerClassName': worker.workerClassName,
+      'workerConfig': worker.toMap(),
+      'retryPolicy': retryPolicy.toMap(),
+      'tag': tag,
+    };
+  }
 }
 
 /// A persistent, ordered queue of background tasks that are retried
@@ -190,14 +213,15 @@ class OfflineQueue {
 
   /// Add a [QueueEntry] to the back of the queue.
   ///
-  /// If the queue exceeds [maxSize], throws a [StateError].
-  /// Safe to call before [start].
+  /// If the queue has reached [maxSize] capacity the call returns silently
+  /// without enqueuing the entry (the entry is dropped). Safe to call before [start].
   Future<void> enqueue(QueueEntry entry) async {
     if (_pending.length >= maxSize) {
-      throw StateError(
-        'OfflineQueue "$id" is full ($maxSize entries). '
-        'Process existing entries or increase maxSize.',
+      debugPrint(
+        '[native_workmanager] OfflineQueue "$id": queue full ($maxSize), '
+        'dropping task "${entry.taskId}".',
       );
+      return;
     }
     _pending.add(_QueueSlot(
       entry: entry,
@@ -331,16 +355,18 @@ class OfflineQueue {
   /// Wait for a specific taskId event on [NativeWorkManager.events].
   ///
   /// Returns the event or `null` if [timeout] is exceeded.
-  static Future<TaskEvent?> _awaitEvent(
-      String taskId, {required Duration timeout}) async {
+  static Future<TaskEvent?> _awaitEvent(String taskId,
+      {required Duration timeout}) async {
     try {
       return await NativeWorkManagerPlatform.instance.events
-          .where((e) => e.taskId == taskId)
+          .where((e) => e.taskId == taskId && !e.isStarted)
           .first
           .timeout(timeout);
     } on TimeoutException {
       return null;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[native_workmanager] OfflineQueue: unexpected error '
+          'waiting for event "$taskId": $e');
       return null;
     }
   }

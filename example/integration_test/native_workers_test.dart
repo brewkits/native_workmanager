@@ -54,21 +54,32 @@ Future<TaskEvent?> _waitEvent(
 
 /// Minimal 1×1 red pixel PNG — valid PNG header, IHDR, IDAT, IEND.
 Uint8List get _minimalPng => Uint8List.fromList([
-      0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
-      0x00, 0x00, 0x00, 0x0D, // IHDR chunk length
-      0x49, 0x48, 0x44, 0x52, // IHDR
-      0x00, 0x00, 0x00, 0x01, // width = 1
-      0x00, 0x00, 0x00, 0x01, // height = 1
-      0x08, 0x02, 0x00, 0x00, 0x00, // 8-bit RGB
-      0x90, 0x77, 0x53, 0xDE, // CRC
-      0x00, 0x00, 0x00, 0x0C, // IDAT length
-      0x49, 0x44, 0x41, 0x54, // IDAT
-      0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, // data
-      0xE2, 0x21, 0xBC, 0x33, // CRC
-      0x00, 0x00, 0x00, 0x00, // IEND length
-      0x49, 0x45, 0x4E, 0x44, // IEND
-      0xAE, 0x42, 0x60, 0x82, // CRC
-    ]);
+  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
+  0x00, 0x00, 0x00, 0x0D, // IHDR chunk length
+  0x49, 0x48, 0x44, 0x52, // IHDR
+  0x00, 0x00, 0x00, 0x01, // width = 1
+  0x00, 0x00, 0x00, 0x01, // height = 1
+  0x08, 0x02, 0x00, 0x00, 0x00, // 8-bit RGB
+  0x90, 0x77, 0x53, 0xDE, // CRC
+  0x00, 0x00, 0x00, 0x0C, // IDAT length
+  0x49, 0x44, 0x41, 0x54, // IDAT
+  0x08,
+  0xD7,
+  0x63,
+  0xF8,
+  0xCF,
+  0xC0,
+  0x00,
+  0x00,
+  0x00,
+  0x02,
+  0x00,
+  0x01, // data
+  0xE2, 0x21, 0xBC, 0x33, // CRC
+  0x00, 0x00, 0x00, 0x00, // IEND length
+  0x49, 0x45, 0x4E, 0x44, // IEND
+  0xAE, 0x42, 0x60, 0x82, // CRC
+]);
 
 String get _tmp => Directory.systemTemp.path;
 
@@ -87,12 +98,12 @@ void main() {
   // GROUP 1 — CryptoHashWorker
   // ──────────────────────────────────────────────────────────
   group('CryptoHashWorker', () {
-    testWidgets('SHA-256 file hash returns 64-char hex string',
-        (tester) async {
+    testWidgets('SHA-256 file hash returns 64-char hex string', (tester) async {
       await tester.pumpAndSettle();
 
       // Create a small test file with known content.
-      final filePath = '$_tmp/crypto-test-${DateTime.now().millisecondsSinceEpoch}.txt';
+      final filePath =
+          '$_tmp/crypto-test-${DateTime.now().millisecondsSinceEpoch}.txt';
       await File(filePath).writeAsString('native_workmanager crypto test');
 
       final taskId = _id('crypto-sha256');
@@ -131,7 +142,8 @@ void main() {
     testWidgets('MD5 file hash returns 32-char hex string', (tester) async {
       await tester.pumpAndSettle();
 
-      final filePath = '$_tmp/crypto-md5-${DateTime.now().millisecondsSinceEpoch}.txt';
+      final filePath =
+          '$_tmp/crypto-md5-${DateTime.now().millisecondsSinceEpoch}.txt';
       await File(filePath).writeAsString('md5 test content');
 
       final taskId = _id('crypto-md5');
@@ -155,8 +167,9 @@ void main() {
       await File(filePath).delete().catchError((_) => File(filePath));
     });
 
-    testWidgets('SHA-256 string hash produces consistent output',
-        (tester) async {
+    testWidgets('SHA-256 string hash produces consistent output', (
+      tester,
+    ) async {
       await tester.pumpAndSettle();
 
       const input = 'hello native_workmanager';
@@ -196,8 +209,11 @@ void main() {
 
       final event2 = await event2Future;
       final result2 = CryptoResult.from(event2?.resultData);
-      expect(result2?.hash, equals(result!.hash),
-          reason: 'Same input must produce same SHA-256 hash');
+      expect(
+        result2?.hash,
+        equals(result!.hash),
+        reason: 'Same input must produce same SHA-256 hash',
+      );
     });
   });
 
@@ -216,7 +232,10 @@ void main() {
       await File(inputPath).writeAsBytes(_minimalPng);
 
       final taskId = _id('img-resize');
-      final eventFuture = _waitEvent(taskId, timeout: const Duration(seconds: 60));
+      final eventFuture = _waitEvent(
+        taskId,
+        timeout: const Duration(seconds: 60),
+      );
 
       await NativeWorkManager.enqueue(
         taskId: taskId,
@@ -233,8 +252,11 @@ void main() {
 
       final event = await eventFuture;
       expect(event, isNotNull, reason: 'ImageProcess task must fire');
-      expect(event!.success, isTrue,
-          reason: 'Image resize must succeed: ${event.message}');
+      expect(
+        event!.success,
+        isTrue,
+        reason: 'Image resize must succeed: ${event.message}',
+      );
 
       final result = ImageProcessResult.from(event.resultData);
       expect(result, isNotNull, reason: 'ImageProcessResult must parse');
@@ -270,8 +292,11 @@ void main() {
       );
 
       final event = await eventFuture;
-      expect(event?.success, isTrue,
-          reason: 'PNG → JPEG conversion must succeed');
+      expect(
+        event?.success,
+        isTrue,
+        reason: 'PNG → JPEG conversion must succeed',
+      );
 
       for (final p in [inputPath, outputPath]) {
         await File(p).delete().catchError((_) => File(p));
@@ -307,12 +332,23 @@ void main() {
 
       final event = await eventFuture;
       expect(event, isNotNull, reason: 'Copy task must fire');
-      expect(event!.success, isTrue,
-          reason: 'File copy must succeed: ${event.message}');
+      expect(
+        event!.success,
+        isTrue,
+        reason: 'File copy must succeed: ${event.message}',
+      );
 
       // Verify both files exist after copy.
-      expect(await File(src).exists(), isTrue, reason: 'Source must still exist');
-      expect(await File(dst).exists(), isTrue, reason: 'Destination must be created');
+      expect(
+        await File(src).exists(),
+        isTrue,
+        reason: 'Source must still exist',
+      );
+      expect(
+        await File(dst).exists(),
+        isTrue,
+        reason: 'Destination must be created',
+      );
 
       for (final p in [src, dst]) {
         await File(p).delete().catchError((_) => File(p));
@@ -336,13 +372,21 @@ void main() {
       );
 
       final event = await eventFuture;
-      expect(event?.success, isTrue,
-          reason: 'File delete must succeed: ${event?.message}');
-      expect(await File(path).exists(), isFalse,
-          reason: 'File must not exist after delete');
+      expect(
+        event?.success,
+        isTrue,
+        reason: 'File delete must succeed: ${event?.message}',
+      );
+      expect(
+        await File(path).exists(),
+        isFalse,
+        reason: 'File must not exist after delete',
+      );
     });
 
-    testWidgets('FileSystemListWorker lists directory contents', (tester) async {
+    testWidgets('FileSystemListWorker lists directory contents', (
+      tester,
+    ) async {
       await tester.pumpAndSettle();
 
       // Create a small temp directory with two known files.
@@ -362,8 +406,11 @@ void main() {
       );
 
       final event = await eventFuture;
-      expect(event?.success, isTrue,
-          reason: 'List task must succeed: ${event?.message}');
+      expect(
+        event?.success,
+        isTrue,
+        reason: 'List task must succeed: ${event?.message}',
+      );
 
       final result = FileSystemResult.from(event!.resultData);
       expect(result, isNotNull, reason: 'FileSystemResult must parse');
@@ -399,12 +446,21 @@ void main() {
       );
 
       final event = await eventFuture;
-      expect(event?.success, isTrue,
-          reason: 'Move must succeed: ${event?.message}');
-      expect(await File(src).exists(), isFalse,
-          reason: 'Source must be removed after move');
-      expect(await File(dst).exists(), isTrue,
-          reason: 'Destination must exist after move');
+      expect(
+        event?.success,
+        isTrue,
+        reason: 'Move must succeed: ${event?.message}',
+      );
+      expect(
+        await File(src).exists(),
+        isFalse,
+        reason: 'Source must be removed after move',
+      );
+      expect(
+        await File(dst).exists(),
+        isTrue,
+        reason: 'Destination must exist after move',
+      );
 
       await File(dst).delete().catchError((_) => File(dst));
     });
@@ -414,8 +470,9 @@ void main() {
   // GROUP 4 — ParallelHttpUploadWorker
   // ──────────────────────────────────────────────────────────
   group('ParallelHttpUploadWorker', () {
-    testWidgets('uploads 3 files with maxConcurrent=2 — all succeed',
-        (tester) async {
+    testWidgets('uploads 3 files with maxConcurrent=2 — all succeed', (
+      tester,
+    ) async {
       await tester.pumpAndSettle();
 
       final ts = DateTime.now().millisecondsSinceEpoch;
@@ -427,7 +484,10 @@ void main() {
       }
 
       final taskId = _id('par-upload');
-      final eventFuture = _waitEvent(taskId, timeout: const Duration(seconds: 90));
+      final eventFuture = _waitEvent(
+        taskId,
+        timeout: const Duration(seconds: 90),
+      );
 
       await NativeWorkManager.enqueue(
         taskId: taskId,
@@ -443,13 +503,19 @@ void main() {
 
       final event = await eventFuture;
       expect(event, isNotNull, reason: 'Parallel upload task must fire');
-      expect(event!.success, isTrue,
-          reason: 'All files must upload: ${event.message}');
+      expect(
+        event!.success,
+        isTrue,
+        reason: 'All files must upload: ${event.message}',
+      );
 
       final result = ParallelUploadResult.from(event.resultData);
       if (result != null) {
-        expect(result.uploadedCount, 3,
-            reason: 'uploadedCount must equal number of files');
+        expect(
+          result.uploadedCount,
+          3,
+          reason: 'uploadedCount must equal number of files',
+        );
         expect(result.failedCount, 0, reason: 'No files should fail');
       }
 
@@ -499,7 +565,10 @@ void main() {
       await File(f2).writeAsString('multi upload file 2');
 
       final taskId = _id('multi-upload');
-      final eventFuture = _waitEvent(taskId, timeout: const Duration(seconds: 60));
+      final eventFuture = _waitEvent(
+        taskId,
+        timeout: const Duration(seconds: 60),
+      );
 
       await NativeWorkManager.enqueue(
         taskId: taskId,
@@ -517,8 +586,11 @@ void main() {
 
       final event = await eventFuture;
       expect(event, isNotNull, reason: 'MultiUpload task must fire');
-      expect(event!.success, isTrue,
-          reason: 'Multi-file upload must succeed: ${event.message}');
+      expect(
+        event!.success,
+        isTrue,
+        reason: 'Multi-file upload must succeed: ${event.message}',
+      );
 
       for (final p in [f1, f2]) {
         await File(p).delete().catchError((_) => File(p));

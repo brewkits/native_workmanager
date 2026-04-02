@@ -75,6 +75,18 @@ class CryptoWorker: IosWorker {
     }
 
     func doWork(input: String?) async throws -> WorkerResult {
+        // ✅ IOS: Register background task to request extra execution time
+        // iOS will freeze the app shortly after moving to background otherwise.
+        var bgTaskId = UIBackgroundTaskIdentifier.invalid
+        bgTaskId = UIApplication.shared.beginBackgroundTask(withName: "BrewkitsCrypto") {
+            NativeLogger.d("CryptoWorker: Background time expired — ending task")
+            UIApplication.shared.endBackgroundTask(bgTaskId)
+        }
+
+        defer {
+            UIApplication.shared.endBackgroundTask(bgTaskId)
+        }
+
         guard let input = input, !input.isEmpty else {
             print("CryptoWorker: Error - Empty or null input")
             return .failure(message: "Empty or null input")
@@ -277,8 +289,9 @@ class CryptoWorker: IosWorker {
             return .failure(message: "Input file not found: \(filePath)")
         }
 
-        // Determine output path
-        let outputPath = config.outputPath ?? filePath.replacingOccurrences(of: ".enc", with: "")
+        // Determine output path. Use suffix removal to avoid replacing ".enc" that
+        // appears in the middle of the filename (M-4: replacingOccurrences replaces all occurrences).
+        let outputPath = config.outputPath ?? (filePath.hasSuffix(".enc") ? String(filePath.dropLast(4)) : filePath)
         guard SecurityValidator.validateFilePath(outputPath) else {
             print("CryptoWorker: Error - Invalid output file path")
             return .failure(message: "Invalid output file path")

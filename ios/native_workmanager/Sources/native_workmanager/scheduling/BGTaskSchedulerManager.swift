@@ -54,6 +54,9 @@ class BGTaskSchedulerManager {
     /// Callback for task completion events
     var onTaskComplete: ((String, Bool, String?) -> Void)?
 
+    /// Stores the currently running worker to handle stop/expiration.
+    private var activeWorker: IosWorker?
+
     /// Stores pending tasks (taskId -> task info)
     private var pendingTasks: [String: TaskInfo] = [:]
     private let queue = DispatchQueue(label: "dev.brewkits.bgtask_manager")
@@ -217,10 +220,12 @@ class BGTaskSchedulerManager {
         }
 
         // Setup expiration handler
-        // ✅ FIX: Use [weak self] to prevent retain cycle
+        // ✅ FIX: Use [weak self] to prevent retain cycle and call stop()
         task.expirationHandler = { [weak self] in
             print("BGTaskSchedulerManager: Task expired")
+            self?.activeWorker?.stop()
             self?.onTaskComplete?(taskInfo.taskId, false, "Task expired")
+            task.setTaskCompleted(success: false)
         }
 
         // Execute worker
@@ -237,10 +242,9 @@ class BGTaskSchedulerManager {
                 success,
                 success ? nil : "Worker execution failed"
             )
-
-            // Reschedule if periodic
-            // (In real implementation, check if task is periodic)
-            // self.scheduleNextExecution(taskInfo)
+            
+            // Clean up reference
+            self.activeWorker = nil
         }
     }
 
@@ -254,10 +258,12 @@ class BGTaskSchedulerManager {
             return
         }
 
-        // ✅ FIX: Use [weak self] to prevent retain cycle
+        // ✅ FIX: Use [weak self] to prevent retain cycle and call stop()
         task.expirationHandler = { [weak self] in
             print("BGTaskSchedulerManager: Refresh task expired")
+            self?.activeWorker?.stop()
             self?.onTaskComplete?(taskInfo.taskId, false, "Refresh expired")
+            task.setTaskCompleted(success: false)
         }
 
         Task { [weak self] in
@@ -265,6 +271,9 @@ class BGTaskSchedulerManager {
             let success = await self.executeWorker(taskInfo: taskInfo)
             task.setTaskCompleted(success: success)
             self.onTaskComplete?(taskInfo.taskId, success, nil)
+            
+            // Clean up reference
+            self.activeWorker = nil
         }
     }
 
@@ -285,6 +294,8 @@ class BGTaskSchedulerManager {
                         continuation.resume(returning: false)
                         return
                     }
+                    
+                    self.activeWorker = worker
 
                     do {
                         // Custom workers (via NativeWorker.custom) store user data under the

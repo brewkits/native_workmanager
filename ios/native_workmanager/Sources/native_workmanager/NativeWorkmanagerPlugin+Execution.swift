@@ -329,7 +329,9 @@ extension NativeWorkmanagerPlugin {
 
         /// Build from a Dart `Constraints.toMap()` result.
         static func from(constraintsMap: [String: Any]?) -> RetryConfig {
-            let maxRetries  = constraintsMap?["maxRetries"]    as? Int    ?? 3
+            // Default to 0 (no retry) to match Android WorkManager's default behaviour.
+            // Callers that want retries must pass maxRetries explicitly via Constraints.
+            let maxRetries  = constraintsMap?["maxRetries"]    as? Int    ?? 0
             let delayMs     = (constraintsMap?["backoffDelayMs"] as? NSNumber)?.int64Value ?? 30_000
             let policy      = constraintsMap?["backoffPolicy"] as? String ?? "exponential"
             return RetryConfig(maxRetries: maxRetries, initialDelayMs: delayMs, policy: policy)
@@ -352,6 +354,11 @@ extension NativeWorkmanagerPlugin {
         qos: String = "background",
         retryConfig: RetryConfig = .noRetry
     ) async -> WorkerResult {
+        // Emit "started" lifecycle event before the first attempt so that
+        // ObservabilityConfig.onTaskStart fires for all tasks — including
+        // fast workers that never emit a progress update.
+        emitTaskStarted(taskId: taskId, workerType: workerClassName)
+
         let totalAttempts = 1 + max(0, retryConfig.maxRetries)
         var delayMs = retryConfig.initialDelayMs
         var lastResult: WorkerResult = .failure(message: "No attempt made")
@@ -363,13 +370,12 @@ extension NativeWorkmanagerPlugin {
             await concurrencyLimiter.acquire()
             // Emit the real event only on the final attempt so the Dart side
             // never sees intermediate failure events during retry backoff.
-            let isFinal = attempt == totalAttempts
             lastResult = await _executeWorker(
                 taskId: taskId,
                 workerClassName: workerClassName,
                 workerConfig: workerConfig,
                 qos: qos,
-                shouldEmitEvent: isFinal || false // always suppress; caller emits after loop
+                shouldEmitEvent: false // always suppress; executeWorkerSync emits after the loop
             )
             await concurrencyLimiter.release()
 
@@ -408,10 +414,6 @@ extension NativeWorkmanagerPlugin {
         shouldEmitEvent: Bool = false
     ) async -> WorkerResult {
         NativeLogger.d("Executing task '\(taskId)' in chain with QoS: \(qos)...")
-        // Record start time for debug notification timing
-        stateQueue.async(flags: .barrier) {
-            self.taskStartTimes[taskId] = Date()
-        }
 
         // Map QoS string to DispatchQoS
         let qosClass = mapQoS(qos)

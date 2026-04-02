@@ -312,6 +312,8 @@ class HttpUploadWorker: IosWorker {
         // Execute upload
         do {
             let uploadSession = makeURLSession(pinningConfig: uploadPinningConfig, timeoutInterval: config.timeout)
+            // LEAK-003: invalidate session after use to release connections and delegate memory.
+            defer { uploadSession.finishTasksAndInvalidate() }
             let (data, response) = try await uploadSession.upload(for: request, from: body)
 
             guard let httpResponse = response as? HTTPURLResponse else {
@@ -353,12 +355,12 @@ class HttpUploadWorker: IosWorker {
 
                 // 401 + token refresh: attempt refresh and retry once
                 if statusCode == 401, let refreshConfig = uploadTokenRefreshConfig {
-                    let refreshSession = makeURLSession(pinningConfig: uploadPinningConfig, timeoutInterval: config.timeout)
-                    if let newToken = await tokenRefreshCoalescer.refresh(config: refreshConfig, session: refreshSession) {
+                    // ✅ NEW: Uses AuthTokenManager actor to ensure serialized refresh
+                    if let newToken = await AuthTokenManager.shared.refreshToken(config: refreshConfig, currentSession: uploadSession) {
                         var retryRequest = request
-                        retryRequest.setValue("\(refreshConfig.tokenPrefix)\(newToken)",
-                                              forHTTPHeaderField: refreshConfig.tokenHeaderName)
-                        if let (retryData, retryResponse) = try? await refreshSession.upload(for: retryRequest, from: body),
+                        retryRequest.setValue("\(refreshConfig.effectiveTokenPrefix)\(newToken)",
+                                              forHTTPHeaderField: refreshConfig.effectiveTokenHeaderName)
+                        if let (retryData, retryResponse) = try? await uploadSession.upload(for: retryRequest, from: body),
                            let retryHttpResponse = retryResponse as? HTTPURLResponse,
                            (200..<300).contains(retryHttpResponse.statusCode) {
                             let retryBody = String(data: retryData, encoding: .utf8) ?? ""
@@ -439,6 +441,8 @@ class HttpUploadWorker: IosWorker {
         // Execute upload
         do {
             let rawBodySession = makeURLSession(pinningConfig: rawBodyPinningConfig, timeoutInterval: config.timeout)
+            // LEAK-003: invalidate session after use to release connections and delegate memory.
+            defer { rawBodySession.finishTasksAndInvalidate() }
             let (data, response) = try await rawBodySession.upload(for: request, from: requestBody)
 
             guard let httpResponse = response as? HTTPURLResponse else {
@@ -479,12 +483,12 @@ class HttpUploadWorker: IosWorker {
 
                 // 401 + token refresh: attempt refresh and retry once
                 if statusCode == 401, let refreshConfig = rawBodyTokenRefreshConfig {
-                    let refreshSession = makeURLSession(pinningConfig: rawBodyPinningConfig, timeoutInterval: config.timeout)
-                    if let newToken = await tokenRefreshCoalescer.refresh(config: refreshConfig, session: refreshSession) {
+                    // ✅ NEW: Uses AuthTokenManager actor to ensure serialized refresh
+                    if let newToken = await AuthTokenManager.shared.refreshToken(config: refreshConfig, currentSession: rawBodySession) {
                         var retryRequest = request
-                        retryRequest.setValue("\(refreshConfig.tokenPrefix)\(newToken)",
-                                              forHTTPHeaderField: refreshConfig.tokenHeaderName)
-                        if let (retryData, retryResponse) = try? await refreshSession.upload(for: retryRequest, from: requestBody),
+                        retryRequest.setValue("\(refreshConfig.effectiveTokenPrefix)\(newToken)",
+                                              forHTTPHeaderField: refreshConfig.effectiveTokenHeaderName)
+                        if let (retryData, retryResponse) = try? await rawBodySession.upload(for: retryRequest, from: requestBody),
                            let retryHttpResponse = retryResponse as? HTTPURLResponse,
                            (200..<300).contains(retryHttpResponse.statusCode) {
                             let retryBody = String(data: retryData, encoding: .utf8) ?? ""

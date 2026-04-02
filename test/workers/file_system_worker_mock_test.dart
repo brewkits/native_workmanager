@@ -272,8 +272,7 @@ void main() {
     test('all worker classes extend Worker', () {
       expect(FileSystemCopyWorker(sourcePath: '', destinationPath: ''),
           isA<Worker>());
-      expect(
-          FileSystemMoveWorker(sourcePath: '', destinationPath: ''),
+      expect(FileSystemMoveWorker(sourcePath: '', destinationPath: ''),
           isA<Worker>());
       expect(FileSystemDeleteWorker(path: ''), isA<Worker>());
       expect(FileSystemListWorker(path: ''), isA<Worker>());

@@ -168,8 +168,10 @@ void main() {
     final ts = DateTime(2026, 3, 7, 12, 0);
 
     test('equal when all fields match', () {
-      final a = TaskEvent(taskId: 'x', success: true, message: 'ok', timestamp: ts);
-      final b = TaskEvent(taskId: 'x', success: true, message: 'ok', timestamp: ts);
+      final a =
+          TaskEvent(taskId: 'x', success: true, message: 'ok', timestamp: ts);
+      final b =
+          TaskEvent(taskId: 'x', success: true, message: 'ok', timestamp: ts);
       expect(a, equals(b));
       expect(a.hashCode, b.hashCode);
     });
@@ -177,40 +179,54 @@ void main() {
     test('not equal when only message differs', () {
       // Before fix: operator== ignored message, so these were considered equal.
       // After fix: different messages → not equal.
-      final a = TaskEvent(taskId: 'x', success: true, message: 'done',   timestamp: ts);
-      final b = TaskEvent(taskId: 'x', success: true, message: 'failed', timestamp: ts);
+      final a =
+          TaskEvent(taskId: 'x', success: true, message: 'done', timestamp: ts);
+      final b = TaskEvent(
+          taskId: 'x', success: true, message: 'failed', timestamp: ts);
       expect(a, isNot(equals(b)));
     });
 
     test('not equal when taskId differs', () {
-      final a = TaskEvent(taskId: 'a', success: true, message: 'ok', timestamp: ts);
-      final b = TaskEvent(taskId: 'b', success: true, message: 'ok', timestamp: ts);
+      final a =
+          TaskEvent(taskId: 'a', success: true, message: 'ok', timestamp: ts);
+      final b =
+          TaskEvent(taskId: 'b', success: true, message: 'ok', timestamp: ts);
       expect(a, isNot(equals(b)));
     });
 
     test('not equal when success differs', () {
-      final a = TaskEvent(taskId: 'x', success: true,  message: 'ok', timestamp: ts);
-      final b = TaskEvent(taskId: 'x', success: false, message: 'ok', timestamp: ts);
+      final a =
+          TaskEvent(taskId: 'x', success: true, message: 'ok', timestamp: ts);
+      final b =
+          TaskEvent(taskId: 'x', success: false, message: 'ok', timestamp: ts);
       expect(a, isNot(equals(b)));
     });
 
     test('not equal when timestamp differs', () {
-      final a = TaskEvent(taskId: 'x', success: true, message: 'ok', timestamp: ts);
-      final b = TaskEvent(taskId: 'x', success: true, message: 'ok',
+      final a =
+          TaskEvent(taskId: 'x', success: true, message: 'ok', timestamp: ts);
+      final b = TaskEvent(
+          taskId: 'x',
+          success: true,
+          message: 'ok',
           timestamp: ts.add(const Duration(milliseconds: 1)));
       expect(a, isNot(equals(b)));
     });
 
     test('null message and non-null message are not equal', () {
-      final a = TaskEvent(taskId: 'x', success: true, message: null, timestamp: ts);
-      final b = TaskEvent(taskId: 'x', success: true, message: 'ok', timestamp: ts);
+      final a =
+          TaskEvent(taskId: 'x', success: true, message: null, timestamp: ts);
+      final b =
+          TaskEvent(taskId: 'x', success: true, message: 'ok', timestamp: ts);
       expect(a, isNot(equals(b)));
     });
 
     test('hashCode is consistent with equality', () {
       // If a == b then a.hashCode must == b.hashCode (dart contract)
-      final a = TaskEvent(taskId: 'x', success: false, message: 'err', timestamp: ts);
-      final b = TaskEvent(taskId: 'x', success: false, message: 'err', timestamp: ts);
+      final a =
+          TaskEvent(taskId: 'x', success: false, message: 'err', timestamp: ts);
+      final b =
+          TaskEvent(taskId: 'x', success: false, message: 'err', timestamp: ts);
       expect(a == b, isTrue);
       expect(a.hashCode, equals(b.hashCode));
     });
@@ -351,9 +367,9 @@ void main() {
       final map = original.toMap();
       final restored = TaskEvent.fromMap(Map<String, dynamic>.from(map));
 
-      expect(restored.taskId,    original.taskId);
-      expect(restored.success,   original.success);
-      expect(restored.message,   original.message);
+      expect(restored.taskId, original.taskId);
+      expect(restored.success, original.success);
+      expect(restored.message, original.message);
       expect(restored.timestamp, original.timestamp);
       expect(restored.resultData, original.resultData);
     });
@@ -369,7 +385,7 @@ void main() {
       final map = original.toMap();
       final restored = TaskEvent.fromMap(Map<String, dynamic>.from(map));
 
-      expect(restored.taskId,  original.taskId);
+      expect(restored.taskId, original.taskId);
       expect(restored.success, original.success);
       expect(restored.message, original.message);
     });
@@ -391,11 +407,11 @@ void main() {
       final map = original.toMap();
       final restored = TaskProgress.fromMap(Map<String, dynamic>.from(map));
 
-      expect(restored.taskId,      original.taskId);
-      expect(restored.progress,    original.progress);
-      expect(restored.message,     original.message);
+      expect(restored.taskId, original.taskId);
+      expect(restored.progress, original.progress);
+      expect(restored.message, original.message);
       expect(restored.currentStep, original.currentStep);
-      expect(restored.totalSteps,  original.totalSteps);
+      expect(restored.totalSteps, original.totalSteps);
     });
   });
 }

@@ -111,21 +111,34 @@ void main() {
       final graphId = 'linear_$ts';
 
       final graph = TaskGraph(id: graphId)
-        ..add(TaskNode(id: 'a', worker: DartWorker(callbackId: 'node_a')))
-        ..add(TaskNode(
+        ..add(
+          TaskNode(
+            id: 'a',
+            worker: DartWorker(callbackId: 'node_a'),
+          ),
+        )
+        ..add(
+          TaskNode(
             id: 'b',
             worker: DartWorker(callbackId: 'node_b'),
-            dependsOn: ['a']))
-        ..add(TaskNode(
+            dependsOn: ['a'],
+          ),
+        )
+        ..add(
+          TaskNode(
             id: 'c',
             worker: DartWorker(callbackId: 'node_c'),
-            dependsOn: ['b']));
+            dependsOn: ['b'],
+          ),
+        );
 
       final exec = await NativeWorkManager.enqueueGraph(graph);
-      final result =
-          await exec.result.timeout(const Duration(seconds: 120), onTimeout: () {
-        fail('Linear graph did not finish within 120 s');
-      });
+      final result = await exec.result.timeout(
+        const Duration(seconds: 120),
+        onTimeout: () {
+          fail('Linear graph did not finish within 120 s');
+        },
+      );
 
       expect(result.success, isTrue, reason: 'All nodes must succeed');
       expect(result.completedCount, equals(3));
@@ -137,18 +150,33 @@ void main() {
       final ts = DateTime.now().millisecondsSinceEpoch;
 
       final graph = TaskGraph(id: 'fanout_$ts')
-        ..add(TaskNode(id: 'a', worker: DartWorker(callbackId: 'node_a')))
-        ..add(TaskNode(id: 'b', worker: DartWorker(callbackId: 'node_b')))
-        ..add(TaskNode(
+        ..add(
+          TaskNode(
+            id: 'a',
+            worker: DartWorker(callbackId: 'node_a'),
+          ),
+        )
+        ..add(
+          TaskNode(
+            id: 'b',
+            worker: DartWorker(callbackId: 'node_b'),
+          ),
+        )
+        ..add(
+          TaskNode(
             id: 'c',
             worker: DartWorker(callbackId: 'node_c'),
-            dependsOn: ['a', 'b']));
+            dependsOn: ['a', 'b'],
+          ),
+        );
 
       final exec = await NativeWorkManager.enqueueGraph(graph);
-      final result =
-          await exec.result.timeout(const Duration(seconds: 120), onTimeout: () {
-        fail('Fan-out graph did not finish within 120 s');
-      });
+      final result = await exec.result.timeout(
+        const Duration(seconds: 120),
+        onTimeout: () {
+          fail('Fan-out graph did not finish within 120 s');
+        },
+      );
 
       expect(result.success, isTrue);
       expect(result.completedCount, equals(3));
@@ -160,38 +188,57 @@ void main() {
       // fail_root → (b, c) — both should be cancelled
       final graph = TaskGraph(id: 'failcancel_$ts')
         ..add(
-            TaskNode(id: 'fail_root', worker: DartWorker(callbackId: 'node_fail')))
-        ..add(TaskNode(
+          TaskNode(
+            id: 'fail_root',
+            worker: DartWorker(callbackId: 'node_fail'),
+          ),
+        )
+        ..add(
+          TaskNode(
             id: 'b',
             worker: DartWorker(callbackId: 'node_b'),
-            dependsOn: ['fail_root']))
-        ..add(TaskNode(
+            dependsOn: ['fail_root'],
+          ),
+        )
+        ..add(
+          TaskNode(
             id: 'c',
             worker: DartWorker(callbackId: 'node_c'),
-            dependsOn: ['b']));
+            dependsOn: ['b'],
+          ),
+        );
 
       final exec = await NativeWorkManager.enqueueGraph(graph);
-      final result =
-          await exec.result.timeout(const Duration(seconds: 60), onTimeout: () {
-        fail('Failure graph did not resolve within 60 s');
-      });
+      final result = await exec.result.timeout(
+        const Duration(seconds: 60),
+        onTimeout: () {
+          fail('Failure graph did not resolve within 60 s');
+        },
+      );
 
       expect(result.success, isFalse);
       expect(result.failedNodes, contains('fail_root'));
       expect(result.cancelledNodes, containsAll(['b', 'c']));
     });
 
-    testWidgets('cycle detection throws ArgumentError before scheduling',
-        (tester) async {
+    testWidgets('cycle detection throws ArgumentError before scheduling', (
+      tester,
+    ) async {
       final graph = TaskGraph(id: 'cycle_test')
-        ..add(TaskNode(
+        ..add(
+          TaskNode(
             id: 'a',
             worker: DartWorker(callbackId: 'node_a'),
-            dependsOn: ['b']))
-        ..add(TaskNode(
+            dependsOn: ['b'],
+          ),
+        )
+        ..add(
+          TaskNode(
             id: 'b',
             worker: DartWorker(callbackId: 'node_b'),
-            dependsOn: ['a']));
+            dependsOn: ['a'],
+          ),
+        );
 
       expect(
         () => NativeWorkManager.enqueueGraph(graph),
@@ -202,18 +249,26 @@ void main() {
 
     testWidgets('duplicate node ID throws ArgumentError', (tester) async {
       final graph = TaskGraph(id: 'dup_test')
-        ..add(TaskNode(id: 'a', worker: DartWorker(callbackId: 'node_a')))
-        ..add(TaskNode(id: 'a', worker: DartWorker(callbackId: 'node_b')));
+        ..add(
+          TaskNode(
+            id: 'a',
+            worker: DartWorker(callbackId: 'node_a'),
+          ),
+        )
+        ..add(
+          TaskNode(
+            id: 'a',
+            worker: DartWorker(callbackId: 'node_b'),
+          ),
+        );
 
-      expect(
-        () => NativeWorkManager.enqueueGraph(graph),
-        throwsArgumentError,
-      );
+      expect(() => NativeWorkManager.enqueueGraph(graph), throwsArgumentError);
     });
 
     testWidgets('empty graph returns success immediately', (tester) async {
-      final exec =
-          await NativeWorkManager.enqueueGraph(TaskGraph(id: 'empty_test'));
+      final exec = await NativeWorkManager.enqueueGraph(
+        TaskGraph(id: 'empty_test'),
+      );
       final result = await exec.result;
       expect(result.success, isTrue);
       expect(result.completedCount, equals(0));
@@ -224,23 +279,31 @@ void main() {
 
       // Use a fast native HTTP request so the test doesn't need DartWorker engine
       final graph = TaskGraph(id: 'native_graph_$ts')
-        ..add(TaskNode(
+        ..add(
+          TaskNode(
             id: 'req1',
             worker: HttpRequestWorker(
               url: 'https://jsonplaceholder.typicode.com/posts/1',
-            )))
-        ..add(TaskNode(
+            ),
+          ),
+        )
+        ..add(
+          TaskNode(
             id: 'req2',
             worker: HttpRequestWorker(
               url: 'https://jsonplaceholder.typicode.com/posts/2',
             ),
-            dependsOn: ['req1']));
+            dependsOn: ['req1'],
+          ),
+        );
 
       final exec = await NativeWorkManager.enqueueGraph(graph);
-      final result =
-          await exec.result.timeout(const Duration(seconds: 90), onTimeout: () {
-        fail('Native graph did not finish within 90 s');
-      });
+      final result = await exec.result.timeout(
+        const Duration(seconds: 90),
+        onTimeout: () {
+          fail('Native graph did not finish within 90 s');
+        },
+      );
 
       expect(result.success, isTrue);
       expect(result.completedCount, equals(2));
@@ -315,8 +378,9 @@ void main() {
       expect(event.success, isFalse);
     });
 
-    testWidgets('exception in callback does not break event stream',
-        (tester) async {
+    testWidgets('exception in callback does not break event stream', (
+      tester,
+    ) async {
       var callbackHitCount = 0;
 
       NativeWorkManager.configure(
@@ -335,37 +399,44 @@ void main() {
         taskId: id1,
         trigger: const TaskTrigger.oneTime(),
         worker: HttpRequestWorker(
-            url: 'https://jsonplaceholder.typicode.com/posts/1'),
+          url: 'https://jsonplaceholder.typicode.com/posts/1',
+        ),
         constraints: const Constraints(requiresNetwork: true),
       );
       await NativeWorkManager.enqueue(
         taskId: id2,
         trigger: const TaskTrigger.oneTime(),
         worker: HttpRequestWorker(
-            url: 'https://jsonplaceholder.typicode.com/posts/2'),
+          url: 'https://jsonplaceholder.typicode.com/posts/2',
+        ),
         constraints: const Constraints(requiresNetwork: true),
       );
 
       // Wait for both tasks
       await Future.wait([
-        _waitEvent(id1, timeout: const Duration(seconds: 60))
-            .then((e) => expect(e?.success, isTrue)),
-        _waitEvent(id2, timeout: const Duration(seconds: 60))
-            .then((e) => expect(e?.success, isTrue)),
+        _waitEvent(
+          id1,
+          timeout: const Duration(seconds: 60),
+        ).then((e) => expect(e?.success, isTrue)),
+        _waitEvent(
+          id2,
+          timeout: const Duration(seconds: 60),
+        ).then((e) => expect(e?.success, isTrue)),
       ]);
 
       // Both events must reach the stream despite the callback throwing
-      expect(callbackHitCount, greaterThanOrEqualTo(2),
-          reason: 'Both success events must reach callback even if it throws');
+      expect(
+        callbackHitCount,
+        greaterThanOrEqualTo(2),
+        reason: 'Both success events must reach callback even if it throws',
+      );
     });
 
     testWidgets('configure(null) removes existing config', (tester) async {
       var fired = false;
 
       NativeWorkManager.configure(
-        observability: ObservabilityConfig(
-          onTaskComplete: (_) => fired = true,
-        ),
+        observability: ObservabilityConfig(onTaskComplete: (_) => fired = true),
       );
 
       // Remove config
@@ -376,7 +447,8 @@ void main() {
         taskId: id,
         trigger: const TaskTrigger.oneTime(),
         worker: HttpRequestWorker(
-            url: 'https://jsonplaceholder.typicode.com/posts/1'),
+          url: 'https://jsonplaceholder.typicode.com/posts/1',
+        ),
         constraints: const Constraints(requiresNetwork: true),
       );
 
@@ -385,8 +457,11 @@ void main() {
       // Allow a tick for any stray callbacks
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
-      expect(fired, isFalse,
-          reason: 'Callback must not fire after configure() removes config');
+      expect(
+        fired,
+        isFalse,
+        reason: 'Callback must not fire after configure() removes config',
+      );
     });
   });
 
@@ -395,8 +470,9 @@ void main() {
   // ════════════════════════════════════════════════════════════
 
   group('Typed Worker Results', () {
-    testWidgets('DownloadResult.from parses resultData correctly',
-        (tester) async {
+    testWidgets('DownloadResult.from parses resultData correctly', (
+      tester,
+    ) async {
       final savePath =
           '${Directory.systemTemp.path}/aft_typed_dl_${DateTime.now().millisecondsSinceEpoch}.json';
 
@@ -428,8 +504,9 @@ void main() {
       } catch (_) {}
     });
 
-    testWidgets('HttpRequestResult.from parses resultData correctly',
-        (tester) async {
+    testWidgets('HttpRequestResult.from parses resultData correctly', (
+      tester,
+    ) async {
       final id = _id('typed_req');
       await NativeWorkManager.enqueue(
         taskId: id,
@@ -451,15 +528,20 @@ void main() {
       expect(result.contentLength, greaterThan(0));
     });
 
-    testWidgets('DownloadResult.from returns null for null input',
-        (tester) async {
+    testWidgets('DownloadResult.from returns null for null input', (
+      tester,
+    ) async {
       expect(DownloadResult.from(null), isNull);
     });
 
-    testWidgets('DownloadResult.from returns null for incomplete map',
-        (tester) async {
-      expect(DownloadResult.from({'filePath': '/tmp/x'}), isNull,
-          reason: 'Missing fileName and fileSize must return null');
+    testWidgets('DownloadResult.from returns null for incomplete map', (
+      tester,
+    ) async {
+      expect(
+        DownloadResult.from({'filePath': '/tmp/x'}),
+        isNull,
+        reason: 'Missing fileName and fileSize must return null',
+      );
     });
 
     testWidgets('DownloadResult skipped=true is parsed', (tester) async {
@@ -504,29 +586,42 @@ void main() {
         ),
       );
 
-      await queue.enqueue(QueueEntry(
-        taskId: id1,
-        worker: HttpRequestWorker(
-            url: 'https://jsonplaceholder.typicode.com/posts/1'),
-      ));
-      await queue.enqueue(QueueEntry(
-        taskId: id2,
-        worker: HttpRequestWorker(
-            url: 'https://jsonplaceholder.typicode.com/posts/2'),
-      ));
-      await queue.enqueue(QueueEntry(
-        taskId: id3,
-        worker: HttpRequestWorker(
-            url: 'https://jsonplaceholder.typicode.com/posts/3'),
-      ));
+      await queue.enqueue(
+        QueueEntry(
+          taskId: id1,
+          worker: HttpRequestWorker(
+            url: 'https://jsonplaceholder.typicode.com/posts/1',
+          ),
+        ),
+      );
+      await queue.enqueue(
+        QueueEntry(
+          taskId: id2,
+          worker: HttpRequestWorker(
+            url: 'https://jsonplaceholder.typicode.com/posts/2',
+          ),
+        ),
+      );
+      await queue.enqueue(
+        QueueEntry(
+          taskId: id3,
+          worker: HttpRequestWorker(
+            url: 'https://jsonplaceholder.typicode.com/posts/3',
+          ),
+        ),
+      );
 
       expect(queue.pendingCount, equals(3));
       queue.start();
 
-      await allDone.future.timeout(const Duration(seconds: 120), onTimeout: () {
-        fail(
-            'OfflineQueue FIFO did not finish within 120 s — completed: $completedIds');
-      });
+      await allDone.future.timeout(
+        const Duration(seconds: 120),
+        onTimeout: () {
+          fail(
+            'OfflineQueue FIFO did not finish within 120 s — completed: $completedIds',
+          );
+        },
+      );
 
       await sub.cancel();
 
@@ -541,21 +636,32 @@ void main() {
         maxSize: 2,
       );
 
-      await queue.enqueue(QueueEntry(
-        taskId: _id('ms1'),
-        worker: HttpRequestWorker(url: 'https://jsonplaceholder.typicode.com'),
-      ));
-      await queue.enqueue(QueueEntry(
-        taskId: _id('ms2'),
-        worker: HttpRequestWorker(url: 'https://jsonplaceholder.typicode.com'),
-      ));
+      await queue.enqueue(
+        QueueEntry(
+          taskId: _id('ms1'),
+          worker: HttpRequestWorker(
+            url: 'https://jsonplaceholder.typicode.com',
+          ),
+        ),
+      );
+      await queue.enqueue(
+        QueueEntry(
+          taskId: _id('ms2'),
+          worker: HttpRequestWorker(
+            url: 'https://jsonplaceholder.typicode.com',
+          ),
+        ),
+      );
 
       expect(
-        () => queue.enqueue(QueueEntry(
-          taskId: _id('ms3'),
-          worker:
-              HttpRequestWorker(url: 'https://jsonplaceholder.typicode.com'),
-        )),
+        () => queue.enqueue(
+          QueueEntry(
+            taskId: _id('ms3'),
+            worker: HttpRequestWorker(
+              url: 'https://jsonplaceholder.typicode.com',
+            ),
+          ),
+        ),
         throwsA(isA<StateError>()),
         reason: 'Adding beyond maxSize must throw StateError',
       );
@@ -572,20 +678,39 @@ void main() {
       final id3 = _id('cq3');
 
       await queue.enqueue(
-          QueueEntry(taskId: id1, worker: HttpRequestWorker(url: 'https://example.com'), tag: 'group-a'));
+        QueueEntry(
+          taskId: id1,
+          worker: HttpRequestWorker(url: 'https://example.com'),
+          tag: 'group-a',
+        ),
+      );
       await queue.enqueue(
-          QueueEntry(taskId: id2, worker: HttpRequestWorker(url: 'https://example.com'), tag: 'group-b'));
+        QueueEntry(
+          taskId: id2,
+          worker: HttpRequestWorker(url: 'https://example.com'),
+          tag: 'group-b',
+        ),
+      );
       await queue.enqueue(
-          QueueEntry(taskId: id3, worker: HttpRequestWorker(url: 'https://example.com'), tag: 'group-a'));
+        QueueEntry(
+          taskId: id3,
+          worker: HttpRequestWorker(url: 'https://example.com'),
+          tag: 'group-a',
+        ),
+      );
 
       queue.cancel(tag: 'group-a');
 
-      expect(queue.pendingCount, equals(1),
-          reason: 'Only group-b task must remain after cancelling group-a');
+      expect(
+        queue.pendingCount,
+        equals(1),
+        reason: 'Only group-b task must remain after cancelling group-a',
+      );
     });
 
-    testWidgets('failed task moves to dead-letter after maxRetries',
-        (tester) async {
+    testWidgets('failed task moves to dead-letter after maxRetries', (
+      tester,
+    ) async {
       final queue = OfflineQueue(
         id: 'deadletter_${DateTime.now().millisecondsSinceEpoch}',
         defaultRetryPolicy: const OfflineRetryPolicy(
@@ -596,25 +721,33 @@ void main() {
       );
 
       // Deliberately invalid URL causes task failure
-      await queue.enqueue(QueueEntry(
-        taskId: _id('dl_fail'),
-        worker: const HttpRequestWorker(url: 'file:///not-allowed'),
-        retryPolicy: const OfflineRetryPolicy(
-          maxRetries: 1,
-          requiresNetwork: false,
-          initialDelay: Duration(milliseconds: 100),
+      await queue.enqueue(
+        QueueEntry(
+          taskId: _id('dl_fail'),
+          worker: const HttpRequestWorker(url: 'file:///not-allowed'),
+          retryPolicy: const OfflineRetryPolicy(
+            maxRetries: 1,
+            requiresNetwork: false,
+            initialDelay: Duration(milliseconds: 100),
+          ),
         ),
-      ));
+      );
 
       queue.start();
 
       // Wait for both attempts (initial + 1 retry) + dead-letter move
       await Future<void>.delayed(const Duration(seconds: 30));
 
-      expect(queue.deadLetterCount, greaterThan(0),
-          reason: 'Task must be in dead-letter after exhausting retries');
-      expect(queue.pendingCount, equals(0),
-          reason: 'No pending tasks must remain after dead-letter move');
+      expect(
+        queue.deadLetterCount,
+        greaterThan(0),
+        reason: 'Task must be in dead-letter after exhausting retries',
+      );
+      expect(
+        queue.pendingCount,
+        equals(0),
+        reason: 'No pending tasks must remain after dead-letter move',
+      );
     });
 
     testWidgets('stop halts queue processing', (tester) async {
@@ -624,11 +757,14 @@ void main() {
       );
 
       for (var i = 0; i < 3; i++) {
-        await queue.enqueue(QueueEntry(
-          taskId: _id('stop_$i'),
-          worker:
-              HttpRequestWorker(url: 'https://jsonplaceholder.typicode.com'),
-        ));
+        await queue.enqueue(
+          QueueEntry(
+            taskId: _id('stop_$i'),
+            worker: HttpRequestWorker(
+              url: 'https://jsonplaceholder.typicode.com',
+            ),
+          ),
+        );
       }
 
       queue.start();
@@ -647,24 +783,28 @@ void main() {
   // ════════════════════════════════════════════════════════════
 
   group('Builder methods', () {
-    test('HttpDownloadWorker.withBandwidthLimit preserves all other fields',
-        () {
-      const base = HttpDownloadWorker(
-        url: 'https://example.com/file.zip',
-        savePath: '/tmp/file.zip',
-        enableResume: true,
-      );
+    test(
+      'HttpDownloadWorker.withBandwidthLimit preserves all other fields',
+      () {
+        const base = HttpDownloadWorker(
+          url: 'https://example.com/file.zip',
+          savePath: '/tmp/file.zip',
+          enableResume: true,
+        );
 
-      final limited = base.withBandwidthLimit(500 * 1024);
-      expect(limited.bandwidthLimitBytesPerSecond, equals(500 * 1024));
-      expect(limited.url, equals(base.url));
-      expect(limited.savePath, equals(base.savePath));
-      expect(limited.enableResume, equals(base.enableResume));
-    });
+        final limited = base.withBandwidthLimit(500 * 1024);
+        expect(limited.bandwidthLimitBytesPerSecond, equals(500 * 1024));
+        expect(limited.url, equals(base.url));
+        expect(limited.savePath, equals(base.savePath));
+        expect(limited.enableResume, equals(base.enableResume));
+      },
+    );
 
     test('HttpDownloadWorker.withSigning sets requestSigning', () {
-      const base =
-          HttpDownloadWorker(url: 'https://example.com/', savePath: '/tmp/f');
+      const base = HttpDownloadWorker(
+        url: 'https://example.com/',
+        savePath: '/tmp/f',
+      );
       const signing = RequestSigning(secretKey: 'supersecretkey1234567');
       final signed = base.withSigning(signing);
       expect(signed.requestSigning, equals(signing));
@@ -677,7 +817,10 @@ void main() {
         filePath: '/tmp/file.jpg',
       );
 
-      final copy = base.copyWith(fileFieldName: 'photo', timeout: const Duration(minutes: 10));
+      final copy = base.copyWith(
+        fileFieldName: 'photo',
+        timeout: const Duration(minutes: 10),
+      );
       expect(copy.fileFieldName, equals('photo'));
       expect(copy.timeout, equals(const Duration(minutes: 10)));
       expect(copy.url, equals(base.url));
@@ -709,30 +852,28 @@ void main() {
         url: 'https://example.com/api',
         method: HttpMethod.post,
       );
-      final withBody =
-          base.withBody('{"key":"value"}');
+      final withBody = base.withBody('{"key":"value"}');
       expect(withBody.body, equals('{"key":"value"}'));
       expect(withBody.headers['Content-Type'], equals('application/json'));
     });
 
     test('HttpRequestWorker.withAuth injects Authorization header', () {
-      const base =
-          HttpRequestWorker(url: 'https://example.com/api');
+      const base = HttpRequestWorker(url: 'https://example.com/api');
       final authed = base.withAuth(token: 'tok_abc');
       expect(authed.headers['Authorization'], equals('Bearer tok_abc'));
     });
 
     test('HttpRequestWorker.withAuth custom template', () {
-      const base =
-          HttpRequestWorker(url: 'https://example.com/api');
-      final authed =
-          base.withAuth(token: 'apiKey123', template: 'ApiKey {accessToken}');
+      const base = HttpRequestWorker(url: 'https://example.com/api');
+      final authed = base.withAuth(
+        token: 'apiKey123',
+        template: 'ApiKey {accessToken}',
+      );
       expect(authed.headers['Authorization'], equals('ApiKey apiKey123'));
     });
 
     test('HttpRequestWorker.withSigning sets requestSigning', () {
-      const base =
-          HttpRequestWorker(url: 'https://example.com/api');
+      const base = HttpRequestWorker(url: 'https://example.com/api');
       const signing = RequestSigning(secretKey: 'mysecretkey123456789');
       final signed = base.withSigning(signing);
       expect(signed.requestSigning, equals(signing));
@@ -761,8 +902,10 @@ void main() {
         backoffMultiplier: 10.0,
         maxDelay: Duration(minutes: 1),
       );
-      expect(policy.delayFor(5).inSeconds,
-          lessThanOrEqualTo(const Duration(minutes: 1).inSeconds));
+      expect(
+        policy.delayFor(5).inSeconds,
+        lessThanOrEqualTo(const Duration(minutes: 1).inSeconds),
+      );
     });
   });
 }

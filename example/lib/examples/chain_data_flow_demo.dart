@@ -26,7 +26,9 @@ class _ChainDataFlowDemoState extends State<ChainDataFlowDemo> {
 
   void _log(String message) {
     setState(() {
-      _logs.add('[${DateTime.now().toIso8601String().substring(11, 19)}] $message');
+      _logs.add(
+        '[${DateTime.now().toIso8601String().substring(11, 19)}] $message',
+      );
       _status = message;
     });
     print('DataFlowDemo: $message');
@@ -74,37 +76,40 @@ class _ChainDataFlowDemoState extends State<ChainDataFlowDemo> {
       _log('');
 
       await NativeWorkManager.beginWith(
-        TaskRequest(
-          id: 'download-step',
-          worker: NativeWorker.fileCopy(
-            sourcePath: sourceFile.path,
-            destinationPath: downloadedFile.path,
-          ),
-        ),
-      ).then(
-        TaskRequest(
-          id: 'process-step',
-          // This receives filePath from download-step
-          worker: NativeWorker.fileCopy(
-            sourcePath: downloadedFile.path,
-            destinationPath: processedFile.path,
-          ),
-        ),
-      ).then(
-        TaskRequest(
-          id: 'upload-step',
-          // This receives processedPath from process-step
-          worker: NativeWorker.fileCopy(
-            sourcePath: processedFile.path,
-            destinationPath: uploadedMarker.path,
-          ),
-        ),
-      ).named('data_flow_test').enqueue();
+            TaskRequest(
+              id: 'download-step',
+              worker: NativeWorker.fileCopy(
+                sourcePath: sourceFile.path,
+                destinationPath: downloadedFile.path,
+              ),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: 'process-step',
+              // This receives filePath from download-step
+              worker: NativeWorker.fileCopy(
+                sourcePath: downloadedFile.path,
+                destinationPath: processedFile.path,
+              ),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: 'upload-step',
+              // This receives processedPath from process-step
+              worker: NativeWorker.fileCopy(
+                sourcePath: processedFile.path,
+                destinationPath: uploadedMarker.path,
+              ),
+            ),
+          )
+          .named('data_flow_test')
+          .enqueue();
 
       _log('✅ Chain enqueued!');
       _log('💡 Check Xcode console to see data merging logs');
       _log('   "Merging X keys from previous step..."');
-
     } catch (e) {
       _log('❌ Error: $e');
     }
@@ -126,29 +131,31 @@ class _ChainDataFlowDemoState extends State<ChainDataFlowDemo> {
       _log('');
 
       await NativeWorkManager.beginWith(
-        TaskRequest(
-          id: 'http-get-step',
-          worker: HttpRequestWorker(
-            url: 'https://httpbin.org/json',
-            method: HttpMethod.get,
-          ),
-        ),
-      ).then(
-        TaskRequest(
-          id: 'http-post-step',
-          // This receives body, statusCode, headers from http-get-step
-          worker: HttpRequestWorker(
-            url: 'https://httpbin.org/post',
-            method: HttpMethod.post,
-            headers: const {'Content-Type': 'application/json'},
-            body: '{"received":"data from previous step"}',
-          ),
-        ),
-      ).named('http_data_flow').enqueue();
+            TaskRequest(
+              id: 'http-get-step',
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/json',
+                method: HttpMethod.get,
+              ),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: 'http-post-step',
+              // This receives body, statusCode, headers from http-get-step
+              worker: HttpRequestWorker(
+                url: 'https://httpbin.org/post',
+                method: HttpMethod.post,
+                headers: const {'Content-Type': 'application/json'},
+                body: '{"received":"data from previous step"}',
+              ),
+            ),
+          )
+          .named('http_data_flow')
+          .enqueue();
 
       _log('✅ HTTP chain enqueued!');
       _log('💡 Step 2 receives HTTP response from Step 1');
-
     } catch (e) {
       _log('❌ Error: $e');
     }
@@ -181,30 +188,32 @@ class _ChainDataFlowDemoState extends State<ChainDataFlowDemo> {
       const password = 'TestPassword123!';
 
       await NativeWorkManager.beginWith(
-        TaskRequest(
-          id: 'encrypt-step',
-          worker: NativeWorker.cryptoEncrypt(
-            inputPath: inputFile.path,
-            outputPath: encryptedFile.path,
-            password: password,
-          ),
-        ),
-      ).then(
-        TaskRequest(
-          id: 'decrypt-step',
-          // This receives encryptedPath and iv from encrypt-step
-          worker: NativeWorker.cryptoDecrypt(
-            inputPath: encryptedFile.path,
-            outputPath: decryptedFile.path,
-            password: password,
-          ),
-        ),
-      ).named('crypto_data_flow').enqueue();
+            TaskRequest(
+              id: 'encrypt-step',
+              worker: NativeWorker.cryptoEncrypt(
+                inputPath: inputFile.path,
+                outputPath: encryptedFile.path,
+                password: password,
+              ),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: 'decrypt-step',
+              // This receives encryptedPath and iv from encrypt-step
+              worker: NativeWorker.cryptoDecrypt(
+                inputPath: encryptedFile.path,
+                outputPath: decryptedFile.path,
+                password: password,
+              ),
+            ),
+          )
+          .named('crypto_data_flow')
+          .enqueue();
 
       _log('✅ Crypto chain enqueued!');
       _log('💡 Step 2 receives encryption IV from Step 1');
       _log('💡 Data flow enables encrypt→decrypt workflow!');
-
     } catch (e) {
       _log('❌ Error: $e');
     }
@@ -239,35 +248,38 @@ class _ChainDataFlowDemoState extends State<ChainDataFlowDemo> {
       await processed.delete().catchError((_) => processed);
 
       await NativeWorkManager.beginWith(
-        TaskRequest(
-          id: 'download-a',
-          worker: NativeWorker.fileCopy(
-            sourcePath: sourceA.path,
-            destinationPath: destA.path,
-          ),
-        ),
-      ).thenAll([
-        TaskRequest(
-          id: 'download-b',
-          worker: NativeWorker.fileCopy(
-            sourcePath: sourceB.path,
-            destinationPath: destB.path,
-          ),
-        ),
-      ]).then(
-        TaskRequest(
-          id: 'process-parallel',
-          // This receives data from last completed parallel task
-          worker: NativeWorker.fileCopy(
-            sourcePath: destB.path,
-            destinationPath: processed.path,
-          ),
-        ),
-      ).named('parallel_data_flow').enqueue();
+            TaskRequest(
+              id: 'download-a',
+              worker: NativeWorker.fileCopy(
+                sourcePath: sourceA.path,
+                destinationPath: destA.path,
+              ),
+            ),
+          )
+          .thenAll([
+            TaskRequest(
+              id: 'download-b',
+              worker: NativeWorker.fileCopy(
+                sourcePath: sourceB.path,
+                destinationPath: destB.path,
+              ),
+            ),
+          ])
+          .then(
+            TaskRequest(
+              id: 'process-parallel',
+              // This receives data from last completed parallel task
+              worker: NativeWorker.fileCopy(
+                sourcePath: destB.path,
+                destinationPath: processed.path,
+              ),
+            ),
+          )
+          .named('parallel_data_flow')
+          .enqueue();
 
       _log('✅ Parallel chain enqueued!');
       _log('💡 Last task result is passed to next step');
-
     } catch (e) {
       _log('❌ Error: $e');
     }
@@ -353,7 +365,9 @@ class _ChainDataFlowDemoState extends State<ChainDataFlowDemo> {
                   ElevatedButton.icon(
                     onPressed: _testSimpleDataFlow,
                     icon: const Icon(Icons.file_copy),
-                    label: const Text('Test 1: Simple Data Flow\n(Download → Process → Upload)'),
+                    label: const Text(
+                      'Test 1: Simple Data Flow\n(Download → Process → Upload)',
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blue,
                       foregroundColor: Colors.white,
@@ -364,7 +378,9 @@ class _ChainDataFlowDemoState extends State<ChainDataFlowDemo> {
                   ElevatedButton.icon(
                     onPressed: _testHttpDataFlow,
                     icon: const Icon(Icons.http),
-                    label: const Text('Test 2: HTTP Data Flow\n(GET → POST with data)'),
+                    label: const Text(
+                      'Test 2: HTTP Data Flow\n(GET → POST with data)',
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
                       foregroundColor: Colors.white,
@@ -375,7 +391,9 @@ class _ChainDataFlowDemoState extends State<ChainDataFlowDemo> {
                   ElevatedButton.icon(
                     onPressed: _testCryptoDataFlow,
                     icon: const Icon(Icons.lock),
-                    label: const Text('Test 3: Crypto Data Flow\n(Encrypt → Decrypt with IV)'),
+                    label: const Text(
+                      'Test 3: Crypto Data Flow\n(Encrypt → Decrypt with IV)',
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.purple,
                       foregroundColor: Colors.white,
@@ -386,7 +404,9 @@ class _ChainDataFlowDemoState extends State<ChainDataFlowDemo> {
                   ElevatedButton.icon(
                     onPressed: _testParallelDataFlow,
                     icon: const Icon(Icons.merge_type),
-                    label: const Text('Test 4: Parallel Data Flow\n(Multiple tasks → Processor)'),
+                    label: const Text(
+                      'Test 4: Parallel Data Flow\n(Multiple tasks → Processor)',
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.orange,
                       foregroundColor: Colors.white,
@@ -422,7 +442,10 @@ class _ChainDataFlowDemoState extends State<ChainDataFlowDemo> {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.lightbulb_outline, color: Colors.blue.shade700),
+                        Icon(
+                          Icons.lightbulb_outline,
+                          color: Colors.blue.shade700,
+                        ),
                         const SizedBox(width: 8),
                         const Text(
                           'How to Verify Data Flow',
@@ -487,7 +510,8 @@ class _ChainDataFlowDemoState extends State<ChainDataFlowDemo> {
                         fontSize: 12,
                         color: _logs[index].contains('❌')
                             ? Colors.red
-                            : _logs[index].contains('✅') || _logs[index].contains('🧪')
+                            : _logs[index].contains('✅') ||
+                                  _logs[index].contains('🧪')
                             ? Colors.green
                             : Colors.black87,
                       ),

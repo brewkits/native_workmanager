@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../worker.dart';
-import 'request_signing.dart';
 
 export 'request_signing.dart';
 

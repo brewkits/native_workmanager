@@ -37,7 +37,9 @@ class _ChainResilienceTestState extends State<ChainResilienceTest> {
 
   void _log(String message) {
     setState(() {
-      _logs.add('[${DateTime.now().toIso8601String().substring(11, 19)}] $message');
+      _logs.add(
+        '[${DateTime.now().toIso8601String().substring(11, 19)}] $message',
+      );
       _status = message;
     });
     print('ChainResilienceTest: $message');
@@ -95,37 +97,40 @@ class _ChainResilienceTestState extends State<ChainResilienceTest> {
 
       // Start chain using builder API
       await NativeWorkManager.beginWith(
-        TaskRequest(
-          id: 'resilience-step-1',
-          worker: NativeWorker.fileCopy(
-            sourcePath: inputFile.path,
-            destinationPath: step1File.path,
-          ),
-        ),
-      ).then(
-        TaskRequest(
-          id: 'resilience-step-2',
-          worker: NativeWorker.fileCopy(
-            sourcePath: inputFile.path,
-            destinationPath: step2File.path,
-          ),
-        ),
-      ).then(
-        TaskRequest(
-          id: 'resilience-step-3',
-          worker: NativeWorker.fileCopy(
-            sourcePath: inputFile.path,
-            destinationPath: step3File.path,
-          ),
-        ),
-      ).named('resilience_test').enqueue();
+            TaskRequest(
+              id: 'resilience-step-1',
+              worker: NativeWorker.fileCopy(
+                sourcePath: inputFile.path,
+                destinationPath: step1File.path,
+              ),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: 'resilience-step-2',
+              worker: NativeWorker.fileCopy(
+                sourcePath: inputFile.path,
+                destinationPath: step2File.path,
+              ),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: 'resilience-step-3',
+              worker: NativeWorker.fileCopy(
+                sourcePath: inputFile.path,
+                destinationPath: step3File.path,
+              ),
+            ),
+          )
+          .named('resilience_test')
+          .enqueue();
 
       _log('✅ Chain enqueued');
       _log('📊 Monitoring progress...');
 
       // Monitor progress
       _monitorChainProgress(step1File, step2File, step3File, markerFile);
-
     } catch (e) {
       _log('❌ Error: $e');
     }
@@ -204,181 +209,184 @@ class _ChainResilienceTestState extends State<ChainResilienceTest> {
       body: SingleChildScrollView(
         child: Column(
           children: [
-          // Instructions Card
-          Card(
-            margin: const EdgeInsets.all(16),
-            color: Colors.amber.shade50,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.science, color: Colors.orange.shade700),
-                      const SizedBox(width: 8),
-                      const Text(
-                        'Test Chain Persistence',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    '1. Tap "Start Resilient Chain"\n'
-                    '2. Wait for Step 1 to complete (5s)\n'
-                    '3. Force quit app (swipe from app switcher)\n'
-                    '4. Reopen app\n'
-                    '5. iOS: Should resume from Step 2 ✅',
-                    style: TextStyle(fontSize: 14),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Row(
+            // Instructions Card
+            Card(
+              margin: const EdgeInsets.all(16),
+              color: Colors.amber.shade50,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        Icon(Icons.info_outline,
-                             size: 16,
-                             color: Colors.blue.shade700),
+                        Icon(Icons.science, color: Colors.orange.shade700),
                         const SizedBox(width: 8),
-                        const Expanded(
-                          child: Text(
-                            'iOS: Uses ChainStateManager for persistence\n'
-                            'Android: KMP behavior (restart from beginning)',
-                            style: TextStyle(fontSize: 12),
+                        const Text(
+                          'Test Chain Persistence',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
                       ],
                     ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      '1. Tap "Start Resilient Chain"\n'
+                      '2. Wait for Step 1 to complete (5s)\n'
+                      '3. Force quit app (swipe from app switcher)\n'
+                      '4. Reopen app\n'
+                      '5. iOS: Should resume from Step 2 ✅',
+                      style: TextStyle(fontSize: 14),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            size: 16,
+                            color: Colors.blue.shade700,
+                          ),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              'iOS: Uses ChainStateManager for persistence\n'
+                              'Android: KMP behavior (restart from beginning)',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // Status Card
+            Card(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    const Icon(Icons.flag, color: Colors.green),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        _status,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Action Buttons
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _startResilientChain,
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('Start Chain'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _clearTestData,
+                      icon: const Icon(Icons.clear),
+                      label: const Text('Clear Data'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.grey,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
-          ),
 
-          // Status Card
-          Card(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            child: Padding(
+            const SizedBox(height: 16),
+            const Divider(),
+
+            // Logs
+            Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
-                  const Icon(Icons.flag, color: Colors.green),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      _status,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
+                  const Icon(Icons.list_alt, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Logs (${_logs.length})',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ],
               ),
             ),
-          ),
 
-          const SizedBox(height: 16),
-
-          // Action Buttons
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _startResilientChain,
-                    icon: const Icon(Icons.play_arrow),
-                    label: const Text('Start Chain'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                  ),
+            SizedBox(
+              height: 300,
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey.shade300),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _clearTestData,
-                    icon: const Icon(Icons.clear),
-                    label: const Text('Clear Data'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.grey,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 16),
-          const Divider(),
-
-          // Logs
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                const Icon(Icons.list_alt, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  'Logs (${_logs.length})',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          SizedBox(
-            height: 300,
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              child: ListView.builder(
-                itemCount: _logs.length,
-                itemBuilder: (context, index) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Text(
-                      _logs[index],
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                        color: _logs[index].contains('❌')
-                            ? Colors.red
-                            : _logs[index].contains('✅') || _logs[index].contains('🎉')
-                            ? Colors.green
-                            : Colors.black87,
+                child: ListView.builder(
+                  itemCount: _logs.length,
+                  itemBuilder: (context, index) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Text(
+                        _logs[index],
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 12,
+                          color: _logs[index].contains('❌')
+                              ? Colors.red
+                              : _logs[index].contains('✅') ||
+                                    _logs[index].contains('🎉')
+                              ? Colors.green
+                              : Colors.black87,
+                        ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
             ),
-          ),
 
-          const SizedBox(height: 16),
-        ],
-      ),
+            const SizedBox(height: 16),
+          ],
+        ),
       ),
     );
   }

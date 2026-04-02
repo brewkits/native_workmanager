@@ -18,16 +18,17 @@ void main() {
     WidgetsFlutterBinding.ensureInitialized();
 
     // Mock the MethodChannel for NativeWorkManager
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
-      const MethodChannel('dev.brewkits/native_workmanager'),
-      (MethodCall methodCall) async {
-        if (methodCall.method == 'initialize') {
-          return null; // Return null for success
-        }
-        // You might need to mock other methods if your tests call them
-        return null;
-      },
-    );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('dev.brewkits/native_workmanager'),
+          (MethodCall methodCall) async {
+            if (methodCall.method == 'initialize') {
+              return null; // Return null for success
+            }
+            // You might need to mock other methods if your tests call them
+            return null;
+          },
+        );
 
     await NativeWorkManager.initialize(
       dartWorkers: {
@@ -46,7 +47,8 @@ void main() {
     expect(
       find.byWidgetPredicate(
         (Widget widget) =>
-            widget is Text && widget.data!.contains('Native WorkManager v1.0.0 initialized'),
+            widget is Text &&
+            widget.data!.contains('Native WorkManager v1.0.0 initialized'),
       ),
       findsOneWidget,
     );

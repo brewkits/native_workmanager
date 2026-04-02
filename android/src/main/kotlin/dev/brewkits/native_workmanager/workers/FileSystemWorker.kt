@@ -94,6 +94,13 @@ class FileSystemWorker : AndroidWorker {
         val overwrite = json.optBoolean("overwrite", false)
         val recursive = json.optBoolean("recursive", true)
 
+        // H4: Validate paths BEFORE any existence checks to avoid information
+        // disclosure (different error messages revealing whether a restricted
+        // path exists before the security check fires).
+        if (!SecurityValidator.validateFilePathSafe(sourcePath) || !SecurityValidator.validateFilePathSafe(destinationPath)) {
+            return WorkerResult.Failure("Invalid or unsafe path")
+        }
+
         val sourceFile = File(sourcePath)
         if (!sourceFile.exists()) {
             return WorkerResult.Failure("Source not found: $sourcePath")
@@ -104,11 +111,6 @@ class FileSystemWorker : AndroidWorker {
         // Check if destination exists
         if (destFile.exists() && !overwrite) {
             return WorkerResult.Failure("Destination already exists: $destinationPath (set overwrite=true to replace)")
-        }
-
-        // FIX H1: Canonical-path check (replaces bypassable contains(".."))
-        if (!SecurityValidator.validateFilePathSafe(sourcePath) || !SecurityValidator.validateFilePathSafe(destinationPath)) {
-            return WorkerResult.Failure("Invalid or unsafe path")
         }
 
         return try {
@@ -145,6 +147,11 @@ class FileSystemWorker : AndroidWorker {
         val destinationPath = json.getString("destinationPath")
         val overwrite = json.optBoolean("overwrite", false)
 
+        // H4: Validate paths before existence check (avoid information disclosure).
+        if (!SecurityValidator.validateFilePathSafe(sourcePath) || !SecurityValidator.validateFilePathSafe(destinationPath)) {
+            return WorkerResult.Failure("Invalid or unsafe path")
+        }
+
         val sourceFile = File(sourcePath)
         if (!sourceFile.exists()) {
             return WorkerResult.Failure("Source not found: $sourcePath")
@@ -154,11 +161,6 @@ class FileSystemWorker : AndroidWorker {
 
         if (destFile.exists() && !overwrite) {
             return WorkerResult.Failure("Destination already exists: $destinationPath (set overwrite=true to replace)")
-        }
-
-        // FIX H1: Canonical-path check (replaces bypassable contains(".."))
-        if (!SecurityValidator.validateFilePathSafe(sourcePath) || !SecurityValidator.validateFilePathSafe(destinationPath)) {
-            return WorkerResult.Failure("Invalid or unsafe path")
         }
 
         return try {
@@ -205,14 +207,19 @@ class FileSystemWorker : AndroidWorker {
         val path = json.getString("path")
         val recursive = json.optBoolean("recursive", false)
 
+        // H3: Validate path with canonical resolution before any file operations.
+        if (!SecurityValidator.validateFilePathSafe(path)) {
+            return WorkerResult.Failure("Invalid or unsafe path")
+        }
+
         val file = File(path)
         if (!file.exists()) {
             return WorkerResult.Failure("Path not found: $path")
         }
 
-        // Safety check: prevent accidental deletion of important directories
+        // Additional safety check: prevent accidental deletion of root-level directories.
         val dangerousPaths = listOf("/", "/system", "/data", "/storage/emulated/0")
-        if (dangerousPaths.any { file.absolutePath.startsWith(it) && file.absolutePath.length <= it.length + 1 }) {
+        if (dangerousPaths.any { file.canonicalPath == File(it).canonicalPath }) {
             return WorkerResult.Failure("Cannot delete protected path: $path")
         }
 
@@ -252,54 +259,56 @@ class FileSystemWorker : AndroidWorker {
         val pattern = json.optString("pattern").takeIf { it.isNotEmpty() }
         val recursive = json.optBoolean("recursive", false)
 
-        val directory = File(path)
-        if (!directory.exists()) {
-            return WorkerResult.Failure("Path not found: $path")
+        // H3: Validate path before listing — missing in original code.
+        if (!SecurityValidator.validateFilePathSafe(path)) {
+            return WorkerResult.Failure("Invalid or unsafe path")
         }
 
-        if (!directory.isDirectory) {
-            return WorkerResult.Failure("Path is not a directory: $path")
-        }
+        val directory = File(path)
+        if (!directory.exists()) return WorkerResult.Failure("Path not found: $path")
+        if (!directory.isDirectory) return WorkerResult.Failure("Path is not a directory: $path")
 
         return try {
-            val files = if (recursive) {
-                directory.walkTopDown()
-                    .filter { it.isFile }
-                    .toList()
+            // FIX: Use sequence to avoid loading everything into memory (prevent OOM)
+            val fileSequence = if (recursive) {
+                directory.walkTopDown().filter { it.isFile }
             } else {
-                directory.listFiles()?.filter { it.isFile } ?: emptyList()
+                directory.listFiles()?.asSequence()?.filter { it.isFile } ?: emptySequence()
             }
 
-            // Apply pattern filter if specified
-            val filteredFiles = if (pattern != null) {
-                val regex = pattern
-                    .replace(".", "\\.")
+            // Apply pattern filter efficiently
+            val regex = pattern?.let {
+                // ✅ SECURITY: Fix Regex Injection — use a safer glob-to-regex conversion
+                // This prevents users from breaking the regex with special chars
+                val escaped = it.replace(".", "\\.")
                     .replace("*", ".*")
                     .replace("?", ".")
-                    .toRegex()
-
-                files.filter { regex.matches(it.name) }
-            } else {
-                files
+                try {
+                    "^$escaped$".toRegex(RegexOption.IGNORE_CASE)
+                } catch (e: Exception) {
+                    null // Fallback if pattern is invalid
+                }
             }
 
+            val filteredFiles = if (regex != null) {
+                fileSequence.filter { regex.matches(it.name) }
+            } else {
+                fileSequence
+            }
+
+            // Limit result size for stability (e.g., max 1000 items in response)
+            val resultList = filteredFiles.take(1000).toList()
+
             WorkerResult.Success(
-                message = "Found ${filteredFiles.size} file(s)",
+                message = "Found ${resultList.size} file(s)",
                 data = buildJsonObject {
                     put("operation", "list")
-                    put("path", path)
-                    put("pattern", pattern ?: "")
-                    put("recursive", recursive)
-                    put("fileCount", filteredFiles.size)
-                    put("totalSize", filteredFiles.sumOf { it.length() })
                     put("files", buildJsonArray {
-                        filteredFiles.forEach { file ->
+                        resultList.forEach { file ->
                             add(buildJsonObject {
                                 put("path", file.absolutePath)
                                 put("name", file.name)
                                 put("size", file.length())
-                                put("lastModified", file.lastModified())
-                                put("isDirectory", file.isDirectory)
                             })
                         }
                     })

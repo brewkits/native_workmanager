@@ -522,4 +522,69 @@ Background execution limits affect all apps. Native workers help by reducing ove
 
 ---
 
+**Last Updated:** March 2026 (v1.2.0)
+, 12, 13, 14)
+- [ ] Test with battery optimization enabled
+- [ ] Test in Doze mode (simulate: `adb shell dumpsys battery unplug && adb shell dumpsys deviceidle force-idle`)
+- [ ] Verify tasks run after app force-close
+- [ ] Verify tasks run after device reboot
+- [ ] Test task chains with failures
+- [ ] Monitor memory usage (use Android Profiler)
+- [ ] Check ProGuard/R8 doesn't break workers (if using obfuscation)
+- [ ] Add error handling and retry policies
+- [ ] Set up monitoring/analytics for background tasks
+
+[See full production guide →](PRODUCTION_GUIDE.md)
+
+---
+
+## Platform-Specific Behavior
+
+### Doze Mode (Android 6.0+)
+
+Tasks may be deferred during Doze mode. To ensure execution:
+
+```dart
+// For critical tasks
+constraints: Constraints(
+  requiresNetworkType: NetworkType.connected,
+)
+
+// For non-critical tasks
+constraints: Constraints(
+  requiresDeviceIdle: false,  // Run even when active
+)
+```
+
+### App Standby (Android 6.0+)
+
+Inactive apps have restricted background access. Tasks will run but may be delayed.
+
+**Solution:** Use appropriate trigger intervals (15+ minutes recommended).
+
+### Battery Optimization (Android 8.0+)
+
+Background execution limits affect all apps. Native workers help by reducing overhead.
+
+---
+
+## Next Steps
+
+- [Getting Started Guide](GETTING_STARTED.md)
+- [API Reference](API_REFERENCE.md)
+- [iOS Setup Guide](IOS_SETUP.md)
+- [Production Deployment](PRODUCTION_GUIDE.md)
+- [Custom Native Workers](use-cases/07-custom-native-workers.md)
+
+---
+
+## Support
+
+**Need help?**
+- 📧 Email: datacenter111@gmail.com
+- 🐛 Issues: [GitHub Issues](https://github.com/brewkits/native_workmanager/issues)
+- 💬 Discussions: [GitHub Discussions](https://github.com/brewkits/native_workmanager/discussions)
+
+---
+
 **Last Updated:** March 2026 (v1.0.8)

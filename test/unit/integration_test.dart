@@ -133,7 +133,10 @@ void main() {
     test('should serialize TaskRequest with dart worker and input', () {
       final worker = DartWorker(
         callbackId: 'processImages',
-        input: {'paths': ['/tmp/img1.jpg', '/tmp/img2.jpg'], 'quality': 85},
+        input: {
+          'paths': ['/tmp/img1.jpg', '/tmp/img2.jpg'],
+          'quality': 85
+        },
       );
       final request = TaskRequest(
         id: 'process-images',
@@ -257,8 +260,7 @@ void main() {
       );
 
       final chain = TaskChainBuilder.internal([fetch])
-          .thenAll([cdn1, cdn2, cdn3])
-          .named('cdn-distribution');
+          .thenAll([cdn1, cdn2, cdn3]).named('cdn-distribution');
 
       final map = chain.toMap();
       final steps = map['steps'] as List;
@@ -343,15 +345,19 @@ void main() {
 
     test('should simulate progress updates for download', () {
       final progressUpdates = [
-        TaskProgress(taskId: 'download-video', progress: 0,
+        TaskProgress(
+            taskId: 'download-video',
+            progress: 0,
             message: 'Starting download'),
-        TaskProgress(taskId: 'download-video', progress: 25,
-            message: 'Downloading...'),
-        TaskProgress(taskId: 'download-video', progress: 50,
-            message: 'Half way'),
-        TaskProgress(taskId: 'download-video', progress: 75,
-            message: 'Almost there'),
-        TaskProgress(taskId: 'download-video', progress: 100,
+        TaskProgress(
+            taskId: 'download-video', progress: 25, message: 'Downloading...'),
+        TaskProgress(
+            taskId: 'download-video', progress: 50, message: 'Half way'),
+        TaskProgress(
+            taskId: 'download-video', progress: 75, message: 'Almost there'),
+        TaskProgress(
+            taskId: 'download-video',
+            progress: 100,
             message: 'Download complete'),
       ];
 
@@ -450,18 +456,24 @@ void main() {
 
     test('should compose tagged batch upload config', () {
       final tag = 'photo-backup';
-      final files = ['/photos/img1.jpg', '/photos/img2.jpg', '/photos/img3.jpg'];
+      final files = [
+        '/photos/img1.jpg',
+        '/photos/img2.jpg',
+        '/photos/img3.jpg'
+      ];
 
-      final tasks = List.generate(files.length, (i) => {
-        'taskId': 'upload-$i',
-        'trigger': TaskTrigger.oneTime().toMap(),
-        'worker': NativeWorker.httpUpload(
-          url: 'https://api.example.com/photos',
-          filePath: files[i],
-        ).toMap(),
-        'constraints': Constraints(requiresNetwork: true).toMap(),
-        'tag': tag,
-      });
+      final tasks = List.generate(
+          files.length,
+          (i) => {
+                'taskId': 'upload-$i',
+                'trigger': TaskTrigger.oneTime().toMap(),
+                'worker': NativeWorker.httpUpload(
+                  url: 'https://api.example.com/photos',
+                  filePath: files[i],
+                ).toMap(),
+                'constraints': Constraints(requiresNetwork: true).toMap(),
+                'tag': tag,
+              });
 
       expect(tasks, hasLength(3));
 
@@ -506,7 +518,8 @@ void main() {
       final map = trigger.toMap();
       expect(map['type'], equals('periodic'));
       // The interval is serialized faithfully — enqueue() is responsible for rejecting < 15min
-      expect(map['intervalMs'], equals(const Duration(minutes: 10).inMilliseconds));
+      expect(map['intervalMs'],
+          equals(const Duration(minutes: 10).inMilliseconds));
     });
 
     test('contentUri trigger serializes valid URI scheme', () {
