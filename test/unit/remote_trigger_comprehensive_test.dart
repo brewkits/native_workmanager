@@ -120,7 +120,9 @@ void main() {
       expect(mappings.keys.toSet(), {'sync', 'download', 'upload'});
     });
 
-    test('worker URL template uses real URL (placeholder substituted at runtime)', () {
+    test(
+        'worker URL template uses real URL (placeholder substituted at runtime)',
+        () {
       // URL validation requires http/https — templates are substituted on native side.
       // Test that the URL value round-trips as-is via toMap.
       final rule = RemoteTriggerRule(
@@ -133,7 +135,8 @@ void main() {
         },
       );
       final mappings = rule.toMap()['workerMappings'] as Map;
-      final config = (mappings['download_update'] as Map)['workerConfig'] as Map;
+      final config =
+          (mappings['download_update'] as Map)['workerConfig'] as Map;
       expect(config['url'], 'https://cdn.example.com/update.zip');
       expect(config['savePath'], '/tmp/update.zip');
     });

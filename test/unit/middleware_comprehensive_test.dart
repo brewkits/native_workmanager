@@ -18,7 +18,10 @@ void main() {
 
     test('toMap contains all header entries', () {
       const m = HeaderMiddleware(
-        headers: {'Authorization': 'Bearer tok', 'Content-Type': 'application/json'},
+        headers: {
+          'Authorization': 'Bearer tok',
+          'Content-Type': 'application/json'
+        },
       );
       final map = m.toMap();
       final headers = map['headers'] as Map;
@@ -52,7 +55,8 @@ void main() {
         headers: {'X-Custom': 'value with spaces & symbols = true'},
       );
       final map = m.toMap();
-      expect((map['headers'] as Map)['X-Custom'], 'value with spaces & symbols = true');
+      expect((map['headers'] as Map)['X-Custom'],
+          'value with spaces & symbols = true');
     });
 
     test('toMap has type, headers, urlPattern keys', () {
@@ -135,7 +139,8 @@ void main() {
     });
 
     test('String value round-trips', () {
-      const m = RemoteConfigMiddleware(values: {'baseUrl': 'https://prod.api.com'});
+      const m =
+          RemoteConfigMiddleware(values: {'baseUrl': 'https://prod.api.com'});
       expect((m.toMap()['values'] as Map)['baseUrl'], 'https://prod.api.com');
     });
 
@@ -199,7 +204,8 @@ void main() {
       final middlewares = <Middleware>[
         const HeaderMiddleware(headers: {'X-Auth': 'Bearer tok'}),
         const LoggingMiddleware(logUrl: 'https://logs.io'),
-        const RemoteConfigMiddleware(values: {'timeout': 30}, workerType: 'HttpDownload'),
+        const RemoteConfigMiddleware(
+            values: {'timeout': 30}, workerType: 'HttpDownload'),
       ];
       final maps = middlewares.map((m) => m.toMap()).toList();
       expect(maps[0]['type'], 'header');
@@ -224,13 +230,15 @@ void main() {
 
     test('LoggingMiddleware type key is stable across instances', () {
       const m1 = LoggingMiddleware(logUrl: 'https://logs1.example.com');
-      const m2 = LoggingMiddleware(logUrl: 'https://logs2.example.com', includeConfig: true);
+      const m2 = LoggingMiddleware(
+          logUrl: 'https://logs2.example.com', includeConfig: true);
       expect(m1.toMap()['type'], m2.toMap()['type']);
     });
 
     test('RemoteConfigMiddleware type key is stable across instances', () {
       const m1 = RemoteConfigMiddleware(values: {'a': 1});
-      const m2 = RemoteConfigMiddleware(values: {'b': 2}, workerType: 'HttpDownload');
+      const m2 =
+          RemoteConfigMiddleware(values: {'b': 2}, workerType: 'HttpDownload');
       expect(m1.toMap()['type'], m2.toMap()['type']);
     });
 
@@ -255,23 +263,28 @@ void main() {
   // ──────────────────────────────────────────────────────────────
   group('LoggingMiddleware – post-execution payload contract', () {
     test('toMap carries logUrl for native POST', () {
-      const m = LoggingMiddleware(logUrl: 'https://telemetry.example.com/tasks');
+      const m =
+          LoggingMiddleware(logUrl: 'https://telemetry.example.com/tasks');
       expect(m.toMap()['logUrl'], 'https://telemetry.example.com/tasks');
     });
 
     test('includeConfig=false does not include config in map keys', () {
       // The Dart map is the registration payload sent to native.
       // When includeConfig=false, the native side must NOT attach workerConfig.
-      const m = LoggingMiddleware(logUrl: 'https://logs.io', includeConfig: false);
+      const m =
+          LoggingMiddleware(logUrl: 'https://logs.io', includeConfig: false);
       expect(m.toMap()['includeConfig'], isFalse);
     });
 
     test('includeConfig=true is forwarded to native', () {
-      const m = LoggingMiddleware(logUrl: 'https://logs.io', includeConfig: true);
+      const m =
+          LoggingMiddleware(logUrl: 'https://logs.io', includeConfig: true);
       expect(m.toMap()['includeConfig'], isTrue);
     });
 
-    test('type is "logging" so native skips applyMiddleware (pre-exec) correctly', () {
+    test(
+        'type is "logging" so native skips applyMiddleware (pre-exec) correctly',
+        () {
       // applyMiddleware() on both platforms has a case "logging": break/skip.
       // This test documents the contract: type must be exactly "logging".
       const m = LoggingMiddleware(logUrl: 'https://x.com');

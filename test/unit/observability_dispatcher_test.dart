@@ -75,23 +75,29 @@ void main() {
       final dispatcher = ObservabilityDispatcher(
         ObservabilityConfig(onTaskStart: (id, type) => receivedId = id),
       );
-      dispatcher.dispatchEvent(_event(taskId: 'task-1', success: false, isStarted: true));
+      dispatcher.dispatchEvent(
+          _event(taskId: 'task-1', success: false, isStarted: true));
       expect(receivedId, 'task-1');
     });
 
     test('isStarted event triggers onTaskStart with workerType', () {
       String? receivedType;
       final dispatcher = ObservabilityDispatcher(
-        ObservabilityConfig(
-            onTaskStart: (id, type) => receivedType = type),
+        ObservabilityConfig(onTaskStart: (id, type) => receivedType = type),
       );
       dispatcher.dispatchEvent(
-        _event(taskId: 't', success: false, isStarted: true, workerType: 'HttpDownloadWorker'),
+        _event(
+            taskId: 't',
+            success: false,
+            isStarted: true,
+            workerType: 'HttpDownloadWorker'),
       );
       expect(receivedType, 'HttpDownloadWorker');
     });
 
-    test('isStarted event with null workerType passes empty string to onTaskStart', () {
+    test(
+        'isStarted event with null workerType passes empty string to onTaskStart',
+        () {
       String? receivedType;
       final dispatcher = ObservabilityDispatcher(
         ObservabilityConfig(onTaskStart: (id, type) => receivedType = type),
@@ -107,7 +113,8 @@ void main() {
       final dispatcher = ObservabilityDispatcher(
         ObservabilityConfig(onTaskComplete: (_) => called = true),
       );
-      dispatcher.dispatchEvent(_event(taskId: 't', success: true, isStarted: true));
+      dispatcher
+          .dispatchEvent(_event(taskId: 't', success: true, isStarted: true));
       expect(called, isFalse);
     });
 
@@ -116,7 +123,8 @@ void main() {
       final dispatcher = ObservabilityDispatcher(
         ObservabilityConfig(onTaskFail: (_) => called = true),
       );
-      dispatcher.dispatchEvent(_event(taskId: 't', success: false, isStarted: true));
+      dispatcher
+          .dispatchEvent(_event(taskId: 't', success: false, isStarted: true));
       expect(called, isFalse);
     });
 
@@ -296,8 +304,8 @@ void main() {
           onTaskFail: (e) => log.add('fail'),
         ),
       );
-      dispatcher.dispatchEvent(
-          _event(taskId: 't', success: false, isStarted: true));
+      dispatcher
+          .dispatchEvent(_event(taskId: 't', success: false, isStarted: true));
       dispatcher.dispatchEvent(_event(taskId: 't', success: false));
       expect(log, ['start', 'fail']);
     });

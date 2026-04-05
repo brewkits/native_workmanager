@@ -16,8 +16,8 @@ void main() {
     });
 
     test('httpDownload factory produces HttpDownloadWorker', () {
-      final w = NativeWorker.httpDownload(
-          url: 'https://x.com/f', savePath: '/tmp/f');
+      final w =
+          NativeWorker.httpDownload(url: 'https://x.com/f', savePath: '/tmp/f');
       expect(w, isA<HttpDownloadWorker>());
       expect(w.workerClassName, 'HttpDownloadWorker');
     });
@@ -41,12 +41,14 @@ void main() {
   // ──────────────────────────────────────────────────────────────
   group('HttpRequestWorker edge cases', () {
     test('POST method is serialized', () {
-      final w = HttpRequestWorker(url: 'https://x.com', method: HttpMethod.post);
+      final w =
+          HttpRequestWorker(url: 'https://x.com', method: HttpMethod.post);
       expect(w.toMap()['method'], anyOf('post', 'POST'));
     });
 
     test('DELETE method is serialized', () {
-      final w = HttpRequestWorker(url: 'https://x.com', method: HttpMethod.delete);
+      final w =
+          HttpRequestWorker(url: 'https://x.com', method: HttpMethod.delete);
       expect(w.toMap()['method'], anyOf('delete', 'DELETE'));
     });
 
@@ -80,14 +82,14 @@ void main() {
           url: 'https://x.com', timeout: const Duration(seconds: 5));
       final map = w.toMap();
       // timeout serialized as ms or Duration — check it's in the map
-      expect(map.containsKey('timeout') || map.containsKey('timeoutMs'), isTrue);
+      expect(
+          map.containsKey('timeout') || map.containsKey('timeoutMs'), isTrue);
     });
 
     test('URL with query string is preserved', () {
       final w = HttpRequestWorker(
           url: 'https://api.example.com/search?q=test&page=1');
-      expect(w.toMap()['url'],
-          'https://api.example.com/search?q=test&page=1');
+      expect(w.toMap()['url'], 'https://api.example.com/search?q=test&page=1');
     });
   });
 
@@ -105,13 +107,15 @@ void main() {
     });
 
     test('skipExisting defaults to false', () {
-      final w = HttpDownloadWorker(url: 'https://cdn.com/f', savePath: '/tmp/f');
+      final w =
+          HttpDownloadWorker(url: 'https://cdn.com/f', savePath: '/tmp/f');
       expect(w.toMap()['skipExisting'], isFalse);
     });
 
     test('savePath is serialized', () {
       final w = HttpDownloadWorker(
-          url: 'https://cdn.com/file.zip', savePath: '/data/downloads/file.zip');
+          url: 'https://cdn.com/file.zip',
+          savePath: '/data/downloads/file.zip');
       expect(w.toMap()['savePath'], '/data/downloads/file.zip');
     });
   });

@@ -570,7 +570,8 @@ void main() {
 
     test('getServerFilename throws StateError when not initialized', () {
       expect(
-        () => NativeWorkManager.getServerFilename('https://example.com/file.pdf'),
+        () =>
+            NativeWorkManager.getServerFilename('https://example.com/file.pdf'),
         throwsA(isA<StateError>()),
       );
     });

@@ -188,8 +188,7 @@ void main() {
     });
 
     test('HttpRequestWorker without requestSigning has null in toMap', () {
-      final worker =
-          HttpRequestWorker(url: 'https://api.example.com');
+      final worker = HttpRequestWorker(url: 'https://api.example.com');
       final map = worker.toMap();
       expect(map['requestSigning'], isNull);
     });

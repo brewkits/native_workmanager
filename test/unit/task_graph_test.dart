@@ -100,8 +100,7 @@ void main() {
     });
 
     test('nodes is unmodifiable', () {
-      final g = TaskGraph(id: 'g')
-        ..add(TaskNode(id: 'a', worker: _workerA));
+      final g = TaskGraph(id: 'g')..add(TaskNode(id: 'a', worker: _workerA));
       expect(
         () => g.nodes.add(TaskNode(id: 'x', worker: _workerB)),
         throwsUnsupportedError,

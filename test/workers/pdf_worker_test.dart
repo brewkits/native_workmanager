@@ -156,7 +156,8 @@ void main() {
 
     test('empty inputPath throws ArgumentError', () {
       expect(
-        () => NativeWorker.pdfCompress(inputPath: '', outputPath: '/tmp/out.pdf'),
+        () =>
+            NativeWorker.pdfCompress(inputPath: '', outputPath: '/tmp/out.pdf'),
         throwsA(isA<ArgumentError>()),
       );
     });
@@ -226,8 +227,8 @@ void main() {
 
     test('empty imagePaths throws ArgumentError', () {
       expect(
-        () =>
-            NativeWorker.pdfFromImages(imagePaths: [], outputPath: '/tmp/out.pdf'),
+        () => NativeWorker.pdfFromImages(
+            imagePaths: [], outputPath: '/tmp/out.pdf'),
         throwsA(isA<ArgumentError>()),
       );
     });

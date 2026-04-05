@@ -93,12 +93,13 @@ jobs:
         run: flutter pub get
 
       - name: Setup pub credentials (fallback when OIDC not configured)
-        if: ${{ secrets.PUB_CREDENTIALS != '' }}
         env:
           PUB_CREDENTIALS: ${{ secrets.PUB_CREDENTIALS }}
         run: |
-          mkdir -p ~/.pub-cache
-          echo "$PUB_CREDENTIALS" > ~/.pub-cache/credentials.json
+          if [ -n "$PUB_CREDENTIALS" ]; then
+            mkdir -p ~/.pub-cache
+            echo "$PUB_CREDENTIALS" > ~/.pub-cache/credentials.json
+          fi
 
       - name: Publish plugin
         run: dart pub publish --force
@@ -129,12 +130,13 @@ jobs:
         run: dart pub get
 
       - name: Setup pub credentials (fallback when OIDC not configured)
-        if: ${{ secrets.PUB_CREDENTIALS != '' }}
         env:
           PUB_CREDENTIALS: ${{ secrets.PUB_CREDENTIALS }}
         run: |
-          mkdir -p ~/.pub-cache
-          echo "$PUB_CREDENTIALS" > ~/.pub-cache/credentials.json
+          if [ -n "$PUB_CREDENTIALS" ]; then
+            mkdir -p ~/.pub-cache
+            echo "$PUB_CREDENTIALS" > ~/.pub-cache/credentials.json
+          fi
 
       - name: Publish gen
         working-directory: native_workmanager_gen

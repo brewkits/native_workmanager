@@ -116,8 +116,7 @@ void main() {
 
     test('empty filePath throws ArgumentError', () {
       expect(
-        () =>
-            NativeWorker.httpUpload(url: 'https://example.com', filePath: ''),
+        () => NativeWorker.httpUpload(url: 'https://example.com', filePath: ''),
         throwsA(isA<ArgumentError>()),
       );
     });
