@@ -58,6 +58,9 @@ class FileCompressionWorker : AndroidWorker {
     }
 
     override suspend fun doWork(input: String?): WorkerResult {
+        // MEDIA-004: declared outside the try block so the catch handler can delete a
+        // partial archive if compression fails mid-stream.
+        var outputFile: File? = null
         return try {
             Log.d(TAG, "Starting file compression...")
 
@@ -130,8 +133,21 @@ class FileCompressionWorker : AndroidWorker {
             // ════════════════════════════════════════════════════════════
             // STEP 3: Create output directory if needed
             // ════════════════════════════════════════════════════════════
-            val outputFile = File(outputPath)
-            outputFile.parentFile?.mkdirs()
+            outputFile = File(outputPath)
+
+            // FS-H-001: Check mkdirs return value
+            val parentDir = outputFile.parentFile
+            if (parentDir != null && !parentDir.exists() && !parentDir.mkdirs()) {
+                Log.e(TAG, "Failed to create output directory: ${parentDir.path}")
+                return WorkerResult.Failure("Failed to create output directory: ${parentDir.path}")
+            }
+
+            // FS-H-002: Prevent self-compression (output path inside input directory)
+            if (outputFile.canonicalPath.startsWith(inputFile.canonicalPath + File.separator) ||
+                outputFile.canonicalPath == inputFile.canonicalPath) {
+                Log.e(TAG, "Output path must not be inside input path")
+                return WorkerResult.Failure("Output path must not be inside input path")
+            }
 
             // Delete existing output file if exists
             if (outputFile.exists()) {
@@ -238,7 +254,7 @@ class FileCompressionWorker : AndroidWorker {
                 return WorkerResult.Failure("Compressed archive exceeds size limit")
             }
 
-            val originalSize = calculateSize(inputFile)
+            val originalSize = calculateSize(inputFile, excludePatterns)
             val compressedSize = outputFile.length()
             val compressionRatio = if (originalSize > 0L) {
                 (compressedSize.toFloat() / originalSize.toFloat() * 100).toInt()
@@ -276,6 +292,8 @@ class FileCompressionWorker : AndroidWorker {
 
         } catch (e: Exception) {
             Log.e(TAG, "File compression failed", e)
+            // MEDIA-004: clean up partial output so caller never sees a corrupt archive.
+            outputFile?.takeIf { it.exists() }?.delete()
             return WorkerResult.Failure(
                 message = e.message ?: "Unknown error",
                 shouldRetry = true
@@ -413,11 +431,14 @@ class FileCompressionWorker : AndroidWorker {
     }
 
     /**
-     * Calculate total size of file or directory
+     * Calculate total size of file or directory, respecting exclude patterns (FS-M-001).
      */
-    private fun calculateSize(file: File): Long {
+    private fun calculateSize(file: File, excludePatterns: List<String> = emptyList()): Long {
         return if (file.isDirectory) {
-            file.walkTopDown().filter { it.isFile }.map { it.length() }.sum()
+            file.walkTopDown()
+                .filter { it.isFile && !shouldExclude(it.name, excludePatterns) }
+                .map { it.length() }
+                .sum()
         } else {
             file.length()
         }

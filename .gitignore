@@ -58,3 +58,8 @@ SPM_ANALYSIS.md
 .flutter-plugins-dependencies
 /build/
 /coverage/
+
+# Force-include iOS SPM source files that dart pub may detect as gitignored
+# (dart pub uses a custom gitignore parser that may differ from git's behaviour)
+!ios/native_workmanager/Package.resolved
+!ios/native_workmanager/Sources/native_workmanager/utils/HttpSecurityHelper.swift

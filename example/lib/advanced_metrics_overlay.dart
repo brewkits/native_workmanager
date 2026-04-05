@@ -102,6 +102,7 @@ class _AdvancedMetricsOverlayState extends State<AdvancedMetricsOverlay>
 
     // Listen to task events
     _eventSubscription = NativeWorkManager.events.listen((event) {
+      if (event.isStarted) return;
       setState(() {
         _totalTasks++;
         if (event.success) {

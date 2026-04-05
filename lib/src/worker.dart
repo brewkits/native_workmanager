@@ -13,6 +13,8 @@ part 'workers/native_worker_custom.dart';
 part 'workers/native_worker_file.dart';
 part 'workers/native_worker_crypto.dart';
 part 'workers/native_worker_image.dart';
+part 'workers/native_worker_pdf.dart';
+part 'workers/native_worker_websocket.dart';
 
 /// HTTP methods for network workers.
 enum HttpMethod { get, post, put, delete, patch }
@@ -94,7 +96,8 @@ class NativeWorker {
     }
 
     // SECURITY: Require absolute paths (relative paths can be manipulated)
-    if (!path.startsWith('/')) {
+    // EXCEPTION: Allow placeholders in the format {{taskId.key}} for task chains
+    if (!path.startsWith('/') && !path.startsWith('{{')) {
       throw ArgumentError(
         'Relative path not allowed in $parameterName: "$path"\n'
         'Use absolute paths like "/path/to/file.jpg"\n'
@@ -202,8 +205,14 @@ class NativeWorker {
     DuplicatePolicy onDuplicate = DuplicatePolicy.overwrite,
     bool moveToPublicDownloads = false,
     bool saveToGallery = false,
+    @Deprecated(
+        'Native ZIP support is removed in v1.1.0. Use Dart "archive" package.')
     bool extractAfterDownload = false,
+    @Deprecated(
+        'Native ZIP support is removed in v1.1.0. Use Dart "archive" package.')
     String? extractPath,
+    @Deprecated(
+        'Native ZIP support is removed in v1.1.0. Use Dart "archive" package.')
     bool deleteArchiveAfterExtract = false,
   }) =>
       _buildHttpDownload(
@@ -288,6 +297,10 @@ class NativeWorker {
 
   /// File compression worker (ZIP format).
   /// See [_buildFileCompress] (in native_worker_file.dart) for full documentation.
+  @Deprecated(
+    'Native ZIP support is removed in v1.1.0 to achieve Zero Dependencies. '
+    'Please use the Dart "archive" package for ZIP operations instead.',
+  )
   static Worker fileCompress({
     required String inputPath,
     required String outputPath,
@@ -305,6 +318,10 @@ class NativeWorker {
 
   /// File decompression worker (ZIP extraction).
   /// See [_buildFileDecompress] (in native_worker_file.dart) for full documentation.
+  @Deprecated(
+    'Native ZIP support is removed in v1.1.0 to achieve Zero Dependencies. '
+    'Please use the Dart "archive" package for ZIP operations instead.',
+  )
   static Worker fileDecompress({
     required String zipPath,
     required String targetDir,
@@ -407,6 +424,65 @@ class NativeWorker {
         inputPath: inputPath,
         outputPath: outputPath,
         password: password,
+      );
+
+  // ── PDF workers ──────────────────────────────────────────────────────────────
+
+  /// Merge multiple PDF files into one.
+  /// See [_buildPdfMerge] (in native_worker_pdf.dart) for full documentation.
+  static Worker pdfMerge({
+    required List<String> inputPaths,
+    required String outputPath,
+  }) =>
+      _buildPdfMerge(inputPaths: inputPaths, outputPath: outputPath);
+
+  /// Re-render a PDF at lower quality to reduce file size.
+  /// See [_buildPdfCompress] (in native_worker_pdf.dart) for full documentation.
+  static Worker pdfCompress({
+    required String inputPath,
+    required String outputPath,
+    int quality = 80,
+  }) =>
+      _buildPdfCompress(
+          inputPath: inputPath, outputPath: outputPath, quality: quality);
+
+  /// Convert image files into a PDF (one image per page).
+  /// See [_buildPdfFromImages] (in native_worker_pdf.dart) for full documentation.
+  static Worker pdfFromImages({
+    required List<String> imagePaths,
+    required String outputPath,
+    PdfPageSize pageSize = PdfPageSize.a4,
+    int margin = 0,
+  }) =>
+      _buildPdfFromImages(
+        imagePaths: imagePaths,
+        outputPath: outputPath,
+        pageSize: pageSize,
+        margin: margin,
+      );
+
+  // ── WebSocket worker ─────────────────────────────────────────────────────────
+
+  /// WebSocket worker — connect, send messages, receive responses.
+  /// See [_buildWebSocket] (in native_worker_websocket.dart) for full documentation.
+  /// **Android only** — returns failure on iOS.
+  static Worker webSocket({
+    required String url,
+    List<String> messages = const [],
+    Map<String, String> headers = const {},
+    int timeoutSeconds = 30,
+    int receiveMessages = 1,
+    String? storeResponseAt,
+    int? pingIntervalSeconds,
+  }) =>
+      _buildWebSocket(
+        url: url,
+        messages: messages,
+        headers: headers,
+        timeoutSeconds: timeoutSeconds,
+        receiveMessages: receiveMessages,
+        storeResponseAt: storeResponseAt,
+        pingIntervalSeconds: pingIntervalSeconds,
       );
 
   // ── Image workers ────────────────────────────────────────────────────────────

@@ -10,9 +10,12 @@ void main() {
 
   group('MethodChannelNativeWorkManager Session Management', () {
     late MethodChannelNativeWorkManager platform;
-    const MethodChannel channel = MethodChannel('dev.brewkits/native_workmanager');
-    const EventChannel eventChannel = EventChannel('dev.brewkits/native_workmanager/events');
-    const EventChannel progressChannel = EventChannel('dev.brewkits/native_workmanager/progress');
+    const MethodChannel channel =
+        MethodChannel('dev.brewkits/native_workmanager');
+    const EventChannel eventChannel =
+        EventChannel('dev.brewkits/native_workmanager/events');
+    const EventChannel progressChannel =
+        EventChannel('dev.brewkits/native_workmanager/progress');
 
     // Helper to simulate native event emission
     void emitNativeEvent(Map<String, dynamic> data) {
@@ -33,7 +36,7 @@ void main() {
 
     setUp(() {
       platform = MethodChannelNativeWorkManager();
-      
+
       // Mock the initialize method on the method channel
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
@@ -76,11 +79,12 @@ void main() {
 
       expect(events.length, 1);
       expect(events.first.taskId, 'fresh-task');
-      
+
       await subscription.cancel();
     });
 
-    test('should drop zombie progress updates from previous sessions', () async {
+    test('should drop zombie progress updates from previous sessions',
+        () async {
       final startTime = DateTime.now().millisecondsSinceEpoch;
       await platform.initialize();
 
@@ -109,15 +113,17 @@ void main() {
       await subscription.cancel();
     });
 
-    test('should cancel old subscriptions on re-initialization (Hot Restart simulation)', () async {
+    test(
+        'should cancel old subscriptions on re-initialization (Hot Restart simulation)',
+        () async {
       await platform.initialize();
-      
+
       int eventCount = 0;
       final sub1 = platform.events.listen((_) => eventCount++);
 
       // Re-initialize (simulating hot restart or engine re-attach)
       await platform.initialize();
-      
+
       final sub2 = platform.events.listen((_) => eventCount++);
 
       // Emit one event
@@ -131,7 +137,8 @@ void main() {
 
       // If cleanup works, ONLY the new subscription should trigger.
       // If it leaks, BOTH would trigger, resulting in eventCount = 2.
-      expect(eventCount, 1, reason: 'Old subscription should have been cancelled');
+      expect(eventCount, 1,
+          reason: 'Old subscription should have been cancelled');
 
       await sub1.cancel();
       await sub2.cancel();

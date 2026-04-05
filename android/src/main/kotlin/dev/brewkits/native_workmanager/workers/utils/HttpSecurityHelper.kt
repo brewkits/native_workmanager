@@ -101,7 +101,15 @@ object HttpSecurityHelper {
         val pinnerBuilder = CertificatePinner.Builder()
         for ((pattern, hashes) in config.pins) {
             for (hash in hashes) {
-                pinnerBuilder.add(pattern, hash)
+                // SC-H-006: OkHttp CertificatePinner requires "sha256/" prefix.
+                // Silently prepend it if the caller omitted it so the pinner does not
+                // accept a raw base64 string and skip verification entirely.
+                val normalizedHash = if (hash.startsWith("sha256/") || hash.startsWith("sha1/")) {
+                    hash
+                } else {
+                    "sha256/$hash"
+                }
+                pinnerBuilder.add(pattern, normalizedHash)
             }
         }
         this.certificatePinner(pinnerBuilder.build())

@@ -164,8 +164,11 @@ class FileSystemWorker : AndroidWorker {
         }
 
         return try {
-            // Create parent directory if needed
-            destFile.parentFile?.mkdirs()
+            // FS-H-006: Check mkdirs return value
+            val destParent = destFile.parentFile
+            if (destParent != null && !destParent.exists() && !destParent.mkdirs()) {
+                return WorkerResult.Failure("Failed to create destination parent directory")
+            }
 
             // Delete destination if overwriting
             if (destFile.exists() && overwrite) {
@@ -182,7 +185,12 @@ class FileSystemWorker : AndroidWorker {
                 } else {
                     copyFile(sourceFile, destFile, overwrite)
                 }
-                sourceFile.deleteRecursively()
+                // FS-C-002: rollback copy if source delete fails
+                val deleted = sourceFile.deleteRecursively()
+                if (!deleted) {
+                    destFile.deleteRecursively()
+                    return WorkerResult.Failure("Move failed: could not delete source after copy")
+                }
             }
 
             val fileCount = if (destFile.isDirectory) {
@@ -237,7 +245,9 @@ class FileSystemWorker : AndroidWorker {
                 file.delete()
             }
 
-            if (deleted) {
+            // FS-H-007: deleteRecursively returns false on partial deletion; check if
+            // target still exists to distinguish outright failure from partial success.
+            if (deleted || !file.exists()) {
                 WorkerResult.Success(
                     message = "Deleted $fileCount file(s)",
                     data = buildJsonObject {
@@ -247,7 +257,7 @@ class FileSystemWorker : AndroidWorker {
                     }
                 )
             } else {
-                WorkerResult.Failure("Failed to delete: $path")
+                WorkerResult.Failure("Failed to delete (some files may remain): $path")
             }
         } catch (e: IOException) {
             WorkerResult.Failure("Delete failed: ${e.message}")
@@ -309,6 +319,8 @@ class FileSystemWorker : AndroidWorker {
                                 put("path", file.absolutePath)
                                 put("name", file.name)
                                 put("size", file.length())
+                                put("lastModified", file.lastModified())   // FS-M-004
+                                put("isDirectory", file.isDirectory)       // FS-L-003
                             })
                         }
                     })
@@ -322,6 +334,11 @@ class FileSystemWorker : AndroidWorker {
     private fun handleMkdir(json: JSONObject): WorkerResult {
         val path = json.getString("path")
         val createParents = json.optBoolean("createParents", true)
+
+        // FS-M-005: Security check BEFORE exists() to avoid information disclosure
+        if (!SecurityValidator.validateFilePathSafe(path)) {
+            return WorkerResult.Failure("Invalid or unsafe path")
+        }
 
         val directory = File(path)
 
@@ -338,11 +355,6 @@ class FileSystemWorker : AndroidWorker {
             } else {
                 WorkerResult.Failure("Path exists but is not a directory: $path")
             }
-        }
-
-        // FIX H1: Canonical-path check (replaces bypassable contains(".."))
-        if (!SecurityValidator.validateFilePathSafe(path)) {
-            return WorkerResult.Failure("Invalid or unsafe path")
         }
 
         return try {

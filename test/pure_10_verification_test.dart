@@ -5,7 +5,8 @@ import 'package:flutter/services.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const MethodChannel channel = MethodChannel('dev.brewkits/native_workmanager');
+  const MethodChannel channel =
+      MethodChannel('dev.brewkits/native_workmanager');
 
   setUp(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -25,7 +26,8 @@ void main() {
               'tag': 'sync',
               'createdAt': DateTime.now().millisecondsSinceEpoch,
               'updatedAt': DateTime.now().millisecondsSinceEpoch,
-              'workerConfig': '{"url": "https://api.com", "authToken": "[REDACTED]"}',
+              'workerConfig':
+                  '{"url": "https://api.com", "authToken": "[REDACTED]"}',
             }
           ];
         default:
@@ -40,7 +42,8 @@ void main() {
   });
 
   group('The Pure 10 Architecture Verification', () {
-    test('Persistence & Sanitization: Sensitive tokens must be redacted', () async {
+    test('Persistence & Sanitization: Sensitive tokens must be redacted',
+        () async {
       // 1. Initialize
       await NativeWorkManager.initialize();
 
@@ -65,17 +68,17 @@ void main() {
       expect(task.taskId, equals('test-task-1'));
       expect(task.workerConfig, contains('[REDACTED]'));
       expect(task.workerConfig, isNot(contains('super-secret-token-123')));
-      
+
       print('✅ Pure 10 Verification: Privacy/Sanitization test passed!');
     });
 
     test('Reliability: Atomic persistence check', () async {
       await NativeWorkManager.initialize();
-      
+
       final tasks = await NativeWorkManager.allTasks();
       expect(tasks, isNotEmpty);
       expect(tasks.first.status, equals('pending'));
-      
+
       print('✅ Pure 10 Verification: Atomic Persistence test passed!');
     });
   });

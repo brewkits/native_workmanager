@@ -224,7 +224,12 @@ class ImageProcessWorker : AndroidWorker {
 
             // Save processed image
             val outputFile = File(config.outputPath)
-            outputFile.parentFile?.mkdirs()
+            // MEDIA-009: treat mkdirs failure as an error — silent failure would cause the
+            // FileOutputStream below to throw with a misleading "No such file or directory".
+            val parentDir = outputFile.parentFile
+            if (parentDir != null && !parentDir.exists() && !parentDir.mkdirs()) {
+                return@withContext WorkerResult.Failure("Failed to create output directory: ${parentDir.path}")
+            }
 
             // Report progress: Compressing (80%)
             taskId?.let {
@@ -241,8 +246,20 @@ class ImageProcessWorker : AndroidWorker {
             val processedWidth = bitmap.width
             val processedHeight = bitmap.height
 
-            FileOutputStream(outputFile).use { out ->
-                bitmap.compress(format, config.quality, out)
+            // MEDIA-005: Write to a temp file then atomically rename to the final destination.
+            // Without this, a crash/OOM mid-compress leaves a partial output file.
+            val tempFile = File(outputFile.parent, ".${outputFile.name}.tmp")
+            try {
+                FileOutputStream(tempFile).use { out ->
+                    bitmap.compress(format, config.quality, out)
+                }
+                if (!tempFile.renameTo(outputFile)) {
+                    tempFile.delete()
+                    return@withContext WorkerResult.Failure("Failed to rename temp file to output path")
+                }
+            } catch (e: Exception) {
+                tempFile.delete()
+                throw e
             }
 
             bitmap.recycle()
@@ -303,11 +320,17 @@ class ImageProcessWorker : AndroidWorker {
 
         val cropRect = if (json.has("cropRect")) {
             val crop = json.getJSONObject("cropRect")
+            val w = crop.getInt("width")
+            val h = crop.getInt("height")
+            // MEDIA-007: reject non-positive crop dimensions early so callers get a
+            // clear error rather than a silent null from cropBitmap.
+            if (w <= 0) throw IllegalArgumentException("cropRect.width must be > 0 (got $w)")
+            if (h <= 0) throw IllegalArgumentException("cropRect.height must be > 0 (got $h)")
             CropRect(
                 x = crop.getInt("x"),
                 y = crop.getInt("y"),
-                width = crop.getInt("width"),
-                height = crop.getInt("height")
+                width = w,
+                height = h
             )
         } else null
 
@@ -363,7 +386,12 @@ class ImageProcessWorker : AndroidWorker {
             val options = BitmapFactory.Options().apply {
                 inPreferredConfig = Bitmap.Config.ARGB_8888
             }
-            decoder.decodeRegion(rect, options)
+            try {
+                decoder.decodeRegion(rect, options)
+            } finally {
+                // MEDIA-001: BitmapRegionDecoder holds a native handle; must recycle to avoid leak.
+                decoder.recycle()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Crop failed: ${e.message}", e)
             null

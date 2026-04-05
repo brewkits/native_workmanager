@@ -204,14 +204,24 @@ class WebSocketWorker : AndroidWorker {
             // Optional: send periodic pings in a separate coroutine launched in this
             // withContext(Dispatchers.IO) scope so it is automatically cancelled when
             // the outer coroutine is cancelled.
+            // NET-010: use a short-polling delay instead of a single long delay so that
+            // coroutine cancellation is observed promptly (old code could wait up to 30 s
+            // for the delay to expire before honouring cancellation).
             val pingJob: Job? = if (config.pingIntervalSeconds != null && config.pingIntervalSeconds > 0) {
+                val tickMs = 200L
+                val intervalMs = config.pingIntervalSeconds * 1000L
                 launch(Dispatchers.IO) {
+                    var elapsed = 0L
                     while (isActive) {
-                        delay(config.pingIntervalSeconds * 1000L)
-                        // Note: OkHttp's public API has no sendPing(); sending an empty binary
-                        // frame acts as a keepalive. It is NOT a WebSocket PING control frame.
-                        if (!webSocket.send(ByteString.EMPTY)) break
-                        Log.d(TAG, "Ping sent")
+                        delay(tickMs)
+                        elapsed += tickMs
+                        if (elapsed >= intervalMs) {
+                            elapsed = 0L
+                            // Note: OkHttp's public API has no sendPing(); sending an empty binary
+                            // frame acts as a keepalive. It is NOT a WebSocket PING control frame.
+                            if (!webSocket.send(ByteString.EMPTY)) break
+                            Log.d(TAG, "Ping sent")
+                        }
                     }
                 }
             } else null
@@ -264,16 +274,9 @@ class WebSocketWorker : AndroidWorker {
             try {
                 val file = File(path)
                 file.parentFile?.mkdirs()
-                // Serialise as a JSON array (manually, no extra dependency)
-                val jsonArray = buildString {
-                    append('[')
-                    receivedMessages.forEachIndexed { idx, msg ->
-                        if (idx > 0) append(',')
-                        append(org.json.JSONArray().apply { put(msg) }.toString()
-                            .removePrefix("[").removeSuffix("]"))
-                    }
-                    append(']')
-                }
+                // NET-020: build the JSON array in a single pass instead of concatenating
+                // per-element JSONArray strings (which was O(n²) for many/large messages).
+                val jsonArray = org.json.JSONArray(receivedMessages).toString()
                 file.writeText(jsonArray, Charsets.UTF_8)
                 Log.d(TAG, "Responses stored at '$path'")
             } catch (e: Exception) {

@@ -4,9 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish (e.g., 1.0.0)'
+        description: 'Version to publish (e.g., 1.2.0)'
         required: true
         type: string
+      publish_gen:
+        description: 'Also publish native_workmanager_gen'
+        required: true
+        type: boolean
+        default: true
       create_release:
         description: 'Create GitHub release'
         required: true
@@ -14,77 +19,160 @@ on:
         default: true
 
 jobs:
-  publish:
-    name: Publish Package
+  # ── Pre-flight checks ────────────────────────────────────────────────────────
+  preflight:
+    name: Pre-flight Checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.0'
-          channel: 'stable'
+          flutter-version-file: .flutter-version
+          channel: stable
           cache: true
 
-      - name: Verify version
+      - name: Verify plugin version matches input
         run: |
-          echo "Requested version: ${{ inputs.version }}"
           PUBSPEC_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
-          echo "Pubspec version: $PUBSPEC_VERSION"
-
           if [[ "$PUBSPEC_VERSION" != "${{ inputs.version }}" ]]; then
-            echo "❌ Version mismatch!"
-            echo "Update pubspec.yaml version to ${{ inputs.version }} before publishing"
+            echo "❌ pubspec.yaml version ($PUBSPEC_VERSION) ≠ requested (${{ inputs.version }})"
             exit 1
           fi
+          echo "✅ Version match: $PUBSPEC_VERSION"
+
+      - name: Verify gen version matches input (if publishing gen)
+        if: ${{ inputs.publish_gen }}
+        run: |
+          GEN_VERSION=$(grep '^version:' native_workmanager_gen/pubspec.yaml | awk '{print $2}')
+          if [[ "$GEN_VERSION" != "${{ inputs.version }}" ]]; then
+            echo "❌ native_workmanager_gen version ($GEN_VERSION) ≠ requested (${{ inputs.version }})"
+            exit 1
+          fi
+          echo "✅ Gen version match: $GEN_VERSION"
 
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Run all checks
-        run: |
-          echo "Running format check..."
-          dart format --output=none --set-exit-if-changed .
+      - name: Format check
+        run: dart format --output=none --set-exit-if-changed lib test
 
-          echo "Running analyzer..."
-          flutter analyze --no-fatal-infos
+      - name: Analyze
+        run: flutter analyze --fatal-warnings
 
-          echo "Running tests..."
-          flutter test
+      - name: Unit tests
+        run: flutter test
 
-          echo "Dry run publish..."
-          dart pub publish --dry-run
+      - name: Publish dry-run (plugin)
+        run: dart pub publish --dry-run
 
-      - name: Setup pub credentials
+      - name: Publish dry-run (gen)
+        if: ${{ inputs.publish_gen }}
+        working-directory: native_workmanager_gen
+        run: dart pub publish --dry-run
+
+  # ── Publish plugin ────────────────────────────────────────────────────────────
+  publish-plugin:
+    name: Publish native_workmanager
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: preflight
+    environment: pub.dev
+    permissions:
+      id-token: write   # Required for OIDC-based pub.dev auth
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: .flutter-version
+          channel: stable
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      # M-08 fix: OIDC is the preferred auth mechanism on pub.dev, but requires
+      # the publisher to be configured at pub.dev/publishers. Fall back to a
+      # stored credentials JSON when OIDC is not yet configured.
+      - name: Setup pub credentials (fallback when OIDC not configured)
+        if: ${{ secrets.PUB_CREDENTIALS != '' }}
         run: |
           mkdir -p ~/.pub-cache
           echo '${{ secrets.PUB_CREDENTIALS }}' > ~/.pub-cache/credentials.json
 
-      - name: Publish to pub.dev
+      - name: Publish plugin
         run: dart pub publish --force
 
-      - name: Create GitHub Release
-        if: ${{ inputs.create_release }}
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # ── Publish gen ───────────────────────────────────────────────────────────────
+  publish-gen:
+    name: Publish native_workmanager_gen
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: publish-plugin
+    if: ${{ inputs.publish_gen }}
+    environment: pub.dev
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: .flutter-version
+          channel: stable
+          cache: true
+
+      - name: Get dependencies (plugin — needed as path dep during local dev)
+        run: flutter pub get
+
+      - name: Get dependencies (gen)
+        working-directory: native_workmanager_gen
+        run: dart pub get
+
+      - name: Setup pub credentials (fallback when OIDC not configured)
+        if: ${{ secrets.PUB_CREDENTIALS != '' }}
+        run: |
+          mkdir -p ~/.pub-cache
+          echo '${{ secrets.PUB_CREDENTIALS }}' > ~/.pub-cache/credentials.json
+
+      - name: Publish gen
+        working-directory: native_workmanager_gen
+        run: dart pub publish --force
+
+  # ── GitHub Release ─────────────────────────────────────────────────────────
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [publish-plugin, publish-gen]
+    if: ${{ inputs.create_release && always() && needs.publish-plugin.result == 'success' }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract changelog section for v${{ inputs.version }}
+        id: changelog
+        run: |
+          NOTES=$(awk '/^## \[${{ inputs.version }}\]/{found=1; next} /^## \[/{found=0} found{print}' CHANGELOG.md)
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$NOTES"    >> $GITHUB_OUTPUT
+          echo "EOF"       >> $GITHUB_OUTPUT
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ inputs.version }}
-          release_name: v${{ inputs.version }}
+          name: v${{ inputs.version }}
           body: |
             ## native_workmanager v${{ inputs.version }}
 
             Published to [pub.dev](https://pub.dev/packages/native_workmanager).
 
-            See [CHANGELOG.md](CHANGELOG.md) for details.
+            ${{ steps.changelog.outputs.notes }}
+
+            ---
+            Also published: [native_workmanager_gen v${{ inputs.version }}](https://pub.dev/packages/native_workmanager_gen)
           draft: false
           prerelease: false
-
-      - name: Notify success
-        if: success()
-        run: |
-          echo "✅ Successfully published v${{ inputs.version }} to pub.dev!"

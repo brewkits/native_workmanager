@@ -30,7 +30,9 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-/build/
+# /build/ is intentionally tracked for pub.dev DevTools extension publishing
+# See: https://docs.flutter.dev/tools/devtools/extensions
+!/build/
 /coverage/
 
 # Symbolication related

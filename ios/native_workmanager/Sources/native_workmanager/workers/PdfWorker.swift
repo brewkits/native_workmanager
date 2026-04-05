@@ -92,7 +92,7 @@ class PdfWorker: IosWorker {
         }
 
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: outputPath)[.size] as? Int) ?? 0
-        print("PdfWorker: merge complete — \(pageIndex) pages → \(outputPath)")
+        NativeLogger.d("PdfWorker: merge complete — \(pageIndex) pages → \(outputPath)")
         return .success(
             message: "PDF merge complete",
             data: ["outputPath": outputPath, "outputSize": fileSize, "pageCount": pageIndex]
@@ -130,6 +130,10 @@ class PdfWorker: IosWorker {
             guard let page = inputDoc.page(at: i) else { continue }
 
             let pageBounds = page.bounds(for: .mediaBox)
+            // MEDIA-014: UIGraphicsBeginImageContextWithOptions crashes if either dimension
+            // is zero or negative (corrupt PDF page). Skip such pages.
+            guard pageBounds.width > 0, pageBounds.height > 0 else { continue }
+
             let renderSize = CGSize(
                 width:  pageBounds.width  * scale,
                 height: pageBounds.height * scale
@@ -165,7 +169,7 @@ class PdfWorker: IosWorker {
         }
 
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: outputPath)[.size] as? Int) ?? 0
-        print("PdfWorker: compress complete — quality=\(quality) scale=\(scale) pages=\(inputDoc.pageCount) → \(outputPath)")
+        NativeLogger.d("PdfWorker: compress complete — quality=\(quality) scale=\(scale) pages=\(inputDoc.pageCount) → \(outputPath)")
         return .success(
             message: "PDF compress complete",
             data: ["outputPath": outputPath, "outputSize": fileSize, "pageCount": inputDoc.pageCount]
@@ -191,8 +195,16 @@ class PdfWorker: IosWorker {
             return .failure(message: "Invalid or unsafe output path")
         }
 
+        // MEDIA-010: reject empty strings that slipped past the non-empty guard above.
+        for imagePath in imagePaths {
+            if imagePath.trimmingCharacters(in: .whitespaces).isEmpty {
+                return .failure(message: "imagePaths contains an empty string")
+            }
+        }
+
         let pageSizeStr = json["pageSize"] as? String ?? "A4"
-        let margin = CGFloat(json["margin"] as? Int ?? 0)
+        // MEDIA-008: negative margin is nonsensical and would draw images outside the page.
+        let margin = max(0, CGFloat(json["margin"] as? Int ?? 0))
 
         let outputDoc = PDFDocument()
 
@@ -208,6 +220,9 @@ class PdfWorker: IosWorker {
                 width:  pageSize.width  - 2 * margin,
                 height: pageSize.height - 2 * margin
             )
+
+            // MEDIA-002: guard against corrupt images with zero dimensions.
+            guard image.size.width > 0, image.size.height > 0 else { continue }
 
             // Scale image to fit draw area preserving aspect ratio
             let scaleX = drawArea.width  / image.size.width
@@ -245,7 +260,7 @@ class PdfWorker: IosWorker {
         }
 
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: outputPath)[.size] as? Int) ?? 0
-        print("PdfWorker: imagesToPdf complete — \(imagePaths.count) pages → \(outputPath)")
+        NativeLogger.d("PdfWorker: imagesToPdf complete — \(imagePaths.count) pages → \(outputPath)")
         return .success(
             message: "imagesToPdf complete",
             data: ["outputPath": outputPath, "outputSize": fileSize, "pageCount": imagePaths.count]

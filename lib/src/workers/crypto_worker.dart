@@ -2,9 +2,23 @@ import 'package:flutter/foundation.dart';
 import '../worker.dart';
 
 /// Hash algorithms supported by CryptoWorker.
+///
+/// **⚠️ Security Notice:**
+/// `md5` and `sha1` are cryptographically broken and should not be used for
+/// security-sensitive purposes (e.g., password hashing, integrity verification).
+/// Use [sha256] or [sha512] instead.
 enum HashAlgorithm {
+  /// **Deprecated for security use.** MD5 is cryptographically broken.
+  /// Use [sha256] or [sha512] for integrity checks.
+  @Deprecated('MD5 is cryptographically broken. Use sha256 or sha512 instead.')
   md5('MD5'),
+
+  /// **Deprecated for security use.** SHA-1 is cryptographically broken.
+  /// Use [sha256] or [sha512] for integrity checks.
+  @Deprecated(
+      'SHA-1 is cryptographically broken. Use sha256 or sha512 instead.')
   sha1('SHA-1'),
+
   sha256('SHA-256'),
   sha512('SHA-512');
 
@@ -59,13 +73,13 @@ final class CryptoHashWorker extends Worker {
 
 /// Crypto worker configuration for file encryption.
 ///
-/// Encrypts a file using AES-256 with PBKDF2 password-derived key.
+/// Encrypts a file using AES-256-GCM (authenticated encryption) with a
+/// PBKDF2-derived key (100,000 iterations, HMAC-SHA256).
 ///
-/// **⚠️ Platform Compatibility Warning:**
-/// Android uses AES-256-CBC mode; iOS uses AES-256-GCM mode.
-/// Files encrypted on Android **cannot** be decrypted on iOS and vice versa.
-/// Use this worker only for single-platform encryption, or when both
-/// encrypt and decrypt operations happen on the same OS.
+/// File format: `SALT(16) || NONCE(12) || CIPHERTEXT || GCM_TAG(16)`
+///
+/// Both Android and iOS use AES-256-GCM with the same on-disk format, so
+/// files encrypted on one platform can be decrypted on the other.
 @immutable
 final class CryptoEncryptWorker extends Worker {
   const CryptoEncryptWorker({
@@ -104,11 +118,8 @@ final class CryptoEncryptWorker extends Worker {
 /// Crypto worker configuration for file decryption.
 ///
 /// Decrypts a file previously encrypted by [CryptoEncryptWorker].
-///
-/// **⚠️ Platform Compatibility Warning:**
-/// Decryption must happen on the same platform as encryption.
-/// Android-encrypted files (AES-CBC) cannot be decrypted on iOS (AES-GCM)
-/// and vice versa.
+/// Both Android and iOS use AES-256-GCM with the same on-disk format, so
+/// cross-platform decryption is fully supported.
 @immutable
 final class CryptoDecryptWorker extends Worker {
   const CryptoDecryptWorker({

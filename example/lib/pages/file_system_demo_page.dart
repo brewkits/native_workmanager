@@ -32,7 +32,7 @@ class _FileSystemDemoPageState extends State<FileSystemDemoPage> {
 
     // Listen to task events - filter for file system tasks only
     _eventSubscription = NativeWorkManager.events
-        .where((event) => event.taskId.startsWith('fs-'))
+        .where((event) => !event.isStarted && event.taskId.startsWith('fs-'))
         .listen((event) {
           if (mounted) {
             _addLog(

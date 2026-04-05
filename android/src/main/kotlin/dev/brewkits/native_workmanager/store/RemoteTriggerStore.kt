@@ -3,7 +3,6 @@ package dev.brewkits.native_workmanager.store
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
-import android.database.sqlite.SQLiteOpenHelper
 
 /**
  * Persistent store for remote trigger rules (FCM/APNs mappings).
@@ -24,32 +23,7 @@ internal class RemoteTriggerStore(context: Context) {
         val updatedAt: Long
     )
 
-    private val helper = object : SQLiteOpenHelper(context, "native_workmanager.db", null, 6) {
-        override fun onCreate(db: SQLiteDatabase) {
-            db.execSQL("""
-                CREATE TABLE IF NOT EXISTS remote_triggers (
-                    source               TEXT PRIMARY KEY,
-                    payload_key          TEXT NOT NULL,
-                    worker_mappings_json TEXT NOT NULL,
-                    updated_at           INTEGER NOT NULL
-                )
-            """.trimIndent())
-        }
-
-        override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
-            if (old < 4) {
-                db.execSQL("""
-                    CREATE TABLE IF NOT EXISTS remote_triggers (
-                        source               TEXT PRIMARY KEY,
-                        payload_key          TEXT NOT NULL,
-                        worker_mappings_json TEXT NOT NULL,
-                        updated_at           INTEGER NOT NULL
-                    )
-                """.trimIndent())
-            }
-            // v5-v6: no schema changes
-        }
-    }
+    private val dbHelper = DatabaseHelper.getInstance(context)
 
     fun upsert(source: String, payloadKey: String, workerMappingsJson: String) {
         val now = System.currentTimeMillis()
@@ -59,7 +33,7 @@ internal class RemoteTriggerStore(context: Context) {
             put("worker_mappings_json", workerMappingsJson)
             put("updated_at", now)
         }
-        helper.writableDatabase.insertWithOnConflict(
+        dbHelper.writableDatabase.insertWithOnConflict(
             "remote_triggers",
             null,
             cv,
@@ -68,7 +42,7 @@ internal class RemoteTriggerStore(context: Context) {
     }
 
     fun getRule(source: String): RemoteTriggerRecord? =
-        helper.readableDatabase.rawQuery(
+        dbHelper.readableDatabase.rawQuery(
             "SELECT * FROM remote_triggers WHERE source = ?",
             arrayOf(source)
         ).use { c ->
@@ -83,6 +57,6 @@ internal class RemoteTriggerStore(context: Context) {
         }
 
     fun delete(source: String) {
-        helper.writableDatabase.delete("remote_triggers", "source = ?", arrayOf(source))
+        dbHelper.writableDatabase.delete("remote_triggers", "source = ?", arrayOf(source))
     }
 }

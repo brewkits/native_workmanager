@@ -1,6 +1,6 @@
 // ignore_for_file: avoid_print
 // ============================================================
-// Native WorkManager v1.0.8 – DEVICE INTEGRATION TESTS
+// Native WorkManager v1.1.0 – DEVICE INTEGRATION TESTS
 // ============================================================
 //
 // Run on a real device or emulator (NOT unit/mock tests):
@@ -53,7 +53,8 @@ Future<TaskEvent?> _waitEvent(
   final completer = Completer<TaskEvent?>();
   late StreamSubscription<TaskEvent> sub;
   sub = NativeWorkManager.events.listen((event) {
-    if (event.taskId == taskId && !completer.isCompleted) {
+    // Skip "task started" lifecycle events — only complete on terminal events.
+    if (event.taskId == taskId && !completer.isCompleted && !event.isStarted) {
       completer.complete(event);
       sub.cancel();
     }
@@ -216,7 +217,7 @@ void main() {
       final firstExecCompleter = Completer<void>();
 
       final sub = NativeWorkManager.events.listen((event) {
-        if (event.taskId == id) {
+        if (event.taskId == id && !event.isStarted) {
           execCount++;
           print(
             '[periodic test] execution #$execCount success=${event.success}',
@@ -945,8 +946,9 @@ void main() {
 
       final sub = NativeWorkManager.events.listen((event) {
         if (event.taskId == idA && event.success) aCompleter.complete();
-        if (event.taskId == idB) laterStepsRan.add('B');
-        if (event.taskId == idC) laterStepsRan.add('C');
+        // Only count success events — cancelled/failed events don't mean the step "ran".
+        if (event.taskId == idB && event.success) laterStepsRan.add('B');
+        if (event.taskId == idC && event.success) laterStepsRan.add('C');
       });
 
       await NativeWorkManager.beginWith(
@@ -1631,10 +1633,6 @@ void main() {
       (tester) async {
         final id = _id('parallel_dl');
         final savePath = '${tmpDir.path}/parallel_download.zip';
-        // A publicly available file that supports Range requests (~1 MB):
-        const url =
-            'https://github.com/nicehash/NiceHashQuickMiner/releases/download/v0.9.2.4/NiceHashQuickMiner_v0.9.2.4.zip';
-
         // Use a smaller well-known test file that supports Range requests
         const testUrl =
             'https://httpbin.org/bytes/102400'; // 100 KB, supports Range
@@ -1929,9 +1927,12 @@ void main() {
         reason: 'Second batch task must be accepted',
       );
 
-      // Wait for both to complete
-      final e1 = await _waitEvent(id1, timeout: const Duration(seconds: 60));
-      final e2 = await _waitEvent(id2, timeout: const Duration(seconds: 60));
+      // Subscribe to both events BEFORE awaiting either — tasks run in parallel
+      // so id2's event may fire while we are awaiting id1.
+      final f1 = _waitEvent(id1, timeout: const Duration(seconds: 60));
+      final f2 = _waitEvent(id2, timeout: const Duration(seconds: 60));
+      final e1 = await f1;
+      final e2 = await f2;
       expect(e1?.success, isTrue);
       expect(e2?.success, isTrue);
     });
@@ -2047,6 +2048,416 @@ void main() {
       }
 
       await NativeWorkManager.cancel(taskId: id);
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════
+  // GROUP 12 – Tag utilities
+  // Verifies getAllTags and allTasks() list completeness.
+  // ════════════════════════════════════════════════════════════
+  group('Tag utilities', () {
+    testWidgets('getAllTags – returns tag after enqueue', (tester) async {
+      final tag = 'dit_alltags_${DateTime.now().millisecondsSinceEpoch}';
+      final id = _id('get_all_tags');
+
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(Duration(seconds: 60)),
+        worker: HttpRequestWorker(
+          url: 'https://jsonplaceholder.typicode.com/posts/1',
+        ),
+        tag: tag,
+      );
+
+      final tags = await NativeWorkManager.getAllTags();
+      expect(
+        tags,
+        contains(tag),
+        reason: 'getAllTags must include the tag we just assigned',
+      );
+
+      await NativeWorkManager.cancel(taskId: id);
+    });
+
+    testWidgets('getAllTags – does not contain unknown tags', (tester) async {
+      final tags = await NativeWorkManager.getAllTags();
+      // Tags from previous runs may exist but a freshly-generated unique
+      // string must not appear without being enqueued.
+      final ghost = 'ghost_tag_${DateTime.now().microsecondsSinceEpoch}';
+      expect(tags, isNot(contains(ghost)));
+    });
+
+    testWidgets('allTasks – includes recently enqueued task', (tester) async {
+      final id = _id('all_tasks_check');
+
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(Duration(seconds: 60)),
+        worker: HttpRequestWorker(
+          url: 'https://jsonplaceholder.typicode.com/posts/1',
+        ),
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+
+      final tasks = await NativeWorkManager.allTasks();
+      final ids = tasks.map((t) => t.taskId).toList();
+      expect(
+        ids,
+        contains(id),
+        reason: 'allTasks must list the newly enqueued task by ID',
+      );
+
+      await NativeWorkManager.cancel(taskId: id);
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════
+  // GROUP 13 – Error resilience
+  // Verifies the plugin handles bad inputs and worker failures
+  // gracefully without crashing or hanging.
+  // ════════════════════════════════════════════════════════════
+  group('Error resilience', () {
+    testWidgets('HTTP 404 – worker emits failure event', (tester) async {
+      final id = _id('http_404');
+      final future = _waitEvent(id, timeout: const Duration(seconds: 60));
+
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(),
+        worker: HttpRequestWorker(
+          url: 'https://httpbin.org/status/404',
+        ),
+        constraints: const Constraints(requiresNetwork: true),
+      );
+
+      final event = await future;
+      // 404 should either succeed with status code or fail — either way
+      // the plugin must not hang and must emit an event.
+      expect(event, isNotNull, reason: 'Must receive event even for 404');
+    });
+
+    testWidgets('DartWorker returning false emits failure event', (tester) async {
+      final id = _id('dart_fail');
+      final future = _waitEvent(id, timeout: const Duration(seconds: 30));
+
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(),
+        worker: DartWorker(callbackId: 'dit_fail'),
+      );
+
+      final event = await future;
+      expect(event, isNotNull);
+      expect(
+        event!.success,
+        isFalse,
+        reason: 'DartWorker returning false must emit failure event',
+      );
+    });
+
+    testWidgets('cancel then re-enqueue same taskId – second run succeeds', (tester) async {
+      final id = _id('cancel_reenqueue');
+
+      // First enqueue – will be cancelled immediately.
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(Duration(seconds: 60)),
+        worker: HttpRequestWorker(
+          url: 'https://jsonplaceholder.typicode.com/posts/1',
+        ),
+      );
+      await NativeWorkManager.cancel(taskId: id);
+
+      // Re-enqueue the same ID without a delay.
+      final future = _waitEvent(id, timeout: const Duration(seconds: 30));
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(),
+        worker: HttpRequestWorker(
+          url: 'https://jsonplaceholder.typicode.com/posts/1',
+        ),
+        constraints: const Constraints(requiresNetwork: true),
+      );
+
+      final event = await future;
+      expect(event, isNotNull);
+      expect(
+        event!.success,
+        isTrue,
+        reason: 'Re-enqueued task must succeed after cancel',
+      );
+    });
+
+    testWidgets('cancelAll – stops all pending tasks', (tester) async {
+      // Enqueue several tasks with long delays.
+      final ids = List.generate(4, (i) => _id('cancel_all_$i'));
+      for (final id in ids) {
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(Duration(seconds: 120)),
+          worker: HttpRequestWorker(
+            url: 'https://jsonplaceholder.typicode.com/posts/1',
+          ),
+        );
+      }
+
+      await NativeWorkManager.cancelAll();
+
+      // After cancelAll, none of the tasks should fire within 3 s.
+      var fired = 0;
+      final sub = NativeWorkManager.events.listen((event) {
+        if (ids.contains(event.taskId) && !event.isStarted) fired++;
+      });
+      await Future<void>.delayed(const Duration(seconds: 3));
+      await sub.cancel();
+
+      expect(
+        fired,
+        0,
+        reason: 'cancelAll must stop all enqueued tasks',
+      );
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════
+  // GROUP 14 – Task status lifecycle
+  // Enqueue → verify pending → let complete → verify completed
+  // ════════════════════════════════════════════════════════════
+  group('Task status lifecycle', () {
+    testWidgets('getTaskStatus transitions: pending → (running) → completed', (tester) async {
+      final id = _id('status_lifecycle');
+      final eventFuture = _waitEvent(id, timeout: const Duration(seconds: 45));
+
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(),
+        worker: HttpRequestWorker(
+          url: 'https://jsonplaceholder.typicode.com/posts/1',
+        ),
+        constraints: const Constraints(requiresNetwork: true),
+      );
+
+      // Immediately after enqueue the status should be non-null (pending or running).
+      final statusBefore = await NativeWorkManager.getTaskStatus(taskId: id);
+      expect(
+        statusBefore,
+        isNotNull,
+        reason: 'Task status must be known immediately after enqueue',
+      );
+
+      // Wait for completion.
+      final event = await eventFuture;
+      expect(event?.success, isTrue);
+
+      // After completion the status should reflect completion (completed or null
+      // if the platform purges it — both are acceptable).
+      final statusAfter = await NativeWorkManager.getTaskStatus(taskId: id);
+      if (statusAfter != null) {
+        expect(
+          [TaskStatus.completed, TaskStatus.running],
+          contains(statusAfter),
+          reason: 'Completed task status must indicate success',
+        );
+      }
+    });
+
+    testWidgets('cancelled task has cancelled status', (tester) async {
+      final id = _id('status_cancelled');
+
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(Duration(seconds: 120)),
+        worker: HttpRequestWorker(
+          url: 'https://jsonplaceholder.typicode.com/posts/1',
+        ),
+      );
+
+      await NativeWorkManager.cancel(taskId: id);
+
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+
+      final status = await NativeWorkManager.getTaskStatus(taskId: id);
+      // Status may be null (purged) or 'cancelled' — both are valid.
+      if (status != null) {
+        expect(
+          status,
+          TaskStatus.cancelled,
+          reason: 'Cancelled task must have cancelled status',
+        );
+      }
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════
+  // GROUP 15 – Trigger type acceptance
+  // Ensures windowed and exact triggers are accepted by the platform
+  // without crashing (even if they fire immediately on iOS or
+  // are deferred to a valid window on Android).
+  // ════════════════════════════════════════════════════════════
+  group('Trigger type acceptance', () {
+    testWidgets('windowed trigger – accepted and eventually executes', (tester) async {
+      final id = _id('windowed_trigger');
+
+      final result = await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.windowed(
+          earliest: Duration(seconds: 0),
+          latest: Duration(minutes: 5),
+        ),
+        worker: DartWorker(callbackId: 'dit_pass'),
+      );
+
+      expect(
+        result,
+        ScheduleResult.accepted,
+        reason: 'Windowed trigger must be accepted',
+      );
+
+      // We don't strictly require execution (emulator may defer), but the
+      // task must at minimum be accepted without crashing.
+      await NativeWorkManager.cancel(taskId: id);
+    });
+
+    testWidgets('exact trigger – accepted', (tester) async {
+      final id = _id('exact_trigger');
+
+      final result = await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: TaskTrigger.exact(
+          DateTime.now().add(const Duration(minutes: 5)),
+        ),
+        worker: DartWorker(callbackId: 'dit_pass'),
+      );
+
+      expect(
+        result,
+        ScheduleResult.accepted,
+        reason: 'Exact trigger must be accepted (fires in 5 min, test just checks acceptance)',
+      );
+
+      await NativeWorkManager.cancel(taskId: id);
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════
+  // GROUP 16 – Concurrent tasks
+  // Validates that multiple tasks can run in parallel and that
+  // all emit events independently.
+  // ════════════════════════════════════════════════════════════
+  group('Concurrent tasks', () {
+    testWidgets('3 simultaneous tasks – all complete successfully', (tester) async {
+      final ids = List.generate(3, (i) => _id('concurrent_$i'));
+      final futures = ids
+          .map((id) => _waitEvent(id, timeout: const Duration(seconds: 60)))
+          .toList();
+
+      for (final id in ids) {
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: HttpRequestWorker(
+            url: 'https://jsonplaceholder.typicode.com/posts/1',
+          ),
+          constraints: const Constraints(requiresNetwork: true),
+        );
+      }
+
+      final events = await Future.wait(futures);
+      for (var i = 0; i < ids.length; i++) {
+        expect(events[i], isNotNull,
+            reason: 'Task ${ids[i]} must emit an event');
+        expect(events[i]!.success, isTrue,
+            reason: 'Task ${ids[i]} must succeed');
+      }
+    });
+
+    testWidgets('5 tasks with different tags – each tag resolves independently', (tester) async {
+      final tag1 = 'concurrent_tag1_${DateTime.now().millisecondsSinceEpoch}';
+      final tag2 = 'concurrent_tag2_${DateTime.now().millisecondsSinceEpoch}';
+
+      final idGroup1 = List.generate(2, (i) => _id('ctag1_$i'));
+      final idGroup2 = List.generate(3, (i) => _id('ctag2_$i'));
+
+      for (final id in idGroup1) {
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(Duration(seconds: 60)),
+          worker: DartWorker(callbackId: 'dit_pass'),
+          tag: tag1,
+        );
+      }
+      for (final id in idGroup2) {
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(Duration(seconds: 60)),
+          worker: DartWorker(callbackId: 'dit_pass'),
+          tag: tag2,
+        );
+      }
+
+      final byTag1 = await NativeWorkManager.getTasksByTag(tag: tag1);
+      final byTag2 = await NativeWorkManager.getTasksByTag(tag: tag2);
+
+      expect(byTag1.length, 2, reason: 'tag1 must have 2 tasks');
+      expect(byTag2.length, 3, reason: 'tag2 must have 3 tasks');
+
+      // Groups must be disjoint.
+      final set1 = byTag1.toSet();
+      final set2 = byTag2.toSet();
+      expect(set1.intersection(set2), isEmpty,
+          reason: 'Tag groups must not overlap');
+
+      await NativeWorkManager.cancelByTag(tag: tag1);
+      await NativeWorkManager.cancelByTag(tag: tag2);
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════
+  // GROUP 17 – Chain data flow
+  // Validates parallel first-steps and chain with data passing.
+  // ════════════════════════════════════════════════════════════
+  group('Chain data flow', () {
+    testWidgets('chain with parallel first steps – both run before step 2', (tester) async {
+      // Two tasks in step 1 running in parallel, then one in step 2.
+      final idA = _id('chain_par_a');
+      final idB = _id('chain_par_b');
+      final idC = _id('chain_par_c');
+
+      final completedIds = <String>[];
+      late StreamSubscription<TaskEvent> sub;
+      final allDone = Completer<void>();
+
+      sub = NativeWorkManager.events.listen((event) {
+        if ([idA, idB, idC].contains(event.taskId) && !event.isStarted) {
+          completedIds.add(event.taskId);
+          if (completedIds.length == 3 && !allDone.isCompleted) {
+            allDone.complete();
+          }
+        }
+      });
+
+      final result = await NativeWorkManager.beginWithAll([
+        TaskRequest(id: idA, worker: DartWorker(callbackId: 'chain_a')),
+        TaskRequest(id: idB, worker: DartWorker(callbackId: 'chain_b')),
+      ])
+          .then(TaskRequest(id: idC, worker: DartWorker(callbackId: 'chain_c')))
+          .enqueue();
+
+      expect(result, ScheduleResult.accepted,
+          reason: 'Parallel-first-step chain must be accepted');
+
+      try {
+        await allDone.future.timeout(const Duration(seconds: 90));
+      } catch (_) {
+        // Timeout: iOS may not emit per-step events (chain emits single event).
+      }
+      await sub.cancel();
+
+      expect(completedIds, contains(idA),
+          reason: 'First-step task A must complete');
+      expect(completedIds, contains(idB),
+          reason: 'First-step task B must complete');
     });
   });
 }

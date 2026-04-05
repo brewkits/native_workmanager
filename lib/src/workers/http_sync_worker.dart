@@ -32,13 +32,29 @@ final class HttpSyncWorker extends Worker {
   String get workerClassName => 'HttpSyncWorker';
 
   @override
-  Map<String, dynamic> toMap() => {
-        'workerType': 'httpSync',
-        'url': url,
-        'method': method.name,
-        'headers': headers,
-        'requestBody': requestBody != null ? jsonEncode(requestBody) : null,
-        'timeoutMs': timeout.inMilliseconds,
-        if (requestSigning != null) 'requestSigning': requestSigning!.toMap(),
-      };
+  Map<String, dynamic> toMap() {
+    // NET-016: validate requestBody is JSON-serializable before the task is
+    // dispatched to the native layer.  jsonEncode already throws on circular
+    // references / non-serializable objects, but wrapping with a clear message
+    // avoids a cryptic JsonUnsupportedObjectError at enqueue time.
+    String? encodedBody;
+    if (requestBody != null) {
+      try {
+        encodedBody = jsonEncode(requestBody);
+      } on JsonUnsupportedObjectError catch (e) {
+        throw ArgumentError(
+          'HttpSyncWorker.requestBody must be JSON-serializable: $e',
+        );
+      }
+    }
+    return {
+      'workerType': 'httpSync',
+      'url': url,
+      'method': method.name,
+      'headers': headers,
+      'requestBody': encodedBody,
+      'timeoutMs': timeout.inMilliseconds,
+      if (requestSigning != null) 'requestSigning': requestSigning!.toMap(),
+    };
+  }
 }

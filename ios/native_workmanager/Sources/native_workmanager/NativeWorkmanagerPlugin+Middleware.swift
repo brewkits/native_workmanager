@@ -44,6 +44,14 @@ extension NativeWorkmanagerPlugin {
                     if applyHeaderMiddleware(workerConfig: &resultConfig, mwConfig: mwConfig) {
                         modified = true
                     }
+                case "remoteConfig":
+                    if applyRemoteConfigMiddleware(workerConfig: &resultConfig, mwConfig: mwConfig, workerClassName: workerClassName) {
+                        modified = true
+                    }
+                case "logging":
+                    // LoggingMiddleware fires post-execution via applyLoggingMiddleware().
+                    // It does not modify worker config — skip here.
+                    break
                 default:
                     break
                 }
@@ -52,6 +60,73 @@ extension NativeWorkmanagerPlugin {
             return modified ? resultConfig : config
         }
         return config
+    }
+
+    private static func applyRemoteConfigMiddleware(
+        workerConfig: inout [String: Any],
+        mwConfig: [String: Any],
+        workerClassName: String
+    ) -> Bool {
+        if let targetType = mwConfig["workerType"] as? String, !targetType.isEmpty {
+            guard workerClassName.range(of: targetType, options: .caseInsensitive) != nil else {
+                return false
+            }
+        }
+        guard let values = mwConfig["values"] as? [String: Any], !values.isEmpty else {
+            return false
+        }
+        for (key, value) in values {
+            workerConfig[key] = value
+        }
+        return true
+    }
+
+    /// Fire-and-forget HTTP POST for LoggingMiddleware.
+    ///
+    /// Called after each task completes (success or failure). Finds all registered
+    /// LoggingMiddleware records and POSTs task execution metadata to each logUrl.
+    /// Errors are logged but never propagated — logging must never affect worker results.
+    public static func applyLoggingMiddleware(
+        taskId: String,
+        workerClassName: String,
+        success: Bool,
+        message: String?,
+        durationMs: Int64?
+    ) {
+        guard #available(iOS 13.0, *) else { return }
+        let middlewares = MiddlewareStore.shared.getAll().filter { $0.type == "logging" }
+        guard !middlewares.isEmpty else { return }
+
+        Task.detached(priority: .utility) {
+            for mw in middlewares {
+                guard let mwData = mw.configJson.data(using: .utf8),
+                      let mwConfig = try? JSONSerialization.jsonObject(with: mwData) as? [String: Any],
+                      let logUrl = mwConfig["logUrl"] as? String, !logUrl.isEmpty,
+                      let url = URL(string: logUrl) else { continue }
+
+                var payload: [String: Any] = [
+                    "taskId": taskId,
+                    "workerClassName": workerClassName,
+                    "success": success,
+                    "timestamp": Int64(Date().timeIntervalSince1970 * 1000)
+                ]
+                if let d = durationMs { payload["durationMs"] = d }
+                if let m = message, !m.isEmpty { payload["message"] = m }
+
+                guard let body = try? JSONSerialization.data(withJSONObject: payload) else { continue }
+
+                var request = URLRequest(url: url, timeoutInterval: 5)
+                request.httpMethod = "POST"
+                request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+                request.httpBody = body
+
+                do {
+                    _ = try await URLSession.shared.data(for: request)
+                } catch {
+                    print("LoggingMiddleware: Failed to POST to \(logUrl) for task '\(taskId)': \(error)")
+                }
+            }
+        }
     }
 
     private static func applyHeaderMiddleware(workerConfig: inout [String: Any], mwConfig: [String: Any]) -> Bool {

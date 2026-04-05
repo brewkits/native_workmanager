@@ -122,10 +122,7 @@ class FileSystemWorker: IosWorker {
             return .failure(message: "Destination already exists: \(destinationPath) (set overwrite=true to replace)")
         }
 
-        // Path traversal protection
-        guard destURL.path.hasPrefix(destURL.deletingLastPathComponent().path) else {
-            return .failure(message: "Path traversal detected in destination")
-        }
+        // FS-H-008: removed no-op path-traversal guard (always true); SecurityValidator above is sufficient.
 
         do {
             var isDirectory: ObjCBool = false
@@ -198,10 +195,7 @@ class FileSystemWorker: IosWorker {
             return .failure(message: "Destination already exists: \(destinationPath) (set overwrite=true to replace)")
         }
 
-        // Path traversal protection
-        guard destURL.path.hasPrefix(destURL.deletingLastPathComponent().path) else {
-            return .failure(message: "Path traversal detected in destination")
-        }
+        // FS-H-008: removed no-op path-traversal guard (always true); SecurityValidator above is sufficient.
 
         do {
             // Create parent directory
@@ -210,13 +204,28 @@ class FileSystemWorker: IosWorker {
                 withIntermediateDirectories: true
             )
 
-            // Delete destination if overwriting
+            // FS-M-007: rename existing dest to backup before move to prevent data loss.
+            // If moveItem later fails, restore the backup so no data is lost.
+            var backupURL: URL? = nil
             if fileManager.fileExists(atPath: destURL.path) && overwrite {
-                try fileManager.removeItem(at: destURL)
+                let temp = destURL.deletingLastPathComponent()
+                    .appendingPathComponent(".\(destURL.lastPathComponent).bak")
+                try fileManager.moveItem(at: destURL, to: temp)
+                backupURL = temp
             }
 
-            // Move file/directory
-            try fileManager.moveItem(at: sourceURL, to: destURL)
+            do {
+                // Move file/directory
+                try fileManager.moveItem(at: sourceURL, to: destURL)
+                // Success — discard backup
+                if let backup = backupURL { try? fileManager.removeItem(at: backup) }
+            } catch {
+                // Restore backup to prevent destination data loss
+                if let backup = backupURL {
+                    try? fileManager.moveItem(at: backup, to: destURL)
+                }
+                throw error
+            }
 
             // Count files
             var isDirectory: ObjCBool = false
@@ -441,10 +450,7 @@ class FileSystemWorker: IosWorker {
             }
         }
 
-        // Path traversal protection
-        guard dirURL.path.hasPrefix(dirURL.deletingLastPathComponent().path) else {
-            return .failure(message: "Path traversal detected")
-        }
+        // FS-H-008: removed no-op path-traversal guard; SecurityValidator above is sufficient.
 
         do {
             try fileManager.createDirectory(
@@ -501,7 +507,11 @@ class FileSystemWorker: IosWorker {
         }
 
         for case let fileURL as URL in enumerator {
-            let relativePath = fileURL.path.replacingOccurrences(of: source.path + "/", with: "")
+            // FS-M-006: use dropFirst with explicit separator to avoid fragile
+            // replacingOccurrences when source.path already ends with "/".
+            let sourcePath = source.path.hasSuffix("/") ? source.path : source.path + "/"
+            guard fileURL.path.hasPrefix(sourcePath) else { continue }
+            let relativePath = String(fileURL.path.dropFirst(sourcePath.count))
             let destURL = destination.appendingPathComponent(relativePath)
 
             let resourceValues = try fileURL.resourceValues(forKeys: [.isDirectoryKey])
@@ -538,45 +548,5 @@ class FileSystemWorker: IosWorker {
         return count
     }
 
-    private func listFilesRecursive(in directory: URL) throws -> [URL] {
-        let fileManager = FileManager.default
-        var files: [URL] = []
-
-        guard let enumerator = fileManager.enumerator(
-            at: directory,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: []
-        ) else {
-            return []
-        }
-
-        for case let fileURL as URL in enumerator {
-            let resourceValues = try fileURL.resourceValues(forKeys: [.isDirectoryKey])
-            if resourceValues.isDirectory != true {
-                files.append(fileURL)
-            }
-        }
-
-        return files
-    }
-
-    private func filterFiles(_ files: [URL], pattern: String?) throws -> [URL] {
-        guard let pattern = pattern, !pattern.isEmpty else {
-            return files
-        }
-
-        // Convert glob pattern to regex
-        let regexPattern = pattern
-            .replacingOccurrences(of: ".", with: "\\.")
-            .replacingOccurrences(of: "*", with: ".*")
-            .replacingOccurrences(of: "?", with: ".")
-
-        let regex = try NSRegularExpression(pattern: "^" + regexPattern + "$")
-
-        return files.filter { url in
-            let fileName = url.lastPathComponent
-            let range = NSRange(fileName.startIndex..<fileName.endIndex, in: fileName)
-            return regex.firstMatch(in: fileName, range: range) != nil
-        }
-    }
 }
+// FS-L-001: Removed dead code — listFilesRecursive and filterFiles were never called.

@@ -44,14 +44,16 @@ import '../worker.dart';
 ///
 /// ## Result data
 ///
-/// The success result [data] map contains:
+/// The success result (`TaskEvent.resultData`) map contains:
 /// - `uploadedCount` — number of files successfully uploaded.
 /// - `failedCount`   — number of files that ultimately failed.
 /// - `totalBytes`    — aggregate bytes sent across all files.
 /// - `fileResults`   — list of per-file result maps.
 @immutable
 final class ParallelHttpUploadWorker extends Worker {
-  const ParallelHttpUploadWorker({
+  // NET-028: use RangeError / ArgumentError instead of assert() so validation
+  // fires in release builds too (assert is stripped when asserts are disabled).
+  ParallelHttpUploadWorker({
     required this.url,
     required this.files,
     this.headers = const {},
@@ -62,11 +64,17 @@ final class ParallelHttpUploadWorker extends Worker {
     this.showNotification = false,
     this.notificationTitle,
     this.notificationBody,
-  })  : assert(files.length > 0, 'files must not be empty'),
-        assert(maxConcurrent >= 1 && maxConcurrent <= 16,
-            'maxConcurrent must be between 1 and 16'),
-        assert(maxRetries >= 0 && maxRetries <= 5,
-            'maxRetries must be between 0 and 5');
+  }) {
+    if (files.isEmpty) {
+      throw ArgumentError.value(files, 'files', 'must not be empty');
+    }
+    if (maxConcurrent < 1 || maxConcurrent > 16) {
+      throw RangeError.range(maxConcurrent, 1, 16, 'maxConcurrent');
+    }
+    if (maxRetries < 0 || maxRetries > 5) {
+      throw RangeError.range(maxRetries, 0, 5, 'maxRetries');
+    }
+  }
 
   /// The endpoint URL that receives each file upload.
   final String url;

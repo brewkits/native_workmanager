@@ -4,7 +4,7 @@ Our mission is to provide the most robust, efficient, and secure background exec
 
 ---
 
-## ✅ Completed (v1.2.0)
+## ✅ Completed (v1.1.0)
 - **Zero-Flutter-Engine Workers:** 25+ native workers for HTTP, Crypto, File, Image, and more.
 - **Remote Trigger:** Support for FCM (Android) and APNs (iOS) data messages to trigger native workers without waking Flutter.
 - **Task Chaining:** Sequential and parallel task execution with native persistence.

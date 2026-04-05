@@ -1,10 +1,12 @@
 /// Worker implementations for Native WorkManager.
 ///
 /// This library exports all built-in worker classes:
-/// - HTTP workers (request, upload, download, sync)
-/// - File workers (compression, decompression, file system operations)
+/// - HTTP workers (request, upload, multi-upload, download, parallel download, sync)
+/// - File workers (compression, decompression, file system operations, shared storage)
 /// - Image processing worker
 /// - Crypto workers (hashing, encryption, decryption)
+/// - PDF workers (merge, compress, images-to-PDF)
+/// - WebSocket worker (Android only)
 /// - Custom native worker
 /// - Dart callback worker
 library;
@@ -24,4 +26,6 @@ export 'workers/crypto_worker.dart';
 export 'workers/custom_native_worker.dart';
 export 'workers/dart_worker.dart';
 export 'workers/move_to_shared_storage_worker.dart';
+export 'workers/pdf_worker.dart';
+export 'workers/websocket_worker.dart';
 export 'workers/auth_config.dart';

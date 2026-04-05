@@ -20,9 +20,10 @@ extension NativeWorkmanagerPlugin {
 
         if #available(iOS 13.0, *) {
             let configJson = workerConfig.flatMap { dict -> String? in
-                guard let data = try? JSONSerialization.data(withJSONObject: dict),
+                let sanitized = TaskStore.sanitizeConfig(dict)
+                guard let data = try? JSONSerialization.data(withJSONObject: sanitized as Any),
                       let s = String(data: data, encoding: .utf8) else { return nil }
-                return TaskStore.sanitizeConfig(s)
+                return s
             }
             
             let retryPolicyJson = retryPolicy.flatMap { dict -> String? in

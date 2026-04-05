@@ -18,6 +18,8 @@ import dev.brewkits.native_workmanager.workers.HttpUploadWorker
 import dev.brewkits.native_workmanager.workers.ImageProcessWorker
 import dev.brewkits.native_workmanager.workers.DbCleanupWorker
 import dev.brewkits.native_workmanager.workers.MoveToSharedStorageWorker
+import dev.brewkits.native_workmanager.workers.PdfWorker
+import dev.brewkits.native_workmanager.workers.WebSocketWorker
 
 /**
  * AndroidWorkerFactory implementation for native_workmanager plugin.
@@ -139,6 +141,8 @@ class SimpleAndroidWorkerFactory(
             "CryptoWorker" -> CryptoWorker()
             "FileSystemWorker" -> FileSystemWorker()
             "MoveToSharedStorageWorker" -> MoveToSharedStorageWorker(context)
+            "PdfWorker" -> PdfWorker()
+            "WebSocketWorker" -> WebSocketWorker()
             DbCleanupWorker.TASK_ID, "DbCleanupWorker" -> DbCleanupWorker()
             else -> {
                 Log.e(TAG, "Unknown worker class: '$workerClassName'. " +

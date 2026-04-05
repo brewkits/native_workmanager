@@ -40,9 +40,23 @@ internal fun NativeWorkmanagerPlugin.handleEnqueueChain(call: MethodCall, result
                 (parallelTasks as List<Map<String, Any?>>).map { taskData ->
                     val taskId = taskData["id"] as? String ?: java.util.UUID.randomUUID().toString()
                     allTaskIds.add(taskId)
+                    
+                    val workerClassName = taskData["workerClassName"] as? String ?: ""
+                    @Suppress("UNCHECKED_CAST")
+                    val workerConfig = taskData["workerConfig"] as? Map<String, Any?>
+                    
                     // Persist each step to ChainStore for resume and Dart visibility.
                     withContext(Dispatchers.IO) {
                         chainStore.addChainStep(chainId, stepIndex, taskId, "pending")
+                        
+                        // ✅ FIX: Also persist to TaskStore so allTasks() surfaces chain nodes
+                        taskStore.upsert(
+                            taskId = taskId,
+                            tag = chainName,
+                            status = "pending",
+                            workerClassName = workerClassName,
+                            workerConfig = if (workerConfig != null) sanitizeConfig(toJson(workerConfig)) else null
+                        )
                     }
                     buildChainStepRequest(taskId, taskData)
                 }

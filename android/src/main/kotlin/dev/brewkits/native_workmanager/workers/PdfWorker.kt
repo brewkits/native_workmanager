@@ -120,7 +120,11 @@ class PdfWorker : AndroidWorker {
         }
 
         val outputFile = File(outputPath)
-        outputFile.parentFile?.mkdirs()
+        // MEDIA-009: surface mkdirs failure explicitly.
+        val mergePdfParentDir = outputFile.parentFile
+        if (mergePdfParentDir != null && !mergePdfParentDir.exists() && !mergePdfParentDir.mkdirs()) {
+            return WorkerResult.Failure("Failed to create output directory: ${mergePdfParentDir.path}")
+        }
 
         val outputDoc = PdfDocument()
         var totalPages = 0
@@ -276,7 +280,11 @@ class PdfWorker : AndroidWorker {
         }
 
         val outputFile = File(outputPath)
-        outputFile.parentFile?.mkdirs()
+        // MEDIA-009: surface mkdirs failure explicitly.
+        val img2pdfParentDir = outputFile.parentFile
+        if (img2pdfParentDir != null && !img2pdfParentDir.exists() && !img2pdfParentDir.mkdirs()) {
+            return WorkerResult.Failure("Failed to create output directory: ${img2pdfParentDir.path}")
+        }
 
         val outputDoc = PdfDocument()
 
@@ -308,6 +316,13 @@ class PdfWorker : AndroidWorker {
                 val drawW = (pageW - 2 * margin).coerceAtLeast(1)
                 val drawH = (pageH - 2 * margin).coerceAtLeast(1)
 
+                // MEDIA-003: guard against corrupt bitmaps with zero dimensions.
+                if (bitmap.width == 0 || bitmap.height == 0) {
+                    bitmap.recycle()
+                    outputDoc.finishPage(page)
+                    continue
+                }
+
                 // Scale image to fit page while preserving aspect ratio
                 val scaleX = drawW.toFloat() / bitmap.width
                 val scaleY = drawH.toFloat() / bitmap.height
@@ -336,6 +351,8 @@ class PdfWorker : AndroidWorker {
             )
         } catch (e: Exception) {
             Log.e(TAG, "imagesToPdf failed: ${e.message}", e)
+            // MEDIA-004: delete partial output so caller never sees a corrupt file.
+            if (outputFile.exists()) outputFile.delete()
             return WorkerResult.Failure("imagesToPdf failed: ${e.message}")
         } finally {
             outputDoc.close()

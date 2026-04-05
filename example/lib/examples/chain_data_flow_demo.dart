@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:native_workmanager/native_workmanager.dart';
 import 'package:path_provider/path_provider.dart';
@@ -31,7 +32,7 @@ class _ChainDataFlowDemoState extends State<ChainDataFlowDemo> {
       );
       _status = message;
     });
-    print('DataFlowDemo: $message');
+    if (kDebugMode) print('DataFlowDemo: $message');
   }
 
   void _clearLogs() {

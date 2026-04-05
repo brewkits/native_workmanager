@@ -181,6 +181,14 @@ class ParallelHttpDownloadWorker: IosWorker {
             let resolvedParent = destinationURL.deletingLastPathComponent().resolvingSymlinksInPath()
             let resolvedTemp = resolvedParent.appendingPathComponent(tempURL.lastPathComponent)
 
+            // NET-007: clean up resolvedTemp if merge fails so partial file does not linger.
+            var mergeSucceeded = false
+            defer {
+                if !mergeSucceeded {
+                    try? FileManager.default.removeItem(at: resolvedTemp)
+                }
+            }
+
             try? FileManager.default.removeItem(at: resolvedTemp)
             FileManager.default.createFile(atPath: resolvedTemp.path, contents: nil)
 
@@ -189,8 +197,11 @@ class ParallelHttpDownloadWorker: IosWorker {
             }
             defer { try? outHandle.close() }
 
+            // NET-007: Collect part URLs; delete them only after the merge succeeds.
+            var partURLs: [URL] = []
             for i in 0 ..< numChunks {
                 let partURL = URL(fileURLWithPath: "\(config.savePath).part\(i)")
+                partURLs.append(partURL)
                 guard let inHandle = try? FileHandle(forReadingFrom: partURL) else {
                     return .failure(message: "Cannot open part \(i) for reading")
                 }
@@ -201,18 +212,15 @@ class ParallelHttpDownloadWorker: IosWorker {
                     if chunk.isEmpty { break }
                     outHandle.write(chunk)
                 }
-                try? FileManager.default.removeItem(at: partURL)
             }
 
             // ── Step 8: Checksum ───────────────────────────────────────────
             if let expected = config.expectedChecksum {
                 print("ParallelHttpDownloadWorker: Verifying checksum (\(config.effectiveChecksumAlgorithm))...")
                 guard let actual = calculateChecksum(fileURL: resolvedTemp, algorithm: config.effectiveChecksumAlgorithm) else {
-                    try? FileManager.default.removeItem(at: resolvedTemp)
                     return .failure(message: "Failed to calculate checksum")
                 }
                 if actual.caseInsensitiveCompare(expected) != .orderedSame {
-                    try? FileManager.default.removeItem(at: resolvedTemp)
                     return .failure(message: "Checksum mismatch (expected: \(expected), actual: \(actual))")
                 }
                 print("ParallelHttpDownloadWorker: Checksum OK: \(actual)")
@@ -222,6 +230,10 @@ class ParallelHttpDownloadWorker: IosWorker {
             let resolvedDest = resolvedParent.appendingPathComponent(destinationURL.lastPathComponent)
             try? FileManager.default.removeItem(at: resolvedDest)
             try FileManager.default.moveItem(at: resolvedTemp, to: resolvedDest)
+            mergeSucceeded = true
+
+            // Delete part files only after successful rename.
+            for partURL in partURLs { try? FileManager.default.removeItem(at: partURL) }
 
             let finalSize = (try? FileManager.default.attributesOfItem(atPath: resolvedDest.path))?[.size] as? Int64 ?? 0
             reportProgress(taskId: taskId, progress: 100, message: "Download complete",
@@ -239,6 +251,7 @@ class ParallelHttpDownloadWorker: IosWorker {
                 ]
             )
         } catch {
+            print("ParallelHttpDownloadWorker: Merge failed: \(error.localizedDescription)")
             return .failure(message: "Merge failed: \(error.localizedDescription)")
         }
     }
@@ -504,49 +517,53 @@ class ParallelHttpDownloadWorker: IosWorker {
 // MARK: - Thread-safe speed tracker
 
 /// Tracks aggregate download speed across concurrent chunks using an EMA (α=0.3).
+///
+/// NET-025: uses a serial DispatchQueue instead of NSLock.  NSLock is not re-entrant;
+/// any callback path that calls back into this class would deadlock.  DispatchQueue.sync
+/// on a serial queue is safe and avoids that failure mode.
 private final class ProgressTracker: @unchecked Sendable {
-    private let lock = NSLock()
+    private let q = DispatchQueue(label: "ProgressTracker")
     private var windowStart = Date()
     private var windowBytes: Int64 = 0
     private var smoothedBps: Double = 0
 
     /// Record `bytesAdded` bytes just downloaded. Returns (speed, etaMs) pair.
     func update(bytesAdded: Int64, totalDownloaded: Int64, totalBytes: Int64) -> (Double?, Int64?) {
-        lock.lock(); defer { lock.unlock() }
-        windowBytes += bytesAdded
-        let elapsed = Date().timeIntervalSince(windowStart)
-        if elapsed >= 0.5 {
-            let instant = Double(windowBytes) / elapsed
-            smoothedBps = smoothedBps == 0 ? instant : 0.3 * instant + 0.7 * smoothedBps
-            windowStart = Date()
-            windowBytes = 0
+        q.sync {
+            windowBytes += bytesAdded
+            let elapsed = Date().timeIntervalSince(windowStart)
+            if elapsed >= 0.5 {
+                let instant = Double(windowBytes) / elapsed
+                smoothedBps = smoothedBps == 0 ? instant : 0.3 * instant + 0.7 * smoothedBps
+                windowStart = Date()
+                windowBytes = 0
+            }
+            guard smoothedBps > 0 else { return (nil, nil) }
+            let remaining = totalBytes - totalDownloaded
+            let eta: Int64? = remaining > 0 ? Int64(Double(remaining) / smoothedBps * 1000) : 0
+            return (smoothedBps, eta)
         }
-        guard smoothedBps > 0 else { return (nil, nil) }
-        let remaining = totalBytes - totalDownloaded
-        let eta: Int64? = remaining > 0 ? Int64(Double(remaining) / smoothedBps * 1000) : 0
-        return (smoothedBps, eta)
     }
 }
 
 // MARK: - Thread-safe Int64 counter
 
 /// Minimal thread-safe counter for aggregating chunk download bytes.
+///
+/// NET-025: uses a serial DispatchQueue instead of NSLock for re-entrancy safety.
 private final class AtomicInt64: @unchecked Sendable {
     private var value: Int64
-    private let lock = NSLock()
+    private let q = DispatchQueue(label: "AtomicInt64")
 
     init(_ initial: Int64 = 0) { value = initial }
 
     /// Adds `delta` and returns the new total.
     @discardableResult
     func add(_ delta: Int64) -> Int64 {
-        lock.lock(); defer { lock.unlock() }
-        value += delta
-        return value
+        q.sync { value += delta; return value }
     }
 
     var current: Int64 {
-        lock.lock(); defer { lock.unlock() }
-        return value
+        q.sync { value }
     }
 }

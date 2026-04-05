@@ -8,7 +8,7 @@
 
 ## 📱 Overview
 
-Demo app có **6 tabs**, mỗi tab demo một nhóm features:
+The demo app features **6 tabs**, each demonstrating a specific group of features:
 
 1. **Basic** - Native Workers (HTTP, File, Database)
 2. **Retry** - BackoffPolicy v1.0.0 (Exponential & Linear)

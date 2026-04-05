@@ -54,6 +54,14 @@ class BGTaskSchedulerManager {
     /// Callback for task completion events
     var onTaskComplete: ((String, Bool, String?) -> Void)?
 
+    /// ✅ ISSUE 3 FIX: Callback when a background task handler is invoked by the OS.
+    /// Used to trigger resumePendingChains/Graphs in the main plugin.
+    var onTaskStart: (() -> Void)?
+
+    /// Callback when a background task expires before completing.
+    /// Used to call stopAllWorkers() in the main plugin.
+    var onExpiration: (() -> Void)?
+
     /// Stores the currently running worker to handle stop/expiration.
     private var activeWorker: IosWorker?
 
@@ -211,6 +219,7 @@ class BGTaskSchedulerManager {
     /// Handle BGProcessingTask execution.
     private func handleBackgroundTask(_ task: BGProcessingTask) {
         print("BGTaskSchedulerManager: Processing task started")
+        onTaskStart?()
 
         // Get task info from storage
         guard let taskInfo = loadNextPendingTask() else {
@@ -224,6 +233,7 @@ class BGTaskSchedulerManager {
         task.expirationHandler = { [weak self] in
             print("BGTaskSchedulerManager: Task expired")
             self?.activeWorker?.stop()
+            self?.onExpiration?()
             self?.onTaskComplete?(taskInfo.taskId, false, "Task expired")
             task.setTaskCompleted(success: false)
         }
@@ -251,6 +261,7 @@ class BGTaskSchedulerManager {
     /// Handle BGAppRefreshTask execution.
     private func handleAppRefreshTask(_ task: BGAppRefreshTask) {
         print("BGTaskSchedulerManager: App refresh task started")
+        onTaskStart?()
 
         // Similar to handleBackgroundTask but with stricter time limit (~30s)
         guard let taskInfo = loadNextPendingTask() else {
@@ -262,6 +273,7 @@ class BGTaskSchedulerManager {
         task.expirationHandler = { [weak self] in
             print("BGTaskSchedulerManager: Refresh task expired")
             self?.activeWorker?.stop()
+            self?.onExpiration?()
             self?.onTaskComplete?(taskInfo.taskId, false, "Refresh expired")
             task.setTaskCompleted(success: false)
         }

@@ -3,7 +3,6 @@ package dev.brewkits.native_workmanager.store
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
-import android.database.sqlite.SQLiteOpenHelper
 
 /**
  * Persistent store for the Offline Queue Pattern on Android.
@@ -25,38 +24,7 @@ internal class OfflineQueueStore(context: Context) {
         val createdAt: Long
     )
 
-    private val helper = object : SQLiteOpenHelper(context, "native_workmanager.db", null, 6) {
-        override fun onCreate(db: SQLiteDatabase) {
-            db.execSQL("""
-                CREATE TABLE IF NOT EXISTS offline_queue (
-                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                    queue_id        TEXT NOT NULL,
-                    task_id         TEXT NOT NULL,
-                    worker_class    TEXT NOT NULL,
-                    worker_config   TEXT,
-                    retry_policy    TEXT,
-                    created_at      INTEGER NOT NULL
-                )
-            """.trimIndent())
-        }
-
-        override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
-            if (old < 5) {
-                db.execSQL("""
-                    CREATE TABLE IF NOT EXISTS offline_queue (
-                        id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                        queue_id        TEXT NOT NULL,
-                        task_id         TEXT NOT NULL,
-                        worker_class    TEXT NOT NULL,
-                        worker_config   TEXT,
-                        retry_policy    TEXT,
-                        created_at      INTEGER NOT NULL
-                    )
-                """.trimIndent())
-            }
-            // v6: no schema changes
-        }
-    }
+    private val dbHelper = DatabaseHelper.getInstance(context)
 
     fun enqueue(
         queueId: String,
@@ -73,11 +41,11 @@ internal class OfflineQueueStore(context: Context) {
             put("retry_policy", retryPolicy)
             put("created_at", System.currentTimeMillis())
         }
-        return helper.writableDatabase.insert("offline_queue", null, cv)
+        return dbHelper.writableDatabase.insert("offline_queue", null, cv)
     }
 
     fun getNextEntries(limit: Int = 10): List<QueueRecord> =
-        helper.readableDatabase.rawQuery(
+        dbHelper.readableDatabase.rawQuery(
             "SELECT * FROM offline_queue ORDER BY created_at ASC LIMIT ?",
             arrayOf(limit.toString())
         ).use { c ->
@@ -97,11 +65,11 @@ internal class OfflineQueueStore(context: Context) {
         }
 
     fun deleteEntry(id: Long) {
-        helper.writableDatabase.delete("offline_queue", "id = ?", arrayOf(id.toString()))
+        dbHelper.writableDatabase.delete("offline_queue", "id = ?", arrayOf(id.toString()))
     }
 
     fun getQueueSize(): Int {
-        val db = helper.readableDatabase
+        val db = dbHelper.readableDatabase
         db.rawQuery("SELECT COUNT(*) FROM offline_queue", null).use { cursor ->
             if (cursor.moveToFirst()) return cursor.getInt(0)
         }

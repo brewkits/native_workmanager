@@ -10,7 +10,7 @@ import 'platform_interface.dart';
 @pragma('vm:entry-point')
 void registerDevToolsExtensions() {
   if (!kDebugMode && !kProfileMode) return;
-  
+
   developer.registerExtension('ext.native_workmanager.getMetrics',
       (method, parameters) async {
     try {
@@ -27,8 +27,10 @@ void registerDevToolsExtensions() {
   developer.registerExtension('ext.native_workmanager.syncQueue',
       (method, parameters) async {
     try {
-      final success = await NativeWorkManagerPlatform.instance.syncOfflineQueue();
-      return developer.ServiceExtensionResponse.result(jsonEncode({'success': success}));
+      final success =
+          await NativeWorkManagerPlatform.instance.syncOfflineQueue();
+      return developer.ServiceExtensionResponse.result(
+          jsonEncode({'success': success}));
     } catch (e) {
       return developer.ServiceExtensionResponse.error(
         developer.ServiceExtensionResponse.extensionError,
@@ -94,9 +96,9 @@ class ObservabilityConfig {
     this.onProgress,
   });
 
-  /// Called when the native worker begins execution for [taskId].
+  /// Called when the native worker begins execution.
   ///
-  /// [workerType] is the worker class name (e.g. `'HttpDownloadWorker'`,
+  /// The `workerType` parameter is the worker class name (e.g. `'HttpDownloadWorker'`,
   /// `'HttpUploadWorker'`, `'DartCallbackWorker'`), or an empty string if
   /// the native side does not report a type.
   ///

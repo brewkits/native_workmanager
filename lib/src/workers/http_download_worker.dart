@@ -57,7 +57,12 @@ final class HttpDownloadWorker extends Worker {
   /// Optional HTTP headers to include in the request.
   final Map<String, String> headers;
 
-  /// Request timeout (default: 5 minutes).
+  /// Request timeout per attempt (default: 5 minutes).
+  ///
+  /// NET-027: This is a **per-attempt** timeout. When WorkManager retries a
+  /// failed task it resets the clock, so the total time across all retries can
+  /// exceed this value.  To bound the total retry window, configure a deadline
+  /// or max-retry count on the [TaskTrigger] instead.
   final Duration timeout;
 
   /// Enable automatic resume from last downloaded byte on network failure.
@@ -184,9 +189,18 @@ final class HttpDownloadWorker extends Worker {
   final DuplicatePolicy onDuplicate;
 
   /// Move the completed download into the public Downloads folder.
+  ///
+  /// NET-024: Post-processing is **best-effort**. If moving to the public
+  /// Downloads folder fails (e.g. missing permission, storage full), the main
+  /// task still reports success and the file remains in its original location.
+  /// The native log will contain a warning. Check [TaskEvent.resultData] for the
+  /// final `filePath` to know where the file landed.
   final bool moveToPublicDownloads;
 
   /// Save the completed download to the device gallery (images/videos).
+  ///
+  /// NET-024: Same best-effort semantics as [moveToPublicDownloads] — failure
+  /// does not fail the task; the original file is preserved.
   final bool saveToGallery;
 
   /// Automatically extract the downloaded archive after a successful download.

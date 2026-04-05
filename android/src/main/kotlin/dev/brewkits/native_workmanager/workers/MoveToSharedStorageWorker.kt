@@ -108,7 +108,13 @@ class MoveToSharedStorageWorker(private val context: Context) : AndroidWorker {
             ?: return WorkerResult.Failure("MediaStore.insert returned null")
 
         return try {
-            resolver.openOutputStream(itemUri)!!.use { output ->
+            // MEDIA-013: openOutputStream can return null (e.g. permission denied after insert).
+            val outputStream = resolver.openOutputStream(itemUri)
+                ?: run {
+                    resolver.delete(itemUri, null, null)
+                    return WorkerResult.Failure("MediaStore.openOutputStream returned null")
+                }
+            outputStream.use { output ->
                 sourceFile.inputStream().use { it.copyTo(output) }
             }
 
@@ -143,6 +149,7 @@ class MoveToSharedStorageWorker(private val context: Context) : AndroidWorker {
             else -> Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         }
 
+        val subDirCreated = config.subDir != null
         val destDir = if (config.subDir != null) File(publicDir, config.subDir) else publicDir
         if (!destDir.exists() && !destDir.mkdirs()) {
             return WorkerResult.Failure("Failed to create destination directory: ${destDir.path}")
@@ -162,6 +169,12 @@ class MoveToSharedStorageWorker(private val context: Context) : AndroidWorker {
             )
         } catch (e: Exception) {
             Log.e(TAG, "Legacy copy failed: ${e.message}", e)
+            // NET-017: clean up the directory we may have created so we don't leave
+            // orphaned empty directories if copyTo() fails.
+            if (subDirCreated && destDir.exists() && destDir.listFiles()?.isEmpty() == true) {
+                destDir.delete()
+                Log.d(TAG, "Cleaned up empty directory: ${destDir.path}")
+            }
             WorkerResult.Failure("Failed to copy file: ${e.message}")
         }
     }

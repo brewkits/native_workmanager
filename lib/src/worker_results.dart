@@ -143,8 +143,8 @@ class ParallelDownloadResult {
       totalBytes: (data['totalBytes'] as num?)?.toInt() ?? 0,
       files: rawFiles
               ?.whereType<Map>()
-              .map((e) => DownloadFileOutcome._from(
-                  Map<String, dynamic>.from(e)))
+              .map((e) =>
+                  DownloadFileOutcome._from(Map<String, dynamic>.from(e)))
               .toList() ??
           const [],
     );
@@ -243,8 +243,7 @@ class ParallelUploadResult {
       totalBytes: (data['totalBytes'] as num?)?.toInt() ?? 0,
       files: rawFiles
               ?.whereType<Map>()
-              .map((e) =>
-                  UploadFileOutcome._from(Map<String, dynamic>.from(e)))
+              .map((e) => UploadFileOutcome._from(Map<String, dynamic>.from(e)))
               .toList() ??
           const [],
     );
@@ -278,7 +277,7 @@ class HttpRequestResult {
 
 // ── Crypto ────────────────────────────────────────────────────────────────────
 
-/// Result data from [CryptoWorker] hash or encrypt/decrypt operations.
+/// Result data from [CryptoHashWorker], [CryptoEncryptWorker], or [CryptoDecryptWorker] operations.
 @immutable
 class CryptoResult {
   const CryptoResult({
@@ -411,7 +410,7 @@ class ImageProcessResult {
 
 // ── File system ───────────────────────────────────────────────────────────────
 
-/// Result data from [FileSystemWorker].
+/// Result data from file system workers ([FileSystemCopyWorker], [FileSystemMoveWorker], etc.).
 @immutable
 class FileSystemResult {
   const FileSystemResult({

@@ -3,7 +3,6 @@ package dev.brewkits.native_workmanager.store
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
-import android.database.sqlite.SQLiteOpenHelper
 import android.util.Log
 
 /**
@@ -30,35 +29,7 @@ internal class TaskStore(context: Context) {
         val constraintsJson: String? = null
     )
 
-    private val helper = object : SQLiteOpenHelper(context, "native_workmanager.db", null, 8) {
-        override fun onCreate(db: SQLiteDatabase) {
-            db.execSQL("""
-                CREATE TABLE IF NOT EXISTS tasks (
-                    task_id          TEXT PRIMARY KEY,
-                    tag              TEXT,
-                    status           TEXT NOT NULL,
-                    worker_class     TEXT NOT NULL,
-                    worker_config    TEXT,
-                    created_at       INTEGER NOT NULL,
-                    updated_at       INTEGER NOT NULL,
-                    result_data      TEXT,
-                    constraints_json TEXT
-                )
-            """.trimIndent())
-        }
-
-        override fun onConfigure(db: SQLiteDatabase) {
-            super.onConfigure(db)
-            // ✅ PERFORMANCE: Enable Write-Ahead Logging for better concurrency.
-            // Allows reading from the DB while a write transaction is in progress.
-            db.enableWriteAheadLogging()
-        }
-
-        override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
-            if (old < 2) db.execSQL("ALTER TABLE tasks ADD COLUMN result_data TEXT")
-            if (old < 7) db.execSQL("ALTER TABLE tasks ADD COLUMN constraints_json TEXT")
-        }
-    }
+    private val dbHelper = DatabaseHelper.getInstance(context)
 
     /**
      * Recover "Zombie" tasks that are stuck in 'running' state.
@@ -79,7 +50,7 @@ internal class TaskStore(context: Context) {
         }
         
         // Only update where status is running AND updated_at is older than 5 minutes
-        val count = helper.writableDatabase.update(
+        val count = dbHelper.writableDatabase.update(
             "tasks", 
             cv, 
             "status = 'running' AND updated_at < ?", 
@@ -100,7 +71,7 @@ internal class TaskStore(context: Context) {
         constraintsJson: String? = null
     ) {
         val now = System.currentTimeMillis()
-        val db = helper.writableDatabase
+        val db = dbHelper.writableDatabase
         
         // ✅ SECURITY: Sanitize config before persisting to prevent token leakage.
         val sanitizedConfig = sanitizeConfig(workerConfig)
@@ -134,15 +105,15 @@ internal class TaskStore(context: Context) {
             put("updated_at", System.currentTimeMillis())
             if (resultData != null) put("result_data", resultData)
         }
-        helper.writableDatabase.update("tasks", cv, "task_id = ?", arrayOf(taskId))
+        dbHelper.writableDatabase.update("tasks", cv, "task_id = ?", arrayOf(taskId))
     }
 
     fun getTask(taskId: String): TaskRecord? =
-        helper.readableDatabase.rawQuery("SELECT * FROM tasks WHERE task_id = ?", arrayOf(taskId))
+        dbHelper.readableDatabase.rawQuery("SELECT * FROM tasks WHERE task_id = ?", arrayOf(taskId))
             .use { c -> if (c.moveToFirst()) c.toRecord() else null }
 
     fun getTasksByTag(tag: String): List<TaskRecord> =
-        helper.readableDatabase.rawQuery("SELECT * FROM tasks WHERE tag = ? ORDER BY updated_at DESC", arrayOf(tag))
+        dbHelper.readableDatabase.rawQuery("SELECT * FROM tasks WHERE tag = ? ORDER BY updated_at DESC", arrayOf(tag))
             .use { c ->
                 val list = mutableListOf<TaskRecord>()
                 while (c.moveToNext()) list.add(c.toRecord())
@@ -150,7 +121,7 @@ internal class TaskStore(context: Context) {
             }
 
     fun getAllTasks(): List<TaskRecord> =
-        helper.readableDatabase.rawQuery("SELECT * FROM tasks ORDER BY updated_at DESC", null)
+        dbHelper.readableDatabase.rawQuery("SELECT * FROM tasks ORDER BY updated_at DESC", null)
             .use { c ->
                 val list = mutableListOf<TaskRecord>()
                 while (c.moveToNext()) list.add(c.toRecord())
@@ -158,12 +129,12 @@ internal class TaskStore(context: Context) {
             }
 
     fun delete(taskId: String) {
-        helper.writableDatabase.delete("tasks", "task_id = ?", arrayOf(taskId))
+        dbHelper.writableDatabase.delete("tasks", "task_id = ?", arrayOf(taskId))
     }
 
     fun deleteCompleted(olderThanMs: Long = 0L) {
         val threshold = if (olderThanMs > 0) System.currentTimeMillis() - olderThanMs else Long.MAX_VALUE
-        helper.writableDatabase.delete(
+        dbHelper.writableDatabase.delete(
             "tasks",
             "status IN ('completed','failed','cancelled') AND updated_at < ?",
             arrayOf(threshold.toString())
@@ -227,7 +198,7 @@ internal class TaskStore(context: Context) {
     }
 
     fun getActiveTaskCount(): Int {
-        val db = helper.readableDatabase
+        val db = dbHelper.readableDatabase
         db.rawQuery("SELECT COUNT(*) FROM tasks WHERE status IN ('pending', 'running')", null).use { cursor ->
             if (cursor.moveToFirst()) return cursor.getInt(0)
         }
@@ -235,7 +206,7 @@ internal class TaskStore(context: Context) {
     }
 
     fun getFailedTaskCount(): Int {
-        val db = helper.readableDatabase
+        val db = dbHelper.readableDatabase
         db.rawQuery("SELECT COUNT(*) FROM tasks WHERE status = 'failed'", null).use { cursor ->
             if (cursor.moveToFirst()) return cursor.getInt(0)
         }
@@ -243,7 +214,7 @@ internal class TaskStore(context: Context) {
     }
 
     fun getCompletedTaskCount(): Int {
-        val db = helper.readableDatabase
+        val db = dbHelper.readableDatabase
         db.rawQuery("SELECT COUNT(*) FROM tasks WHERE status = 'success'", null).use { cursor ->
             if (cursor.moveToFirst()) return cursor.getInt(0)
         }

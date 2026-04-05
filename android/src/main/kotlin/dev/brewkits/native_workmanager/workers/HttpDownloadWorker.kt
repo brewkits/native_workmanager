@@ -328,7 +328,7 @@ class HttpDownloadWorker : AndroidWorker {
                     tempFile.delete()
                     java.io.File(tempFile.path + ETAG_SIDECAR_SUFFIX).delete()
                     return@downloadBlock WorkerResult.Failure(
-                        "Resume position invalid (file may have changed on server). Retry to restart download.",
+                        "Resume byte range is no longer valid (server file may have changed or shrunk). Restarting download from beginning.",
                         shouldRetry = true
                     )
                 }
@@ -421,19 +421,28 @@ class HttpDownloadWorker : AndroidWorker {
                     destinationFile = File(config.savePath + resolvedName)
                     Log.d(TAG, "Directory mode — resolved filename: $resolvedName")
 
-                    // skipExisting check for directory mode (now we know the actual path)
-                    if (config.skipExisting && destinationFile.exists()) {
-                        Log.d(TAG, "skipExisting=true and file already exists — skipping download")
-                        return@downloadBlock WorkerResult.Success(
-                            message = "File already exists, download skipped",
-                            data = buildJsonObject {
-                                put("filePath", destinationFile.absolutePath)
-                                put("fileName", destinationFile.name)
-                                put("fileSize", destinationFile.length())
-                                if (serverSuggestedName != null) put("serverSuggestedName", serverSuggestedName)
-                                put("skipped", true)
-                            }
-                        )
+                    // skipExisting check for directory mode (now we know the actual path).
+                    // M-05: Use createNewFile() instead of exists()+write to close the TOCTOU window.
+                    // createNewFile() is atomic at the OS level — if it returns false the file
+                    // already existed before we touched it; if it returns true we own the new empty
+                    // file and will overwrite it in the streaming step below.
+                    if (config.skipExisting) {
+                        val created = try { destinationFile.createNewFile() } catch (_: Exception) { false }
+                        if (!created) {
+                            // File existed before our atomic check — honour skipExisting.
+                            Log.d(TAG, "skipExisting=true and file already exists — skipping download")
+                            return@downloadBlock WorkerResult.Success(
+                                message = "File already exists, download skipped",
+                                data = buildJsonObject {
+                                    put("filePath", destinationFile.absolutePath)
+                                    put("fileName", destinationFile.name)
+                                    put("fileSize", destinationFile.length())
+                                    if (serverSuggestedName != null) put("serverSuggestedName", serverSuggestedName)
+                                    put("skipped", true)
+                                }
+                            )
+                        }
+                        // created == true: we atomically created the placeholder; proceed to overwrite it.
                     }
                 }
 

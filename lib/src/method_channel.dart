@@ -354,7 +354,8 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
 
   @override
   Future<Map<String, dynamic>> getMetrics() async {
-    final result = await methodChannel.invokeMethod<Map<dynamic, dynamic>>('getMetrics');
+    final result =
+        await methodChannel.invokeMethod<Map<dynamic, dynamic>>('getMetrics');
     if (result == null) return {};
     return result.map((key, value) => MapEntry(key.toString(), value));
   }

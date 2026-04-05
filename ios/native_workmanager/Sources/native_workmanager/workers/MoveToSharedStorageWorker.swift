@@ -41,9 +41,9 @@ class MoveToSharedStorageWorker: IosWorker {
         }
 
         let storageType = (json["storageType"] as? String ?? "downloads").lowercased()
-        // SEC-002: use safe optional cast instead of force cast (as!) which panics on nil
+        // NET-002: nil-coalesce instead of conditional force-unwrap to prevent crash.
         let fileNameOverride = json["fileName"] as? String
-        let fileName = (fileNameOverride?.isEmpty == false) ? fileNameOverride! : sourceURL.lastPathComponent
+        let fileName = (fileNameOverride?.isEmpty == false) ? (fileNameOverride ?? sourceURL.lastPathComponent) : sourceURL.lastPathComponent
         let subDir = json["subDir"] as? String
 
         switch storageType {
@@ -89,9 +89,13 @@ class MoveToSharedStorageWorker: IosWorker {
             if current == .authorized || current == .limited { return current }
             return await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         } else {
+            // MEDIA-006: the pre-iOS-14 completion-handler overload must be invoked on the
+            // main thread so the system permission dialog can be presented.
             return await withCheckedContinuation { continuation in
-                PHPhotoLibrary.requestAuthorization { status in
-                    continuation.resume(returning: status)
+                DispatchQueue.main.async {
+                    PHPhotoLibrary.requestAuthorization { status in
+                        continuation.resume(returning: status)
+                    }
                 }
             }
         }

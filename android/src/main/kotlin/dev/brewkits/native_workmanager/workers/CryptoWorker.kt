@@ -3,6 +3,7 @@ package dev.brewkits.native_workmanager.workers
 import android.util.Log
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
+import dev.brewkits.native_workmanager.workers.utils.KeystorePasswordVault
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -87,7 +88,8 @@ class CryptoWorker : AndroidWorker {
         val data: String? = null,         // String data (for hash)
         val outputPath: String? = null,   // Output file (for encrypt/decrypt)
         val algorithm: String? = null,    // Algorithm (MD5, SHA-256, AES, etc.)
-        val password: String? = null      // Password (for encrypt/decrypt)
+        val password: String? = null,     // Password (for encrypt/decrypt)
+        val passwordKey: String? = null   // SC-C-001: vault key (replaces password in WorkManager input)
     ) {
         val effectiveAlgorithm: String get() = algorithm ?: DEFAULT_ALGORITHM
 
@@ -111,19 +113,29 @@ class CryptoWorker : AndroidWorker {
                 data = if (j.has("data") && !j.isNull("data")) j.getString("data") else null,
                 outputPath = if (j.has("outputPath") && !j.isNull("outputPath")) j.getString("outputPath") else null,
                 algorithm = if (j.has("algorithm") && !j.isNull("algorithm")) j.getString("algorithm") else null,
-                password = if (j.has("password") && !j.isNull("password")) j.getString("password") else null
+                password = if (j.has("password") && !j.isNull("password")) j.getString("password") else null,
+                passwordKey = if (j.has("passwordKey") && !j.isNull("passwordKey")) j.getString("passwordKey") else null
             )
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid config JSON: ${e.message}", e)
         }
 
-        Log.d(TAG, "Operation: ${config.operation}, Algorithm: ${config.effectiveAlgorithm}")
+        // SC-C-001: resolve password from Keychain vault if passwordKey is present
+        val effectiveConfig = if (!config.passwordKey.isNullOrEmpty()) {
+            val resolvedPassword = KeystorePasswordVault.retrieveAndDelete(config.passwordKey)
+                ?: return@withContext WorkerResult.Failure("Password vault key not found — retry not possible")
+            config.copy(password = resolvedPassword, passwordKey = null)
+        } else {
+            config
+        }
 
-        return@withContext when (config.operation.lowercase()) {
-            "hash" -> performHash(config)
-            "encrypt" -> performEncrypt(config)
-            "decrypt" -> performDecrypt(config)
-            else -> WorkerResult.Failure("Unsupported operation: ${config.operation}")
+        Log.d(TAG, "Operation: ${effectiveConfig.operation}, Algorithm: ${effectiveConfig.effectiveAlgorithm}")
+
+        return@withContext when (effectiveConfig.operation.lowercase()) {
+            "hash" -> performHash(effectiveConfig)
+            "encrypt" -> performEncrypt(effectiveConfig)
+            "decrypt" -> performDecrypt(effectiveConfig)
+            else -> WorkerResult.Failure("Unsupported operation: ${effectiveConfig.operation}")
         }
     }
 
@@ -132,6 +144,19 @@ class CryptoWorker : AndroidWorker {
      */
     private fun performHash(config: Config): WorkerResult {
         val algorithm = config.effectiveAlgorithm.uppercase()
+
+        // SC-M-005: whitelist to prevent injection of arbitrary JCA algorithm names
+        val normalizedAlgorithm = when (algorithm) {
+            "SHA256" -> "SHA-256"
+            "SHA512" -> "SHA-512"
+            "SHA1" -> "SHA-1"
+            else -> algorithm
+        }
+        val allowedHashAlgorithms = setOf("MD5", "SHA-1", "SHA-256", "SHA-512")
+        if (normalizedAlgorithm !in allowedHashAlgorithms) {
+            Log.e(TAG, "Unsupported algorithm: $algorithm")
+            return WorkerResult.Failure("Unsupported algorithm: $algorithm. Supported: MD5, SHA-1, SHA-256, SHA-512")
+        }
 
         return when {
             config.filePath != null -> {
@@ -149,14 +174,15 @@ class CryptoWorker : AndroidWorker {
                 }
 
                 try {
-                    val hash = calculateFileHash(file, algorithm)
-                    Log.d(TAG, "Hash calculated: ${file.name} → $hash")
+                    val hash = calculateFileHash(file, normalizedAlgorithm)
+                    // SC-M-003: do not log hash value — it is sensitive data
+                    Log.d(TAG, "Hash calculated: ${file.name} ($normalizedAlgorithm)")
 
                     WorkerResult.Success(
-                        message = "$algorithm hash calculated",
+                        message = "$normalizedAlgorithm hash calculated",
                         data = buildJsonObject {
                             put("hash", hash)
-                            put("algorithm", algorithm)
+                            put("algorithm", normalizedAlgorithm)
                             put("filePath", file.absolutePath)
                             put("fileSize", file.length())
                         }
@@ -169,14 +195,15 @@ class CryptoWorker : AndroidWorker {
             config.data != null -> {
                 // Hash string
                 try {
-                    val hash = calculateStringHash(config.data, algorithm)
-                    Log.d(TAG, "Hash calculated: ${config.data.length} chars → $hash")
+                    val hash = calculateStringHash(config.data, normalizedAlgorithm)
+                    // SC-M-003: do not log hash value — it is sensitive data
+                    Log.d(TAG, "Hash calculated: ${config.data.length} chars ($normalizedAlgorithm)")
 
                     WorkerResult.Success(
-                        message = "$algorithm hash calculated",
+                        message = "$normalizedAlgorithm hash calculated",
                         data = buildJsonObject {
                             put("hash", hash)
-                            put("algorithm", algorithm)
+                            put("algorithm", normalizedAlgorithm)
                             put("dataLength", config.data.length)
                         }
                     )
@@ -323,6 +350,20 @@ class CryptoWorker : AndroidWorker {
 
         val outputFile = File(outputPath)
 
+        // SC-H-001: validate file size before loading into RAM (AES-GCM buffers entire
+        // ciphertext to verify the authentication tag before releasing plaintext)
+        if (!SecurityValidator.validateFileSize(inputFile)) {
+            Log.e(TAG, "Error - Encrypted file too large for GCM decryption (not truly streaming)")
+            return WorkerResult.Failure("Encrypted file exceeds max size for decryption (${SecurityValidator.maxFileSize / 1024 / 1024}MB)")
+        }
+
+        // SC-M-001: reject files too small to be valid AES-GCM output
+        val minDecryptSize = SALT_SIZE + GCM_IV_SIZE + 16  // salt(16) + IV(12) + GCM tag(16)
+        if (inputFile.length() < minDecryptSize) {
+            Log.e(TAG, "Error - Encrypted file too small (${inputFile.length()} bytes, min $minDecryptSize)")
+            return WorkerResult.Failure("Invalid encrypted file: too small to be valid (min $minDecryptSize bytes)")
+        }
+
         Log.d(TAG, "Decrypting: ${inputFile.name} → ${outputFile.name}")
 
         return try {
@@ -411,7 +452,11 @@ class CryptoWorker : AndroidWorker {
     private fun generateKey(password: String, salt: ByteArray): SecretKeySpec {
         val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
         val spec = PBEKeySpec(password.toCharArray(), salt, PBKDF2_ITERATIONS, AES_KEY_SIZE)
-        val tmp = factory.generateSecret(spec)
-        return SecretKeySpec(tmp.encoded, "AES")
+        return try {
+            val tmp = factory.generateSecret(spec)
+            SecretKeySpec(tmp.encoded, "AES")
+        } finally {
+            spec.clearPassword()   // SC-H-002: zero password char[] on heap
+        }
     }
 }

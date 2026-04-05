@@ -48,6 +48,7 @@ class FileDecompressionWorker : AndroidWorker {
     companion object {
         private const val TAG = "FileDecompressionWorker"
         private const val BUFFER_SIZE = 8192
+        private const val MAX_ENTRY_COUNT = 10_000   // FS-M-002: zip with too many entries
     }
 
     data class Config(
@@ -136,8 +137,17 @@ class FileDecompressionWorker : AndroidWorker {
         return@withContext try {
             ZipInputStream(zipFile.inputStream()).use { zipInput ->
                 var entry: ZipEntry? = zipInput.nextEntry
+                var entryCount = 0   // FS-M-002: entry count guard
 
                 while (entry != null) {
+                    // FS-M-002: Prevent zip archives with excessive entry counts
+                    entryCount++
+                    if (entryCount > MAX_ENTRY_COUNT) {
+                        Log.e(TAG, "Security - Entry count exceeded limit ($MAX_ENTRY_COUNT)")
+                        cleanupExtractedFiles(extractedPaths)
+                        return@withContext WorkerResult.Failure("Archive entry count exceeds limit ($MAX_ENTRY_COUNT)")
+                    }
+
                     val entryName = entry.name
 
                     // ✅ SECURITY: Prevent zip slip attack
@@ -196,13 +206,15 @@ class FileDecompressionWorker : AndroidWorker {
                                 if (totalBytes > 2L * 1024 * 1024 * 1024) {
                                     Log.e(TAG, "Security - Total extracted size exceeded limit (2GB)")
                                     cleanupExtractedFiles(extractedPaths)
+                                    destFile.delete()  // FS-H-003: delete partial current file
                                     return@withContext WorkerResult.Failure("Total extracted size too large (Zip Bomb protection)")
                                 }
-                                
+
                                 // Check 2: Dynamic Compression Ratio (Max 100:1)
                                 if (entry.size > 0 && bytesWritten > entry.size * 100) {
                                     Log.e(TAG, "Security - Suspicious compression ratio detected (>100:1) for: $entryName")
                                     cleanupExtractedFiles(extractedPaths)
+                                    destFile.delete()  // FS-H-003: delete partial current file
                                     return@withContext WorkerResult.Failure("Suspicious compression ratio (Zip Bomb protection)")
                                 }
                             }

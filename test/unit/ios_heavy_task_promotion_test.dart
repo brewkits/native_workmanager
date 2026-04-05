@@ -5,7 +5,8 @@ import 'package:native_workmanager/src/platform_interface.dart';
 import 'package:native_workmanager/src/method_channel.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
-class MockNativeWorkManagerPlatform extends NativeWorkManagerPlatform with MockPlatformInterfaceMixin {
+class MockNativeWorkManagerPlatform extends NativeWorkManagerPlatform
+    with MockPlatformInterfaceMixin {
   Constraints? capturedConstraints;
 
   @override
@@ -20,7 +21,9 @@ class MockNativeWorkManagerPlatform extends NativeWorkManagerPlatform with MockP
   }) async {}
 
   @override
-  void setCallbackExecutor(Future<bool> Function(String callbackId, Map<String, dynamic>? input) executor) {}
+  void setCallbackExecutor(
+      Future<bool> Function(String callbackId, Map<String, dynamic>? input)
+          executor) {}
 
   @override
   Future<ScheduleResult> enqueue({
@@ -46,7 +49,7 @@ void main() {
     setUp(() {
       mockPlatform = MockNativeWorkManagerPlatform();
       NativeWorkManagerPlatform.instance = mockPlatform;
-      
+
       // Register a dummy worker for validation using a top-level function
       NativeWorkManager.initialize(
         dartWorkers: {'test-worker': testCallback},
@@ -63,9 +66,9 @@ void main() {
         constraints: const Constraints(isHeavyTask: false), // Explicitly false
       );
 
-      expect(mockPlatform.capturedConstraints?.isHeavyTask, isTrue, 
+      expect(mockPlatform.capturedConstraints?.isHeavyTask, isTrue,
           reason: 'DartWorker must be promoted to heavy task on iOS');
-      
+
       debugDefaultTargetPlatformOverride = null;
     });
 
@@ -79,9 +82,9 @@ void main() {
         constraints: const Constraints(isHeavyTask: false),
       );
 
-      expect(mockPlatform.capturedConstraints?.isHeavyTask, isFalse, 
+      expect(mockPlatform.capturedConstraints?.isHeavyTask, isFalse,
           reason: 'NativeWorker should respect original isHeavyTask on iOS');
-      
+
       debugDefaultTargetPlatformOverride = null;
     });
 
@@ -95,9 +98,9 @@ void main() {
         constraints: const Constraints(isHeavyTask: false),
       );
 
-      expect(mockPlatform.capturedConstraints?.isHeavyTask, isFalse, 
+      expect(mockPlatform.capturedConstraints?.isHeavyTask, isFalse,
           reason: 'DartWorker should not be promoted on Android');
-      
+
       debugDefaultTargetPlatformOverride = null;
     });
   });

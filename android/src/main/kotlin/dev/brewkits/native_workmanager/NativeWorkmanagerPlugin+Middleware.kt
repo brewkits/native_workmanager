@@ -8,6 +8,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 internal fun NativeWorkmanagerPlugin.handleRegisterMiddleware(call: MethodCall, result: Result) {
     scope.launch {
@@ -53,7 +55,11 @@ fun NativeWorkmanagerPlugin.Companion.applyMiddleware(context: Context, workerCl
                         modified = true
                     }
                 }
-                // Add more middleware types here
+                "remoteConfig" -> {
+                    if (applyRemoteConfigMiddleware(config, mwConfig, workerClassName)) {
+                        modified = true
+                    }
+                }
             }
         }
 
@@ -62,6 +68,26 @@ fun NativeWorkmanagerPlugin.Companion.applyMiddleware(context: Context, workerCl
         NativeLogger.e("❌ Error applying middleware", e)
         return configJson
     }
+}
+
+private fun applyRemoteConfigMiddleware(
+    workerConfig: JSONObject,
+    mwConfig: JSONObject,
+    workerClassName: String
+): Boolean {
+    val targetType = mwConfig.optString("workerType").takeIf { it.isNotEmpty() }
+    if (targetType != null && !workerClassName.contains(targetType, ignoreCase = true)) {
+        return false
+    }
+    val values = mwConfig.optJSONObject("values") ?: return false
+    var modified = false
+    val keys = values.keys()
+    while (keys.hasNext()) {
+        val key = keys.next()
+        workerConfig.put(key, values.get(key))
+        modified = true
+    }
+    return modified
 }
 
 private fun applyHeaderMiddleware(workerConfig: JSONObject, mwConfig: JSONObject): Boolean {
@@ -83,4 +109,63 @@ private fun applyHeaderMiddleware(workerConfig: JSONObject, mwConfig: JSONObject
     }
 
     return true
+}
+
+/**
+ * Fire-and-forget HTTP POST for LoggingMiddleware.
+ *
+ * Called after each task completes (success or failure). Finds all registered
+ * LoggingMiddleware records and POSTs task execution metadata to each logUrl.
+ * Errors are logged but never propagated — logging must never affect worker results.
+ */
+internal fun NativeWorkmanagerPlugin.applyLoggingMiddleware(
+    taskId: String,
+    workerClassName: String,
+    success: Boolean,
+    message: String?,
+    durationMs: Long?,
+    workerConfig: String?
+) {
+    try {
+        val middlewares = middlewareStore.getAll().filter { it.type == "logging" }
+        if (middlewares.isEmpty()) return
+
+        for (mw in middlewares) {
+            val mwConfig = try { JSONObject(mw.configJson) } catch (_: Exception) { continue }
+            val logUrl = mwConfig.optString("logUrl").takeIf { it.isNotEmpty() } ?: continue
+            val includeConfig = mwConfig.optBoolean("includeConfig", false)
+
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val payload = JSONObject().apply {
+                        put("taskId", taskId)
+                        put("workerClassName", workerClassName)
+                        put("success", success)
+                        put("timestamp", System.currentTimeMillis())
+                        if (durationMs != null) put("durationMs", durationMs)
+                        if (!message.isNullOrEmpty()) put("message", message)
+                        if (includeConfig && workerConfig != null) {
+                            try { put("workerConfig", JSONObject(workerConfig)) } catch (_: Exception) {}
+                        }
+                    }
+                    val conn = URL(logUrl).openConnection() as HttpURLConnection
+                    try {
+                        conn.requestMethod = "POST"
+                        conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                        conn.doOutput = true
+                        conn.connectTimeout = 5_000
+                        conn.readTimeout = 5_000
+                        conn.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+                        conn.responseCode // trigger the request
+                    } finally {
+                        conn.disconnect()
+                    }
+                } catch (e: Exception) {
+                    NativeLogger.e("LoggingMiddleware: Failed to POST to $logUrl for task '$taskId'", e)
+                }
+            }
+        }
+    } catch (e: Exception) {
+        NativeLogger.e("LoggingMiddleware: Unexpected error for task '$taskId'", e)
+    }
 }

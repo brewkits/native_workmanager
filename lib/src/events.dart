@@ -8,6 +8,7 @@ class TaskRecord {
     this.tag,
     required this.status,
     required this.workerClassName,
+    this.workerConfig,
     this.resultData,
     required this.createdAt,
     required this.updatedAt,
@@ -21,6 +22,9 @@ class TaskRecord {
 
   final String workerClassName;
 
+  /// Raw worker configuration (often sanitized/redacted by native side).
+  final String? workerConfig;
+
   /// Optional result data (null or decoded from JSON stored by the native side).
   final Map<String, dynamic>? resultData;
 
@@ -32,6 +36,7 @@ class TaskRecord {
         tag: m['tag'] as String?,
         status: m['status'] as String? ?? 'unknown',
         workerClassName: m['workerClassName'] as String? ?? '',
+        workerConfig: m['workerConfig'] as String?,
         resultData: m['resultData'] is Map
             ? Map<String, dynamic>.from(m['resultData'] as Map)
             : null,
@@ -46,6 +51,7 @@ class TaskRecord {
         'tag': tag,
         'status': status,
         'workerClassName': workerClassName,
+        'workerConfig': workerConfig,
         'resultData': resultData,
         'createdAt': createdAt.millisecondsSinceEpoch,
         'updatedAt': updatedAt.millisecondsSinceEpoch,
@@ -639,7 +645,7 @@ enum NativeWorkManagerError {
 /// - If app is terminated, events are **not persisted**
 /// - For critical outcomes, persist state in the **worker itself**
 /// - Events are **fire-and-forget** (no replay mechanism)
-/// - Use [getTaskStatus] to check status if you miss events
+/// - Use [NativeWorkManager.getTaskStatus] to check status if you miss events
 ///
 /// ## Best Practices
 ///
@@ -774,9 +780,16 @@ class TaskEvent {
 
   @override
   int get hashCode => Object.hash(
-      taskId, isStarted, workerType, success, errorCode, message,
-      resultData == null ? null : Object.hashAll(
-        resultData!.entries.map((e) => Object.hash(e.key, e.value))),
+      taskId,
+      isStarted,
+      workerType,
+      success,
+      errorCode,
+      message,
+      resultData == null
+          ? null
+          : Object.hashAll(
+              resultData!.entries.map((e) => Object.hash(e.key, e.value))),
       timestamp);
 
   @override
@@ -999,7 +1012,7 @@ class TaskEvent {
 ///
 /// See also:
 /// - [NativeWorkManager.progress] - Stream of progress updates
-/// - [WorkerInput.reportProgress] - Report from worker
+/// - [NativeWorkManager.reportDartWorkerProgress] - Report from DartWorker callback
 /// - [TaskEvent] - Task completion notification
 @immutable
 class TaskProgress {

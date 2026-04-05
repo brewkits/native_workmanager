@@ -1,0 +1,17 @@
+builders:
+  worker_callback_builder:
+    import: 'package:native_workmanager_gen/builder.dart'
+    builder_factories: ['workerCallbackBuilder']
+    build_extensions:
+      '.dart': ['.g.dart']
+    # none: users must explicitly opt-in in their own build.yaml.
+    # Setting dependents would run generation on every consumer package,
+    # even those that don't use @WorkerCallback — causing unnecessary build
+    # overhead and potential conflicts with other part-generating builders.
+    auto_apply: none
+    build_to: source
+    # Run before the combining builder so our generated part file is ready
+    # when source_gen assembles the final .g.dart output.
+    runs_before:
+      - 'source_gen|combining_builder'
+    applies_builders: ['source_gen|combining_builder']

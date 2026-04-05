@@ -8,11 +8,12 @@ import 'package:native_workmanager/native_workmanager.dart';
 /// Organized into tabs for easy navigation:
 /// 1. HTTP Workers (httpRequest, httpUpload, httpDownload, httpSync)
 /// 2. File Workers (compress, decompress, copy, move, delete, list, mkdir)
-/// 3. Media Workers (imageProcess)
+/// 3. Media Workers (imageProcess, pdfMerge, pdfCompress, pdfFromImages)
 /// 4. Crypto Workers (hash, encrypt, decrypt)
 /// 5. Task Chains (sequential, parallel, mixed)
 /// 6. Constraints (network, battery, storage, etc.)
 /// 7. Custom Workers (Dart, Native)
+/// 8. WebSocket Worker (Android only)
 class ComprehensiveDemoPage extends StatefulWidget {
   const ComprehensiveDemoPage({super.key});
 
@@ -29,10 +30,12 @@ class _ComprehensiveDemoPageState extends State<ComprehensiveDemoPage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 7, vsync: this);
+    _tabController = TabController(length: 8, vsync: this);
 
     // Listen for task results - filter for comprehensive demo tasks
     _eventSubscription = NativeWorkManager.events.listen((event) {
+      // Skip lifecycle start events — they have success=false by default
+      if (event.isStarted) return;
       // Check if this event belongs to this page's demos
       if (!event.taskId.startsWith('comprehensive-')) return;
 
@@ -81,6 +84,7 @@ class _ComprehensiveDemoPageState extends State<ComprehensiveDemoPage>
             Tab(icon: Icon(Icons.link), text: 'Chains'),
             Tab(icon: Icon(Icons.settings), text: 'Constraints'),
             Tab(icon: Icon(Icons.code), text: 'Custom'),
+            Tab(icon: Icon(Icons.sensors), text: 'WebSocket'),
           ],
         ),
       ),
@@ -94,6 +98,7 @@ class _ComprehensiveDemoPageState extends State<ComprehensiveDemoPage>
           _TaskChainsTab(onResult: _showSnackbar),
           _ConstraintsTab(onResult: _showSnackbar),
           _CustomWorkersTab(onResult: _showSnackbar),
+          _WebSocketTab(onResult: _showSnackbar),
         ],
       ),
     );
@@ -561,7 +566,7 @@ class _MediaWorkersTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _buildHeader(context, 'Media Workers', '10x faster image processing'),
+        _buildHeader(context, 'Media Workers', 'Image processing and PDF operations'),
 
         // iOS 30-second warning for heavy tasks
         if (Platform.isIOS) ...[
@@ -591,7 +596,79 @@ class _MediaWorkersTab extends StatelessWidget {
         ],
 
         _DemoCard(
-          title: '1. Image Resize',
+          title: '1. PDF Merge',
+          description: 'Merge multiple PDF files into one',
+          icon: Icons.picture_as_pdf,
+          code: '''
+NativeWorker.pdfMerge(
+  inputPaths: ['/tmp/part1.pdf', '/tmp/part2.pdf'],
+  outputPath: '/tmp/merged.pdf',
+)''',
+          onRun: () async {
+            final tmp = Directory.systemTemp.path;
+            await NativeWorkManager.enqueue(
+              taskId: 'demo-pdf-merge',
+              trigger: TaskTrigger.oneTime(),
+              worker: NativeWorker.pdfMerge(
+                inputPaths: ['$tmp/part1.pdf', '$tmp/part2.pdf'],
+                outputPath: '$tmp/merged.pdf',
+              ),
+            );
+            onResult('📄 PDF Merge scheduled');
+          },
+        ),
+
+        _DemoCard(
+          title: '2. PDF Compress',
+          description: 'Re-render a PDF at lower quality to reduce file size',
+          icon: Icons.compress,
+          code: '''
+NativeWorker.pdfCompress(
+  inputPath: '/tmp/large.pdf',
+  outputPath: '/tmp/compressed.pdf',
+  quality: 70,
+)''',
+          onRun: () async {
+            final tmp = Directory.systemTemp.path;
+            await NativeWorkManager.enqueue(
+              taskId: 'demo-pdf-compress',
+              trigger: TaskTrigger.oneTime(),
+              worker: NativeWorker.pdfCompress(
+                inputPath: '$tmp/large.pdf',
+                outputPath: '$tmp/compressed.pdf',
+                quality: 70,
+              ),
+            );
+            onResult('📄 PDF Compress scheduled');
+          },
+        ),
+
+        _DemoCard(
+          title: '3. PDF from Images',
+          description: 'Convert image files into a multi-page PDF',
+          icon: Icons.photo_album,
+          code: '''
+NativeWorker.pdfFromImages(
+  imagePaths: ['/tmp/page1.jpg', '/tmp/page2.jpg'],
+  outputPath: '/tmp/album.pdf',
+  pageSize: PdfPageSize.a4,
+)''',
+          onRun: () async {
+            final tmp = Directory.systemTemp.path;
+            await NativeWorkManager.enqueue(
+              taskId: 'demo-pdf-from-images',
+              trigger: TaskTrigger.oneTime(),
+              worker: NativeWorker.pdfFromImages(
+                imagePaths: ['$tmp/page1.jpg', '$tmp/page2.jpg'],
+                outputPath: '$tmp/album.pdf',
+              ),
+            );
+            onResult('📄 PDF from Images scheduled');
+          },
+        ),
+
+        _DemoCard(
+          title: '4. Image Resize (Crop)',
           description: 'Resize image to specific dimensions',
           icon: Icons.photo_size_select_large,
           code: '''
@@ -605,29 +682,33 @@ NativeWorker.imageProcess(
             final inputPath = '${Directory.systemTemp.path}/photo.jpg';
             final outputPath = '${Directory.systemTemp.path}/photo_1080p.jpg';
 
-            // Create dummy image file
-            final file = File(inputPath);
-            if (!await file.exists()) {
-              await file.writeAsBytes(List.filled(100, 0));
-            }
-
-            await NativeWorkManager.enqueue(
-              taskId: 'comprehensive-image-resize',
-              trigger: TaskTrigger.oneTime(),
-              worker: NativeWorker.imageProcess(
-                inputPath: inputPath,
-                outputPath: outputPath,
-                maxWidth: 1920,
-                maxHeight: 1080,
-                maintainAspectRatio: true,
-              ),
-            );
-            onResult('🖼️ Image Resize scheduled (1080p)');
+            await NativeWorkManager.beginWith(
+                  TaskRequest(
+                    id: 'comprehensive-image-download',
+                    worker: HttpDownloadWorker(
+                      url: 'https://httpbin.org/image/jpeg',
+                      savePath: inputPath,
+                    ),
+                    constraints: const Constraints(requiresNetwork: true),
+                  ),
+                )
+                .then(TaskRequest(
+                  id: 'comprehensive-image-resize',
+                  worker: NativeWorker.imageProcess(
+                    inputPath: inputPath,
+                    outputPath: outputPath,
+                    maxWidth: 1920,
+                    maxHeight: 1080,
+                    maintainAspectRatio: true,
+                  ),
+                ))
+                .enqueue();
+            onResult('🖼️ Image Resize scheduled (download → resize 1080p)');
           },
         ),
 
         _DemoCard(
-          title: '2. Image Compress',
+          title: '5. Image Compress',
           description: 'Reduce image quality to save space',
           icon: Icons.compress,
           code: '''
@@ -642,28 +723,32 @@ NativeWorker.imageProcess(
             final outputPath =
                 '${Directory.systemTemp.path}/photo_compressed.jpg';
 
-            // Create dummy image
-            final file = File(inputPath);
-            if (!await file.exists()) {
-              await file.writeAsBytes(List.filled(100, 0));
-            }
-
-            await NativeWorkManager.enqueue(
-              taskId: 'comprehensive-image-compress',
-              trigger: TaskTrigger.oneTime(),
-              worker: NativeWorker.imageProcess(
-                inputPath: inputPath,
-                outputPath: outputPath,
-                quality: 80,
-                outputFormat: ImageFormat.jpeg,
-              ),
-            );
-            onResult('📐 Image Compression scheduled (80% quality)');
+            await NativeWorkManager.beginWith(
+                  TaskRequest(
+                    id: 'comprehensive-image-download-2',
+                    worker: HttpDownloadWorker(
+                      url: 'https://httpbin.org/image/jpeg',
+                      savePath: inputPath,
+                    ),
+                    constraints: const Constraints(requiresNetwork: true),
+                  ),
+                )
+                .then(TaskRequest(
+                  id: 'comprehensive-image-compress',
+                  worker: NativeWorker.imageProcess(
+                    inputPath: inputPath,
+                    outputPath: outputPath,
+                    quality: 80,
+                    outputFormat: ImageFormat.jpeg,
+                  ),
+                ))
+                .enqueue();
+            onResult('📐 Image Compression scheduled (download → compress 80%)');
           },
         ),
 
         _DemoCard(
-          title: '3. Image Format Conversion',
+          title: '6. Image Format Conversion',
           description: 'Convert PNG to JPEG/WEBP',
           icon: Icons.transform,
           code: '''
@@ -677,28 +762,32 @@ NativeWorker.imageProcess(
             final inputPath = '${Directory.systemTemp.path}/photo.png';
             final outputPath = '${Directory.systemTemp.path}/photo.webp';
 
-            // Create dummy image
-            final file = File(inputPath);
-            if (!await file.exists()) {
-              await file.writeAsBytes(List.filled(100, 0));
-            }
-
-            await NativeWorkManager.enqueue(
-              taskId: 'comprehensive-image-convert',
-              trigger: TaskTrigger.oneTime(),
-              worker: NativeWorker.imageProcess(
-                inputPath: inputPath,
-                outputPath: outputPath,
-                outputFormat: ImageFormat.webp,
-                quality: 85,
-              ),
-            );
-            onResult('🔄 Format Conversion scheduled (PNG→WebP)');
+            await NativeWorkManager.beginWith(
+                  TaskRequest(
+                    id: 'comprehensive-image-download-png',
+                    worker: HttpDownloadWorker(
+                      url: 'https://httpbin.org/image/png',
+                      savePath: inputPath,
+                    ),
+                    constraints: const Constraints(requiresNetwork: true),
+                  ),
+                )
+                .then(TaskRequest(
+                  id: 'comprehensive-image-convert',
+                  worker: NativeWorker.imageProcess(
+                    inputPath: inputPath,
+                    outputPath: outputPath,
+                    outputFormat: ImageFormat.webp,
+                    quality: 85,
+                  ),
+                ))
+                .enqueue();
+            onResult('🔄 Format Conversion scheduled (download PNG → WebP)');
           },
         ),
 
         _DemoCard(
-          title: '4. Thumbnail Generation',
+          title: '7. Thumbnail Generation',
           description: 'Create small preview image',
           icon: Icons.image_aspect_ratio,
           code: '''
@@ -713,25 +802,29 @@ NativeWorker.imageProcess(
             final inputPath = '${Directory.systemTemp.path}/photo.jpg';
             final outputPath = '${Directory.systemTemp.path}/thumbnail.jpg';
 
-            // Create dummy image
-            final file = File(inputPath);
-            if (!await file.exists()) {
-              await file.writeAsBytes(List.filled(100, 0));
-            }
-
-            await NativeWorkManager.enqueue(
-              taskId: 'comprehensive-image-thumbnail',
-              trigger: TaskTrigger.oneTime(),
-              worker: NativeWorker.imageProcess(
-                inputPath: inputPath,
-                outputPath: outputPath,
-                maxWidth: 200,
-                maxHeight: 200,
-                quality: 70,
-                maintainAspectRatio: true,
-              ),
-            );
-            onResult('🖼️ Thumbnail Generation scheduled (200x200)');
+            await NativeWorkManager.beginWith(
+                  TaskRequest(
+                    id: 'comprehensive-image-download-3',
+                    worker: HttpDownloadWorker(
+                      url: 'https://httpbin.org/image/jpeg',
+                      savePath: inputPath,
+                    ),
+                    constraints: const Constraints(requiresNetwork: true),
+                  ),
+                )
+                .then(TaskRequest(
+                  id: 'comprehensive-image-thumbnail',
+                  worker: NativeWorker.imageProcess(
+                    inputPath: inputPath,
+                    outputPath: outputPath,
+                    maxWidth: 200,
+                    maxHeight: 200,
+                    quality: 70,
+                    maintainAspectRatio: true,
+                  ),
+                ))
+                .enqueue();
+            onResult('🖼️ Thumbnail Generation scheduled (download → 200x200)');
           },
         ),
       ],
@@ -1470,6 +1563,137 @@ class _DemoCardState extends State<_DemoCard> {
           ],
         ],
       ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TAB 8: WEBSOCKET WORKER
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _WebSocketTab extends StatelessWidget {
+  final Function(String) onResult;
+
+  const _WebSocketTab({required this.onResult});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _buildHeader(
+          context,
+          'WebSocket Worker',
+          'Connect, send messages, receive responses (Android only)',
+        ),
+
+        if (Platform.isIOS) ...[
+          Card(
+            color: Colors.blue.shade50,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.blue.shade700),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'WebSocketWorker is Android only. On iOS the task '
+                      'will return a failure result immediately.',
+                      style: TextStyle(fontSize: 11, color: Colors.blue.shade900),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        _DemoCard(
+          title: '1. Fire-and-Forget',
+          description: 'Connect, send a message, disconnect immediately',
+          icon: Icons.send,
+          code: '''
+NativeWorker.webSocket(
+  url: 'wss://echo.websocket.events',
+  messages: ['{"type":"ping"}'],
+  receiveMessages: 0,
+  timeoutSeconds: 10,
+)''',
+          onRun: () async {
+            await NativeWorkManager.enqueue(
+              taskId: 'demo-ws-fire',
+              trigger: TaskTrigger.oneTime(),
+              worker: NativeWorker.webSocket(
+                url: 'wss://echo.websocket.events',
+                messages: ['{"type":"ping"}'],
+                receiveMessages: 0,
+                timeoutSeconds: 10,
+              ),
+            );
+            onResult('📡 WebSocket fire-and-forget scheduled');
+          },
+        ),
+
+        _DemoCard(
+          title: '2. Send and Receive',
+          description: 'Send a message and wait for one response',
+          icon: Icons.swap_horiz,
+          code: '''
+NativeWorker.webSocket(
+  url: 'wss://echo.websocket.events',
+  messages: ['Hello from native_workmanager!'],
+  receiveMessages: 1,
+  storeResponseAt: '/tmp/ws_response.json',
+  timeoutSeconds: 15,
+)''',
+          onRun: () async {
+            final outputPath = '${Directory.systemTemp.path}/ws_response.json';
+            await NativeWorkManager.enqueue(
+              taskId: 'demo-ws-echo',
+              trigger: TaskTrigger.oneTime(),
+              worker: NativeWorker.webSocket(
+                url: 'wss://echo.websocket.events',
+                messages: ['Hello from native_workmanager!'],
+                receiveMessages: 1,
+                storeResponseAt: outputPath,
+                timeoutSeconds: 15,
+              ),
+            );
+            onResult('📡 WebSocket send/receive scheduled → $outputPath');
+          },
+        ),
+
+        _DemoCard(
+          title: '3. Subscribe with Keep-Alive',
+          description: 'Subscribe to a channel with periodic ping',
+          icon: Icons.wifi_tethering,
+          code: '''
+NativeWorker.webSocket(
+  url: 'wss://echo.websocket.events',
+  messages: ['{"action":"subscribe","channel":"updates"}'],
+  receiveMessages: 3,
+  pingIntervalSeconds: 10,
+  timeoutSeconds: 45,
+  headers: {'Authorization': 'Bearer \$token'},
+)''',
+          onRun: () async {
+            await NativeWorkManager.enqueue(
+              taskId: 'demo-ws-subscribe',
+              trigger: TaskTrigger.oneTime(),
+              worker: NativeWorker.webSocket(
+                url: 'wss://echo.websocket.events',
+                messages: ['{"action":"subscribe","channel":"updates"}'],
+                receiveMessages: 3,
+                pingIntervalSeconds: 10,
+                timeoutSeconds: 45,
+              ),
+            );
+            onResult('📡 WebSocket subscribe scheduled (3 messages)');
+          },
+        ),
+      ],
     );
   }
 }

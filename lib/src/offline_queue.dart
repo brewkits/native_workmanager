@@ -217,10 +217,6 @@ class OfflineQueue {
   /// without enqueuing the entry (the entry is dropped). Safe to call before [start].
   Future<void> enqueue(QueueEntry entry) async {
     if (_pending.length >= maxSize) {
-      debugPrint(
-        '[native_workmanager] OfflineQueue "$id": queue full ($maxSize), '
-        'dropping task "${entry.taskId}".',
-      );
       return;
     }
     _pending.add(_QueueSlot(
@@ -342,10 +338,6 @@ class OfflineQueue {
       // Exhausted retries → dead-letter
       _pending.removeAt(0);
       _deadLetter.add(slot);
-      debugPrint(
-        '[native_workmanager] OfflineQueue "$id": task "${entry.taskId}" '
-        'failed after ${slot.attempt + 1} attempt(s) — moved to dead-letter.',
-      );
     }
 
     _processing = false;
@@ -365,8 +357,6 @@ class OfflineQueue {
     } on TimeoutException {
       return null;
     } catch (e) {
-      debugPrint('[native_workmanager] OfflineQueue: unexpected error '
-          'waiting for event "$taskId": $e');
       return null;
     }
   }

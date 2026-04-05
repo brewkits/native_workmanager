@@ -102,14 +102,16 @@ public class IosWorkerFactory {
             return FileCompressionWorker()
         case "FileDecompressionWorker":
             return FileDecompressionWorker()
-        case "ImageProcessWorker":  // ⚠️ DO NOT REMOVE - Required for v1.0.0
+        case "ImageProcessWorker":
             return ImageProcessWorker()
         case "CryptoWorker":
             return CryptoWorker()
-        case "FileSystemWorker":  // ⚠️ DO NOT REMOVE - Required for v1.0.0
+        case "FileSystemWorker":
             return FileSystemWorker()
         case "MoveToSharedStorageWorker":
             return MoveToSharedStorageWorker()
+        case "PdfWorker":
+            return PdfWorker()
         default:
             print("IosWorkerFactory: Unknown worker class: \(className)")
             return nil

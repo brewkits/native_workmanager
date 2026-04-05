@@ -9,6 +9,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
+import androidx.work.await
 import dev.brewkits.kmpworkmanager.background.data.KmpHeavyWorker
 import dev.brewkits.kmpworkmanager.background.data.KmpWorker
 import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
@@ -17,6 +18,7 @@ import dev.brewkits.native_workmanager.notification.DownloadNotificationManager
 import dev.brewkits.native_workmanager.store.TaskStore.Companion.sanitizeConfig
 import dev.brewkits.native_workmanager.workers.HttpDownloadWorker
 import dev.brewkits.native_workmanager.workers.utils.HostConcurrencyManager
+import dev.brewkits.native_workmanager.workers.utils.KeystorePasswordVault
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
@@ -226,6 +228,16 @@ internal fun NativeWorkmanagerPlugin.handleEnqueue(call: MethodCall, result: Res
                     // Inject taskId into worker config for progress reporting
                     val enrichedConfig = workerConfig.toMutableMap()
                     enrichedConfig["__taskId"] = taskId
+                    // SC-C-001: intercept password for crypto workers — replace with vault key
+                    // so the password is never written to the unencrypted WorkManager Room DB.
+                    if (enrichedConfig["workerType"] == "crypto") {
+                        val password = enrichedConfig["password"] as? String
+                        if (!password.isNullOrEmpty()) {
+                            val vaultKey = KeystorePasswordVault.store(password)
+                            enrichedConfig.remove("password")
+                            enrichedConfig["passwordKey"] = vaultKey
+                        }
+                    }
                     toJson(enrichedConfig)
                 }
             }
@@ -432,12 +444,17 @@ internal fun NativeWorkmanagerPlugin.handleCancel(call: MethodCall, result: Resu
             val taskId = call.argument<String>("taskId")
                 ?: return@launch result.error("INVALID_ARGS", "taskId required", null)
 
-            scheduler.cancel(taskId)
+            // FIX: Use cancelAllWorkByTag instead of cancelUniqueWork so that both standalone
+            // tasks (unique work) AND chain steps (non-unique work tagged with taskId) are
+            // correctly cancelled. All tasks are tagged with their taskId via addTag(taskId).
+            withContext(Dispatchers.IO) {
+                WorkManager.getInstance(context).cancelAllWorkByTag(taskId).await()
+                taskStore.updateStatus(taskId = taskId, status = "cancelled")
+            }
             cleanupTempFilesForTask(taskId)
             // Remove tag mapping and update status
             taskTags.remove(taskId)
             taskStatuses[taskId] = "cancelled"
-            withContext(Dispatchers.IO) { taskStore.updateStatus(taskId = taskId, status = "cancelled") }
             // Dismiss any active progress notification
             taskNotifTitles.remove(taskId)?.let { DownloadNotificationManager.dismiss(context, taskId) }
             taskAllowPause.remove(taskId)
@@ -463,8 +480,9 @@ internal fun NativeWorkmanagerPlugin.handleCancelAll(result: Result) {
                         if (f.exists()) f.delete()
                     }
                 }
+                WorkManager.getInstance(context)
+                    .cancelAllWorkByTag(NativeTaskScheduler.TAG_KMP_TASK).await()
             }
-            scheduler.cancelAll()
             // Dismiss all active download notifications before clearing state
             taskNotifTitles.keys.forEach { DownloadNotificationManager.dismiss(context, it) }
             taskNotifTitles.clear()
@@ -486,31 +504,30 @@ internal fun NativeWorkmanagerPlugin.handleCancelByTag(call: MethodCall, result:
             val tag = call.argument<String>("tag")
                 ?: return@launch result.error("INVALID_ARGS", "tag required", null)
 
-            // Find all tasks with this tag
-            val tasksToCancel = taskTags.filterValues { it == tag }.keys.toList()
+            // Merge in-memory and SQLite to find all tasks with this tag.
+            val inMemoryIds = taskTags.filterValues { it == tag }.keys.toSet()
+            val dbIds = withContext(Dispatchers.IO) {
+                taskStore.getTasksByTag(tag).map { it.taskId }.toSet()
+            }
+            val tasksToCancel = (inMemoryIds + dbIds).toList()
 
             NativeLogger.d("Canceling ${tasksToCancel.size} tasks with tag '$tag'")
 
-            // Cancel each task
-            tasksToCancel.forEach { taskId ->
-                try {
-                    scheduler.cancel(taskId)
-                    cleanupTempFilesForTask(taskId)
-                    taskTags.remove(taskId)
-                    taskStatuses[taskId] = "cancelled"
-                    taskNotifTitles.remove(taskId)?.let { DownloadNotificationManager.dismiss(context, taskId) }
-                    taskAllowPause.remove(taskId)
-                    taskFilenames.remove(taskId)
-                } catch (e: Exception) {
-                    NativeLogger.w("Failed to cancel task $taskId: ${e.message}")
-                }
-            }
-
-            // Persist cancellation status for all affected tasks
+            // FIX: cancelAllWorkByTag is async; await result before returning to Dart.
             withContext(Dispatchers.IO) {
+                WorkManager.getInstance(context).cancelAllWorkByTag(tag).await()
                 tasksToCancel.forEach { taskId ->
                     taskStore.updateStatus(taskId = taskId, status = "cancelled")
                 }
+            }
+
+            tasksToCancel.forEach { taskId ->
+                cleanupTempFilesForTask(taskId)
+                taskTags.remove(taskId)
+                taskStatuses[taskId] = "cancelled"
+                taskNotifTitles.remove(taskId)?.let { DownloadNotificationManager.dismiss(context, taskId) }
+                taskAllowPause.remove(taskId)
+                taskFilenames.remove(taskId)
             }
 
             result.success(null)
@@ -526,16 +543,17 @@ internal fun NativeWorkmanagerPlugin.handleGetTasksByTag(call: MethodCall, resul
             val tag = call.argument<String>("tag")
                 ?: return@launch result.error("INVALID_ARGS", "tag required", null)
 
-            // Check in-memory first (running tasks); fall back to DB for persisted tasks
-            val inMemory = taskTags.filterValues { it == tag }.keys.toList()
-            if (inMemory.isNotEmpty()) {
-                result.success(inMemory)
-                return@launch
-            }
+            // Merge in-memory (pending/running) and SQLite (persisted) tasks for this tag.
+            // Filter out terminal-state tasks so cancelled/completed tasks don't appear.
+            val terminalStatuses = setOf("cancelled", "completed", "failed")
+            val inMemory = taskTags.filterValues { it == tag }.keys.toSet()
             val fromDb = withContext(Dispatchers.IO) {
-                taskStore.getTasksByTag(tag).map { it.taskId }
+                taskStore.getTasksByTag(tag)
+                    .filter { it.status !in terminalStatuses }
+                    .map { it.taskId }
+                    .toSet()
             }
-            result.success(fromDb)
+            result.success((inMemory + fromDb).toList())
         } catch (e: Exception) {
             result.error("GET_TASKS_ERROR", e.message, null)
         }

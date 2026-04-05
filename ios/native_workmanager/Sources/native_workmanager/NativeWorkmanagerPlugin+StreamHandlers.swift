@@ -106,7 +106,6 @@ extension NativeWorkmanagerPlugin: UNUserNotificationCenterDelegate {
                 self.activeTasks[taskId]?.cancel()
                 self.activeTasks.removeValue(forKey: taskId)
                 self.taskStates[taskId] = "cancelled"
-                self.taskTags.removeValue(forKey: taskId)
                 self.taskNotifTitles.removeValue(forKey: taskId)
                 self.taskAllowPause.removeValue(forKey: taskId)
             }

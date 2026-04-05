@@ -1,245 +1,255 @@
 import Foundation
 
-/// Persistent task storage for iOS using atomic file-based JSON records.
-/// 
-/// Instead of a database, each task is stored as a separate .json file in the
-/// app's Application Support directory. This ensures high reliability and
-/// performance without the overhead of SQLite or CoreData.
+/// Persistent store for background tasks and URLSession mappings on iOS.
 ///
-/// Uses .atomic writing to guarantee data integrity across app crashes and reboots.
+/// This store manages:
+/// 1. Individual task metadata (status, configuration, results)
+/// 2. Background session mapping (url -> taskId) to survive app termination
+/// 3. Task tags for grouped cancellation
+///
+/// Replaces UserDefaults and provides ACID compliance for background operations.
 @available(iOS 13.0, *)
-public class TaskStore {
+class TaskStore {
     
-    public struct TaskRecord: Codable {
-        public let taskId: String
-        public let tag: String?
-        public let status: String
-        public let workerClassName: String
-        public let workerConfig: String?
-        public let createdAt: Int64
-        public let updatedAt: Int64
-        public let resultData: String?
-        public let constraintsJson: String?
-        
-        /// Returns a sanitized version of the record with sensitive config fields removed.
-        /// Prevents leaking auth tokens or passwords via backups or file system dumps.
-        public func sanitized() -> TaskRecord {
-            guard let config = workerConfig else { return self }
-            return TaskRecord(
-                taskId: taskId,
-                tag: tag,
-                status: status,
-                workerClassName: workerClassName,
-                workerConfig: TaskStore.sanitizeConfig(config),
-                createdAt: createdAt,
-                updatedAt: updatedAt,
-                resultData: resultData,
-                constraintsJson: constraintsJson
-            )
-        }
-        
-        /// For backward compatibility with existing plugin logic.
-        public func toFlutterMap() -> [String: Any?] {
-            return [
-                "taskId": taskId,
-                "tag": tag,
-                "status": status,
-                "workerClassName": workerClassName,
-                "createdAt": createdAt,
-                "updatedAt": updatedAt,
-                "resultData": resultData
-            ]
-        }
-    }
+    static let shared = TaskStore(name: "native_workmanager_tasks")
     
-    public static let shared = TaskStore()
-    
-    private let fileManager = FileManager.default
-    private let tasksDir: URL
-    
-    private init() {
-        // Use Application Support directory for persistent data (standard iOS practice).
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        tasksDir = appSupport.appendingPathComponent("native_workmanager/tasks", isDirectory: true)
-        
-        // Ensure the directory exists.
-        if !fileManager.fileExists(atPath: tasksDir.path) {
-            try? fileManager.createDirectory(at: tasksDir, withIntermediateDirectories: true)
-        }
-    }
-    
-    /// Persist or update a task record.
-    /// Uses .atomic writing to prevent file corruption.
-    public func upsert(
-        taskId: String,
-        tag: String?,
-        status: String,
-        workerClassName: String,
-        workerConfig: String?,
-        constraintsJson: String? = nil
-    ) {
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
-        let existing = getTask(taskId: taskId)
-        
-        let record = TaskRecord(
-            taskId: taskId,
-            tag: tag,
-            status: status,
-            workerClassName: workerClassName,
-            workerConfig: workerConfig,
-            createdAt: existing?.createdAt ?? now,
-            updatedAt: now,
-            resultData: existing?.resultData,
-            constraintsJson: constraintsJson
-        )
-        
-        save(record)
-    }
-    
-    /// Update status and optional result data for an existing task.
-    public func updateStatus(taskId: String, status: String, resultData: String? = nil) {
-        guard var record = getTask(taskId: taskId) else { return }
-        
-        record = TaskRecord(
-            taskId: record.taskId,
-            tag: record.tag,
-            status: status,
-            workerClassName: record.workerClassName,
-            workerConfig: record.workerConfig,
-            createdAt: record.createdAt,
-            updatedAt: Int64(Date().timeIntervalSince1970 * 1000),
-            resultData: resultData ?? record.resultData,
-            constraintsJson: record.constraintsJson
-        )
-        
-        save(record)
-    }
-    
-    /// Retrieve a task by ID.
-    public func getTask(taskId: String) -> TaskRecord? {
-        let fileURL = tasksDir.appendingPathComponent("\(taskId).json")
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
-        return try? JSONDecoder().decode(TaskRecord.self, from: data)
-    }
-    
-    /// Compatibility alias for getTask
-    public func task(taskId: String) -> TaskRecord? {
-        return getTask(taskId: taskId)
-    }
-    
-    /// Retrieve all tasks, sorted by updatedAt descending.
-    public func getAllTasks() -> [TaskRecord] {
-        guard let files = try? fileManager.contentsOfDirectory(at: tasksDir, includingPropertiesForKeys: nil) else {
-            return []
-        }
-        
-        let records = files.compactMap { fileURL -> TaskRecord? in
-            guard fileURL.pathExtension == "json" else { return nil }
-            guard let data = try? Data(contentsOf: fileURL) else { return nil }
-            return try? JSONDecoder().decode(TaskRecord.self, from: data)
-        }
-        
-        return records.sorted { $0.updatedAt > $1.updatedAt }
-    }
-    
-    /// Compatibility alias for getAllTasks
-    public func allTasks() -> [TaskRecord] {
-        return getAllTasks()
-    }
-    
-    /// Delete a task record.
-    public func delete(taskId: String) {
-        let fileURL = tasksDir.appendingPathComponent("\(taskId).json")
-        try? fileManager.removeItem(at: fileURL)
+    private let sqlite: SQLiteStore
+
+    init(name: String) {
+        self.sqlite = SQLiteStore(name: name)
+        setup()
     }
 
-    /// Recover "Zombie" tasks that are stuck in 'running' state.
-    /// 
-    /// FIX #03: Added Heartbeat check. Only recover tasks that have been in 'running'
-    /// state without any update for more than 5 minutes. This prevents killing
-    /// tasks that were just started by the OS during app launch.
-    public func recoverZombieTasks() {
-        let all = getAllTasks()
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
-        let timeoutMs: Int64 = 5 * 60 * 1000 // 5 minutes heartbeat timeout
+    private func setup() {
+        // Table for individual task metadata
+        let tasksSql = """
+        CREATE TABLE IF NOT EXISTS tasks (
+            task_id TEXT PRIMARY KEY,
+            tag TEXT,
+            status TEXT NOT NULL, -- pending, running, success, failed, cancelled, paused
+            worker_class_name TEXT NOT NULL,
+            worker_config TEXT, -- FULL JSON configuration
+            result_data TEXT,
+            error_message TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        """
+        sqlite.execute(sql: tasksSql)
+        sqlite.execute(sql: "CREATE INDEX IF NOT EXISTS idx_tasks_tag ON tasks(tag);")
+        sqlite.execute(sql: "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);")
+
+        // Table for background URLSession mapping (replaces UserDefaults)
+        // Stores enough info to re-attach a taskId to a system URLSession relaunch event.
+        let registrySql = """
+        CREATE TABLE IF NOT EXISTS background_registry (
+            task_id TEXT PRIMARY KEY,
+            url_string TEXT NOT NULL,
+            destination_path TEXT NOT NULL,
+            resume_data BLOB,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        """
+        sqlite.execute(sql: registrySql)
+        sqlite.execute(sql: "CREATE INDEX IF NOT EXISTS idx_registry_url ON background_registry(url_string);")
         
-        var recoveredCount = 0
-        for record in all where record.status == "running" {
-            if (now - record.updatedAt) > timeoutMs {
-                updateStatus(
-                    taskId: record.taskId,
-                    status: "failed",
-                    resultData: "{\"message\": \"Process died or hung (heartbeat timeout)\", \"shouldRetry\": true}"
-                )
-                recoveredCount += 1
-            }
-        }
-        if recoveredCount > 0 {
-            print("TaskStore: Recovered \(recoveredCount) zombie tasks (heartbeat based)")
-        }
+        // ✅ NEW: Migrate data from legacy UserDefaults if exists
+        migrateFromUserDefaults()
     }
 
-    /// Delete old tasks (cleanup).
-    public func deleteCompleted(olderThanMs: Int64 = 0) {
-        let threshold = olderThanMs > 0 ? Int64(Date().timeIntervalSince1970 * 1000) - olderThanMs : Int64.max
-        let all = getAllTasks()
+    /// Migration logic for upgrading from legacy versions (< 1.1.0) that used UserDefaults.
+    /// Moves persisted background session mappings to the new SQLite registry table.
+    private func migrateFromUserDefaults() {
+        let defaults = UserDefaults.standard
+        let destRegistryKey = "NativeWorkManager.BGSession.destinations" // [taskId: destPath]
+        let urlRegistryKey  = "NativeWorkManager.BGSession.urls"         // [urlString: taskId]
         
-        for record in all {
-            let s = record.status
-            if (s == "completed" || s == "failed" || s == "cancelled") && record.updatedAt < threshold {
-                delete(taskId: record.taskId)
+        guard let dests = defaults.dictionary(forKey: destRegistryKey) as? [String: String],
+              let urls = defaults.dictionary(forKey: urlRegistryKey) as? [String: String] else {
+            return
+        }
+        
+        NativeLogger.d("📦 Found legacy background task registry in UserDefaults. Starting migration...")
+        
+        var migratedCount = 0
+        for (taskId, destPath) in dests {
+            // Find the URL for this taskId from the urls registry
+            // Legacy mapping was urlString -> taskId
+            if let url = urls.first(where: { $0.value == taskId })?.key {
+                registerBackgroundDownload(taskId: taskId, url: url, destinationPath: destPath)
+                migratedCount += 1
             }
         }
+        
+        // ✅ Clean up: Remove old keys after successful migration to avoid re-migration
+        defaults.removeObject(forKey: destRegistryKey)
+        defaults.removeObject(forKey: urlRegistryKey)
+        
+        NativeLogger.d("✅ Successfully migrated \(migratedCount) records from UserDefaults to SQLite.")
     }
-    
-    private func save(_ record: TaskRecord) {
-        let fileURL = tasksDir.appendingPathComponent("\(record.taskId).json")
-        
-        // Sanitize before persisting to prevent sensitive data leakage.
-        let sanitized = record.sanitized()
-        
-        if let data = try? JSONEncoder().encode(sanitized) {
-            // .atomic writing ensures the old file is only replaced if the new write succeeds.
-            try? data.write(to: fileURL, options: .atomic)
-        }
+
+    // MARK: - Task Management
+
+    func upsert(taskId: String, tag: String?, status: String, workerClassName: String, workerConfig: String?) {
+        let now = Int(Date().timeIntervalSince1970)
+        let sql = """
+        INSERT INTO tasks (task_id, tag, status, worker_class_name, worker_config, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(task_id) DO UPDATE SET
+            status = excluded.status,
+            updated_at = excluded.updated_at;
+        """
+        sqlite.execute(sql: sql, params: [
+            taskId,
+            tag ?? NSNull(),
+            status,
+            workerClassName,
+            workerConfig ?? NSNull(),
+            now,
+            now
+        ])
     }
-    
-    // MARK: - Security & Sanitization
-    
-    private static let sensitiveKeys = [
-        "authToken", "authorization", "cookies", "password", "secret",
-        "accessToken", "refreshToken", "apiKey", "token", "bearer"
-    ]
-    
-    /// Recursively strips sensitive keys from JSON config before persistence.
-    public static func sanitizeConfig(_ json: String) -> String {
-        guard let data = json.data(using: .utf8),
-              var dict = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) else {
-            return json
-        }
-        
-        sanitizeDictionary(&dict)
-        
-        if let sanitizedData = try? JSONSerialization.data(withJSONObject: dict, options: []),
-           let result = String(data: sanitizedData, encoding: .utf8) {
-            return result
-        }
-        return json
+
+    func updateStatus(taskId: String, status: String, resultData: String? = nil, errorMessage: String? = nil) {
+        let now = Int(Date().timeIntervalSince1970)
+        let sql = """
+        UPDATE tasks SET 
+            status = ?, 
+            result_data = ?, 
+            error_message = ?, 
+            updated_at = ? 
+        WHERE task_id = ?;
+        """
+        sqlite.execute(sql: sql, params: [status, resultData ?? NSNull(), errorMessage ?? NSNull(), now, taskId])
     }
-    
-    public static func sanitizeDictionary(_ dict: inout [String: Any]) {
-        for key in dict.keys {
-            if sensitiveKeys.contains(where: { $0.lowercased() == key.lowercased() }) {
-                dict[key] = "[REDACTED]"
-            } else if var nestedDict = dict[key] as? [String: Any] {
-                sanitizeDictionary(&nestedDict)
-                dict[key] = nestedDict
-            } else if var nestedArray = dict[key] as? [[String: Any]] {
-                for i in 0..<nestedArray.count {
-                    sanitizeDictionary(&nestedArray[i])
+
+    func task(taskId: String) -> TaskRecord? {
+        let sql = "SELECT * FROM tasks WHERE task_id = ? LIMIT 1;"
+        guard let row = sqlite.query(sql: sql, params: [taskId]).first else { return nil }
+        return TaskRecord(from: row)
+    }
+
+    func allTasks() -> [TaskRecord] {
+        let sql = "SELECT * FROM tasks ORDER BY created_at DESC;"
+        return sqlite.query(sql: sql).map { TaskRecord(from: $0) }
+    }
+
+    func delete(taskId: String) {
+        sqlite.execute(sql: "DELETE FROM tasks WHERE task_id = ?;", params: [taskId])
+    }
+
+    func deleteCompleted(olderThanMs: Int64) {
+        let threshold = Int64(Date().timeIntervalSince1970 * 1000) - olderThanMs
+        let thresholdSec = Int(threshold / 1000)
+        let sql = "DELETE FROM tasks WHERE status IN ('success', 'failed', 'cancelled') AND updated_at < ?;"
+        sqlite.execute(sql: sql, params: [thresholdSec])
+    }
+
+    func recoverZombieTasks() {
+        let now = Int(Date().timeIntervalSince1970)
+        // If app crashed/rebooted, tasks stuck in 'running' or 'pending' for over 1 hour 
+        // without an update should be marked as failed so they can be retried.
+        let oneHourAgo = now - 3600
+        let sql = "UPDATE tasks SET status = 'failed', error_message = 'Process terminated unexpectedly' WHERE status IN ('running', 'pending') AND updated_at < ?;"
+        sqlite.execute(sql: sql, params: [oneHourAgo])
+    }
+
+    // MARK: - Background Registry (Replacing UserDefaults)
+
+    func registerBackgroundDownload(taskId: String, url: String, destinationPath: String) {
+        let now = Int(Date().timeIntervalSince1970)
+        let sql = """
+        INSERT INTO background_registry (task_id, url_string, destination_path, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(task_id) DO UPDATE SET
+            url_string = excluded.url_string,
+            destination_path = excluded.destination_path,
+            updated_at = excluded.updated_at;
+        """
+        sqlite.execute(sql: sql, params: [taskId, url, destinationPath, now, now])
+    }
+
+    func updateResumeData(taskId: String, data: Data?) {
+        let now = Int(Date().timeIntervalSince1970)
+        let sql = "UPDATE background_registry SET resume_data = ?, updated_at = ? WHERE task_id = ?;"
+        sqlite.execute(sql: sql, params: [data ?? NSNull(), now, taskId])
+    }
+
+    func getRegistryByTaskId(taskId: String) -> [String: Any]? {
+        let sql = "SELECT * FROM background_registry WHERE task_id = ? LIMIT 1;"
+        return sqlite.query(sql: sql, params: [taskId]).first
+    }
+
+    func getRegistryByUrl(url: String) -> [String: Any]? {
+        let sql = "SELECT * FROM background_registry WHERE url_string = ? LIMIT 1;"
+        return sqlite.query(sql: sql, params: [url]).first
+    }
+
+    func unregisterBackgroundDownload(taskId: String) {
+        sqlite.execute(sql: "DELETE FROM background_registry WHERE task_id = ?;", params: [taskId])
+    }
+
+    // MARK: - Helpers
+
+    /// Redacts sensitive information from a worker configuration dictionary for safe logging or storage.
+    static func sanitizeConfig(_ config: [String: Any]?) -> [String: Any]? {
+        guard var sanitized = config else { return nil }
+        let sensitiveKeys = ["authToken", "password", "apiKey", "secret", "token", "cookies"]
+        
+        for key in sensitiveKeys {
+            if sanitized[key] != nil {
+                sanitized[key] = "[redacted]"
+            }
+        }
+        
+        // Deep sanitize headers if present
+        if var headers = sanitized["headers"] as? [String: String] {
+            let sensitiveHeaders = ["Authorization", "Cookie", "Set-Cookie", "x-api-key"]
+            for hKey in headers.keys {
+                if sensitiveHeaders.contains(where: { hKey.caseInsensitiveCompare($0) == .orderedSame }) {
+                    headers[hKey] = "[redacted]"
                 }
-                dict[key] = nestedArray
             }
+            sanitized["headers"] = headers
         }
+        
+        return sanitized
+    }
+}
+
+/// Data record for a task.
+struct TaskRecord {
+    let taskId: String
+    let tag: String?
+    let status: String
+    let workerClassName: String
+    let workerConfig: String?
+    let resultData: String?
+    let errorMessage: String?
+    let createdAt: Int
+    let updatedAt: Int
+
+    init(from row: [String: Any]) {
+        self.taskId = row["task_id"] as? String ?? ""
+        self.tag = row["tag"] as? String
+        self.status = row["status"] as? String ?? "unknown"
+        self.workerClassName = row["worker_class_name"] as? String ?? ""
+        self.workerConfig = row["worker_config"] as? String
+        self.resultData = row["result_data"] as? String
+        self.errorMessage = row["error_message"] as? String
+        self.createdAt = row["created_at"] as? Int ?? 0
+        self.updatedAt = row["updated_at"] as? Int ?? 0
+    }
+
+    func toFlutterMap() -> [String: Any] {
+        return [
+            "taskId": taskId,
+            "tag": tag as Any,
+            "status": status,
+            "workerClassName": workerClassName,
+            "createdAt": createdAt * 1000, // Ms for Dart
+            "updatedAt": updatedAt * 1000
+        ]
     }
 }

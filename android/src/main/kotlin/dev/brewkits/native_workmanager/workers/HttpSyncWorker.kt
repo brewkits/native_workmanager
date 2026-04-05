@@ -103,6 +103,19 @@ class HttpSyncWorker : AndroidWorker {
 
         // Encode request body
         val requestBody = if (config.requestBody != null) {
+            // NET-009: validate that the body is valid JSON before sending with Content-Type: application/json.
+            // A non-JSON body would be silently transmitted, confusing the server.
+            try {
+                org.json.JSONObject(config.requestBody)
+            } catch (_: org.json.JSONException) {
+                try {
+                    org.json.JSONArray(config.requestBody)
+                } catch (_: org.json.JSONException) {
+                    Log.e(TAG, "requestBody is not valid JSON; refusing to send with Content-Type: application/json")
+                    return@withContext WorkerResult.Failure("requestBody is not valid JSON")
+                }
+            }
+
             val bodyBytes = config.requestBody.toByteArray(Charsets.UTF_8)
 
             // ✅ SECURITY: Validate request body size

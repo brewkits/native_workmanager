@@ -34,10 +34,10 @@ extension NativeWorkmanagerPlugin {
             let constraints = nodeData["constraints"] as? [String: Any]
 
             let configJson: String? = {
-                let dict = workerConfig
-                guard let data = try? JSONSerialization.data(withJSONObject: dict),
+                let dict = TaskStore.sanitizeConfig(workerConfig)
+                guard let data = try? JSONSerialization.data(withJSONObject: dict as Any),
                       let s = String(data: data, encoding: .utf8) else { return nil }
-                return TaskStore.sanitizeConfig(s)
+                return s
             }()
 
             let constraintsJson: String? = {

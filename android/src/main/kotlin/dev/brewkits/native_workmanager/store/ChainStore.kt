@@ -3,7 +3,6 @@ package dev.brewkits.native_workmanager.store
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
-import android.database.sqlite.SQLiteOpenHelper
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -42,37 +41,7 @@ internal class ChainStore(context: Context) {
         val updatedAt: Long,
     )
 
-    private val helper = object : SQLiteOpenHelper(context, "native_workmanager.db", null, 3) {
-        override fun onCreate(db: SQLiteDatabase) {
-            db.execSQL("""
-                CREATE TABLE IF NOT EXISTS chains (
-                    chain_id      TEXT PRIMARY KEY,
-                    chain_name    TEXT,
-                    status        TEXT NOT NULL DEFAULT 'pending',
-                    total_steps   INTEGER NOT NULL DEFAULT 0,
-                    current_step  INTEGER NOT NULL DEFAULT 0,
-                    created_at    INTEGER NOT NULL,
-                    updated_at    INTEGER NOT NULL
-                )
-            """.trimIndent())
-            db.execSQL("""
-                CREATE TABLE IF NOT EXISTS chain_steps (
-                    chain_id    TEXT NOT NULL,
-                    step_index  INTEGER NOT NULL,
-                    task_id     TEXT NOT NULL,
-                    status      TEXT NOT NULL DEFAULT 'pending',
-                    result_json TEXT,
-                    updated_at  INTEGER NOT NULL,
-                    PRIMARY KEY (chain_id, task_id)
-                )
-            """.trimIndent())
-        }
-        override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
-            if (old < 3) {
-                onCreate(db)  // Additive-only — existing tables from v1/v2 are untouched
-            }
-        }
-    }
+    private val dbHelper = DatabaseHelper.getInstance(context)
 
     // ─── Write ────────────────────────────────────────────────────────────────
 
@@ -83,7 +52,7 @@ internal class ChainStore(context: Context) {
         status: String = "pending",
     ) {
         val now = System.currentTimeMillis()
-        val db = helper.writableDatabase
+        val db = dbHelper.writableDatabase
         val cv = ContentValues().apply {
             put("chain_id", chainId)
             put("chain_name", chainName)
@@ -110,7 +79,7 @@ internal class ChainStore(context: Context) {
             put("status", status)
             put("updated_at", now)
         }
-        helper.writableDatabase.insertWithOnConflict("chain_steps", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+        dbHelper.writableDatabase.insertWithOnConflict("chain_steps", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
     fun updateChainStatus(chainId: String, status: String, currentStep: Int? = null) {
@@ -119,7 +88,7 @@ internal class ChainStore(context: Context) {
             put("updated_at", System.currentTimeMillis())
             if (currentStep != null) put("current_step", currentStep)
         }
-        helper.writableDatabase.update("chains", cv, "chain_id = ?", arrayOf(chainId))
+        dbHelper.writableDatabase.update("chains", cv, "chain_id = ?", arrayOf(chainId))
     }
 
     fun updateStepStatus(chainId: String, taskId: String, status: String, resultJson: String? = null) {
@@ -128,7 +97,7 @@ internal class ChainStore(context: Context) {
             put("updated_at", System.currentTimeMillis())
             if (resultJson != null) put("result_json", resultJson)
         }
-        helper.writableDatabase.update(
+        dbHelper.writableDatabase.update(
             "chain_steps", cv,
             "chain_id = ? AND task_id = ?",
             arrayOf(chainId, taskId)
@@ -138,12 +107,12 @@ internal class ChainStore(context: Context) {
     // ─── Read ─────────────────────────────────────────────────────────────────
 
     fun getChain(chainId: String): ChainRecord? =
-        helper.readableDatabase
+        dbHelper.readableDatabase
             .rawQuery("SELECT * FROM chains WHERE chain_id = ?", arrayOf(chainId))
             .use { c -> if (c.moveToFirst()) c.toChainRecord() else null }
 
     fun getPendingChains(): List<ChainRecord> =
-        helper.readableDatabase
+        dbHelper.readableDatabase
             .rawQuery("SELECT * FROM chains WHERE status IN ('pending','running') ORDER BY created_at ASC", null)
             .use { c ->
                 val list = mutableListOf<ChainRecord>()
@@ -152,7 +121,7 @@ internal class ChainStore(context: Context) {
             }
 
     fun getStepsForChain(chainId: String): List<ChainStepRecord> =
-        helper.readableDatabase
+        dbHelper.readableDatabase
             .rawQuery(
                 "SELECT * FROM chain_steps WHERE chain_id = ? ORDER BY step_index ASC",
                 arrayOf(chainId)
@@ -165,7 +134,7 @@ internal class ChainStore(context: Context) {
 
     /** Returns the result JSON from the last completed step before [stepIndex]. */
     fun getPreviousStepResult(chainId: String, beforeStepIndex: Int): String? =
-        helper.readableDatabase.rawQuery(
+        dbHelper.readableDatabase.rawQuery(
             """SELECT result_json FROM chain_steps
                WHERE chain_id = ? AND step_index < ? AND status = 'completed'
                ORDER BY step_index DESC LIMIT 1""",
@@ -175,7 +144,7 @@ internal class ChainStore(context: Context) {
     /** Auto-prune completed/failed chains older than [olderThanMs] milliseconds. */
     fun deleteOldChains(olderThanMs: Long) {
         val threshold = System.currentTimeMillis() - olderThanMs
-        val db = helper.writableDatabase
+        val db = dbHelper.writableDatabase
         // Delete steps first (FK consistency), then headers
         db.delete(
             "chain_steps",

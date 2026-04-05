@@ -3,7 +3,6 @@ package dev.brewkits.native_workmanager.store
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
-import android.database.sqlite.SQLiteOpenHelper
 
 /**
  * Persistent store for task middleware rules on Android.
@@ -29,44 +28,31 @@ internal class MiddlewareStore private constructor(context: Context) {
         val updatedAt: Long
     )
 
-    private val helper = object : SQLiteOpenHelper(context, "native_workmanager.db", null, 6) {
-        override fun onCreate(db: SQLiteDatabase) {
-            // Tables from previous versions...
-            db.execSQL("""
-                CREATE TABLE IF NOT EXISTS middleware (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    type        TEXT NOT NULL,
-                    config_json TEXT NOT NULL,
-                    updated_at  INTEGER NOT NULL
-                )
-            """.trimIndent())
-        }
-
-        override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
-            if (old < 6) {
-                db.execSQL("""
-                    CREATE TABLE IF NOT EXISTS middleware (
-                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                        type        TEXT NOT NULL,
-                        config_json TEXT NOT NULL,
-                        updated_at  INTEGER NOT NULL
-                    )
-                """.trimIndent())
-            }
-        }
-    }
+    private val dbHelper = DatabaseHelper.getInstance(context)
 
     fun add(type: String, configJson: String): Long {
-        val cv = ContentValues().apply {
-            put("type", type)
-            put("config_json", configJson)
-            put("updated_at", System.currentTimeMillis())
+        val db = dbHelper.writableDatabase
+        db.beginTransaction()
+        return try {
+            // Upsert by type: remove any existing entry first so registerMiddleware
+            // is idempotent — calling it twice replaces the old config instead of
+            // accumulating duplicate rows that would be applied multiple times.
+            db.delete("middleware", "type = ?", arrayOf(type))
+            val cv = ContentValues().apply {
+                put("type", type)
+                put("config_json", configJson)
+                put("updated_at", System.currentTimeMillis())
+            }
+            val id = db.insert("middleware", null, cv)
+            db.setTransactionSuccessful()
+            id
+        } finally {
+            db.endTransaction()
         }
-        return helper.writableDatabase.insert("middleware", null, cv)
     }
 
     fun getAll(): List<MiddlewareRecord> =
-        helper.readableDatabase.rawQuery("SELECT * FROM middleware", null).use { c ->
+        dbHelper.readableDatabase.rawQuery("SELECT * FROM middleware", null).use { c ->
             val list = mutableListOf<MiddlewareRecord>()
             while (c.moveToNext()) {
                 list.add(MiddlewareRecord(
@@ -80,6 +66,6 @@ internal class MiddlewareStore private constructor(context: Context) {
         }
 
     fun clear() {
-        helper.writableDatabase.delete("middleware", null, null)
+        dbHelper.writableDatabase.delete("middleware", null, null)
     }
 }

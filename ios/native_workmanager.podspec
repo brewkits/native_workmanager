@@ -4,7 +4,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'native_workmanager'
-  s.version          = '1.2.0'
+  s.version          = '1.1.0'
   s.summary          = 'Background task manager for Flutter using platform-native APIs.'
   s.description      = <<-DESC
 Native WorkManager is a Flutter plugin that provides native background task scheduling
@@ -24,7 +24,6 @@ Features:
   # Sources now live in the SPM-compatible location (shared with Package.swift)
   s.source_files     = 'native_workmanager/Sources/native_workmanager/**/*.{swift,h,m}'
   s.dependency 'Flutter'
-  s.dependency 'ZIPFoundation', '~> 0.9'
   s.platform         = :ios, '14.0'
 
   # Ensure Swift files are included

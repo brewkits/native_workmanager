@@ -109,7 +109,7 @@ class TaskNode {
 ///
 /// ## Limitations
 ///
-/// - The graph must be a **DAG** — cycles are detected during [enqueue] and
+/// - The graph must be a **DAG** — cycles are detected during [enqueueTaskGraph] and
 ///   throw an [ArgumentError].
 /// - All node IDs must be **unique within the graph**.
 /// - The implementation uses the existing [NativeWorkManager.events] stream
@@ -123,6 +123,9 @@ class TaskGraph {
   final String id;
 
   final List<TaskNode> _nodes = [];
+
+  /// All nodes currently in the graph.
+  List<TaskNode> get nodes => List.unmodifiable(_nodes);
 
   Map<String, TaskNode> get _nodeMap => {for (final n in _nodes) n.id: n};
 
@@ -253,6 +256,11 @@ class GraphResult {
 /// (all nodes complete or any node fails).
 class GraphExecution {
   GraphExecution._(this.graphId, this._result);
+
+  /// Internal constructor for testing.
+  @visibleForTesting
+  factory GraphExecution.internal(String graphId, Future<GraphResult> result) =>
+      GraphExecution._(graphId, result);
 
   final String graphId;
   final Future<GraphResult> _result;

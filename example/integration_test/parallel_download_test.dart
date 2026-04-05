@@ -10,7 +10,7 @@ void main() {
 
   group('Parallel Download Integration Test', () {
     late Directory tmpDir;
-    
+
     setUpAll(() async {
       await NativeWorkManager.initialize();
       await NativeWorkManager.cancelAll();
@@ -22,7 +22,10 @@ void main() {
     });
 
     /// Helper to wait for a task event
-    Future<TaskEvent?> waitEvent(String taskId, {Duration timeout = const Duration(minutes: 2)}) async {
+    Future<TaskEvent?> waitEvent(
+      String taskId, {
+      Duration timeout = const Duration(minutes: 2),
+    }) async {
       final completer = Completer<TaskEvent?>();
       late StreamSubscription sub;
       sub = NativeWorkManager.events.listen((event) {
@@ -31,16 +34,21 @@ void main() {
           sub.cancel();
         }
       });
-      return completer.future.timeout(timeout, onTimeout: () {
-        sub.cancel();
-        return null;
-      });
+      return completer.future.timeout(
+        timeout,
+        onTimeout: () {
+          sub.cancel();
+          return null;
+        },
+      );
     }
 
-    testWidgets('should download a file in parallel chunks and merge correctly', (tester) async {
+    testWidgets('should download a file in parallel chunks and merge correctly', (
+      tester,
+    ) async {
       final taskId = 'parallel_dl_${DateTime.now().millisecondsSinceEpoch}';
       final savePath = '${tmpDir.path}/large_file.zip';
-      
+
       // Remove old file if exists
       final file = File(savePath);
       if (file.existsSync()) file.deleteSync();
@@ -49,13 +57,16 @@ void main() {
 
       // We use a known large file from GitHub or a reliable CDN for testing parallel download.
       // 5MB is enough to test 4 chunks (~1.25MB each).
-      const downloadUrl = 'https://raw.githubusercontent.com/flutter/flutter/master/bin/cache/pkg/sky_engine/lib/ui/window.dart'; // Just a sample, better to use a real large file
+      const downloadUrl =
+          'https://raw.githubusercontent.com/flutter/flutter/master/bin/cache/pkg/sky_engine/lib/ui/window.dart'; // Just a sample, better to use a real large file
       // Actually, let's use a 5MB random data file if possible, or a known stable large URL.
       // For this test, let's use a reliable 1MB file from httpbin.
-      const reliableUrl = 'https://httpbin.org/image/png'; // ~8KB, too small for parallel but good for logic.
-      
+      const reliableUrl =
+          'https://httpbin.org/image/png'; // ~8KB, too small for parallel but good for logic.
+
       // Let's use a real large file for true parallel test
-      const largeFileUrl = 'https://github.com/brewkits/native_workmanager/raw/main/benchmark/assets/test_5mb.zip';
+      const largeFileUrl =
+          'https://github.com/brewkits/native_workmanager/raw/main/benchmark/assets/test_5mb.zip';
 
       await NativeWorkManager.enqueue(
         taskId: taskId,
@@ -71,14 +82,18 @@ void main() {
       );
 
       final event = await future;
-      
+
       expect(event, isNotNull, reason: 'Parallel download should complete');
-      expect(event!.success, isTrue, reason: 'Parallel download should succeed');
-      
+      expect(
+        event!.success,
+        isTrue,
+        reason: 'Parallel download should succeed',
+      );
+
       // Verify file exists and has size
       expect(file.existsSync(), isTrue);
       expect(file.lengthSync(), isPositive);
-      
+
       // Verify result data indicates parallel execution
       if (event.resultData != null) {
         expect(event.resultData!['parallelDownload'], isTrue);
@@ -86,34 +101,41 @@ void main() {
       }
     });
 
-    testWidgets('should fallback to sequential download if server does not support Range', (tester) async {
-      final taskId = 'fallback_dl_${DateTime.now().millisecondsSinceEpoch}';
-      final savePath = '${tmpDir.path}/fallback_file.png';
-      
-      // httpbin.org/image/png does NOT support Range requests.
-      const urlNoRange = 'https://httpbin.org/image/png';
+    testWidgets(
+      'should fallback to sequential download if server does not support Range',
+      (tester) async {
+        final taskId = 'fallback_dl_${DateTime.now().millisecondsSinceEpoch}';
+        final savePath = '${tmpDir.path}/fallback_file.png';
 
-      final future = waitEvent(taskId);
+        // httpbin.org/image/png does NOT support Range requests.
+        const urlNoRange = 'https://httpbin.org/image/png';
 
-      await NativeWorkManager.enqueue(
-        taskId: taskId,
-        trigger: const TaskTrigger.oneTime(),
-        worker: NativeWorker.parallelHttpDownload(
-          url: urlNoRange,
-          savePath: savePath,
-          numChunks: 4,
-        ),
-      );
+        final future = waitEvent(taskId);
 
-      final event = await future;
-      
-      expect(event, isNotNull);
-      expect(event!.success, isTrue, reason: 'Should succeed even with fallback');
-      
-      if (event.resultData != null) {
-        // parallelDownload should be false or missing in sequential fallback
-        expect(event.resultData!['parallelDownload'], isNot(isTrue));
-      }
-    });
+        await NativeWorkManager.enqueue(
+          taskId: taskId,
+          trigger: const TaskTrigger.oneTime(),
+          worker: NativeWorker.parallelHttpDownload(
+            url: urlNoRange,
+            savePath: savePath,
+            numChunks: 4,
+          ),
+        );
+
+        final event = await future;
+
+        expect(event, isNotNull);
+        expect(
+          event!.success,
+          isTrue,
+          reason: 'Should succeed even with fallback',
+        );
+
+        if (event.resultData != null) {
+          // parallelDownload should be false or missing in sequential fallback
+          expect(event.resultData!['parallelDownload'], isNot(isTrue));
+        }
+      },
+    );
   });
 }

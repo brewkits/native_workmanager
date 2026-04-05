@@ -150,7 +150,7 @@ class TaskRequest {
 /// .enqueue();
 /// ```
 ///
-/// ## Parallel Tasks (A → [B1, B2, B3])
+/// ## Parallel Tasks (A → \[B1, B2, B3\])
 ///
 /// ```dart
 /// await NativeWorkManager.beginWith(
@@ -302,7 +302,7 @@ class TaskChainBuilder {
 
   /// Add multiple tasks to run in parallel after the previous step completes.
   ///
-  /// Creates parallel execution: current step → [task1, task2, task3].
+  /// Creates parallel execution: current step → `[task1, task2, task3]`.
   /// All tasks in the list start simultaneously. The next step waits for
   /// ALL parallel tasks to complete.
   ///

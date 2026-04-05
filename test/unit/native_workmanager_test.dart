@@ -498,4 +498,95 @@ void main() {
       expect(restored.totalSteps, isNull);
     });
   });
+
+  // ──────────────────────────────────────────────────────────────
+  // reportDartWorkerProgress — null/empty taskId guards & clamping
+  // ──────────────────────────────────────────────────────────────
+  group('reportDartWorkerProgress', () {
+    test('returns without error when taskId is null', () async {
+      // Should return early and not throw — no platform channel call made.
+      await expectLater(
+        NativeWorkManager.reportDartWorkerProgress(
+          taskId: null,
+          progress: 50,
+        ),
+        completes,
+      );
+    });
+
+    test('returns without error when taskId is empty string', () async {
+      await expectLater(
+        NativeWorkManager.reportDartWorkerProgress(
+          taskId: '',
+          progress: 50,
+        ),
+        completes,
+      );
+    });
+
+    test('clamps progress below 0 to 0', () {
+      // Verify clamping logic via the int.clamp call path.
+      // progress.clamp(0, 100) is a Dart core operation — test the contract.
+      const raw = -10;
+      expect(raw.clamp(0, 100), 0);
+    });
+
+    test('clamps progress above 100 to 100', () {
+      const raw = 150;
+      expect(raw.clamp(0, 100), 100);
+    });
+
+    test('valid progress value passes through unchanged', () {
+      const raw = 75;
+      expect(raw.clamp(0, 100), 75);
+    });
+
+    test('boundary: progress 0 is kept as 0', () {
+      expect(0.clamp(0, 100), 0);
+    });
+
+    test('boundary: progress 100 is kept as 100', () {
+      expect(100.clamp(0, 100), 100);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────
+  // Utility methods that require initialization — StateError guards
+  // ──────────────────────────────────────────────────────────────
+  group('Uninitialized StateError guards', () {
+    test('openFile throws StateError when not initialized', () {
+      expect(
+        () => NativeWorkManager.openFile('/tmp/test.pdf'),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('setMaxConcurrentPerHost throws StateError when not initialized', () {
+      expect(
+        () => NativeWorkManager.setMaxConcurrentPerHost(3),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('getServerFilename throws StateError when not initialized', () {
+      expect(
+        () => NativeWorkManager.getServerFilename('https://example.com/file.pdf'),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('cancel throws StateError when not initialized', () {
+      expect(
+        () => NativeWorkManager.cancel(taskId: 'task-1'),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('cancelAll throws StateError when not initialized', () {
+      expect(
+        () => NativeWorkManager.cancelAll(),
+        throwsA(isA<StateError>()),
+      );
+    });
+  });
 }

@@ -23,7 +23,6 @@ import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import dev.brewkits.native_workmanager.workers.utils.ProgressReporter
 import dev.brewkits.native_workmanager.workers.HttpDownloadWorker
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
-import dev.brewkits.kmpworkmanager.kmpWorkerModule
 import dev.brewkits.kmpworkmanager.KmpWorkManagerConfig
 import dev.brewkits.kmpworkmanager.KmpWorkManager
 import dev.brewkits.native_workmanager.AppContextHolder
@@ -51,11 +50,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
-import org.koin.android.ext.koin.androidContext
-import org.koin.core.component.KoinComponent
-import org.koin.core.component.inject
-import org.koin.core.context.GlobalContext
-import org.koin.core.context.startKoin
 
 /**
  * Native WorkManager Flutter Plugin for Android.
@@ -63,7 +57,7 @@ import org.koin.core.context.startKoin
  * Uses kmpworkmanager v2.3.7 from Maven Central as the core engine.
  * This ensures compatibility with Pro/Enterprise versions.
  */
-class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent,
+class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
     android.content.ComponentCallbacks2 {
 
     internal lateinit var methodChannel: MethodChannel
@@ -82,10 +76,10 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent,
     internal var eventJob: Job? = null
     internal var progressJob: Job? = null
 
-    // Inject BackgroundTaskScheduler from kmpworkmanager via Koin
-    internal val scheduler: BackgroundTaskScheduler by inject()
-    // TaskEventBus is an object singleton, accessed directly (not via Koin)
+    // BackgroundTaskScheduler — initialized directly (no DI framework required).
+    internal lateinit var scheduler: BackgroundTaskScheduler
 
+    // TaskEventBus is an object singleton, accessed directly (not via Koin)
     // Tag storage: taskId -> tag mapping (ConcurrentHashMap for thread safety across coroutines)
     internal val taskTags = ConcurrentHashMap<String, String>()
 
@@ -143,7 +137,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent,
         internal const val DEBUG_NOTIFICATION_TIMEOUT_MS = 5_000L
         /** Default concurrent-task limit (mirrors iOS NWMDefaults.maxConcurrentTasks). */
         private const val DEFAULT_MAX_CONCURRENT_TASKS = 4
-        private var isKoinInitialized = false
+        private var isSchedulerInitialized = false
         internal val TERMINAL_STATES = setOf(
             WorkInfo.State.SUCCEEDED,
             WorkInfo.State.FAILED,
@@ -194,8 +188,8 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent,
         // chain metadata and re-attaches step observers.
         ioScope.launch { resumePendingChains() }
 
-        // Initialize Koin with kmpworkmanager
-        initializeKoin(context)
+        // Initialize scheduler with kmpworkmanager
+        initializeScheduler(context)
 
         methodChannel = MethodChannel(binding.binaryMessenger, METHOD_CHANNEL)
         methodChannel.setMethodCallHandler(this)
@@ -229,40 +223,25 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent,
         })
     }
 
-    private fun initializeKoin(context: Context) {
-        if (isKoinInitialized) return
+    private fun initializeScheduler(context: Context) {
+        if (isSchedulerInitialized) return
 
         try {
-            // ✅ Create a single factory instance shared between KmpWorkManager and Koin module
             val workerFactory = SimpleAndroidWorkerFactory(context)
             val config = KmpWorkManagerConfig()
 
-            // ✅ Initialize KmpWorkManager BEFORE setting up Koin modules
-            // This fixes "KmpWorkManager not initialized!" error when workers execute
             KmpWorkManager.initialize(
                 context = context,
                 workerFactory = workerFactory,
                 config = config
             )
 
-            // ✅ Reuse the same factory instance for the Koin module
-            val kmpModule = kmpWorkerModule(workerFactory, config)
+            scheduler = NativeTaskScheduler(context)
 
-            if (GlobalContext.getOrNull() == null) {
-                startKoin {
-                    androidContext(context)
-                    modules(kmpModule)
-                }
-            } else {
-                // BRIDGE-017 FIX: allowOverride prevents duplicate-bean errors when the same
-                // module is re-loaded on hot restart (isKoinInitialized was reset in
-                // onDetachedFromEngine, but GlobalContext persists as a process singleton).
-                GlobalContext.get().loadModules(listOf(kmpModule), allowOverride = true)
-            }
-            isKoinInitialized = true
-            NativeLogger.d("✅ Koin initialized with kmpworkmanager v2.3.7 from Maven Central")
+            isSchedulerInitialized = true
+            NativeLogger.d("✅ Scheduler initialized with kmpworkmanager v2.3.7 from Maven Central")
         } catch (e: Exception) {
-            NativeLogger.e("❌ Failed to initialize Koin", e)
+            NativeLogger.e("❌ Failed to initialize scheduler", e)
         }
     }
 
@@ -497,11 +476,8 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent,
         taskBusSignals.clear()
         scope.cancel()
         ioScope.cancel()
-        // FIX H2: Reset the static initialization flag so the next attach (e.g. hot restart)
-        // goes through initializeKoin() again and re-loads modules into the Koin context.
-        // Without this, a hot restart reuses the stale flag and skips module loading,
-        // which can leave injected dependencies pointing at a dead context.
-        isKoinInitialized = false
+        // FIX H2: Reset flag so next attach (e.g. hot restart) re-initializes the scheduler.
+        isSchedulerInitialized = false
     }
 
     // ── ComponentCallbacks2 — low-memory response ─────────────────────────────
@@ -522,11 +498,21 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent,
      */
     override fun onTrimMemory(level: Int) {
         if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
-            ioScope.launch { 
-                engineMutex.withLock {
-                    if (FlutterEngineManager.isEngineAlive()) {
-                        Log.d(TAG, "onTrimMemory(level=$level) — disposing Flutter engine to free RAM")
+            // Guard: skip if scope is already cancelling (e.g. called twice in rapid succession).
+            if (!ioScope.isActive) return
+            ioScope.launch {
+                // MEM-003: FlutterEngineManager.dispose() is internally thread-safe with its own mutex.
+                // We avoid taking engineMutex here to prevent potential deadlock if the manager
+                // is currently waiting on the plugin for a different operation.
+                if (FlutterEngineManager.isEngineAlive()) {
+                    Log.d(TAG, "onTrimMemory(level=$level) — disposing Flutter engine to free RAM")
+                    try {
                         FlutterEngineManager.dispose()
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        // Engine disposal was superseded by a concurrent dispose — not an error.
+                        throw e
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to dispose engine during onTrimMemory", e)
                     }
                 }
             }
@@ -539,11 +525,16 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler, KoinComponent,
 
     override fun onLowMemory() {
         // onLowMemory is the older API (< API 14). Dispose engine here as well.
-        ioScope.launch { 
-            engineMutex.withLock {
-                if (FlutterEngineManager.isEngineAlive()) {
-                    Log.d(TAG, "onLowMemory() — disposing Flutter engine to free RAM")
+        if (!ioScope.isActive) return
+        ioScope.launch {
+            if (FlutterEngineManager.isEngineAlive()) {
+                Log.d(TAG, "onLowMemory() — disposing Flutter engine to free RAM")
+                try {
                     FlutterEngineManager.dispose()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to dispose engine during onLowMemory", e)
                 }
             }
         }

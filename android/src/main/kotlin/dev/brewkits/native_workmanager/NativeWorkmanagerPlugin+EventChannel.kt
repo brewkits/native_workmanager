@@ -12,7 +12,6 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.takeWhile
-import android.util.Log
 
 // ── EventChannel: progress subscriptions, task-event subscriptions,
 // ── work completion observation, and error-code derivation.
@@ -118,6 +117,9 @@ internal fun NativeWorkmanagerPlugin.subscribeToTaskEvents() {
                 // always sees taskStatuses[taskId] == terminalStatus when it wakes up.
                 taskStatuses[event.taskName] = terminalStatus
 
+                // Capture duration before taskStartTimes cleanup (used by LoggingMiddleware).
+                val taskDurationMs = taskStartTimes[event.taskName]?.let { System.currentTimeMillis() - it }
+
                 // Show download completion/failure notification if enabled for this task
                 val notifTitle = taskNotifTitles.remove(event.taskName)
                 taskFilenames.remove(event.taskName)
@@ -155,6 +157,17 @@ internal fun NativeWorkmanagerPlugin.subscribeToTaskEvents() {
                 )
                 if (!event.success) eventMap["errorCode"] = deriveErrorCode(event.message)
                 eventSink?.success(eventMap)
+
+                // Fire LoggingMiddleware POST (fire-and-forget, never blocks event emission).
+                val taskRecord = withContext(Dispatchers.IO) { taskStore.getTask(event.taskName) }
+                applyLoggingMiddleware(
+                    taskId = event.taskName,
+                    workerClassName = taskRecord?.workerClassName ?: event.taskName,
+                    success = event.success,
+                    message = event.message,
+                    durationMs = taskDurationMs,
+                    workerConfig = if (taskRecord != null) taskRecord.workerConfig else null
+                )
 
                 // Final cleanup of the terminal status after emission
                 taskStatuses.remove(event.taskName)

@@ -4,6 +4,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+# Cancel in-flight runs for the same PR on new pushes
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   pr-validate:
     name: Validate PR
@@ -64,35 +69,44 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.0'
-          channel: 'stable'
+          channel: stable
+          flutter-version-file: .flutter-version
           cache: true
 
-      - name: Get dependencies
+      - name: Get dependencies (plugin)
         run: flutter pub get
 
-      - name: Check formatting
-        run: |
-          dart format --output=none --set-exit-if-changed . || {
-            echo "❌ Code is not formatted!"
-            echo "Run: dart format ."
-            exit 1
-          }
-          echo "✅ Code is properly formatted"
+      - name: Get dependencies (gen)
+        working-directory: native_workmanager_gen
+        run: dart pub get
 
-      - name: Run analyzer
+      - name: Check formatting (plugin)
         run: |
-          flutter analyze --no-fatal-infos || {
-            echo "❌ Analyzer found issues!"
+          dart format --output=none --set-exit-if-changed lib test || {
+            echo "❌ Run: dart format lib test"
             exit 1
           }
-          echo "✅ No analyzer issues"
+          echo "✅ Plugin formatted"
+
+      - name: Check formatting (gen)
+        working-directory: native_workmanager_gen
+        run: |
+          dart format --output=none --set-exit-if-changed lib || {
+            echo "❌ Run: dart format lib (in native_workmanager_gen/)"
+            exit 1
+          }
+          echo "✅ Gen package formatted"
+
+      - name: Analyze (plugin)
+        run: flutter analyze --fatal-warnings
+
+      - name: Analyze (gen)
+        working-directory: native_workmanager_gen
+        run: dart analyze --fatal-warnings
 
   label-check:
     name: Check Labels

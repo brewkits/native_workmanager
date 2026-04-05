@@ -73,6 +73,23 @@ void main() {
       expect(map['input'], isA<String>());
       expect(map['input'], '{}');
     });
+
+    test('timeoutMs is omitted when null', () {
+      final worker = DartWorker(callbackId: 'cb');
+      final map = worker.toMap();
+      expect(map.containsKey('timeoutMs'), isFalse);
+    });
+
+    test('timeoutMs is included when set', () {
+      final worker = DartWorker(callbackId: 'cb', timeoutMs: 30000);
+      final map = worker.toMap();
+      expect(map['timeoutMs'], 30000);
+    });
+
+    test('timeoutMs round-trips through toMap', () {
+      final worker = DartWorker(callbackId: 'cb', timeoutMs: 600000);
+      expect(worker.toMap()['timeoutMs'], 600000);
+    });
   });
 
   group('HttpRequestWorker', () {

@@ -170,18 +170,11 @@ class ImageProcessWorker: IosWorker {
         case "png":
             imageData = processedImage.pngData()
         case "webp":
-            // WebP requires iOS 14+, return error instead of silent conversion
-            if #available(iOS 14.0, *) {
-                // iOS 14+ can handle WEBP through certain APIs, but for simplicity
-                // we'll still return an error and suggest JPEG/PNG
-                return .failure(
-                    message: "WEBP format not fully supported on iOS. Use JPEG (smaller, lossy) or PNG (larger, lossless) instead."
-                )
-            } else {
-                return .failure(
-                    message: "WEBP format requires iOS 14+. Current iOS version does not support WEBP. Use JPEG or PNG instead."
-                )
-            }
+            // MEDIA-012: Clarify that UIImage cannot encode WebP output (read-only support).
+            // iOS 14+ can decode WebP images but there is no public UIImage API to encode them.
+            return .failure(
+                message: "WEBP output is not supported on iOS: UIImage has no WebP encoder. Use 'jpeg' (lossy) or 'png' (lossless) instead."
+            )
         default: // jpeg
             imageData = processedImage.jpegData(compressionQuality: CGFloat(config.imageQuality) / 100.0)
         }

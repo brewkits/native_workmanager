@@ -522,7 +522,7 @@ Background execution limits affect all apps. Native workers help by reducing ove
 
 ---
 
-**Last Updated:** March 2026 (v1.2.0)
+**Last Updated:** March 2026 (v1.1.0)
 , 12, 13, 14)
 - [ ] Test with battery optimization enabled
 - [ ] Test in Doze mode (simulate: `adb shell dumpsys battery unplug && adb shell dumpsys deviceidle force-idle`)
@@ -587,4 +587,4 @@ Background execution limits affect all apps. Native workers help by reducing ove
 
 ---
 
-**Last Updated:** March 2026 (v1.0.8)
+**Last Updated:** March 2026 (v1.1.0)

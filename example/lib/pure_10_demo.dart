@@ -3,7 +3,7 @@ import 'package:native_workmanager/native_workmanager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // 🚀 THE PURE 10 INITIALIZATION
   // - Watchdog: Recovers zombie tasks
   // - Persistence: Atomic File/WAL mode
@@ -61,9 +61,9 @@ class _TaskDashboardState extends State<TaskDashboard> {
 
   Future<void> _scheduleSecureTask() async {
     final taskId = 'task-${DateTime.now().millisecondsSinceEpoch}';
-    
-    // 🛡️ SECURITY DEMO: 
-    // We send a sensitive token. The "Pure 10" architecture will 
+
+    // 🛡️ SECURITY DEMO:
+    // We send a sensitive token. The "Pure 10" architecture will
     // REDACT it before saving to disk.
     await NativeWorkManager.enqueue(
       taskId: taskId,
@@ -87,42 +87,42 @@ class _TaskDashboardState extends State<TaskDashboard> {
       appBar: AppBar(
         title: const Text('Pure 10 Background Engine'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _refreshTasks,
-          ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _refreshTasks),
         ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _tasks.isEmpty
-              ? const Center(child: Text('No tasks found in persistent store.'))
-              : ListView.builder(
-                  itemCount: _tasks.length,
-                  itemBuilder: (context, index) {
-                    final task = _tasks[index];
-                    return Card(
-                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      child: ListTile(
-                        leading: _getStatusIcon(task.status),
-                        title: Text(task.taskId),
-                        subtitle: Text(
-                          'Worker: ${task.workerClassName}\n'
-                          'Updated: ${task.updatedAt.toLocal()}\n'
-                          '🔒 Privacy: Config is redacted in store.',
-                        ),
-                        isThreeLine: true,
-                        trailing: Text(
-                          task.status.toUpperCase(),
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: _getStatusColor(task.status),
-                          ),
-                        ),
+          ? const Center(child: Text('No tasks found in persistent store.'))
+          : ListView.builder(
+              itemCount: _tasks.length,
+              itemBuilder: (context, index) {
+                final task = _tasks[index];
+                return Card(
+                  margin: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  child: ListTile(
+                    leading: _getStatusIcon(task.status),
+                    title: Text(task.taskId),
+                    subtitle: Text(
+                      'Worker: ${task.workerClassName}\n'
+                      'Updated: ${task.updatedAt.toLocal()}\n'
+                      '🔒 Privacy: Config is redacted in store.',
+                    ),
+                    isThreeLine: true,
+                    trailing: Text(
+                      task.status.toUpperCase(),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: _getStatusColor(task.status),
                       ),
-                    );
-                  },
-                ),
+                    ),
+                  ),
+                );
+              },
+            ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _scheduleSecureTask,
         label: const Text('Schedule Secure Task'),
@@ -133,19 +133,27 @@ class _TaskDashboardState extends State<TaskDashboard> {
 
   Icon _getStatusIcon(String status) {
     switch (status) {
-      case 'completed': return const Icon(Icons.check_circle, color: Colors.green);
-      case 'failed': return const Icon(Icons.error, color: Colors.red);
-      case 'running': return const Icon(Icons.sync, color: Colors.blue);
-      default: return const Icon(Icons.schedule, color: Colors.orange);
+      case 'completed':
+        return const Icon(Icons.check_circle, color: Colors.green);
+      case 'failed':
+        return const Icon(Icons.error, color: Colors.red);
+      case 'running':
+        return const Icon(Icons.sync, color: Colors.blue);
+      default:
+        return const Icon(Icons.schedule, color: Colors.orange);
     }
   }
 
   Color _getStatusColor(String status) {
     switch (status) {
-      case 'completed': return Colors.green;
-      case 'failed': return Colors.red;
-      case 'running': return Colors.blue;
-      default: return Colors.orange;
+      case 'completed':
+        return Colors.green;
+      case 'failed':
+        return Colors.red;
+      case 'running':
+        return Colors.blue;
+      default:
+        return Colors.orange;
     }
   }
 }

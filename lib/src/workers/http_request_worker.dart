@@ -19,6 +19,11 @@ final class HttpRequestWorker extends Worker {
   final HttpMethod method;
   final Map<String, String> headers;
   final String? body;
+
+  /// Request timeout per attempt (default: 30 seconds).
+  ///
+  /// NET-027: This is a **per-attempt** timeout. WorkManager may retry the task
+  /// after failure; each retry resets the clock.
   final Duration timeout;
 
   /// HMAC-SHA256 request signing configuration.

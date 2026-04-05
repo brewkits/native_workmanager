@@ -136,7 +136,7 @@ part of '../worker.dart';
 /// ## See Also
 ///
 /// - [NativeWorker.httpUpload] - Upload processed images
-/// - [NativeWorker.fileCompress] - Compress multiple images into ZIP
+/// - `NativeWorker.fileCompress` (deprecated v1.1.0 — use `archive` package)
 Worker _buildImageProcess({
   required String inputPath,
   required String outputPath,

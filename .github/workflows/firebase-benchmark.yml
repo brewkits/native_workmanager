@@ -1,0 +1,256 @@
+name: Firebase Benchmark
+
+on:
+  schedule:
+    # Every Monday at 02:00 UTC
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to benchmark'
+        required: false
+        default: 'android'
+        type: choice
+        options: [android, ios, all]
+      skip_ios:
+        description: 'Skip iOS (faster run)'
+        required: false
+        default: 'true'
+        type: boolean
+
+# One benchmark run at a time — prevent overlapping nightly runs.
+concurrency:
+  group: firebase-benchmark
+  cancel-in-progress: false
+
+env:
+  FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+  GCS_RESULTS_BUCKET: gs://${{ secrets.FIREBASE_PROJECT_ID }}-benchmark-results
+
+jobs:
+  # ── Android Benchmark ──────────────────────────────────────────────────────
+  benchmark-android:
+    name: Benchmark Android (Firebase Test Lab)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: >
+      github.event_name == 'schedule' ||
+      github.event.inputs.platform == 'android' ||
+      github.event.inputs.platform == 'all'
+    permissions:
+      contents: read
+      id-token: write   # required for Workload Identity Federation
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: .flutter-version
+          channel: stable
+          cache: true
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Authenticate to Google Cloud (Workload Identity)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Build debug APK
+        working-directory: example
+        run: |
+          flutter build apk \
+            --debug \
+            --target-platform android-arm64 \
+            --dart-define=BENCHMARK_MODE=true
+
+      - name: Build Android test APK
+        working-directory: example/android
+        run: ./gradlew assembleAndroidTest --stacktrace
+
+      - name: Run Android benchmarks on Firebase Test Lab
+        id: ftl_android
+        run: |
+          TIMESTAMP=$(date +%s)
+          RESULT_DIR="benchmark-android-${TIMESTAMP}"
+
+          gcloud firebase test android run \
+            --type instrumentation \
+            --app example/build/app/outputs/apk/debug/app-debug.apk \
+            --test example/android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk \
+            --results-bucket "${{ env.FIREBASE_PROJECT_ID }}-benchmark-results" \
+            --results-dir "$RESULT_DIR" \
+            --timeout 300s \
+            --project "$FIREBASE_PROJECT_ID" \
+            --device model=shiba,version=34,locale=en,orientation=portrait \
+            --device model=oriole,version=33,locale=en,orientation=portrait \
+            2>&1 | tee ftl-android-run.log
+
+          # Extract GCS result path for download
+          GCS_PATH=$(grep -oE 'gs://[^ ]+' ftl-android-run.log | head -1 || true)
+          echo "gcs_path=$GCS_PATH" >> "$GITHUB_OUTPUT"
+          echo "result_dir=$RESULT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Download Android results from GCS
+        if: always()
+        run: |
+          mkdir -p benchmark-results-android
+          GCS="${{ steps.ftl_android.outputs.gcs_path }}"
+          if [[ -n "$GCS" ]]; then
+            gsutil -m cp -r "$GCS/**" benchmark-results-android/ 2>/dev/null || true
+          fi
+          # Also copy run log
+          cp ftl-android-run.log benchmark-results-android/ 2>/dev/null || true
+
+      - name: Parse Android benchmark results
+        if: always()
+        run: |
+          python3 scripts/parse-firebase-results.py \
+            --results-dir benchmark-results-android \
+            --output benchmark-results-android/summary.md
+
+          echo "## 📱 Android Benchmark Summary" >> "$GITHUB_STEP_SUMMARY"
+          cat benchmark-results-android/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Android results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-android-${{ github.run_number }}
+          path: benchmark-results-android/
+          retention-days: 30
+
+  # ── iOS Benchmark ──────────────────────────────────────────────────────────
+  benchmark-ios:
+    name: Benchmark iOS (Firebase Test Lab)
+    runs-on: macos-latest
+    timeout-minutes: 90
+    if: >
+      (github.event_name == 'schedule' && github.event.inputs.skip_ios != 'true') ||
+      github.event.inputs.platform == 'ios' ||
+      github.event.inputs.platform == 'all'
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: .flutter-version
+          channel: stable
+          cache: true
+
+      - name: Authenticate to Google Cloud (Workload Identity)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: example/ios/Pods
+          key: pods-${{ hashFiles('example/ios/Podfile.lock') }}
+          restore-keys: pods-
+
+      - name: Install CocoaPods
+        working-directory: example/ios
+        run: pod install
+
+      - name: Build iOS for Firebase Test Lab
+        working-directory: example
+        run: |
+          xcodebuild build-for-testing \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -sdk iphoneos \
+            -derivedDataPath build/ios_ftl \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcpretty
+
+          pushd build/ios_ftl/Build/Products
+          zip -r "$OLDPWD/ios_test.zip" ./*.xctestrun Debug-iphoneos
+          popd
+
+      - name: Run iOS benchmarks on Firebase Test Lab
+        id: ftl_ios
+        run: |
+          TIMESTAMP=$(date +%s)
+          RESULT_DIR="benchmark-ios-${TIMESTAMP}"
+
+          gcloud firebase test ios run \
+            --test example/ios_test.zip \
+            --results-bucket "${{ env.FIREBASE_PROJECT_ID }}-benchmark-results" \
+            --results-dir "$RESULT_DIR" \
+            --timeout 300s \
+            --project "$FIREBASE_PROJECT_ID" \
+            --device model=iphone15pro,version=17.2,locale=en,orientation=portrait \
+            --device model=iphone13pro,version=16.6,locale=en,orientation=portrait \
+            2>&1 | tee ftl-ios-run.log
+
+          GCS_PATH=$(grep -oE 'gs://[^ ]+' ftl-ios-run.log | head -1 || true)
+          echo "gcs_path=$GCS_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Download iOS results from GCS
+        if: always()
+        run: |
+          mkdir -p benchmark-results-ios
+          GCS="${{ steps.ftl_ios.outputs.gcs_path }}"
+          if [[ -n "$GCS" ]]; then
+            gsutil -m cp -r "$GCS/**" benchmark-results-ios/ 2>/dev/null || true
+          fi
+          cp ftl-ios-run.log benchmark-results-ios/ 2>/dev/null || true
+
+      - name: Parse iOS benchmark results
+        if: always()
+        run: |
+          python3 scripts/parse-firebase-results.py \
+            --results-dir benchmark-results-ios \
+            --output benchmark-results-ios/summary.md
+
+          echo "## 🍎 iOS Benchmark Summary" >> "$GITHUB_STEP_SUMMARY"
+          cat benchmark-results-ios/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload iOS results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-ios-${{ github.run_number }}
+          path: benchmark-results-ios/
+          retention-days: 30
+
+  # ── Gate ───────────────────────────────────────────────────────────────────
+  benchmark-complete:
+    name: Benchmark Complete
+    runs-on: ubuntu-latest
+    needs: [benchmark-android]
+    if: always()
+    steps:
+      - name: Report status
+        run: |
+          echo "Android: ${{ needs.benchmark-android.result }}"
+          if [[ "${{ needs.benchmark-android.result }}" == "failure" ]]; then
+            echo "❌ Android benchmark failed"
+            exit 1
+          fi
+          echo "✅ Benchmark run complete"

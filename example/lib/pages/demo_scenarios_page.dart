@@ -124,14 +124,12 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
     });
 
     // Listen for task completion events to reset running state
-    // Removed .where() filter to catch ALL events.
-    // This ensures the UI always unlocks, regardless of the Task ID format.
     _eventSubscription = NativeWorkManager.events.listen((event) {
-      // Reset v1.1 parallel download when it finishes
-      if (event.taskId == _v11TaskId && mounted) {
+      // Reset v1.1 parallel download when it finishes (completion only)
+      if (event.taskId == _v11TaskId && !event.isStarted && mounted) {
         setState(() => _v11Downloading = false);
       }
-      if (mounted) {
+      if (mounted && !event.isStarted) {
         // Only update UI if we were actually waiting for a task
         if (_isAnyTaskRunning) {
           setState(() {
@@ -210,12 +208,7 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
     final isFiltering =
         _searchQuery.isNotEmpty || _selectedCategory != _DemoCategory.all;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Demo Scenarios'),
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-      ),
-      body: Column(
+    return Column(
         children: [
           _buildSearchBar(),
           _buildFilterChips(),
@@ -426,6 +419,20 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
                         onTap: () => _runTask('Crypto Hash', _demoCryptoHash),
                       ),
                       _buildDemoCard(
+                        title: 'Crypto Encrypt',
+                        description: 'AES-256-GCM — password via secure vault',
+                        icon: Icons.lock,
+                        onTap: () =>
+                            _runTask('Crypto Encrypt', _demoCryptoEncrypt),
+                      ),
+                      _buildDemoCard(
+                        title: 'Crypto Decrypt',
+                        description: 'Decrypt AES-256-GCM encrypted file',
+                        icon: Icons.lock_open,
+                        onTap: () =>
+                            _runTask('Crypto Decrypt', _demoCryptoDecrypt),
+                      ),
+                      _buildDemoCard(
                         title: 'File System',
                         description: 'Copy, move, delete files natively',
                         icon: Icons.folder,
@@ -627,6 +634,22 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
                         icon: Icons.folder_zip,
                         onTap: () => _runTask('Multi Upload', _demoMultiUpload),
                       ),
+                      _buildDemoCard(
+                        title: 'NET Fixes — Validation & Safety Demos',
+                        description:
+                            'NET-009/016/018/028: JSON body validation, multipart size guard, '
+                            'runtime constructor checks, per-attempt timeout docs',
+                        icon: Icons.security,
+                        onTap: () => _runTask('NET Fixes', _demoNetFixes),
+                      ),
+                      _buildDemoCard(
+                        title: 'MEDIA Fixes — Safety & Robustness Demos',
+                        description:
+                            'MEDIA-001..015: BitmapRegionDecoder leak, div-by-zero in PDF, '
+                            'atomic image write, partial output cleanup, crop validation',
+                        icon: Icons.image_search,
+                        onTap: () => _runTask('MEDIA Fixes', _demoMediaFixes),
+                      ),
                     ],
                   ),
                 ],
@@ -635,7 +658,6 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
             ),
           ),
         ],
-      ),
     );
   }
 
@@ -684,7 +706,7 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
                     ),
                   ),
                   Text(
-                    'v1.0.8 · 40+ ready-to-run examples',
+                    'v1.1.0 · 40+ ready-to-run examples',
                     style: TextStyle(
                       color: Colors.white.withAlpha(200),
                       fontSize: 12,
@@ -1226,6 +1248,22 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
       description: 'SHA-256 hash file for integrity check',
       icon: Icons.fingerprint,
       onTap: () => _runTask('Crypto Hash', _demoCryptoHash),
+    ),
+    _DemoEntry(
+      section: 'Built-in Workers',
+      category: _DemoCategory.file,
+      title: 'Crypto Encrypt',
+      description: 'AES-256-GCM encrypt — password via secure vault (SC-C-001)',
+      icon: Icons.lock,
+      onTap: () => _runTask('Crypto Encrypt', _demoCryptoEncrypt),
+    ),
+    _DemoEntry(
+      section: 'Built-in Workers',
+      category: _DemoCategory.file,
+      title: 'Crypto Decrypt',
+      description: 'AES-256-GCM decrypt from encrypted file (SC-C-001)',
+      icon: Icons.lock_open,
+      onTap: () => _runTask('Crypto Decrypt', _demoCryptoDecrypt),
     ),
     _DemoEntry(
       section: 'Built-in Workers',
@@ -1902,6 +1940,145 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
     _showSnackbar('🔄 HTTP Sync scheduled (with retry)');
   }
 
+  // ── NET Fixes Demo ────────────────────────────────────────────────────────
+  /// Demonstrates runtime validation and safety improvements from the NET fixes.
+  ///
+  /// NET-009/016: HttpSyncWorker validates that requestBody is valid JSON
+  ///             before dispatching to the native layer.
+  /// NET-018:    HttpUploadWorker rejects total multipart uploads > 512 MB.
+  /// NET-027:    timeout is per-attempt (documents via enqueue call).
+  /// NET-028:    ParallelHttpUploadWorker throws at construction (not assert).
+  Future<void> _demoNetFixes() async {
+    final messages = <String>[];
+
+    // ── NET-016: JSON body validation ──────────────────────────────────────
+    try {
+      HttpSyncWorker(
+        url: 'https://httpbin.org/post',
+        requestBody: {'fn': Object()}, // non-serialisable
+      ).toMap();
+      messages.add('NET-016: UNEXPECTED — should have thrown');
+    } on ArgumentError catch (e) {
+      messages.add('NET-016 ✓ non-serialisable body rejected: ${e.message}');
+    }
+
+    // ── NET-028: ParallelHttpUploadWorker runtime validation ────────────────
+    try {
+      ParallelHttpUploadWorker(
+        url: 'https://httpbin.org/post',
+        files: const [],
+      );
+      messages.add('NET-028: UNEXPECTED — should have thrown');
+    } on ArgumentError {
+      messages.add('NET-028 ✓ empty files list rejected');
+    }
+    try {
+      ParallelHttpUploadWorker(
+        url: 'https://httpbin.org/post',
+        files: [UploadFile(filePath: '/tmp/a.txt')],
+        maxConcurrent: 20,
+      );
+      messages.add('NET-028: UNEXPECTED — should have thrown');
+    } on RangeError {
+      messages.add('NET-028 ✓ maxConcurrent=20 rejected (valid range: 1–16)');
+    }
+
+    // ── NET-027: per-attempt timeout (schedule a real task to show it works) ─
+    await NativeWorkManager.enqueue(
+      taskId: 'net-fixes-sync-${DateTime.now().millisecondsSinceEpoch}',
+      trigger: TaskTrigger.oneTime(const Duration(seconds: 3)),
+      // NET-027: timeout = per attempt; WorkManager may retry multiple times.
+      worker: HttpSyncWorker(
+        url: 'https://httpbin.org/post',
+        requestBody: {
+          'demo': 'NET-009/016/027',
+          'ts': DateTime.now().toIso8601String(),
+        },
+        timeout: const Duration(seconds: 20),
+      ),
+      constraints: const Constraints(requiresNetwork: true),
+    );
+    messages.add(
+      'NET-027/009 ✓ HttpSyncWorker scheduled (timeout=20 s per attempt)',
+    );
+
+    _showSnackbar(messages.join(' | '));
+  }
+
+  // ── MEDIA Fixes Demo ──────────────────────────────────────────────────────
+  /// Demonstrates the Media & Processing bug fixes (MEDIA-001..015).
+  ///
+  /// - MEDIA-001: BitmapRegionDecoder recycled after use (Android).
+  /// - MEDIA-002/003: zero-dimension guard before scale division (iOS/Android).
+  /// - MEDIA-004: partial output deleted on failure (PdfWorker/Compression).
+  /// - MEDIA-005: ImageProcessWorker writes to temp file then renames (atomic).
+  /// - MEDIA-006: PHPhotoLibrary.requestAuthorization on main thread (iOS).
+  /// - MEDIA-007: crop with negative width/height throws early (Android).
+  /// - MEDIA-008: negative margin clamped to 0 (iOS PdfWorker).
+  /// - MEDIA-009: mkdirs failure returns clear error instead of cryptic IOE.
+  /// - MEDIA-010: empty strings in imagePaths rejected (iOS PdfWorker).
+  /// - MEDIA-011: PdfWorker.swift logs via NativeLogger.d().
+  /// - MEDIA-012: WebP error message clarifies UIImage cannot encode WebP.
+  /// - MEDIA-013: openOutputStream null-check before !! (Android MoveToShared).
+  /// - MEDIA-014: zero-size PDF pages skipped in compress (iOS PdfWorker).
+  Future<void> _demoMediaFixes() async {
+    final messages = <String>[];
+    final tmp = Directory.systemTemp.path;
+    final ts = DateTime.now().millisecondsSinceEpoch;
+
+    // ── MEDIA-005: schedule an imageProcess task (uses atomic temp+rename) ──
+    try {
+      await NativeWorkManager.enqueue(
+        taskId: 'media-imgprocess-$ts',
+        trigger: TaskTrigger.oneTime(const Duration(seconds: 2)),
+        worker: NativeWorker.imageProcess(
+          inputPath: '$tmp/demo-in-$ts.jpg',
+          outputPath: '$tmp/demo-out-$ts.jpg',
+          maxWidth: 1280,
+          quality: 80,
+        ),
+        constraints: const Constraints(),
+      );
+      messages.add('MEDIA-005 ✓ imageProcess scheduled (atomic write)');
+    } catch (e) {
+      messages.add('MEDIA-005: schedule error: $e');
+    }
+
+    // ── MEDIA-004: schedule a fileCompress task ──────────────────────────────
+    try {
+      await NativeWorkManager.enqueue(
+        taskId: 'media-compress-$ts',
+        trigger: TaskTrigger.oneTime(const Duration(seconds: 3)),
+        worker: NativeWorker.fileCompress(
+          inputPath: '$tmp/demo-in-$ts.jpg',
+          outputPath: '$tmp/demo-out-$ts.zip',
+        ),
+        constraints: const Constraints(),
+      );
+      messages.add('MEDIA-004 ✓ fileCompress scheduled (cleanup on failure)');
+    } catch (e) {
+      messages.add('MEDIA-004: schedule error: $e');
+    }
+
+    // ── MEDIA-007: non-positive cropRect rejected at parse time (Android) ────
+    // This is verified at the native Kotlin level; we show the worker serialises
+    // correctly for valid rects (negative width would be passed through Dart
+    // layer, then rejected by parseConfig in the worker).
+    final cropMap = NativeWorker.imageProcess(
+      inputPath: '$tmp/in.jpg',
+      outputPath: '$tmp/out.jpg',
+      cropRect: const Rect.fromLTWH(10, 20, 300, 200),
+    ).toMap();
+    final crop = cropMap['cropRect'] as Map<String, dynamic>?;
+    if (crop != null && crop['width'] == 300 && crop['height'] == 200) {
+      messages.add(
+        'MEDIA-007 ✓ valid cropRect serialised: w=${crop['width']} h=${crop['height']}',
+      );
+    }
+
+    _showSnackbar(messages.join(' | '));
+  }
+
   Future<void> _demoFileDecompression() async {
     // Ensure ZIP file exists
     final zipPath = '${Directory.systemTemp.path}/demo-archive.zip';
@@ -1927,25 +2104,34 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
 
   Future<void> _demoImageProcess() async {
     final inputPath = '${Directory.systemTemp.path}/demo-photo.jpg';
-    final file = File(inputPath);
+    final outputPath = '${Directory.systemTemp.path}/demo-photo-1080p.jpg';
 
-    if (!await file.exists()) {
-      await file.writeAsBytes(List.filled(100, 0)); // Dummy bytes
-    }
-
-    await NativeWorkManager.enqueue(
-      taskId: 'demo-image-process',
-      trigger: TaskTrigger.oneTime(const Duration(seconds: 2)),
-      worker: NativeWorker.imageProcess(
-        inputPath: inputPath,
-        outputPath: '${Directory.systemTemp.path}/demo-photo-1080p.jpg',
-        maxWidth: 1920,
-        maxHeight: 1080,
-        quality: 85,
-        outputFormat: ImageFormat.jpeg,
-      ),
-    );
-    _showSnackbar('🖼️ Image Processing scheduled (resize to 1080p)');
+    // Download a real JPEG then process it in a chain
+    await NativeWorkManager.beginWith(
+          TaskRequest(
+            id: 'demo-image-download',
+            worker: HttpDownloadWorker(
+              url: 'https://httpbin.org/image/jpeg',
+              savePath: inputPath,
+            ),
+            constraints: const Constraints(requiresNetwork: true),
+          ),
+        )
+        .then(
+          TaskRequest(
+            id: 'demo-image-process',
+            worker: NativeWorker.imageProcess(
+              inputPath: inputPath,
+              outputPath: outputPath,
+              maxWidth: 1920,
+              maxHeight: 1080,
+              quality: 85,
+              outputFormat: ImageFormat.jpeg,
+            ),
+          ),
+        )
+        .enqueue();
+    _showSnackbar('🖼️ Image Processing scheduled (download → resize to 1080p)');
   }
 
   Future<void> _demoCryptoHash() async {
@@ -1967,6 +2153,49 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
       ),
     );
     _showSnackbar('🔐 Crypto Hash scheduled (SHA-256)');
+  }
+
+  Future<void> _demoCryptoEncrypt() async {
+    final inputPath = '${Directory.systemTemp.path}/demo-plaintext.txt';
+    final outputPath = '${Directory.systemTemp.path}/demo-plaintext.txt.enc';
+    final inputFile = File(inputPath);
+    if (!await inputFile.exists()) {
+      await inputFile.writeAsString(
+        'Sensitive data to encrypt with AES-256-GCM',
+      );
+    }
+    await NativeWorkManager.enqueue(
+      taskId: 'demo-crypto-encrypt',
+      trigger: TaskTrigger.oneTime(const Duration(seconds: 2)),
+      worker: NativeWorker.cryptoEncrypt(
+        inputPath: inputPath,
+        outputPath: outputPath,
+        password: 'dem0SecretPass!',
+      ),
+    );
+    _showSnackbar(
+      'Crypto Encrypt scheduled — password stored in secure vault (SC-C-001)',
+    );
+  }
+
+  Future<void> _demoCryptoDecrypt() async {
+    final inputPath = '${Directory.systemTemp.path}/demo-plaintext.txt.enc';
+    final outputPath =
+        '${Directory.systemTemp.path}/demo-plaintext-decrypted.txt';
+    if (!await File(inputPath).exists()) {
+      _showSnackbar('Run Crypto Encrypt first to create the .enc file');
+      return;
+    }
+    await NativeWorkManager.enqueue(
+      taskId: 'demo-crypto-decrypt',
+      trigger: TaskTrigger.oneTime(const Duration(seconds: 2)),
+      worker: NativeWorker.cryptoDecrypt(
+        inputPath: inputPath,
+        outputPath: outputPath,
+        password: 'dem0SecretPass!',
+      ),
+    );
+    _showSnackbar('Crypto Decrypt scheduled (SC-C-001)');
   }
 
   Future<void> _demoFileSystem() async {
@@ -2150,22 +2379,26 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
   // ═══════════════════════════════════════════════════════════════════════
 
   Future<void> _demoPhotoBackup() async {
-    // Create dummy input photo
-    final inputPath = '${Directory.systemTemp.path}/original-photo.jpg';
+    final downloadPath = '${Directory.systemTemp.path}/original-photo.jpg';
     final processedPath = '${Directory.systemTemp.path}/processed-photo.jpg';
     final zipPath = '${Directory.systemTemp.path}/photos.zip';
 
-    final photoFile = File(inputPath);
-    if (!await photoFile.exists()) {
-      await photoFile.writeAsBytes(List.filled(1024, 0)); // Dummy image data
-    }
-
-    // Photo Backup: Process → Compress → Upload → Cleanup (on WiFi)
+    // Photo Backup: Download → Process → Compress → Upload → Cleanup (on WiFi)
     await NativeWorkManager.beginWith(
           TaskRequest(
-            id: 'chain-process-photo', // Added 'chain-' prefix
+            id: 'chain-fetch-photo',
+            worker: HttpDownloadWorker(
+              url: 'https://httpbin.org/image/jpeg',
+              savePath: downloadPath,
+            ),
+            constraints: const Constraints(requiresNetwork: true),
+          ),
+        )
+        .then(
+          TaskRequest(
+            id: 'chain-process-photo',
             worker: NativeWorker.imageProcess(
-              inputPath: inputPath,
+              inputPath: downloadPath,
               outputPath: processedPath,
               maxWidth: 1920,
               maxHeight: 1080,
@@ -2175,7 +2408,7 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
         )
         .then(
           TaskRequest(
-            id: 'chain-compress-photos', // Added 'chain-' prefix
+            id: 'chain-compress-photos',
             worker: NativeWorker.fileCompress(
               inputPath: processedPath,
               outputPath: zipPath,
@@ -2185,7 +2418,7 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
         )
         .then(
           TaskRequest(
-            id: 'chain-upload-backup', // Added 'chain-' prefix
+            id: 'chain-upload-backup',
             worker: HttpUploadWorker(
               url: 'https://httpbin.org/post',
               filePath: zipPath,
@@ -2200,7 +2433,7 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
         )
         .then(
           TaskRequest(
-            id: 'chain-cleanup-temp', // Added 'chain-' prefix
+            id: 'chain-cleanup-temp',
             worker: NativeWorker.fileDelete(path: processedPath),
           ),
         )

@@ -255,6 +255,17 @@ class HttpUploadWorker : AndroidWorker {
             validatedFiles.add(Triple(file, fileName, mimeType))
         }
 
+        // NET-018: Validate total multipart body size before transmitting.
+        // Each individual file is validated by SecurityValidator.validateFileSize() above, but
+        // many small files could still produce an unreasonably large aggregate request.
+        val maxUploadBytes = 512L * 1024 * 1024 // 512 MB per multipart request
+        if (totalSize > maxUploadBytes) {
+            Log.e(TAG, "Total upload size ($totalSize bytes) exceeds limit ($maxUploadBytes bytes)")
+            return@withContext WorkerResult.Failure(
+                "Total upload size (${totalSize / (1024 * 1024)} MB) exceeds the 512 MB per-request limit"
+            )
+        }
+
         // ✅ SECURITY: Sanitize logging (don't log full paths)
         val sanitizedURL = SecurityValidator.sanitizedURL(config.url)
         Log.d(TAG, "Uploading to $sanitizedURL")

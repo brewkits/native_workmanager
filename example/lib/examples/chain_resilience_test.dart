@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:native_workmanager/native_workmanager.dart';
 import 'package:path_provider/path_provider.dart';
@@ -42,7 +43,7 @@ class _ChainResilienceTestState extends State<ChainResilienceTest> {
       );
       _status = message;
     });
-    print('ChainResilienceTest: $message');
+    if (kDebugMode) print('ChainResilienceTest: $message');
   }
 
   Future<void> _checkForResumedChain() async {

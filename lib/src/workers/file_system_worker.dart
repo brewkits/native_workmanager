@@ -21,7 +21,8 @@ final class FileSystemCopyWorker extends Worker {
     required this.destinationPath,
     this.overwrite = false,
     this.recursive = true,
-  });
+  })  : assert(sourcePath != '', 'sourcePath must not be empty'),
+        assert(destinationPath != '', 'destinationPath must not be empty');
 
   final String sourcePath;
   final String destinationPath;
@@ -49,7 +50,8 @@ final class FileSystemMoveWorker extends Worker {
     required this.sourcePath,
     required this.destinationPath,
     this.overwrite = false,
-  });
+  })  : assert(sourcePath != '', 'sourcePath must not be empty'),
+        assert(destinationPath != '', 'destinationPath must not be empty');
 
   final String sourcePath;
   final String destinationPath;
@@ -74,7 +76,7 @@ final class FileSystemDeleteWorker extends Worker {
   const FileSystemDeleteWorker({
     required this.path,
     this.recursive = false,
-  });
+  }) : assert(path != '', 'path must not be empty');
 
   final String path;
   final bool recursive;
@@ -98,7 +100,7 @@ final class FileSystemListWorker extends Worker {
     required this.path,
     this.pattern,
     this.recursive = false,
-  });
+  }) : assert(path != '', 'path must not be empty');
 
   final String path;
   final String? pattern;
@@ -123,7 +125,7 @@ final class FileSystemMkdirWorker extends Worker {
   const FileSystemMkdirWorker({
     required this.path,
     this.createParents = true,
-  });
+  }) : assert(path != '', 'path must not be empty');
 
   final String path;
   final bool createParents;

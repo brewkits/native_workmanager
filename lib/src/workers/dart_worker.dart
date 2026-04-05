@@ -2,6 +2,58 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../worker.dart';
 
+/// Marks a top-level function as a [DartWorker] callback.
+///
+/// Use with `native_workmanager_gen` to auto-generate:
+/// - A type-safe `WorkerIds` constants class (eliminates magic strings).
+/// - A `generatedWorkerRegistry` map ready for [NativeWorkManager.initialize].
+///
+/// ## Setup
+///
+/// 1. Add `native_workmanager_gen` to `dev_dependencies` in pubspec.yaml.
+/// 2. Annotate top-level functions and add a `part` directive:
+///
+/// ```dart
+/// // lib/workers.dart
+/// import 'package:native_workmanager/native_workmanager.dart';
+///
+/// part 'workers.g.dart';
+///
+/// @WorkerCallback('sync_contacts')
+/// Future<bool> syncContacts(Map<String, dynamic>? input) async {
+///   // ...
+///   return true;
+/// }
+///
+/// @WorkerCallback('backup_photos')
+/// Future<bool> backupPhotos(Map<String, dynamic>? input) async {
+///   // ...
+///   return true;
+/// }
+/// ```
+///
+/// 3. Run code generation:
+/// ```sh
+/// dart run build_runner build
+/// ```
+///
+/// 4. Use generated code:
+/// ```dart
+/// // In main.dart
+/// await NativeWorkManager.initialize(
+///   dartWorkers: generatedWorkerRegistry,
+/// );
+///
+/// // Schedule with compile-time-safe ID:
+/// DartWorker(callbackId: WorkerIds.syncContacts)
+/// ```
+///
+/// ## Constraints
+///
+/// - Must be applied to a **top-level function** (not a method or closure).
+/// - Function must have the signature `Future<bool> Function(Map<String, dynamic>?)`.
+/// - The `id` must be **unique** across all annotated functions in the same library.
+
 /// Callback type for Dart workers.
 ///
 /// [input] - JSON-decoded input data passed when scheduling.
@@ -265,12 +317,27 @@ final class DartWorker extends Worker {
     required this.callbackId,
     this.input,
     this.autoDispose = false,
+    this.timeoutMs,
   }) {
     if (callbackId.isEmpty) {
       throw ArgumentError(
         'callbackId cannot be empty. '
         'Use the ID you registered in NativeWorkManager.initialize().',
       );
+    }
+    // Validate input is JSON-serializable at construction time so developers
+    // see a clear error here rather than a cryptic failure during enqueue().
+    if (input != null) {
+      try {
+        jsonEncode(input);
+      } on JsonUnsupportedObjectError catch (e) {
+        throw ArgumentError(
+          'DartWorker.input must be JSON-serializable '
+          '(String, int, double, bool, List, Map, null only).\n'
+          'Unsupported value: ${e.unsupportedObject} '
+          '(${e.unsupportedObject.runtimeType})',
+        );
+      }
     }
   }
 
@@ -279,6 +346,23 @@ final class DartWorker extends Worker {
 
   /// Optional input data (will be JSON encoded).
   final Map<String, dynamic>? input;
+
+  /// Maximum time in milliseconds the callback is allowed to run.
+  ///
+  /// If the callback does not complete within this duration, the worker will
+  /// be killed and the task will be marked as failed.
+  ///
+  /// Defaults to `null`, which uses the platform default (300 000 ms / 5 min).
+  /// Increase this for long-running tasks; decrease it to fail fast on hangs.
+  ///
+  /// ```dart
+  /// // Heavy sync that may take up to 10 minutes
+  /// DartWorker(callbackId: 'heavySync', timeoutMs: 10 * 60 * 1000)
+  ///
+  /// // Quick health-check — fail within 30 s if hung
+  /// DartWorker(callbackId: 'healthCheck', timeoutMs: 30 * 1000)
+  /// ```
+  final int? timeoutMs;
 
   /// Whether to dispose Flutter Engine immediately after task completes.
   ///
@@ -319,6 +403,7 @@ final class DartWorker extends Worker {
         'callbackId': callbackId,
         'input': input != null ? jsonEncode(input) : null,
         'autoDispose': autoDispose,
+        if (timeoutMs != null) 'timeoutMs': timeoutMs,
       };
 }
 
@@ -335,6 +420,7 @@ final class DartWorkerInternal extends Worker {
     required this.callbackHandle,
     this.input,
     this.autoDispose = false,
+    this.timeoutMs,
   });
 
   /// ID of the registered callback.
@@ -349,6 +435,10 @@ final class DartWorkerInternal extends Worker {
   /// Whether to dispose Flutter Engine immediately after task completes.
   final bool autoDispose;
 
+  /// Maximum time in milliseconds the callback is allowed to run.
+  /// `null` means use the platform default (5 min).
+  final int? timeoutMs;
+
   @override
   String get workerClassName => 'DartCallbackWorker';
 
@@ -359,5 +449,6 @@ final class DartWorkerInternal extends Worker {
         'callbackHandle': callbackHandle,
         'input': input != null ? jsonEncode(input) : null,
         'autoDispose': autoDispose,
+        if (timeoutMs != null) 'timeoutMs': timeoutMs,
       };
 }

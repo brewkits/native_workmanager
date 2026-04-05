@@ -12,6 +12,7 @@ import 'pages/production_impact_page_improved.dart';
 import 'pages/demo_scenarios_page.dart';
 import 'pages/comprehensive_demo_page.dart';
 import 'pages/performance_page.dart';
+import 'pages/case_study_page.dart';
 import 'examples/chain_resilience_test.dart';
 import 'examples/chain_data_flow_demo.dart';
 import 'screens/bug_fix_demo_screen.dart';
@@ -107,6 +108,10 @@ void main() async {
       'customTask': customTaskCallback,
       'heavyTask': heavyTaskCallback,
       'benchHeavyCompute': benchHeavyComputeCallback,
+      // Stress & System Test Workers
+      'stress_worker': stressWorkerCallback,
+      'media_processor': mediaProcessorCallback,
+      'large_payload': largePayloadWorkerCallback,
     },
   );
 
@@ -148,6 +153,28 @@ Future<bool> heavyTaskCallback(Map<String, dynamic>? input) async {
   return true;
 }
 
+@pragma('vm:entry-point')
+Future<bool> stressWorkerCallback(Map<String, dynamic>? input) async {
+  final int index = input?['index'] ?? 0;
+  debugPrint('[StressWorker] index=$index starting...');
+  await Future.delayed(const Duration(milliseconds: 100));
+  return true;
+}
+
+@pragma('vm:entry-point')
+Future<bool> mediaProcessorCallback(Map<String, dynamic>? input) async {
+  debugPrint('[MediaProcessor] input=$input');
+  return true;
+}
+
+@pragma('vm:entry-point')
+Future<bool> largePayloadWorkerCallback(Map<String, dynamic>? input) async {
+  final data = input?['data'] as String?;
+  final len = data?.length ?? 0;
+  debugPrint('[LargePayloadWorker] received data length: $len');
+  return len > 0;
+}
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -178,7 +205,9 @@ class MyApp extends StatelessWidget {
           style: ElevatedButton.styleFrom(
             elevation: 0,
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
           ),
         ),
       ),
@@ -217,13 +246,15 @@ class _DemoHomePageState extends State<DemoHomePage> {
   final List<String> _logs = [];
   int _taskCounter = 0;
   bool _showMetricsOverlay = false;
+  bool _logExpanded = true;
 
   static const _pageTitles = [
     'Quick Demo',
-    'All Workers',
+    'All Scenarios',
     'Performance',
     'Benchmark',
-    'Case Studies',
+    'Production Impact',
+    'User Case Studies',
     'Bug Fixes',
     'Core API',
     'Transfer',
@@ -244,14 +275,23 @@ class _DemoHomePageState extends State<DemoHomePage> {
     NativeWorkManager.events.listen((event) {
       if (!mounted) return;
       setState(() {
-        var logMessage = '${_formatTime(event.timestamp)} ${event.success ? "✅" : "❌"} ${event.taskId}: ${event.message ?? (event.success ? "Success" : "Failed")}';
+        String logMessage;
+        if (event.isStarted) {
+          // isStarted events are NOT failures — task just began execution.
+          logMessage =
+              '${_formatTime(event.timestamp)} ▶️ ${event.taskId}: Started';
+        } else {
+          logMessage =
+              '${_formatTime(event.timestamp)} ${event.success ? "✅" : "❌"} ${event.taskId}: ${event.message ?? (event.success ? "Success" : "Failed")}';
 
-        if (event.resultData != null && event.resultData!.isNotEmpty) {
-          final data = event.resultData!;
-          if (data.containsKey('filePath')) {
-            logMessage += ' | File: ${data['fileName']}, Size: ${data['fileSize']} bytes';
-          } else if (data.containsKey('statusCode')) {
-            logMessage += ' | HTTP ${data['statusCode']}';
+          if (event.resultData != null && event.resultData!.isNotEmpty) {
+            final data = event.resultData!;
+            if (data.containsKey('filePath')) {
+              logMessage +=
+                  ' | File: ${data['fileName']}, Size: ${data['fileSize']} bytes';
+            } else if (data.containsKey('statusCode')) {
+              logMessage += ' | HTTP ${data['statusCode']}';
+            }
           }
         }
 
@@ -260,7 +300,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
       });
     });
 
-    _addLog('🚀 NativeWorkManager v1.0.8 — High-Performance Background Engine');
+    _addLog('🚀 NativeWorkManager v1.1.0 — High-Performance Background Engine');
   }
 
   String _formatTime(DateTime dt) {
@@ -281,10 +321,15 @@ class _DemoHomePageState extends State<DemoHomePage> {
       await NativeWorkManager.enqueue(
         taskId: taskId,
         trigger: TaskTrigger.oneTime(),
-        worker: HttpRequestWorker(url: 'https://httpbin.org/get', method: HttpMethod.get),
+        worker: HttpRequestWorker(
+          url: 'https://httpbin.org/get',
+          method: HttpMethod.get,
+        ),
       );
       _addLog('📤 Enqueued: HTTP GET ($taskId)');
-    } catch (e) { _addLog('❌ Error: $e'); }
+    } catch (e) {
+      _addLog('❌ Error: $e');
+    }
   }
 
   Future<void> _scheduleHttpPost() async {
@@ -301,7 +346,9 @@ class _DemoHomePageState extends State<DemoHomePage> {
         ),
       );
       _addLog('📤 Enqueued: HTTP POST ($taskId)');
-    } catch (e) { _addLog('❌ Error: $e'); }
+    } catch (e) {
+      _addLog('❌ Error: $e');
+    }
   }
 
   Future<void> _scheduleSync() async {
@@ -313,12 +360,17 @@ class _DemoHomePageState extends State<DemoHomePage> {
         worker: HttpSyncWorker(
           url: 'https://httpbin.org/post',
           method: HttpMethod.post,
-          requestBody: {'ts': DateTime.now().millisecondsSinceEpoch, 'v': '1.0.8'},
+          requestBody: {
+            'ts': DateTime.now().millisecondsSinceEpoch,
+            'v': '1.0.8',
+          },
         ),
         constraints: const Constraints(requiresNetwork: true),
       );
       _addLog('📤 Enqueued: Sync ($taskId)');
-    } catch (e) { _addLog('❌ Error: $e'); }
+    } catch (e) {
+      _addLog('❌ Error: $e');
+    }
   }
 
   Future<void> _scheduleCustomDartTask() async {
@@ -330,7 +382,9 @@ class _DemoHomePageState extends State<DemoHomePage> {
         worker: DartWorker(callbackId: 'customTask'),
       );
       _addLog('📤 Enqueued: Dart Task ($taskId)');
-    } catch (e) { _addLog('❌ Error: $e'); }
+    } catch (e) {
+      _addLog('❌ Error: $e');
+    }
   }
 
   @override
@@ -348,61 +402,100 @@ class _DemoHomePageState extends State<DemoHomePage> {
               onDestinationSelected: (i) => setState(() => _selectedIndex = i),
               labelType: NavigationRailLabelType.selected,
               destinations: const [
-                NavigationRailDestination(icon: Icon(Icons.dashboard_outlined), selectedIcon: Icon(Icons.dashboard), label: Text('Home')),
-                NavigationRailDestination(icon: Icon(Icons.bolt_outlined), selectedIcon: Icon(Icons.bolt), label: Text('Tasks')),
-                NavigationRailDestination(icon: Icon(Icons.speed_outlined), selectedIcon: Icon(Icons.speed), label: Text('Metrics')),
+                NavigationRailDestination(
+                  icon: Icon(Icons.dashboard_outlined),
+                  selectedIcon: Icon(Icons.dashboard),
+                  label: Text('Home'),
+                ),
+                NavigationRailDestination(
+                  icon: Icon(Icons.bolt_outlined),
+                  selectedIcon: Icon(Icons.bolt),
+                  label: Text('Tasks'),
+                ),
+                NavigationRailDestination(
+                  icon: Icon(Icons.speed_outlined),
+                  selectedIcon: Icon(Icons.speed),
+                  label: Text('Metrics'),
+                ),
               ],
             ),
-          
+
           Expanded(
             child: CustomScrollView(
               slivers: [
                 SliverAppBar.large(
                   title: Text(
                     _pageTitles[_selectedIndex],
-                    style: const TextStyle(fontWeight: FontWeight.w800, letterSpacing: -0.5),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.5,
+                    ),
                   ),
                   centerTitle: false,
                   actions: [
                     IconButton.filledTonal(
-                      icon: Icon(_showMetricsOverlay ? Icons.analytics : Icons.analytics_outlined),
-                      onPressed: () => setState(() => _showMetricsOverlay = !_showMetricsOverlay),
+                      icon: Icon(
+                        _showMetricsOverlay
+                            ? Icons.analytics
+                            : Icons.analytics_outlined,
+                      ),
+                      onPressed: () => setState(
+                        () => _showMetricsOverlay = !_showMetricsOverlay,
+                      ),
                     ),
                     const SizedBox(width: 8),
-                    Builder(builder: (context) => IconButton.filledTonal(
-                      icon: const Icon(Icons.menu),
-                      onPressed: () => Scaffold.of(context).openDrawer(),
-                    )),
+                    Builder(
+                      builder: (context) => IconButton.filledTonal(
+                        icon: const Icon(Icons.menu),
+                        onPressed: () => Scaffold.of(context).openDrawer(),
+                      ),
+                    ),
                     const SizedBox(width: 16),
                   ],
                 ),
-                
+
                 SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                    child: IndexedStack(
-                      index: _selectedIndex,
-                      children: [
-                        const DemoScenariosPage(), // 0
-                        const ComprehensiveDemoPage(), // 1
-                        const PerformancePage(), // 2
-                        const ManualBenchmarkPage(), // 3
-                        const ProductionImpactPageImproved(), // 4
-                        const BugFixDemoScreen(), // 5
-                        _buildModernGridTab(), // 6
-                        const Center(child: Text('Transfer Page Content')), // 7 (simplified for demo)
-                        const Center(child: Text('Reliability Page Content')), // 8
-                        const Center(child: Text('Environment Page Content')), // 9
-                        const Center(child: Text('Workflow Page Content')), // 10
-                        const Center(child: Text('Scheduling Page Content')), // 11
-                        const Center(child: Text('Extensibility Page Content')), // 12
-                        const ChainResilienceTest(), // 13
-                        const ChainDataFlowDemo(), // 14
-                      ],
+                  child: SizedBox(
+                    height: MediaQuery.of(context).size.height,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                      child: IndexedStack(
+                        index: _selectedIndex,
+                        children: [
+                          const DemoScenariosPage(), // 0
+                          const ComprehensiveDemoPage(), // 1
+                          const PerformancePage(), // 2
+                          const ManualBenchmarkPage(), // 3
+                          const ProductionImpactPageImproved(), // 4
+                          const CaseStudyPage(), // 5
+                          const BugFixDemoScreen(), // 6
+                          _buildModernGridTab(), // 7
+                          const Center(
+                            child: Text('Transfer Page Content'),
+                          ), // 8
+                          const Center(
+                            child: Text('Reliability Page Content'),
+                          ), // 9
+                          const Center(
+                            child: Text('Environment Page Content'),
+                          ), // 10
+                          const Center(
+                            child: Text('Workflow Page Content'),
+                          ), // 11
+                          const Center(
+                            child: Text('Scheduling Page Content'),
+                          ), // 12
+                          const Center(
+                            child: Text('Extensibility Page Content'),
+                          ), // 13
+                          const ChainResilienceTest(), // 14
+                          const ChainDataFlowDemo(), // 15
+                        ],
+                      ),
                     ),
                   ),
                 ),
-                
+
                 const SliverPadding(padding: EdgeInsets.only(bottom: 220)),
               ],
             ),
@@ -419,39 +512,128 @@ class _DemoHomePageState extends State<DemoHomePage> {
           const _DrawerHeader(),
           const Padding(
             padding: EdgeInsets.fromLTRB(28, 16, 16, 10),
-            child: Text('MAIN FEATURES', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2, color: Colors.grey)),
+            child: Text(
+              'MAIN FEATURES',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.2,
+                color: Colors.grey,
+              ),
+            ),
           ),
-          const NavigationDrawerDestination(icon: Icon(Icons.rocket_launch_outlined), label: Text('Demo Scenarios')),
-          const NavigationDrawerDestination(icon: Icon(Icons.layers_outlined), label: Text('All Workers')),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.rocket_launch_outlined),
+            label: Text('All Scenarios'),
+          ),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.layers_outlined),
+            label: Text('Built-in Workers'),
+          ),
           const Padding(
             padding: EdgeInsets.fromLTRB(28, 16, 16, 10),
-            child: Text('PERFORMANCE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2, color: Colors.grey)),
+            child: Text(
+              'PERFORMANCE',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.2,
+                color: Colors.grey,
+              ),
+            ),
           ),
-          const NavigationDrawerDestination(icon: Icon(Icons.speed_outlined), label: Text('Core Performance')),
-          const NavigationDrawerDestination(icon: Icon(Icons.timer_outlined), label: Text('Manual Benchmarks')),
-          const NavigationDrawerDestination(icon: Icon(Icons.insights_outlined), label: Text('Production Impact')),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.speed_outlined),
+            label: Text('Core Performance'),
+          ),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.timer_outlined),
+            label: Text('Manual Benchmarks'),
+          ),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.insights_outlined),
+            label: Text('Production Impact'),
+          ),
           const Padding(
             padding: EdgeInsets.fromLTRB(28, 16, 16, 10),
-            child: Text('DEVELOPER', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2, color: Colors.grey)),
+            child: Text(
+              'CASE STUDIES',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.2,
+                color: Colors.grey,
+              ),
+            ),
           ),
-          const NavigationDrawerDestination(icon: Icon(Icons.bug_report_outlined), label: Text('Bug Regression')),
-          const NavigationDrawerDestination(icon: Icon(Icons.api_outlined), label: Text('Core API')),
-          const NavigationDrawerDestination(icon: Icon(Icons.swap_vert_outlined), label: Text('Transfer & Files')),
-          const NavigationDrawerDestination(icon: Icon(Icons.refresh_outlined), label: Text('Reliability & Retry')),
-          const NavigationDrawerDestination(icon: Icon(Icons.security_outlined), label: Text('Constraints')),
-          const NavigationDrawerDestination(icon: Icon(Icons.link_outlined), label: Text('Task Chains')),
-          const NavigationDrawerDestination(icon: Icon(Icons.schedule_outlined), label: Text('Scheduling')),
-          const NavigationDrawerDestination(icon: Icon(Icons.extension_outlined), label: Text('Custom Native')),
-          const NavigationDrawerDestination(icon: Icon(Icons.account_tree_outlined), label: Text('Resilience')),
-          const NavigationDrawerDestination(icon: Icon(Icons.device_hub_outlined), label: Text('Data Flow')),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.auto_stories_outlined),
+            label: Text('User Case Studies'),
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(28, 16, 16, 10),
+            child: Text(
+              'DEVELOPER',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.2,
+                color: Colors.grey,
+              ),
+            ),
+          ),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.bug_report_outlined),
+            label: Text('Bug Regression'),
+          ),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.api_outlined),
+            label: Text('Core API'),
+          ),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.swap_vert_outlined),
+            label: Text('Transfer & Files'),
+          ),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.refresh_outlined),
+            label: Text('Reliability & Retry'),
+          ),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.security_outlined),
+            label: Text('Constraints'),
+          ),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.link_outlined),
+            label: Text('Task Chains'),
+          ),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.schedule_outlined),
+            label: Text('Scheduling'),
+          ),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.extension_outlined),
+            label: Text('Custom Native'),
+          ),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.account_tree_outlined),
+            label: Text('Resilience'),
+          ),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.device_hub_outlined),
+            label: Text('Data Flow'),
+          ),
         ],
       ),
       bottomSheet: _buildLogTerminal(colorScheme),
-      floatingActionButton: _selectedIndex == 6 ? FloatingActionButton.extended(
-        onPressed: () => NativeWorkManager.cancelAll().then((_) => _addLog('🧹 Cleared all tasks')),
-        label: const Text('Clear All'),
-        icon: const Icon(Icons.delete_outline),
-      ) : null,
+      floatingActionButton: _selectedIndex == 6
+          ? FloatingActionButton.extended(
+              onPressed: () => NativeWorkManager.cancelAll().then(
+                (_) => _addLog('🧹 Cleared all tasks'),
+              ),
+              label: const Text('Clear All'),
+              icon: const Icon(Icons.delete_outline),
+            )
+          : null,
     );
   }
 
@@ -472,23 +654,51 @@ class _DemoHomePageState extends State<DemoHomePage> {
           crossAxisSpacing: 12,
           childAspectRatio: 1.4,
           children: [
-            _buildActionCard('HTTP GET', Icons.download, Colors.blue, _scheduleHttpGet),
-            _buildActionCard('HTTP POST', Icons.upload, Colors.green, _scheduleHttpPost),
-            _buildActionCard('JSON Sync', Icons.sync, Colors.orange, _scheduleSync),
-            _buildActionCard('Download', Icons.file_download, Colors.teal, () => setState(() => _selectedIndex = 7)),
+            _buildActionCard(
+              'HTTP GET',
+              Icons.download,
+              Colors.blue,
+              _scheduleHttpGet,
+            ),
+            _buildActionCard(
+              'HTTP POST',
+              Icons.upload,
+              Colors.green,
+              _scheduleHttpPost,
+            ),
+            _buildActionCard(
+              'JSON Sync',
+              Icons.sync,
+              Colors.orange,
+              _scheduleSync,
+            ),
+            _buildActionCard(
+              'Download',
+              Icons.file_download,
+              Colors.teal,
+              () => setState(() => _selectedIndex = 7),
+            ),
           ],
         ),
         const SizedBox(height: 24),
         const _SectionHeader('DART WORKERS', 'Full framework access'),
         const SizedBox(height: 12),
-        _buildActionCard('Execute Custom Dart Task', Icons.code, Colors.purple, _scheduleCustomDartTask, wide: true),
+        _buildActionCard(
+          'Execute Custom Dart Task',
+          Icons.code,
+          Colors.purple,
+          _scheduleCustomDartTask,
+          wide: true,
+        ),
       ],
     );
   }
 
   Widget _buildInfoCard() {
     return Card(
-      color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+      color: Theme.of(
+        context,
+      ).colorScheme.primaryContainer.withValues(alpha: 0.3),
       child: const Padding(
         padding: EdgeInsets.all(20),
         child: Row(
@@ -499,8 +709,14 @@ class _DemoHomePageState extends State<DemoHomePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Architecture Choice', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  Text('Mode 1 (Native) uses 2-5MB RAM. Mode 2 (Dart) uses 30-50MB RAM. Brewkits lets you choose based on task complexity.', style: TextStyle(fontSize: 13)),
+                  Text(
+                    'Architecture Choice',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  Text(
+                    'Mode 1 (Native) uses 2-5MB RAM. Mode 2 (Dart) uses 30-50MB RAM. Brewkits lets you choose based on task complexity.',
+                    style: TextStyle(fontSize: 13),
+                  ),
                 ],
               ),
             ),
@@ -510,7 +726,13 @@ class _DemoHomePageState extends State<DemoHomePage> {
     );
   }
 
-  Widget _buildActionCard(String title, IconData icon, Color color, VoidCallback onTap, {bool wide = false}) {
+  Widget _buildActionCard(
+    String title,
+    IconData icon,
+    Color color,
+    VoidCallback onTap, {
+    bool wide = false,
+  }) {
     return Card(
       child: InkWell(
         onTap: onTap,
@@ -522,7 +744,13 @@ class _DemoHomePageState extends State<DemoHomePage> {
             children: [
               Icon(icon, size: 32, color: color),
               const SizedBox(height: 8),
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
             ],
           ),
         ),
@@ -531,40 +759,99 @@ class _DemoHomePageState extends State<DemoHomePage> {
   }
 
   Widget _buildLogTerminal(ColorScheme colorScheme) {
-    return Container(
-      height: 200,
-      margin: const EdgeInsets.all(16),
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeInOut,
+      height: _logExpanded ? 200 : 48,
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.9),
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: colorScheme.outlineVariant.withValues(alpha: 0.5)),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+        ),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: Row(
-              children: [
-                const Icon(Icons.terminal, size: 18),
-                const SizedBox(width: 8),
-                const Text('SYSTEM ENGINE LOG', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, letterSpacing: 1.0)),
-                const Spacer(),
-                IconButton(icon: const Icon(Icons.clear_all, size: 18), onPressed: () => setState(() => _logs.clear()), constraints: const BoxConstraints()),
-              ],
+          // Header — always visible, tap to toggle
+          InkWell(
+            onTap: () => setState(() => _logExpanded = !_logExpanded),
+            borderRadius: BorderRadius.circular(24),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
+              child: SizedBox(
+                height: 46,
+                child: Row(
+                  children: [
+                    const Icon(Icons.terminal, size: 16),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'ENGINE LOG',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 11,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    if (_logs.isNotEmpty)
+                      Text(
+                        '(${_logs.length})',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    const Spacer(),
+                    if (_logExpanded)
+                      IconButton(
+                        icon: const Icon(Icons.clear_all, size: 16),
+                        onPressed: () => setState(() => _logs.clear()),
+                        constraints: const BoxConstraints(),
+                        padding: EdgeInsets.zero,
+                        tooltip: 'Clear log',
+                      ),
+                    IconButton(
+                      icon: Icon(
+                        _logExpanded
+                            ? Icons.keyboard_arrow_down
+                            : Icons.keyboard_arrow_up,
+                        size: 20,
+                      ),
+                      onPressed: () =>
+                          setState(() => _logExpanded = !_logExpanded),
+                      constraints: const BoxConstraints(),
+                      padding: EdgeInsets.zero,
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                ),
+              ),
             ),
           ),
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              itemCount: _logs.length,
-              itemBuilder: (context, index) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 2),
-                  child: Text(_logs[index], style: const TextStyle(fontFamily: 'monospace', fontSize: 10, height: 1.4)),
-                );
-              },
+          // Log list — only visible when expanded
+          if (_logExpanded)
+            Expanded(
+              child: ListView.builder(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                itemCount: _logs.length,
+                itemBuilder: (context, index) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Text(
+                      _logs[index],
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 10,
+                        height: 1.4,
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -586,11 +873,25 @@ class _DrawerHeader extends StatelessWidget {
               color: Theme.of(context).colorScheme.primary,
               borderRadius: BorderRadius.circular(16),
             ),
-            child: const Icon(Icons.auto_awesome, color: Colors.white, size: 32),
+            child: const Icon(
+              Icons.auto_awesome,
+              color: Colors.white,
+              size: 32,
+            ),
           ),
           const SizedBox(height: 16),
-          const Text('Brewkits Native', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: -1)),
-          const Text('WorkManager SDK', style: TextStyle(fontSize: 14, color: Colors.grey)),
+          const Text(
+            'Brewkits Native',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -1,
+            ),
+          ),
+          const Text(
+            'WorkManager SDK',
+            style: TextStyle(fontSize: 14, color: Colors.grey),
+          ),
         ],
       ),
     );
@@ -606,10 +907,20 @@ class _SectionHeader extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5, color: Colors.grey)),
-        Text(subtitle, style: const TextStyle(fontSize: 14, color: Colors.grey)),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.5,
+            color: Colors.grey,
+          ),
+        ),
+        Text(
+          subtitle,
+          style: const TextStyle(fontSize: 14, color: Colors.grey),
+        ),
       ],
     );
   }
 }
-

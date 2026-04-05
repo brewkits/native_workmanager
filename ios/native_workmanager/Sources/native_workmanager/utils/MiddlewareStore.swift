@@ -47,10 +47,18 @@ final class MiddlewareStore {
     }
 
     func add(type: String, configJson: String) {
+        // Upsert by type: remove any existing entry first so registerMiddleware
+        // is idempotent — calling it twice replaces the old config instead of
+        // accumulating duplicate rows that would be applied multiple times.
         let now = Int64(Date().timeIntervalSince1970 * 1000)
         queue.async(flags: .barrier) {
-            let sql = "INSERT INTO middleware (type, config_json, updated_at) VALUES (?, ?, ?)"
-            if let stmt = self.prepare(sql) {
+            if let deleteStmt = self.prepare("DELETE FROM middleware WHERE type = ?") {
+                sqlite3_bind_text(deleteStmt, 1, type, -1, Self.TRANSIENT)
+                sqlite3_step(deleteStmt)
+                sqlite3_finalize(deleteStmt)
+            }
+            let insertSql = "INSERT INTO middleware (type, config_json, updated_at) VALUES (?, ?, ?)"
+            if let stmt = self.prepare(insertSql) {
                 sqlite3_bind_text(stmt, 1, type, -1, Self.TRANSIENT)
                 sqlite3_bind_text(stmt, 2, configJson, -1, Self.TRANSIENT)
                 sqlite3_bind_int64(stmt, 3, now)

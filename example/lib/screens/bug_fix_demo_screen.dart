@@ -33,6 +33,7 @@ class _BugFixDemoScreenState extends State<BugFixDemoScreen> {
 
   void _setupListeners() {
     _eventsSub = NativeWorkManager.events.listen((event) {
+      if (event.isStarted) return;
       if (!_pendingTasks.contains(event.taskId)) return;
 
       setState(() {

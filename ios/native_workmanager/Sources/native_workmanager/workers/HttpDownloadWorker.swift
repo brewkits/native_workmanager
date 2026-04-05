@@ -1,7 +1,6 @@
 import Foundation
 import CryptoKit
 import Photos
-import ZIPFoundation
 
 /// Native HTTP file download worker for iOS.
 ///
@@ -178,8 +177,10 @@ class HttpDownloadWorker: IosWorker {
         var destinationURL = URL(fileURLWithPath: config.isDirectory
             ? config.savePath + "download"
             : config.savePath)
+        // NET-021: use URL-hash sentinel in directory mode so concurrent downloads
+        // to the same directory don't overwrite each other's partial data.
         var tempURL = URL(fileURLWithPath: config.isDirectory
-            ? config.savePath + HttpConstants.pendingTmpFilename
+            ? config.savePath + directoryModeTempFilename(for: config.url)
             : config.savePath + ".tmp")
 
         // Create directory (or parent directory) if needed
@@ -196,6 +197,14 @@ class HttpDownloadWorker: IosWorker {
                 return .failure(message: "Failed to create directory: \(error.localizedDescription)")
             }
         }
+
+        // M-06: Re-resolve symlinks now that the directory exists.
+        // On physical devices /var is a symlink to /private/var; resolvingSymlinksInPath()
+        // only resolves the chain when the path actually exists. If we skip this step the
+        // sandbox-path checks in SecurityValidator silently fail and the temp file is written
+        // to the wrong (unresolved) path.
+        destinationURL = destinationURL.resolvingSymlinksInPath()
+        tempURL = tempURL.resolvingSymlinksInPath()
 
         // 👇 NEW: Check for existing partial download (resume support)
         var existingBytes: Int64 = 0
@@ -232,8 +241,9 @@ class HttpDownloadWorker: IosWorker {
         if existingBytes > 0 {
             request.setValue("bytes=\(existingBytes)-", forHTTPHeaderField: HttpConstants.headerRange)
             // If-Range: only honour the Range if the file hasn't changed on the server.
-            // Prevents silently producing a corrupt merged file when CDN rotates ETags.
-            let etagSidecar = URL(fileURLWithPath: config.savePath + HttpConstants.etagSidecarSuffix)
+            // NET-003: Store ETag sidecar alongside tempURL (not savePath) so that directory-mode
+            // concurrent downloads to the same folder don't overwrite each other's sidecar.
+            let etagSidecar = URL(fileURLWithPath: tempURL.path + HttpConstants.etagSidecarSuffix)
             if let stored = try? String(contentsOf: etagSidecar, encoding: .utf8), !stored.isEmpty {
                 request.setValue(stored.trimmingCharacters(in: .whitespacesAndNewlines),
                                  forHTTPHeaderField: HttpConstants.headerIfRange)
@@ -346,7 +356,7 @@ class HttpDownloadWorker: IosWorker {
                 if statusCode == HttpConstants.rangeNotSatisfiable {
                     print("HttpDownloadWorker: 416 Range Not Satisfiable — deleting stale .tmp, restart on retry")
                     try? FileManager.default.removeItem(at: tempURL)
-                    try? FileManager.default.removeItem(atPath: config.savePath + HttpConstants.etagSidecarSuffix)
+                    try? FileManager.default.removeItem(atPath: tempURL.path + HttpConstants.etagSidecarSuffix)
                     continuation.resume(returning: .failure(
                         message: "Resume position invalid (file may have changed). Retry to restart download."
                     ))
@@ -385,7 +395,7 @@ class HttpDownloadWorker: IosWorker {
                 } else if existingBytes > 0 && statusCode == HttpConstants.httpOk {
                     print("HttpDownloadWorker: Server doesn't support resume - Starting from beginning")
                     try? FileManager.default.removeItem(at: tempURL)
-                    try? FileManager.default.removeItem(atPath: config.savePath + HttpConstants.etagSidecarSuffix)
+                    try? FileManager.default.removeItem(atPath: tempURL.path + HttpConstants.etagSidecarSuffix)
                 }
 
                 // 👇 Feature 4: Resolve filename from Content-Disposition or URL when savePath is a directory
@@ -420,9 +430,9 @@ class HttpDownloadWorker: IosWorker {
                         // Avoids loading the entire chunk into RAM (OOM risk for large files).
                         do {
                             let chunkHandle = try FileHandle(forReadingFrom: location)
-                            defer { try? chunkHandle.close() }
+                            defer { do { try chunkHandle.close() } catch { print("HttpDownloadWorker: chunkHandle.close error: \(error)") } }
                             let destHandle = try FileHandle(forWritingTo: tempURL)
-                            defer { try? destHandle.close() }
+                            defer { do { try destHandle.close() } catch { print("HttpDownloadWorker: destHandle.close error: \(error)") } }
                             destHandle.seekToEndOfFile()
                             let bufferSize = HttpConstants.resumeChunkSize
                             if #available(iOS 13.4, *) {
@@ -455,7 +465,7 @@ class HttpDownloadWorker: IosWorker {
                             let etag = httpResponse.value(forHTTPHeaderField: HttpConstants.headerETag)
                                 ?? httpResponse.value(forHTTPHeaderField: HttpConstants.headerLastModified)
                             if let etag = etag {
-                                try? etag.write(toFile: config.savePath + HttpConstants.etagSidecarSuffix, atomically: true, encoding: .utf8)
+                                try? etag.write(toFile: tempURL.path + HttpConstants.etagSidecarSuffix, atomically: true, encoding: .utf8)
                             }
                         }
                     }
@@ -504,7 +514,7 @@ class HttpDownloadWorker: IosWorker {
                     try FileManager.default.moveItem(at: tempURL, to: destinationURL)
 
                     // Clean up ETag sidecar after successful download
-                    try? FileManager.default.removeItem(atPath: config.savePath + HttpConstants.etagSidecarSuffix)
+                    try? FileManager.default.removeItem(atPath: tempURL.path + HttpConstants.etagSidecarSuffix)
 
                     print("HttpDownloadWorker: Success - Downloaded \(finalFileSize) bytes")
                     print("HttpDownloadWorker: Saved to: \(destinationURL.path)")
@@ -592,7 +602,7 @@ class HttpDownloadWorker: IosWorker {
 
             if statusCode == HttpConstants.rangeNotSatisfiable {
                 try? FileManager.default.removeItem(at: tempURL)
-                try? FileManager.default.removeItem(atPath: config.savePath + HttpConstants.etagSidecarSuffix)
+                try? FileManager.default.removeItem(atPath: tempURL.path + HttpConstants.etagSidecarSuffix)
                 return .failure(message: "Resume position invalid (file may have changed). Retry to restart download.")
             }
 
@@ -668,17 +678,17 @@ class HttpDownloadWorker: IosWorker {
                 let etag = httpResponse.value(forHTTPHeaderField: HttpConstants.headerETag)
                     ?? httpResponse.value(forHTTPHeaderField: HttpConstants.headerLastModified)
                 if let etag = etag {
-                    try? etag.write(toFile: config.savePath + HttpConstants.etagSidecarSuffix, atomically: true, encoding: .utf8)
+                    try? etag.write(toFile: tempURL.path + HttpConstants.etagSidecarSuffix, atomically: true, encoding: .utf8)
                 }
             }
 
             // Checksum verification
             if let expectedChecksum = config.expectedChecksum {
-                guard let actualChecksum = calculateChecksum(fileURL: tempURL, algorithm: config.effectiveChecksumAlgorithm) else {
+                guard let actualChecksum = self.calculateChecksum(fileURL: tempURL, algorithm: config.effectiveChecksumAlgorithm, taskId: nil) else {
                     try? FileManager.default.removeItem(at: tempURL)
                     return .failure(message: "Failed to calculate checksum")
                 }
-                if actualChecksum.caseInsensitiveCompare(expectedChecksum) != .orderedSame {
+                if actualChecksum.lowercased() != expectedChecksum.lowercased() {
                     try? FileManager.default.removeItem(at: tempURL)
                     return .failure(message: "Checksum verification failed (expected: \(expectedChecksum), actual: \(actualChecksum))")
                 }
@@ -696,7 +706,7 @@ class HttpDownloadWorker: IosWorker {
                 try? FileManager.default.removeItem(at: destinationURL)
             }
             try FileManager.default.moveItem(at: tempURL, to: finalDestination)
-            try? FileManager.default.removeItem(atPath: config.savePath + HttpConstants.etagSidecarSuffix)
+            try? FileManager.default.removeItem(atPath: tempURL.path + HttpConstants.etagSidecarSuffix)
 
             performPostDownloadActions(config: config, filePath: finalDestination.path)
 
@@ -756,14 +766,14 @@ class HttpDownloadWorker: IosWorker {
                         if let expectedChecksum = config.expectedChecksum {
                             print("HttpDownloadWorker: Verifying checksum with \(config.effectiveChecksumAlgorithm)...")
 
-                            guard let actualChecksum = self.calculateChecksum(fileURL: location, algorithm: config.effectiveChecksumAlgorithm) else {
+                            guard let actualChecksum = self.calculateChecksum(fileURL: location, algorithm: config.effectiveChecksumAlgorithm, taskId: nil) else {
                                 print("HttpDownloadWorker: Error - Failed to calculate checksum")
                                 try? FileManager.default.removeItem(at: location)
                                 continuation.resume(returning: .failure(message: "Failed to calculate checksum"))
                                 return
                             }
 
-                            if actualChecksum.caseInsensitiveCompare(expectedChecksum) != .orderedSame {
+                            if actualChecksum.lowercased() != expectedChecksum.lowercased() {
                                 print("HttpDownloadWorker: Checksum verification failed!")
                                 print("  Expected: \(expectedChecksum)")
                                 print("  Actual:   \(actualChecksum)")
@@ -883,37 +893,9 @@ class HttpDownloadWorker: IosWorker {
             }
         }
 
-        // extractAfterDownload: zip extraction using ZIPFoundation
+        // extractAfterDownload: disabled in v1.1.0 for Zero Dependencies
         if config.effectiveExtractAfterDownload {
-            let ext = fileURL.pathExtension.lowercased()
-            if ext == "zip" {
-                let extractDirURL: URL
-                if let path = config.extractPath, !path.isEmpty {
-                    extractDirURL = URL(fileURLWithPath: path)
-                } else {
-                    extractDirURL = fileURL.deletingLastPathComponent()
-                }
-
-                if !FileManager.default.fileExists(atPath: extractDirURL.path) {
-                    try? FileManager.default.createDirectory(at: extractDirURL, withIntermediateDirectories: true)
-                }
-
-                do {
-                    let resolvedZipURL = fileURL.resolvingSymlinksInPath()
-                    let resolvedDestURL = extractDirURL.resolvingSymlinksInPath()
-                    try FileManager.default.unzipItem(at: resolvedZipURL, to: resolvedDestURL)
-                    print("HttpDownloadWorker: Extracted zip to: \(extractDirURL.path)")
-
-                    if config.effectiveDeleteArchiveAfterExtract {
-                        try? FileManager.default.removeItem(at: fileURL)
-                        print("HttpDownloadWorker: Deleted archive after extraction")
-                    }
-                } catch {
-                    print("HttpDownloadWorker: extractAfterDownload failed: \(error.localizedDescription)")
-                }
-            } else {
-                print("HttpDownloadWorker: extractAfterDownload: unsupported archive type '.\(ext)', skipping")
-            }
+            print("HttpDownloadWorker: extractAfterDownload is disabled in v1.1.0 to achieve Zero Dependencies. Please use the Dart 'archive' package.")
         }
     }
 
@@ -1050,10 +1032,25 @@ class HttpDownloadWorker: IosWorker {
 
     /// Remove path separators and other unsafe characters from a filename.
     func sanitizeFilename(_ name: String) -> String {
+        // NET-013: explicitly replace ".." to prevent any path-traversal confusion after
+        // percent-decoding (e.g. an attacker-controlled Content-Disposition: filename*=UTF-8''..%2F..%2Fetc).
         name.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: "..", with: "_", options: .literal)
             .replacingOccurrences(of: #"[/\\:*?"<>|]"#, with: "_", options: .regularExpression)
             .drop(while: { $0 == "." })
             .description
+    }
+
+    /// Returns a deterministic but URL-unique sentinel temp-filename for directory-mode downloads.
+    ///
+    /// NET-021: Using a fixed name like `__pending__.tmp` causes two concurrent downloads
+    /// targeting the same directory to share the same temp file, corrupting both.
+    /// A FNV-1a hash of the download URL is stable across retries (resume still works)
+    /// and unique per URL.
+    func directoryModeTempFilename(for url: String) -> String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in url.utf8 { hash = (hash ^ UInt64(byte)) &* 1_099_511_628_211 }
+        return String(format: ".__dl_%016llx.tmp", hash)
     }
 }
 

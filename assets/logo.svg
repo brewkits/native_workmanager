@@ -1,0 +1,16 @@
+<svg width="240" height="240" viewBox="0 0 240 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Outer hexagon background -->
+  <path d="M120 8 L212 60 L212 180 L120 232 L28 180 L28 60 Z"
+        fill="#6750A4" />
+  <!-- Inner hexagon subtle highlight -->
+  <path d="M120 22 L202 68 L202 172 L120 218 L38 172 L38 68 Z"
+        fill="#7965AF" fill-opacity="0.35" />
+
+  <!-- Letter N — bold, clean, white -->
+  <path d="M76 168 L76 72 L96 72 L160 144 L160 72 L180 72 L180 168 L160 168 L96 96 L96 168 Z"
+        fill="white" />
+
+  <!-- Speed accent — small lightning bolt bottom-right of N -->
+  <path d="M152 130 L141 152 L150 152 L138 174 L162 146 L153 146 Z"
+        fill="#CE93D8" />
+</svg>

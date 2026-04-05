@@ -405,7 +405,7 @@ Worker _buildFileCompress({
 ///
 /// ## See Also
 ///
-/// - [NativeWorker.fileCompress] - Compress files into ZIP
+/// - `NativeWorker.fileCompress` (deprecated v1.1.0 — use `archive` package)
 /// - [NativeWorker.httpDownload] - Download ZIP archives
 /// - [NativeWorkManager.progress] - Track extraction progress
 Worker _buildFileDecompress({

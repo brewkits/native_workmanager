@@ -12,7 +12,7 @@ enum RemoteTriggerSource {
 
 /// A rule for matching and executing a remote trigger.
 ///
-/// When a remote message arrives from [source], the plugin looks for a field
+/// When a remote message arrives, the plugin looks for a field
 /// in the payload named [payloadKey]. If the value of that field matches
 /// a key in [workerMappings], the corresponding worker is enqueued.
 ///

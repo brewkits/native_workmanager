@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'package:devtools_app_shared/utils.dart';
 import 'package:devtools_extensions/devtools_extensions.dart';
 import 'package:flutter/material.dart';
 
@@ -65,12 +64,12 @@ class _NativeWorkmanagerDashboardState
         setState(() => _isConnected = false);
         return;
       }
-      
+
       final response = await serviceManager.service!.callServiceExtension(
         'ext.native_workmanager.getMetrics',
         isolateId: serviceManager.isolateManager.mainIsolate.value?.id,
       );
-      
+
       setState(() {
         _isConnected = true;
         _metrics = Map<String, dynamic>.from(response.json ?? {});
@@ -91,7 +90,9 @@ class _NativeWorkmanagerDashboardState
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
             child: Center(
               child: Text(
-                _isConnected ? '🟢 Connected to App' : '🔴 Disconnected / Waiting...',
+                _isConnected
+                    ? '🟢 Connected to App'
+                    : '🔴 Disconnected / Waiting...',
                 style: TextStyle(
                   color: _isConnected ? Colors.greenAccent : Colors.redAccent,
                   fontWeight: FontWeight.bold,
@@ -169,7 +170,7 @@ class _NativeWorkmanagerDashboardState
 
   Widget _buildDagVisualizerPlaceholder() {
     final nodes = (_metrics['dagNodes'] as List?) ?? [];
-    
+
     return Card(
       elevation: 2,
       child: Padding(
@@ -188,7 +189,8 @@ class _NativeWorkmanagerDashboardState
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.account_tree_outlined, size: 64, color: Colors.grey),
+                          const Icon(Icons.account_tree_outlined,
+                              size: 64, color: Colors.grey),
                           const SizedBox(height: 16),
                           const Text('No active graphs to display.'),
                           const SizedBox(height: 8),
@@ -200,7 +202,8 @@ class _NativeWorkmanagerDashboardState
                       ),
                     )
                   : CustomPaint(
-                      painter: DagPainter(nodes: nodes.cast<Map<String, dynamic>>()),
+                      painter:
+                          DagPainter(nodes: nodes.cast<Map<String, dynamic>>()),
                       size: Size.infinite,
                     ),
             ),
@@ -209,117 +212,6 @@ class _NativeWorkmanagerDashboardState
       ),
     );
   }
-
-  Future<void> _syncQueue() async {
-    try {
-      if (!serviceManager.hasConnection) return;
-      await serviceManager.service!.callServiceExtension(
-        'ext.native_workmanager.syncQueue',
-        isolateId: serviceManager.isolateManager.mainIsolate.value?.id,
-      );
-      // Refresh metrics after sync request
-      _fetchMetrics();
-    } catch (e) {
-      debugPrint('Sync failed: $e');
-    }
-  }
-}
-
-class DagPainter extends CustomPainter {
-  final List<Map<String, dynamic>> nodes;
-
-  DagPainter({required this.nodes});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (nodes.isEmpty) return;
-
-    final paint = Paint()
-      ..strokeWidth = 2.0
-      ..style = PaintingStyle.fill;
-
-    final textPainter = TextPainter(
-      textDirection: TextDirection.ltr,
-    );
-
-    // Group nodes by chainId to lay them out
-    final chains = <String, List<Map<String, dynamic>>>{};
-    for (final node in nodes) {
-      final chainId = node['chainId'] as String;
-      chains.putIfAbsent(chainId, () => []).add(node);
-    }
-
-    double currentY = 40;
-    const double nodeRadius = 25;
-    const double horizontalSpacing = 100;
-    const double verticalSpacing = 100;
-
-    for (final chainEntry in chains.entries) {
-      final chainNodes = chainEntry.value;
-      // Sort by stepIndex
-      chainNodes.sort((a, b) => (a['stepIndex'] as int).compareTo(b['stepIndex'] as int));
-
-      for (int i = 0; i < chainNodes.length; i++) {
-        final node = chainNodes[i];
-        final double x = 50 + (i * horizontalSpacing);
-        final double y = currentY;
-
-        // Draw connections (edges)
-        if (i > 0) {
-          final prevX = 50 + ((i - 1) * horizontalSpacing);
-          canvas.drawLine(
-            Offset(prevX + nodeRadius, y),
-            Offset(x - nodeRadius, y),
-            Paint()..color = Colors.grey.withOpacity(0.5)..strokeWidth = 2,
-          );
-          // Draw arrowhead
-          _drawArrow(canvas, Offset(x - nodeRadius, y), Offset(prevX + nodeRadius, y));
-        }
-
-        // Choose color based on status
-        final status = (node['status'] as String).toLowerCase();
-        Color nodeColor = Colors.grey;
-        if (status == 'completed' || status == 'success') nodeColor = Colors.green;
-        else if (status == 'running') nodeColor = Colors.blue;
-        else if (status == 'failed') nodeColor = Colors.red;
-        else if (status == 'pending') nodeColor = Colors.orange;
-
-        // Draw node circle
-        paint.color = nodeColor;
-        canvas.drawCircle(Offset(x, y), nodeRadius, paint);
-        
-        // Draw border
-        paint.style = PaintingStyle.stroke;
-        paint.color = Colors.white.withOpacity(0.3);
-        canvas.drawCircle(Offset(x, y), nodeRadius, paint);
-        paint.style = PaintingStyle.fill;
-
-        // Draw label
-        textPainter.text = TextSpan(
-          text: node['label'] as String,
-          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-        );
-        textPainter.layout();
-        textPainter.paint(canvas, Offset(x - textPainter.width / 2, y - textPainter.height / 2));
-      }
-      currentY += verticalSpacing;
-    }
-  }
-
-  void _drawArrow(Canvas canvas, Offset tip, Offset from) {
-    final double angle = (tip - from).direction;
-    const double arrowSize = 10;
-    final path = Path()
-      ..moveTo(tip.dx, tip.dy)
-      ..lineTo(tip.dx - arrowSize * math.cos(angle - 0.5), tip.dy - arrowSize * math.sin(angle - 0.5))
-      ..lineTo(tip.dx - arrowSize * math.cos(angle + 0.5), tip.dy - arrowSize * math.sin(angle + 0.5))
-      ..close();
-    canvas.drawPath(path, Paint()..color = Colors.grey.withOpacity(0.5));
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
-}
 
   Widget _buildOfflineQueueInspector() {
     return Card(
@@ -371,6 +263,131 @@ class DagPainter extends CustomPainter {
       ),
     );
   }
+
+  Future<void> _syncQueue() async {
+    try {
+      if (!serviceManager.hasConnection) {
+        return;
+      }
+      await serviceManager.service!.callServiceExtension(
+        'ext.native_workmanager.syncQueue',
+        isolateId: serviceManager.isolateManager.mainIsolate.value?.id,
+      );
+      // Refresh metrics after sync request
+      _fetchMetrics();
+    } catch (e) {
+      debugPrint('Sync failed: $e');
+    }
+  }
+}
+
+class DagPainter extends CustomPainter {
+  final List<Map<String, dynamic>> nodes;
+
+  DagPainter({required this.nodes});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (nodes.isEmpty) return;
+
+    final paint = Paint()
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.fill;
+
+    final textPainter = TextPainter(
+      textDirection: TextDirection.ltr,
+    );
+
+    // Group nodes by chainId to lay them out
+    final chains = <String, List<Map<String, dynamic>>>{};
+    for (final node in nodes) {
+      final chainId = node['chainId'] as String;
+      chains.putIfAbsent(chainId, () => []).add(node);
+    }
+
+    double currentY = 40;
+    const double nodeRadius = 25;
+    const double horizontalSpacing = 100;
+    const double verticalSpacing = 100;
+
+    for (final chainEntry in chains.entries) {
+      final chainNodes = chainEntry.value;
+      // Sort by stepIndex
+      chainNodes.sort(
+          (a, b) => (a['stepIndex'] as int).compareTo(b['stepIndex'] as int));
+
+      for (int i = 0; i < chainNodes.length; i++) {
+        final node = chainNodes[i];
+        final double x = 50 + (i * horizontalSpacing);
+        final double y = currentY;
+
+        // Draw connections (edges)
+        if (i > 0) {
+          final prevX = 50 + ((i - 1) * horizontalSpacing);
+          canvas.drawLine(
+            Offset(prevX + nodeRadius, y),
+            Offset(x - nodeRadius, y),
+            Paint()
+              ..color = Colors.grey.withValues(alpha: 0.5)
+              ..strokeWidth = 2,
+          );
+          // Draw arrowhead
+          _drawArrow(
+              canvas, Offset(x - nodeRadius, y), Offset(prevX + nodeRadius, y));
+        }
+
+        // Choose color based on status
+        final status = (node['status'] as String).toLowerCase();
+        Color nodeColor = Colors.grey;
+        if (status == 'completed' || status == 'success') {
+          nodeColor = Colors.green;
+        } else if (status == 'running') {
+          nodeColor = Colors.blue;
+        } else if (status == 'failed') {
+          nodeColor = Colors.red;
+        } else if (status == 'pending') {
+          nodeColor = Colors.orange;
+        }
+
+        // Draw node circle
+        paint.color = nodeColor;
+        canvas.drawCircle(Offset(x, y), nodeRadius, paint);
+
+        // Draw border
+        paint.style = PaintingStyle.stroke;
+        paint.color = Colors.white.withValues(alpha: 0.3);
+        canvas.drawCircle(Offset(x, y), nodeRadius, paint);
+        paint.style = PaintingStyle.fill;
+
+        // Draw label
+        textPainter.text = TextSpan(
+          text: node['label'] as String,
+          style: const TextStyle(
+              color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+        );
+        textPainter.layout();
+        textPainter.paint(canvas,
+            Offset(x - textPainter.width / 2, y - textPainter.height / 2));
+      }
+      currentY += verticalSpacing;
+    }
+  }
+
+  void _drawArrow(Canvas canvas, Offset tip, Offset from) {
+    final double angle = (tip - from).direction;
+    const double arrowSize = 10;
+    final path = Path()
+      ..moveTo(tip.dx, tip.dy)
+      ..lineTo(tip.dx - arrowSize * math.cos(angle - 0.5),
+          tip.dy - arrowSize * math.sin(angle - 0.5))
+      ..lineTo(tip.dx - arrowSize * math.cos(angle + 0.5),
+          tip.dy - arrowSize * math.sin(angle + 0.5))
+      ..close();
+    canvas.drawPath(path, Paint()..color = Colors.grey.withValues(alpha: 0.5));
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
 class _MetricCard extends StatelessWidget {
@@ -400,7 +417,8 @@ class _MetricCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               value,
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: color),
+              style: TextStyle(
+                  fontSize: 28, fontWeight: FontWeight.bold, color: color),
             ),
             const SizedBox(height: 4),
             Text(

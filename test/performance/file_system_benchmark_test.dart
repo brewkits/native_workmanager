@@ -295,11 +295,11 @@ void main() {
       expect(map['destinationPath'], contains('复制'));
     });
 
-    test('edge: worker config for zero-length path accepted', () {
-      // Workers accept any string path; validation happens at native execution
+    test('edge: worker config for zero-length path rejected', () {
+      // Workers now reject empty strings via assertions for security
       expect(
         () => FileSystemCopyWorker(sourcePath: '', destinationPath: ''),
-        returnsNormally,
+        throwsA(isA<AssertionError>()),
       );
     });
   });

@@ -237,7 +237,15 @@ class ParallelHttpDownloadWorker : AndroidWorker {
                                 }
                             }
                         }
-                        Log.d(TAG, "Chunk $chunkIndex done: ${partFile.length()} bytes")
+                        // NET-015: verify the downloaded chunk is the expected size.
+                        // If the server returns fewer bytes than the range requested, the merged
+                        // file will be silently truncated (checksum catches it only if configured).
+                        val downloadedSize = partFile.length()
+                        if (downloadedSize < expectedChunkSize) {
+                            Log.e(TAG, "Chunk $chunkIndex truncated: expected $expectedChunkSize bytes, got $downloadedSize")
+                            return@async false
+                        }
+                        Log.d(TAG, "Chunk $chunkIndex done: $downloadedSize bytes")
                         true
                     }
                 } catch (e: Exception) {

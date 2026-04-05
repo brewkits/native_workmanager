@@ -86,6 +86,11 @@ final class MultiUploadWorker extends Worker {
   /// Use a background URLSession on iOS (survives app termination).
   final bool useBackgroundSession;
 
+  // NET-011: MultiUploadWorker maps to the same native class as HttpUploadWorker because
+  // the native implementation already supports multi-file uploads via a `files` array in the
+  // config JSON.  A dedicated 'MultiUploadWorker' native class would be identical; keeping one
+  // implementation avoids duplication.  Logs and crash reports will show "HttpUploadWorker" —
+  // this is expected behaviour.
   @override
   String get workerClassName => 'HttpUploadWorker';
 
