@@ -404,12 +404,22 @@ class HttpUploadWorker : AndroidWorker {
             }
             config.bodyBytes != null -> {
                 try {
+                    // Added explicit check for empty string, though Base64.decode might handle it.
+                    if (config.bodyBytes.isNullOrEmpty()) {
+                        throw IllegalArgumentException("Base64 bodyBytes string is empty")
+                    }
                     val decodedBytes = android.util.Base64.decode(config.bodyBytes, android.util.Base64.DEFAULT)
                     Log.d(TAG, "  Body: ${decodedBytes.size} bytes (from base64)")
                     decodedBytes.toRequestBody(config.contentType.toMediaType())
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error - Failed to decode base64 bodyBytes: ${e.message}")
-                    return@withContext WorkerResult.Failure("Invalid base64 bodyBytes: ${e.message}")
+                } catch (e: IllegalArgumentException) { // Catch specific exception for invalid Base64 format
+                    Log.e(TAG, "Error - Invalid Base64 input for bodyBytes: ${e.message}")
+                    return@withContext WorkerResult.Failure("Invalid Base64 input: ${e.message}")
+                } catch (e: NullPointerException) { // Catch specific exception for nulls during decoding
+                    Log.e(TAG, "Error - Null pointer during Base64 decoding for bodyBytes: ${e.message}")
+                    return@withContext WorkerResult.Failure("Null pointer during Base64 decoding: ${e.message}")
+                } catch (e: Exception) { // Catch any other unexpected exceptions
+                    Log.e(TAG, "Error - Unexpected error during Base64 decoding: ${e.message}", e)
+                    return@withContext WorkerResult.Failure("Unexpected error during Base64 decoding: ${e.message}")
                 }
             }
             else -> {
