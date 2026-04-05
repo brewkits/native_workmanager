@@ -7,12 +7,13 @@ analyzer:
   exclude:
     - example/**
     - test/**
+    - extension/**
+    - native_workmanager_gen/**
 
 linter:
   rules:
     - cancel_subscriptions
     - close_sinks
-    - avoid_returning_null_for_future
     - avoid_void_async
     - unawaited_futures
     - always_declare_return_types
