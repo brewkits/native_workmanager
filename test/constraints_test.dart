@@ -198,7 +198,8 @@ void main() {
         final constraints = Constraints.fromMap(map);
 
         expect(constraints.bgTaskType, BGTaskType.processing);
-        expect(constraints.foregroundServiceType, ForegroundServiceType.location);
+        expect(
+            constraints.foregroundServiceType, ForegroundServiceType.location);
       });
 
       test('handles missing fields with defaults', () {

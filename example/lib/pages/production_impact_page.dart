@@ -150,12 +150,6 @@ class _ProductionImpactPageState extends State<ProductionImpactPage> {
     });
   }
 
-
-
-
-
-
-
   // ── Benchmark 2: Battery Impact (Engine Startups) ────────────────────────
 
   Future<void> _measureBattery() async {

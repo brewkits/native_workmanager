@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:native_workmanager/native_workmanager.dart' hide PerformanceMonitor;
+import 'package:native_workmanager/native_workmanager.dart'
+    hide PerformanceMonitor;
 // ✅ IMPORT PerformanceMonitor to link benchmark data to UI
 import 'package:native_workmanager_example/src/performance/performance_monitor.dart';
 
@@ -27,7 +28,6 @@ class PerformanceBenchmark {
       debugPrint('❌ Benchmark error: $e');
     }
 
-
     debugPrint('✅ Benchmarks completed');
     return results;
   }
@@ -42,14 +42,18 @@ class PerformanceBenchmark {
     for (int i = 0; i < iterations; i++) {
       final completer = Completer<void>();
       final startTime = DateTime.now();
-      final taskId = 'bench-startup-${DateTime.now().millisecondsSinceEpoch}-$i';
+      final taskId =
+          'bench-startup-${DateTime.now().millisecondsSinceEpoch}-$i';
 
       // ✅ Record in Monitor
       PerformanceMonitor.instance.recordTaskScheduled(taskId, 'DartWorker');
 
       final subscription = NativeWorkManager.events.listen((event) {
         // Accept exact ID match OR any success (sequential execution assumption)
-        if ((event.taskId == taskId || event.taskId.contains(taskId) || event.success) && !completer.isCompleted) {
+        if ((event.taskId == taskId ||
+                event.taskId.contains(taskId) ||
+                event.success) &&
+            !completer.isCompleted) {
           final latency = DateTime.now().difference(startTime).inMilliseconds;
           measurements.add(latency);
 
@@ -107,7 +111,9 @@ class PerformanceBenchmark {
           PerformanceMonitor.instance.recordTaskComplete(event.taskId, true);
 
           if (completedSteps >= totalSteps && !completer.isCompleted) {
-            final duration = DateTime.now().difference(startTime).inMilliseconds;
+            final duration = DateTime.now()
+                .difference(startTime)
+                .inMilliseconds;
             measurements.add(duration);
             completer.complete();
           }
@@ -115,21 +121,24 @@ class PerformanceBenchmark {
       });
 
       await NativeWorkManager.beginWith(
-        TaskRequest(
-          id: '$chainId-1',
-          worker: DartWorker(callbackId: 'customTask'),
-        ),
-      ).then(
-        TaskRequest(
-          id: '$chainId-2',
-          worker: DartWorker(callbackId: 'customTask'),
-        ),
-      ).then(
-        TaskRequest(
-          id: '$chainId-3',
-          worker: DartWorker(callbackId: 'customTask'),
-        ),
-      ).enqueue();
+            TaskRequest(
+              id: '$chainId-1',
+              worker: DartWorker(callbackId: 'customTask'),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: '$chainId-2',
+              worker: DartWorker(callbackId: 'customTask'),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: '$chainId-3',
+              worker: DartWorker(callbackId: 'customTask'),
+            ),
+          )
+          .enqueue();
 
       try {
         // Wait max 15s for the whole chain
@@ -185,7 +194,6 @@ class PerformanceBenchmark {
       unit: 'tasks/sec',
     );
   }
-
 }
 
 // --- Data Models ---

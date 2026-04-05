@@ -228,7 +228,9 @@ void main() {
         }
       });
 
-      test('should accept expectedChecksum without explicit checksumAlgorithm (uses default SHA-256)', () {
+      test(
+          'should accept expectedChecksum without explicit checksumAlgorithm (uses default SHA-256)',
+          () {
         // checksumAlgorithm defaults to 'SHA-256', so omitting it is valid
         expect(
           () => NativeWorker.httpDownload(
@@ -344,7 +346,8 @@ void main() {
           timeout: const Duration(seconds: 5),
         );
 
-        expect((worker as HttpRequestWorker).timeout, const Duration(seconds: 5));
+        expect(
+            (worker as HttpRequestWorker).timeout, const Duration(seconds: 5));
         // Expected behavior: Task will fail with timeout error after 5 seconds
       });
 
@@ -355,7 +358,8 @@ void main() {
           method: HttpMethod.get,
         );
 
-        expect((worker as HttpRequestWorker).url, contains('this-domain-does-not-exist'));
+        expect((worker as HttpRequestWorker).url,
+            contains('this-domain-does-not-exist'));
         // Expected behavior: Task will fail with DNS resolution error
       });
 
@@ -366,7 +370,8 @@ void main() {
           method: HttpMethod.get,
         );
 
-        expect((worker as HttpRequestWorker).url, contains('expired.badssl.com'));
+        expect(
+            (worker as HttpRequestWorker).url, contains('expired.badssl.com'));
         // Expected behavior: Task will fail with SSL certificate error
       });
 

@@ -67,7 +67,8 @@ class PerformanceMonitor {
   }
 
   /// Record task completion.
-  void recordTaskComplete(String taskId, bool success, {Map<String, dynamic>? resultData}) {
+  void recordTaskComplete(String taskId, bool success,
+      {Map<String, dynamic>? resultData}) {
     if (!_enabled) return;
 
     final metrics = _taskMetrics[taskId];
@@ -78,7 +79,9 @@ class PerformanceMonitor {
     metrics.resultData = resultData;
 
     _addEvent(PerformanceEvent(
-      type: success ? PerformanceEventType.taskCompleted : PerformanceEventType.taskFailed,
+      type: success
+          ? PerformanceEventType.taskCompleted
+          : PerformanceEventType.taskFailed,
       taskId: taskId,
       timestamp: DateTime.now(),
       metadata: {
@@ -117,7 +120,9 @@ class PerformanceMonitor {
     if (!_enabled) return;
 
     _addEvent(PerformanceEvent(
-      type: success ? PerformanceEventType.chainCompleted : PerformanceEventType.chainFailed,
+      type: success
+          ? PerformanceEventType.chainCompleted
+          : PerformanceEventType.chainFailed,
       taskId: chainId,
       timestamp: DateTime.now(),
       metadata: {
@@ -133,25 +138,39 @@ class PerformanceMonitor {
       return PerformanceStatistics.empty();
     }
 
-    final completedTasks = _taskMetrics.values.where((m) => m.endTime != null).toList();
-    final successfulTasks = completedTasks.where((m) => m.success == true).toList();
-    final failedTasks = completedTasks.where((m) => m.success == false).toList();
+    final completedTasks =
+        _taskMetrics.values.where((m) => m.endTime != null).toList();
+    final successfulTasks =
+        completedTasks.where((m) => m.success == true).toList();
+    final failedTasks =
+        completedTasks.where((m) => m.success == false).toList();
 
-    final durations = completedTasks.map((m) => m.duration.inMilliseconds).toList();
-    final avgDuration = durations.isEmpty ? 0.0 : durations.reduce((a, b) => a + b) / durations.length;
-    final minDuration = durations.isEmpty ? 0 : durations.reduce((a, b) => a < b ? a : b);
-    final maxDuration = durations.isEmpty ? 0 : durations.reduce((a, b) => a > b ? a : b);
+    final durations =
+        completedTasks.map((m) => m.duration.inMilliseconds).toList();
+    final avgDuration = durations.isEmpty
+        ? 0.0
+        : durations.reduce((a, b) => a + b) / durations.length;
+    final minDuration =
+        durations.isEmpty ? 0 : durations.reduce((a, b) => a < b ? a : b);
+    final maxDuration =
+        durations.isEmpty ? 0 : durations.reduce((a, b) => a > b ? a : b);
 
     // Calculate event dispatch latencies
     final eventLatencies = _recentEvents
         .where((e) => e.type == PerformanceEventType.eventDispatched)
         .map((e) => e.metadata['latency'] as int? ?? 0)
         .toList();
-    final avgEventLatency = eventLatencies.isEmpty ? 0.0 : eventLatencies.reduce((a, b) => a + b) / eventLatencies.length;
+    final avgEventLatency = eventLatencies.isEmpty
+        ? 0.0
+        : eventLatencies.reduce((a, b) => a + b) / eventLatencies.length;
 
     // Calculate throughput
-    final monitoringDuration = _monitoringStartTime == null ? Duration.zero : DateTime.now().difference(_monitoringStartTime!);
-    final tasksPerMinute = monitoringDuration.inMinutes == 0 ? 0.0 : completedTasks.length / monitoringDuration.inMinutes;
+    final monitoringDuration = _monitoringStartTime == null
+        ? Duration.zero
+        : DateTime.now().difference(_monitoringStartTime!);
+    final tasksPerMinute = monitoringDuration.inMinutes == 0
+        ? 0.0
+        : completedTasks.length / monitoringDuration.inMinutes;
 
     // Group by worker type
     final byWorkerType = <String, List<TaskMetrics>>{};
@@ -160,14 +179,20 @@ class PerformanceMonitor {
     }
 
     final workerTypeStats = byWorkerType.map((type, tasks) {
-      final taskDurations = tasks.map((t) => t.duration.inMilliseconds).toList();
-      final avgTaskDuration = taskDurations.isEmpty ? 0.0 : taskDurations.reduce((a, b) => a + b) / taskDurations.length;
-      return MapEntry(type, WorkerTypeStatistics(
-        workerType: type,
-        totalTasks: tasks.length,
-        averageDuration: avgTaskDuration,
-        successRate: tasks.where((t) => t.success == true).length / tasks.length,
-      ));
+      final taskDurations =
+          tasks.map((t) => t.duration.inMilliseconds).toList();
+      final avgTaskDuration = taskDurations.isEmpty
+          ? 0.0
+          : taskDurations.reduce((a, b) => a + b) / taskDurations.length;
+      return MapEntry(
+          type,
+          WorkerTypeStatistics(
+            workerType: type,
+            totalTasks: tasks.length,
+            averageDuration: avgTaskDuration,
+            successRate:
+                tasks.where((t) => t.success == true).length / tasks.length,
+          ));
     });
 
     return PerformanceStatistics(
@@ -230,7 +255,8 @@ class TaskMetrics {
   Map<String, dynamic>? resultData;
 
   /// Duration of task execution.
-  Duration get duration => endTime == null ? Duration.zero : endTime!.difference(startTime);
+  Duration get duration =>
+      endTime == null ? Duration.zero : endTime!.difference(startTime);
 
   /// Whether the task is still running.
   bool get isRunning => endTime == null;

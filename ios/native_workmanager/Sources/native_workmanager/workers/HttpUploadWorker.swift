@@ -76,7 +76,7 @@ import UniformTypeIdentifiers
 class HttpUploadWorker: IosWorker {
 
     private static let defaultTimeoutMs: Int64 = 120_000
-    private static let boundary = "Boundary-\(UUID().uuidString)"
+    private let boundary = "Boundary-\(UUID().uuidString)"
 
     struct FileConfig: Codable {
         let filePath: String
@@ -186,7 +186,7 @@ class HttpUploadWorker: IosWorker {
 
         // 👇 NEW: Handle raw body upload
         if isRawBodyUpload {
-            return await handleRawBodyUpload(config: config, url: url)
+            return await handleRawBodyUpload(config: config, url: url, rawInputData: data)
         }
 
         // Validate all files exist and are valid
@@ -264,44 +264,38 @@ class HttpUploadWorker: IosWorker {
         }
 
         // Set multipart Content-Type AFTER custom headers — must include boundary.
-        request.setValue("multipart/form-data; boundary=\(HttpUploadWorker.boundary)",
+        request.setValue("multipart/form-data; boundary=\(boundary)",
                         forHTTPHeaderField: "Content-Type")
 
-        // Build multipart body
-        var body = Data()
+        // NET-001/NET-004: Build multipart body by streaming files to a temp file (avoids OOM).
+        let fileTuples = zip(validatedFiles, fileConfigs).map { (f, cfg) in
+            (url: f.url, fileName: f.fileName, mimeType: f.mimeType, fieldName: cfg.effectiveFileFieldName)
+        }
+        let bodyTempURL: URL
+        do {
+            bodyTempURL = try buildMultipartBodyToFile(boundary: boundary, fields: config.fields, files: fileTuples)
+        } catch {
+            print("HttpUploadWorker: Error building multipart body: \(error)")
+            return .failure(message: "Failed to build upload body: \(error.localizedDescription)")
+        }
+        defer { try? FileManager.default.removeItem(at: bodyTempURL) }
 
-        // Add form fields
-        if let fields = config.fields {
-            for (key, value) in fields {
-                body.append("--\(HttpUploadWorker.boundary)\r\n".data(using: .utf8)!)
-                body.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
-                body.append("\(value)\r\n".data(using: .utf8)!)
-            }
+        // T3-7: HMAC-SHA256 request signing
+        let uploadRawDict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        if let signingDict = uploadRawDict?["requestSigning"] as? [String: Any],
+           let signingCfg: RequestSigner.Config = RequestSigner.Config.from(signingDict) {
+            RequestSigner.sign(request: &request, config: signingCfg)
         }
 
-        // 👇 Add all files to multipart body
-        for (index, (fileURL, fileName, mimeType)) in validatedFiles.enumerated() {
-            let fileFieldName = fileConfigs[index].effectiveFileFieldName
-
-            body.append("--\(HttpUploadWorker.boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"\(fileFieldName)\"; filename=\"\(fileName)\"\r\n".data(using: .utf8)!)
-            body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
-
-            // Read file data
-            guard let fileData = try? Data(contentsOf: fileURL) else {
-                print("HttpUploadWorker: Error - Failed to read file: \(fileName)")
-                return .failure(message: "Failed to read file: \(fileName)")
-            }
-            body.append(fileData)
-            body.append("\r\n".data(using: .utf8)!)
-        }
-
-        // End boundary
-        body.append("--\(HttpUploadWorker.boundary)--\r\n".data(using: .utf8)!)
+        let uploadPinningConfig = CertificatePinningConfig.from(uploadRawDict?["certificatePinning"] as? [String: Any])
+        let uploadTokenRefreshConfig = TokenRefreshConfig.from(uploadRawDict?["tokenRefresh"] as? [String: Any])
 
         // Execute upload
         do {
-            let (data, response) = try await URLSession.shared.upload(for: request, from: body)
+            let uploadSession = makeURLSession(pinningConfig: uploadPinningConfig, timeoutInterval: config.timeout)
+            // LEAK-003: invalidate session after use to release connections and delegate memory.
+            defer { uploadSession.finishTasksAndInvalidate() }
+            let (data, response) = try await uploadSession.upload(for: request, fromFile: bodyTempURL)
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 print("HttpUploadWorker: Error - Invalid response type")
@@ -339,16 +333,42 @@ class HttpUploadWorker: IosWorker {
                 let truncatedError = SecurityValidator.truncateForLogging(responseBody, maxLength: 200)
                 print("HttpUploadWorker: Failed - Status \(statusCode)")
                 print("HttpUploadWorker: Error: \(truncatedError)")
-                return .failure(message: "HTTP \(statusCode)")
+
+                // 401 + token refresh: attempt refresh and retry once
+                if statusCode == 401, let refreshConfig = uploadTokenRefreshConfig {
+                    // ✅ NEW: Uses AuthTokenManager actor to ensure serialized refresh
+                    if let newToken = await AuthTokenManager.shared.refreshToken(config: refreshConfig, currentSession: uploadSession) {
+                        var retryRequest = request
+                        retryRequest.setValue("\(refreshConfig.effectiveTokenPrefix)\(newToken)",
+                                              forHTTPHeaderField: refreshConfig.effectiveTokenHeaderName)
+                        if let (retryData, retryResponse) = try? await uploadSession.upload(for: retryRequest, fromFile: bodyTempURL),
+                           let retryHttpResponse = retryResponse as? HTTPURLResponse,
+                           (200..<300).contains(retryHttpResponse.statusCode) {
+                            let retryBody = String(data: retryData, encoding: .utf8) ?? ""
+                            return .success(
+                                message: "Uploaded \(validatedFiles.count) file(s), \(totalSize) bytes (after token refresh)",
+                                data: [
+                                    "statusCode": retryHttpResponse.statusCode,
+                                    "uploadedSize": totalSize,
+                                    "fileCount": validatedFiles.count,
+                                    "fileNames": validatedFiles.map { $0.fileName },
+                                    "responseBody": retryBody
+                                ]
+                            )
+                        }
+                    }
+                }
+
+                return .failure(message: "HTTP \(statusCode)", shouldRetry: statusCode >= 500)
             }
         } catch {
             print("HttpUploadWorker: Error - \(error.localizedDescription)")
-            return .failure(message: error.localizedDescription)
+            return .failure(message: error.localizedDescription, shouldRetry: true)
         }
     }
 
     /// Handle raw body upload (string or bytes).
-    private func handleRawBodyUpload(config: Config, url: URL) async -> WorkerResult {
+    private func handleRawBodyUpload(config: Config, url: URL, rawInputData: Data) async -> WorkerResult {
         // Validate content type is provided
         guard let contentType = config.contentType, !contentType.isEmpty else {
             print("HttpUploadWorker: Error - contentType is required for raw body upload")
@@ -389,9 +409,22 @@ class HttpUploadWorker: IosWorker {
             }
         }
 
+        // T3-7: HMAC-SHA256 request signing (raw body path)
+        let rawBodyDict = (try? JSONSerialization.jsonObject(with: rawInputData)) as? [String: Any]
+        if let signingDict = rawBodyDict?["requestSigning"] as? [String: Any],
+           let signingCfg: RequestSigner.Config = RequestSigner.Config.from(signingDict) {
+            RequestSigner.sign(request: &request, config: signingCfg)
+        }
+
+        let rawBodyPinningConfig = CertificatePinningConfig.from(rawBodyDict?["certificatePinning"] as? [String: Any])
+        let rawBodyTokenRefreshConfig = TokenRefreshConfig.from(rawBodyDict?["tokenRefresh"] as? [String: Any])
+
         // Execute upload
         do {
-            let (data, response) = try await URLSession.shared.upload(for: request, from: requestBody)
+            let rawBodySession = makeURLSession(pinningConfig: rawBodyPinningConfig, timeoutInterval: config.timeout)
+            // LEAK-003: invalidate session after use to release connections and delegate memory.
+            defer { rawBodySession.finishTasksAndInvalidate() }
+            let (data, response) = try await rawBodySession.upload(for: request, from: requestBody)
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 print("HttpUploadWorker: Error - Invalid response type")
@@ -428,11 +461,36 @@ class HttpUploadWorker: IosWorker {
                 let truncatedError = SecurityValidator.truncateForLogging(responseBody, maxLength: 200)
                 print("HttpUploadWorker: Failed - Status \(statusCode)")
                 print("HttpUploadWorker: Error: \(truncatedError)")
-                return .failure(message: "HTTP \(statusCode)")
+
+                // 401 + token refresh: attempt refresh and retry once
+                if statusCode == 401, let refreshConfig = rawBodyTokenRefreshConfig {
+                    // ✅ NEW: Uses AuthTokenManager actor to ensure serialized refresh
+                    if let newToken = await AuthTokenManager.shared.refreshToken(config: refreshConfig, currentSession: rawBodySession) {
+                        var retryRequest = request
+                        retryRequest.setValue("\(refreshConfig.effectiveTokenPrefix)\(newToken)",
+                                              forHTTPHeaderField: refreshConfig.effectiveTokenHeaderName)
+                        if let (retryData, retryResponse) = try? await rawBodySession.upload(for: retryRequest, from: requestBody),
+                           let retryHttpResponse = retryResponse as? HTTPURLResponse,
+                           (200..<300).contains(retryHttpResponse.statusCode) {
+                            let retryBody = String(data: retryData, encoding: .utf8) ?? ""
+                            return .success(
+                                message: "Uploaded raw body (after token refresh)",
+                                data: [
+                                    "statusCode": retryHttpResponse.statusCode,
+                                    "uploadedSize": requestBody.count,
+                                    "contentType": contentType,
+                                    "responseBody": retryBody
+                                ]
+                            )
+                        }
+                    }
+                }
+
+                return .failure(message: "HTTP \(statusCode)", shouldRetry: statusCode >= 500)
             }
         } catch {
             print("HttpUploadWorker: Error - \(error.localizedDescription)")
-            return .failure(message: error.localizedDescription)
+            return .failure(message: error.localizedDescription, shouldRetry: true)
         }
     }
 
@@ -456,60 +514,23 @@ class HttpUploadWorker: IosWorker {
     ) async -> WorkerResult {
         print("HttpUploadWorker: Using background URLSession for upload")
 
-        // Build multipart body
-        var body = Data()
-
-        // Add form fields
-        if let fields = config.fields {
-            for (key, value) in fields {
-                body.append("--\(HttpUploadWorker.boundary)\r\n".data(using: .utf8)!)
-                body.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
-                body.append("\(value)\r\n".data(using: .utf8)!)
-            }
-        }
-
-        // Get file configs
+        // NET-001/NET-004: Build multipart body by streaming files to a temp file (avoids OOM).
         let fileConfigs = config.getFileConfigs()
-
-        // Add all files to multipart body
-        for (index, (fileURL, fileName, mimeType)) in validatedFiles.enumerated() {
-            let fileFieldName = fileConfigs[index].effectiveFileFieldName
-
-            body.append("--\(HttpUploadWorker.boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"\(fileFieldName)\"; filename=\"\(fileName)\"\r\n".data(using: .utf8)!)
-            body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
-
-            // Read file data
-            guard let fileData = try? Data(contentsOf: fileURL) else {
-                print("HttpUploadWorker: Error - Failed to read file: \(fileName)")
-                return .failure(message: "Failed to read file: \(fileName)")
-            }
-            body.append(fileData)
-            body.append("\r\n".data(using: .utf8)!)
+        let fileTuplesBg = zip(validatedFiles, fileConfigs).map { (f, cfg) in
+            (url: f.url, fileName: f.fileName, mimeType: f.mimeType, fieldName: cfg.effectiveFileFieldName)
         }
-
-        // End boundary
-        body.append("--\(HttpUploadWorker.boundary)--\r\n".data(using: .utf8)!)
-
-        // Save multipart body to temp file (background session requires file upload)
-        let tempFileURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("upload-\(UUID().uuidString).tmp")
-
+        let tempFileURL: URL
         do {
-            try body.write(to: tempFileURL)
+            tempFileURL = try buildMultipartBodyToFile(boundary: boundary, fields: config.fields, files: fileTuplesBg)
         } catch {
-            print("HttpUploadWorker: Error - Failed to write temp upload file: \(error)")
-            return .failure(message: "Failed to create temp upload file: \(error.localizedDescription)")
+            print("HttpUploadWorker: Error building multipart body: \(error)")
+            return .failure(message: "Failed to build upload body: \(error.localizedDescription)")
         }
-
-        // Ensure temp file is deleted after upload
-        defer {
-            try? FileManager.default.removeItem(at: tempFileURL)
-        }
+        defer { try? FileManager.default.removeItem(at: tempFileURL) }
 
         // Build headers with multipart content-type
         var headers = config.headers ?? [:]
-        headers["Content-Type"] = "multipart/form-data; boundary=\(HttpUploadWorker.boundary)"
+        headers["Content-Type"] = "multipart/form-data; boundary=\(boundary)"
 
         // Execute upload using BackgroundSessionManager
         return await withCheckedContinuation { continuation in
@@ -555,6 +576,62 @@ class HttpUploadWorker: IosWorker {
                 }
             }
         }
+    }
+
+    // MARK: - Multipart body builder
+
+    /// Builds the multipart body by streaming each file in 1 MB chunks directly to a temp file.
+    ///
+    /// NET-001: all string-to-Data conversions use `?? Data()` instead of `!` to prevent crashes.
+    /// NET-004: never holds an entire file in memory — avoids OOM for large file uploads.
+    /// - Returns: URL of a temporary file the caller is responsible for deleting.
+    private func buildMultipartBodyToFile(
+        boundary: String,
+        fields: [String: String]?,
+        files: [(url: URL, fileName: String, mimeType: String, fieldName: String)]
+    ) throws -> URL {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("upload-\(UUID().uuidString).tmp")
+
+        FileManager.default.createFile(atPath: tempURL.path, contents: nil)
+        let out = try FileHandle(forWritingTo: tempURL)
+        defer { try? out.close() }
+
+        func append(_ s: String) throws {
+            let d = s.data(using: .utf8) ?? Data()
+            if #available(iOS 13.4, *) { try out.write(contentsOf: d) } else { out.write(d) }
+        }
+
+        if let fields = fields {
+            for (key, value) in fields {
+                try append("--\(boundary)\r\n")
+                try append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n")
+                try append("\(value)\r\n")
+            }
+        }
+
+        let chunkSize = 1 * 1024 * 1024 // 1 MB per chunk
+        for (fileURL, fileName, mimeType, fieldName) in files {
+            try append("--\(boundary)\r\n")
+            try append("Content-Disposition: form-data; name=\"\(fieldName)\"; filename=\"\(fileName)\"\r\n")
+            try append("Content-Type: \(mimeType)\r\n\r\n")
+            let src = try FileHandle(forReadingFrom: fileURL)
+            defer { try? src.close() }
+            if #available(iOS 13.4, *) {
+                while let chunk = try src.read(upToCount: chunkSize), !chunk.isEmpty {
+                    try out.write(contentsOf: chunk)
+                }
+            } else {
+                while true {
+                    let chunk = src.readData(ofLength: chunkSize)
+                    guard !chunk.isEmpty else { break }
+                    out.write(chunk)
+                }
+            }
+            try append("\r\n")
+        }
+        try append("--\(boundary)--\r\n")
+        return tempURL
     }
 
     /// Detect MIME type from file extension.

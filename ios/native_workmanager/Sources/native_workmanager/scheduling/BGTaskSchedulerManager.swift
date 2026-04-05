@@ -1,3 +1,5 @@
+
+
 import Foundation
 import BackgroundTasks
 
@@ -51,6 +53,17 @@ class BGTaskSchedulerManager {
 
     /// Callback for task completion events
     var onTaskComplete: ((String, Bool, String?) -> Void)?
+
+    /// ✅ ISSUE 3 FIX: Callback when a background task handler is invoked by the OS.
+    /// Used to trigger resumePendingChains/Graphs in the main plugin.
+    var onTaskStart: (() -> Void)?
+
+    /// Callback when a background task expires before completing.
+    /// Used to call stopAllWorkers() in the main plugin.
+    var onExpiration: (() -> Void)?
+
+    /// Stores the currently running worker to handle stop/expiration.
+    private var activeWorker: IosWorker?
 
     /// Stores pending tasks (taskId -> task info)
     private var pendingTasks: [String: TaskInfo] = [:]
@@ -155,10 +168,14 @@ class BGTaskSchedulerManager {
             request = processingRequest
             print("BGTaskSchedulerManager: Using BGProcessingTask for heavy task with identifier '\(identifier)'")
         } else {
-            // Normal task: Use BGAppRefreshTask (30s limit, no constraints support)
-            // Use refreshTaskIdentifier regardless of provided identifier (BGAppRefreshTask constraint)
-            request = BGAppRefreshTaskRequest(identifier: BGTaskSchedulerManager.refreshTaskIdentifier)
-            print("BGTaskSchedulerManager: Using BGAppRefreshTask for normal task")
+            // Normal task: Use BGAppRefreshTask (30s limit, no network/power constraints).
+            // Use the provided identifier — the caller is responsible for registering it
+            // in Info.plist as a BGAppRefreshTask identifier. Silently substituting
+            // refreshTaskIdentifier here meant that tasks scheduled with a custom
+            // identifier would silently execute under a different BGTask slot, making
+            // per-task scheduling impossible.
+            request = BGAppRefreshTaskRequest(identifier: identifier)
+            print("BGTaskSchedulerManager: Using BGAppRefreshTask with identifier '\(identifier)'")
         }
 
         request.earliestBeginDate = earliestBeginDate
@@ -202,6 +219,7 @@ class BGTaskSchedulerManager {
     /// Handle BGProcessingTask execution.
     private func handleBackgroundTask(_ task: BGProcessingTask) {
         print("BGTaskSchedulerManager: Processing task started")
+        onTaskStart?()
 
         // Get task info from storage
         guard let taskInfo = loadNextPendingTask() else {
@@ -211,14 +229,18 @@ class BGTaskSchedulerManager {
         }
 
         // Setup expiration handler
-        // ✅ FIX: Use [weak self] to prevent retain cycle
+        // ✅ FIX: Use [weak self] to prevent retain cycle and call stop()
         task.expirationHandler = { [weak self] in
             print("BGTaskSchedulerManager: Task expired")
+            self?.activeWorker?.stop()
+            self?.onExpiration?()
             self?.onTaskComplete?(taskInfo.taskId, false, "Task expired")
+            task.setTaskCompleted(success: false)
         }
 
         // Execute worker
-        Task {
+        Task { [weak self] in
+            guard let self = self else { return }
             let success = await self.executeWorker(taskInfo: taskInfo)
 
             // Mark task complete
@@ -230,16 +252,16 @@ class BGTaskSchedulerManager {
                 success,
                 success ? nil : "Worker execution failed"
             )
-
-            // Reschedule if periodic
-            // (In real implementation, check if task is periodic)
-            // self.scheduleNextExecution(taskInfo)
+            
+            // Clean up reference
+            self.activeWorker = nil
         }
     }
 
     /// Handle BGAppRefreshTask execution.
     private func handleAppRefreshTask(_ task: BGAppRefreshTask) {
         print("BGTaskSchedulerManager: App refresh task started")
+        onTaskStart?()
 
         // Similar to handleBackgroundTask but with stricter time limit (~30s)
         guard let taskInfo = loadNextPendingTask() else {
@@ -247,16 +269,23 @@ class BGTaskSchedulerManager {
             return
         }
 
-        // ✅ FIX: Use [weak self] to prevent retain cycle
+        // ✅ FIX: Use [weak self] to prevent retain cycle and call stop()
         task.expirationHandler = { [weak self] in
             print("BGTaskSchedulerManager: Refresh task expired")
+            self?.activeWorker?.stop()
+            self?.onExpiration?()
             self?.onTaskComplete?(taskInfo.taskId, false, "Refresh expired")
+            task.setTaskCompleted(success: false)
         }
 
-        Task {
+        Task { [weak self] in
+            guard let self = self else { return }
             let success = await self.executeWorker(taskInfo: taskInfo)
             task.setTaskCompleted(success: success)
             self.onTaskComplete?(taskInfo.taskId, success, nil)
+            
+            // Clean up reference
+            self.activeWorker = nil
         }
     }
 
@@ -277,6 +306,8 @@ class BGTaskSchedulerManager {
                         continuation.resume(returning: false)
                         return
                     }
+                    
+                    self.activeWorker = worker
 
                     do {
                         // Custom workers (via NativeWorker.custom) store user data under the

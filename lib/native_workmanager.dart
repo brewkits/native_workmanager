@@ -27,16 +27,26 @@
 /// - **Native Workers**: Run background tasks without Flutter Engine (~2MB vs ~50MB RAM)
 /// - **Task Chains**: Complex workflows (A → B → C)
 /// - **Auto iOS Config**: Reads Info.plist automatically
-/// - **Built-in Workers**: HTTP (request, upload, download, sync), Files (compress, decompress),
-///   Image processing, Cryptography (hash, encrypt, decrypt)
+/// - **Built-in Workers**: HTTP (request, upload, download, sync), Files (compress, decompress,
+///   file system, shared storage), Image processing, Cryptography (hash, encrypt, decrypt),
+///   PDF (merge, compress, images-to-PDF), WebSocket (Android)
 ///
 /// See [NativeWorkManager] for full documentation.
 library;
 
 export 'src/constraints.dart';
+export 'src/task_id.dart';
+export 'src/enqueue_request.dart';
 export 'src/events.dart';
 export 'src/native_work_manager.dart';
+export 'src/observability.dart';
+export 'src/offline_queue.dart';
+export 'src/middleware.dart';
+export 'src/remote_trigger.dart';
 export 'src/performance/performance_monitor.dart';
 export 'src/task_chain.dart';
+export 'src/task_graph.dart';
 export 'src/task_trigger.dart';
 export 'src/worker.dart';
+export 'src/worker_results.dart';
+export 'src/worker_callback_generator_annotation.dart';

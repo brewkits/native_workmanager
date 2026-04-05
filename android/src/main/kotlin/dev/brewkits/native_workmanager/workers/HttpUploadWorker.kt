@@ -16,6 +16,8 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Native HTTP file upload worker for Android.
@@ -119,7 +121,8 @@ class HttpUploadWorker : AndroidWorker {
         val contentType: String? = null,     // Content-Type for raw body (required if body/bodyBytes)
         val headers: Map<String, String>? = null,
         val fields: Map<String, String>? = null,
-        val timeoutMs: Long? = null
+        val timeoutMs: Long? = null,
+        val requestSigningConfig: dev.brewkits.native_workmanager.workers.utils.RequestSigner.Config? = null,
     ) {
         val timeout: Long get() = timeoutMs ?: DEFAULT_TIMEOUT_MS
 
@@ -180,7 +183,8 @@ class HttpUploadWorker : AndroidWorker {
                 contentType = if (j.has("contentType") && !j.isNull("contentType")) j.getString("contentType") else null,
                 headers = parseStringMap(j.optJSONObject("headers")),
                 fields = parseStringMap(j.optJSONObject("additionalFields")),
-                timeoutMs = if (j.has("timeoutMs")) j.getLong("timeoutMs") else null
+                timeoutMs = if (j.has("timeoutMs")) j.getLong("timeoutMs") else null,
+                requestSigningConfig = dev.brewkits.native_workmanager.workers.utils.RequestSigner.fromMap(j.optJSONObject("requestSigning")),
             )
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid config JSON: ${e.message}", e)
@@ -251,6 +255,17 @@ class HttpUploadWorker : AndroidWorker {
             validatedFiles.add(Triple(file, fileName, mimeType))
         }
 
+        // NET-018: Validate total multipart body size before transmitting.
+        // Each individual file is validated by SecurityValidator.validateFileSize() above, but
+        // many small files could still produce an unreasonably large aggregate request.
+        val maxUploadBytes = 512L * 1024 * 1024 // 512 MB per multipart request
+        if (totalSize > maxUploadBytes) {
+            Log.e(TAG, "Total upload size ($totalSize bytes) exceeds limit ($maxUploadBytes bytes)")
+            return@withContext WorkerResult.Failure(
+                "Total upload size (${totalSize / (1024 * 1024)} MB) exceeds the 512 MB per-request limit"
+            )
+        }
+
         // ✅ SECURITY: Sanitize logging (don't log full paths)
         val sanitizedURL = SecurityValidator.sanitizedURL(config.url)
         Log.d(TAG, "Uploading to $sanitizedURL")
@@ -305,7 +320,9 @@ class HttpUploadWorker : AndroidWorker {
             requestBuilder.addHeader(key, value)
         }
 
-        val request = requestBuilder.build()
+        val request = config.requestSigningConfig
+            ?.let { dev.brewkits.native_workmanager.workers.utils.RequestSigner.sign(requestBuilder.build(), it) }
+            ?: requestBuilder.build()
 
         // Execute upload
         return@withContext try {
@@ -331,13 +348,12 @@ class HttpUploadWorker : AndroidWorker {
                     // ✅ Return success with upload data
                     WorkerResult.Success(
                         message = "Uploaded ${validatedFiles.size} file(s), $totalSize bytes",
-                        data = mapOf(
-                            "statusCode" to statusCode,
-                            "uploadedSize" to totalSize,
-                            "fileCount" to validatedFiles.size,  // 👈 NEW
-                            "fileNames" to validatedFiles.map { it.second },  // 👈 NEW
-                            "responseBody" to responseString
-                        )
+                        data = buildJsonObject {
+                            put("statusCode", statusCode)
+                            put("uploadedSize", totalSize)
+                            put("fileCount", validatedFiles.size)
+                            put("responseBody", responseString)
+                        }
                     )
                 } else {
                     // ✅ SECURITY: Truncate error body for logging
@@ -364,6 +380,11 @@ class HttpUploadWorker : AndroidWorker {
      * Handle raw body upload (string or bytes).
      */
     private suspend fun handleRawBodyUpload(config: Config, taskId: String?): WorkerResult = withContext(Dispatchers.IO) {
+        // LOGIC-003: additionalFields are ignored in raw body mode — warn so callers aren't surprised.
+        if (!config.fields.isNullOrEmpty()) {
+            Log.w(TAG, "additionalFields are silently ignored in raw body mode. " +
+                "Use multipart/form-data (filePath/files) if you need form fields.")
+        }
         // Validate content type is provided
         if (config.contentType.isNullOrEmpty()) {
             Log.e(TAG, "Error - contentType is required for raw body upload")
@@ -421,7 +442,9 @@ class HttpUploadWorker : AndroidWorker {
             requestBuilder.addHeader(key, value)
         }
 
-        val request = requestBuilder.build()
+        val request = config.requestSigningConfig
+            ?.let { dev.brewkits.native_workmanager.workers.utils.RequestSigner.sign(requestBuilder.build(), it) }
+            ?: requestBuilder.build()
 
         // Execute upload
         return@withContext try {
@@ -446,12 +469,12 @@ class HttpUploadWorker : AndroidWorker {
 
                     WorkerResult.Success(
                         message = "Uploaded raw body",
-                        data = mapOf(
-                            "statusCode" to statusCode,
-                            "uploadedSize" to requestBody.contentLength(),
-                            "contentType" to config.contentType,
-                            "responseBody" to responseString
-                        )
+                        data = buildJsonObject {
+                            put("statusCode", statusCode)
+                            put("uploadedSize", requestBody.contentLength())
+                            if (config.contentType != null) put("contentType", config.contentType)
+                            put("responseBody", responseString)
+                        }
                     )
                 } else {
                     // ✅ SECURITY: Truncate error body for logging

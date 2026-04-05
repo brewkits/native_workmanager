@@ -1,0 +1,69 @@
+name: Native WorkManager CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test_dart:
+    name: Dart Linting & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Verify formatting
+        run: dart format --set-exit-if-changed .
+
+      - name: Analyze code
+        run: flutter analyze
+
+      - name: Run all tests (Core + Integration)
+        run: flutter test test/unit test/integration
+
+  build_android:
+    name: Build Validation (Android)
+    runs-on: ubuntu-latest
+    needs: test_dart
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.0'
+      
+      - name: Install dependencies
+        run: flutter pub get
+        
+      - name: Build Android (Debug)
+        run: |
+          cd example
+          flutter build apk --debug --no-pub
+
+  build_ios:
+    name: Build Validation (iOS)
+    runs-on: macos-latest
+    needs: test_dart
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.0'
+      
+      - name: Install dependencies
+        run: flutter pub get
+        
+      - name: Build iOS (Debug/No-Codesign)
+        run: |
+          cd example
+          flutter build ios --no-codesign --debug --no-pub

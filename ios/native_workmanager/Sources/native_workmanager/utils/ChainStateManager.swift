@@ -5,7 +5,9 @@ import Foundation
 /// Allows chains to resume after app kills or crashes by saving progress
 /// after each step completion.
 ///
-/// **Storage:** UserDefaults (lightweight, suitable for chain metadata)
+/// **Storage:** SQLite via ChainStore (primary).
+///   UserDefaults is no longer used for new data; the one-time migration on
+///   first launch moves any legacy records to SQLite and clears the old key.
 /// **Cleanup:** Auto-removes chains completed > 7 days ago
 actor ChainStateManager {
 
@@ -97,57 +99,95 @@ actor ChainStateManager {
 
     // MARK: - Storage
 
+    private let chainStore: ChainStore
     private let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
+    init(chainStore: ChainStore, defaults: UserDefaults = .standard) {
+        self.chainStore = chainStore
         self.defaults = defaults
+        
+        // One-time migration from UserDefaults to SQLite
+        Task {
+            await migrateFromUserDefaults()
+        }
+    }
+
+    private func migrateFromUserDefaults() async {
+        guard let data = defaults.data(forKey: Self.userDefaultsKey) else { return }
+        print("ChainStateManager: Found legacy data in UserDefaults. Migrating to SQLite...")
+        
+        do {
+            let states = try JSONDecoder().decode([ChainState].self, from: data)
+            for state in states {
+                let stateData = try JSONEncoder().encode(state)
+                if let stateJson = String(data: stateData, encoding: .utf8) {
+                    chainStore.upsertChain(
+                        id: state.chainId,
+                        name: state.chainName,
+                        totalSteps: state.totalSteps,
+                        currentStep: state.currentStep,
+                        isCompleted: state.completed,
+                        stateJson: stateJson
+                    )
+                }
+            }
+            // Clear legacy data after successful migration
+            defaults.removeObject(forKey: Self.userDefaultsKey)
+            defaults.synchronize()
+            print("ChainStateManager: Migration complete (\(states.count) chains)")
+        } catch {
+            print("ChainStateManager: Migration failed: \(error)")
+        }
     }
 
     // MARK: - Save/Load
 
-    /// Save chain state to UserDefaults
+    /// Save chain state to SQLite
     func saveChainState(_ state: ChainState) throws {
-        print("ChainStateManager: Saving state for chain '\(state.chainId)'")
+        print("ChainStateManager: Saving state for chain '\(state.chainId)' to SQLite")
         print("  Progress: \(state.currentStep + 1)/\(state.totalSteps) steps")
 
-        var states = try loadAllStates()
-
-        // Update or add state
-        if let index = states.firstIndex(where: { $0.chainId == state.chainId }) {
-            states[index] = state
-        } else {
-            states.append(state)
+        let stateData = try JSONEncoder().encode(state)
+        guard let stateJson = String(data: stateData, encoding: .utf8) else {
+            throw NSError(domain: "ChainStateManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to encode state"])
         }
 
-        // Encode and save
-        let data = try JSONEncoder().encode(states)
-        defaults.set(data, forKey: Self.userDefaultsKey)
-        defaults.synchronize()
+        chainStore.upsertChain(
+            id: state.chainId,
+            name: state.chainName,
+            totalSteps: state.totalSteps,
+            currentStep: state.currentStep,
+            isCompleted: state.completed,
+            stateJson: stateJson
+        )
 
-        print("ChainStateManager: Saved successfully")
+        print("ChainStateManager: Saved successfully to SQLite")
     }
 
     /// Load chain state by ID
     func loadChainState(chainId: String) throws -> ChainState? {
-        let states = try loadAllStates()
-        return states.first { $0.chainId == chainId }
+        guard let row = chainStore.getChain(id: chainId),
+              let json = row["full_state_json"] as? String,
+              let data = json.data(using: .utf8) else {
+            return nil
+        }
+        return try JSONDecoder().decode(ChainState.self, from: data)
     }
 
     /// Load all saved chain states
     func loadAllStates() throws -> [ChainState] {
-        guard let data = defaults.data(forKey: Self.userDefaultsKey) else {
-            return []
+        let rows = chainStore.getAllChains()
+        var states: [ChainState] = []
+        
+        for row in rows {
+            if let json = row["full_state_json"] as? String,
+               let data = json.data(using: .utf8) {
+                if let state = try? JSONDecoder().decode(ChainState.self, from: data) {
+                    states.append(state)
+                }
+            }
         }
-
-        do {
-            let states = try JSONDecoder().decode([ChainState].self, from: data)
-            return states
-        } catch {
-            print("ChainStateManager: Error decoding states: \(error)")
-            // Corrupted data - clear it
-            defaults.removeObject(forKey: Self.userDefaultsKey)
-            return []
-        }
+        return states
     }
 
     /// Load all resumable chains (not completed, not expired)
@@ -256,55 +296,24 @@ actor ChainStateManager {
 
     /// Remove specific chain state
     func removeChainState(chainId: String) throws {
-        print("ChainStateManager: Removing chain '\(chainId)'")
-
-        var states = try loadAllStates()
-        states.removeAll { $0.chainId == chainId }
-
-        if states.isEmpty {
-            defaults.removeObject(forKey: Self.userDefaultsKey)
-        } else {
-            let data = try JSONEncoder().encode(states)
-            defaults.set(data, forKey: Self.userDefaultsKey)
-        }
-
-        defaults.synchronize()
+        print("ChainStateManager: Removing chain '\(chainId)' from SQLite")
+        chainStore.deleteChain(id: chainId)
     }
 
     /// Remove all completed or expired chains
     func cleanupOldStates() throws {
-        print("ChainStateManager: Cleaning up old states...")
-
-        let allStates = try loadAllStates()
+        print("ChainStateManager: Cleaning up old states in SQLite...")
         let cutoffDate = Date().addingTimeInterval(-Self.maxStateAge)
-
-        let activeStates = allStates.filter { state in
-            !state.completed && state.lastUpdatedAt > cutoffDate
-        }
-
-        let removedCount = allStates.count - activeStates.count
-
-        if removedCount > 0 {
-            print("ChainStateManager: Removed \(removedCount) old chain(s)")
-
-            if activeStates.isEmpty {
-                defaults.removeObject(forKey: Self.userDefaultsKey)
-            } else {
-                let data = try JSONEncoder().encode(activeStates)
-                defaults.set(data, forKey: Self.userDefaultsKey)
-            }
-
-            defaults.synchronize()
-        } else {
-            print("ChainStateManager: No cleanup needed")
-        }
+        chainStore.cleanup(olderThan: cutoffDate)
     }
 
     /// Remove ALL chain states (use for testing/debugging only)
     func clearAllStates() {
-        print("ChainStateManager: Clearing ALL chain states")
-        defaults.removeObject(forKey: Self.userDefaultsKey)
-        defaults.synchronize()
+        print("ChainStateManager: Clearing ALL chain states in SQLite")
+        let states = (try? loadAllStates()) ?? []
+        for state in states {
+            chainStore.deleteChain(id: state.chainId)
+        }
     }
 
     // MARK: - Helpers

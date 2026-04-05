@@ -51,6 +51,27 @@ import 'worker.dart';
 ///
 /// - [TaskChainBuilder] - Builder for creating task chains
 /// - [NativeWorkManager.beginWith] - Start a task chain
+/// ## Data Flow between Tasks
+///
+/// Tasks in a chain can pass data to subsequent tasks using placeholders in their
+/// configuration paths. Use the format `{{task_id.output_key}}`.
+///
+/// ```dart
+/// await NativeWorkManager.beginWith(
+///   TaskRequest(
+///     id: 'downloader',
+///     worker: NativeWorker.httpDownload(url: '...', savePath: '/tmp/file.zip'),
+///   ),
+/// )
+/// .then(TaskRequest(
+///   id: 'processor',
+///   worker: NativeWorker.fileDecompress(
+///     zipPath: '{{downloader.savePath}}', // Use output from previous task
+///     targetDir: '/data/',
+///   ),
+/// ))
+/// .enqueue();
+/// ```
 @immutable
 class TaskRequest {
   const TaskRequest({
@@ -91,7 +112,8 @@ class TaskRequest {
   int get hashCode => id.hashCode;
 
   @override
-  String toString() => 'TaskRequest(id: $id, worker: ${worker.workerClassName})';
+  String toString() =>
+      'TaskRequest(id: $id, worker: ${worker.workerClassName})';
 }
 
 /// Builder for creating task chains (A -> B -> C workflows).
@@ -128,7 +150,7 @@ class TaskRequest {
 /// .enqueue();
 /// ```
 ///
-/// ## Parallel Tasks (A → [B1, B2, B3])
+/// ## Parallel Tasks (A → \[B1, B2, B3\])
 ///
 /// ```dart
 /// await NativeWorkManager.beginWith(
@@ -280,7 +302,7 @@ class TaskChainBuilder {
 
   /// Add multiple tasks to run in parallel after the previous step completes.
   ///
-  /// Creates parallel execution: current step → [task1, task2, task3].
+  /// Creates parallel execution: current step → `[task1, task2, task3]`.
   /// All tasks in the list start simultaneously. The next step waits for
   /// ALL parallel tasks to complete.
   ///

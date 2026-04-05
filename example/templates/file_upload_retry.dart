@@ -164,11 +164,14 @@ class _FileUploadRetryAppState extends State<FileUploadRetryApp> {
             filePath: filePath,
             headers: const {'Authorization': 'Bearer YOUR_AUTH_TOKEN'},
             additionalFields: const {'albumId': '456'},
-            timeout: const Duration(milliseconds: 300000), // 5 minutes for multiple files
+            timeout: const Duration(
+              milliseconds: 300000,
+            ), // 5 minutes for multiple files
           ),
           constraints: const Constraints(
             requiresNetwork: true,
-            requiresUnmeteredNetwork: true, // Only upload on WiFi for multiple files
+            requiresUnmeteredNetwork:
+                true, // Only upload on WiFi for multiple files
             backoffPolicy: BackoffPolicy.exponential,
             backoffDelayMs: 30000,
           ),
@@ -202,7 +205,7 @@ class _FileUploadRetryAppState extends State<FileUploadRetryApp> {
               '{"userId": "123", "action": "backup", "timestamp": "${DateTime.now().toIso8601String()}"}',
           headers: const {
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer YOUR_AUTH_TOKEN'
+            'Authorization': 'Bearer YOUR_AUTH_TOKEN',
           },
         ),
         constraints: const Constraints(

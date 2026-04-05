@@ -11,6 +11,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Native HTTP request worker for Android.
@@ -67,7 +69,8 @@ class HttpRequestWorker : AndroidWorker {
         val timeoutMs: Long? = null,
         // 👇 NEW: Response validation patterns
         val successPattern: String? = null,  // Regex pattern that response must match to be success
-        val failurePattern: String? = null   // Regex pattern that indicates failure (overrides 200)
+        val failurePattern: String? = null,  // Regex pattern that indicates failure (overrides 200)
+        val requestSigningConfig: dev.brewkits.native_workmanager.workers.utils.RequestSigner.Config? = null,
     ) {
         val httpMethod: String get() = (method ?: "get").uppercase()
         val timeout: Long get() = timeoutMs ?: DEFAULT_TIMEOUT_MS
@@ -89,7 +92,8 @@ class HttpRequestWorker : AndroidWorker {
                 timeoutMs = if (j.has("timeoutMs")) j.getLong("timeoutMs") else null,
                 // 👇 NEW: Response validation
                 successPattern = if (j.has("successPattern") && !j.isNull("successPattern")) j.getString("successPattern") else null,
-                failurePattern = if (j.has("failurePattern") && !j.isNull("failurePattern")) j.getString("failurePattern") else null
+                failurePattern = if (j.has("failurePattern") && !j.isNull("failurePattern")) j.getString("failurePattern") else null,
+                requestSigningConfig = dev.brewkits.native_workmanager.workers.utils.RequestSigner.fromMap(j.optJSONObject("requestSigning")),
             )
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid config JSON: ${e.message}", e)
@@ -144,7 +148,9 @@ class HttpRequestWorker : AndroidWorker {
             requestBuilder.addHeader(key, value)
         }
 
-        val request = requestBuilder.build()
+        val request = config.requestSigningConfig
+            ?.let { dev.brewkits.native_workmanager.workers.utils.RequestSigner.sign(requestBuilder.build(), it) }
+            ?: requestBuilder.build()
 
         // Execute request
         return@withContext try {
@@ -184,12 +190,11 @@ class HttpRequestWorker : AndroidWorker {
                     // ✅ Return success with response data
                     WorkerResult.Success(
                         message = "HTTP $statusCode",
-                        data = mapOf(
-                            "statusCode" to statusCode,
-                            "body" to bodyString,
-                            "headers" to headers,
-                            "contentLength" to responseBody.size
-                        )
+                        data = buildJsonObject {
+                            put("statusCode", statusCode)
+                            put("body", bodyString)
+                            put("contentLength", responseBody.size)
+                        }
                     )
                 } else {
                     // ✅ SECURITY: Truncate error body for logging

@@ -1,0 +1,18 @@
+name: native_workmanager_devtools_extension
+description: DevTools extension for native_workmanager.
+publish_to: 'none'
+version: 1.0.0
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  devtools_extensions: ^0.5.0
+  devtools_app_shared: ^0.5.0
+
+dev_dependencies:
+  build_runner: ^2.4.6
+  build_web_compilers: ^4.0.4
+  flutter_lints: ^3.0.0

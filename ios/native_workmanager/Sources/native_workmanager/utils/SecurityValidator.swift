@@ -8,6 +8,19 @@ import Foundation
 /// - Safe logging (sanitize sensitive data)
 enum SecurityValidator {
 
+    // MARK: - Global enforcement flags
+
+    /// When true, plain HTTP URLs are rejected globally across all workers.
+    /// Set by handleInitialize() when the Dart caller passes enforceHttps=true.
+    static var enforceHttps: Bool = false
+
+    /// When true, HTTP workers block requests to private/loopback IP literals.
+    /// Covers: 10.x, 172.16-31.x, 192.168.x, 127.x, 169.254.x (link-local),
+    ///         ::1, fc00::/7 (ULA), and fe80::/10 (IPv6 link-local).
+    /// Only parsed IP literals are checked — hostnames are NOT resolved.
+    /// Set by handleInitialize() when the Dart caller passes blockPrivateIPs=true.
+    static var blockPrivateIPs: Bool = false
+
     // MARK: - URL Validation
 
     /// Validate that URL uses safe scheme (http/https only).
@@ -16,31 +29,54 @@ enum SecurityValidator {
     /// - Returns: Validated URL or nil if invalid/unsafe
     static func validateURL(_ urlString: String) -> URL? {
         guard let url = URL(string: urlString) else {
-            print("SecurityValidator: Invalid URL format")
+            NativeLogger.d("SecurityValidator: Invalid URL format")
             return nil
         }
 
         // ✅ SECURITY: Only allow HTTP and HTTPS schemes
         guard let scheme = url.scheme?.lowercased() else {
-            print("SecurityValidator: URL missing scheme")
+            NativeLogger.d("SecurityValidator: URL missing scheme")
             return nil
         }
 
         let allowedSchemes = ["http", "https"]
         guard allowedSchemes.contains(scheme) else {
-            print("SecurityValidator: Unsafe URL scheme '\(scheme)'. Only HTTP/HTTPS allowed.")
+            NativeLogger.d("SecurityValidator: Unsafe URL scheme. Only HTTP/HTTPS allowed.")
             return nil
         }
 
-        // ⚠️ Warning for non-HTTPS
+        // Reject plain HTTP when global HTTPS enforcement is enabled.
         if scheme == "http" {
-            print("SecurityValidator: WARNING - Using HTTP (unencrypted). Consider HTTPS for security.")
+            if enforceHttps {
+                NativeLogger.d("SecurityValidator: Plain HTTP rejected — enforceHttps=true.")
+                return nil
+            }
+            NativeLogger.d("SecurityValidator: Using HTTP (unencrypted). Consider HTTPS.")
+        }
+
+        // SSRF protection: block requests to private/loopback IP literals.
+        if blockPrivateIPs, let host = url.host, isPrivateIP(host) {
+            NativeLogger.d("SecurityValidator: Request blocked — private/loopback IP (blockPrivateIPs=true).")
+            return nil
         }
 
         return url
     }
 
     // MARK: - File Path Validation
+
+    /// Validate a save path and return the canonical path on success, or nil if invalid.
+    ///
+    /// Convenience wrapper around `validateFilePath(_:)` that returns the resolved
+    /// path string so callers can use the canonical path after validation.
+    ///
+    /// - Parameter path: File path to validate
+    /// - Returns: Canonical (symlink-resolved) path string if valid, nil if invalid/unsafe
+    static func validateSavePath(_ path: String) -> String? {
+        guard !path.isEmpty else { return nil }
+        guard validateFilePath(path) else { return nil }
+        return resolvePathWithSymlinks(path)
+    }
 
     /// Validate file path is within app sandbox.
     ///
@@ -75,11 +111,7 @@ enum SecurityValidator {
             }
         }
 
-        print("SecurityValidator: File path '\(resolvedPath)' outside app sandbox")
-        print("SecurityValidator: Allowed directories:")
-        for allowedURL in allowedURLs {
-            print("  - \(allowedURL.resolvingSymlinksInPath().path)")
-        }
+        NativeLogger.d("SecurityValidator: File path outside app sandbox")
 
         return false
     }
@@ -159,17 +191,17 @@ enum SecurityValidator {
 
     // MARK: - File Size Limits
 
-    /// Maximum allowed file size for uploads/downloads (100MB).
-    static let maxFileSize: Int64 = 100 * 1024 * 1024
+    /// Maximum allowed file size for uploads/downloads (500MB).
+    static var maxFileSize: Int64 = 500 * 1024 * 1024
 
-    /// Maximum allowed archive size (200MB).
-    static let maxArchiveSize: Int64 = 200 * 1024 * 1024
+    /// Maximum allowed archive size (1GB).
+    static var maxArchiveSize: Int64 = 1024 * 1024 * 1024
 
     /// Maximum allowed request body size (10MB).
-    static let maxRequestBodySize = 10 * 1024 * 1024
+    static var maxRequestBodySize: Int = 10 * 1024 * 1024
 
     /// Maximum allowed response body size (50MB).
-    static let maxResponseBodySize = 50 * 1024 * 1024
+    static var maxResponseBodySize: Int = 50 * 1024 * 1024
 
     // MARK: - Request Size Validation
 
@@ -179,7 +211,7 @@ enum SecurityValidator {
     /// - Returns: true if size is acceptable, false if too large
     static func validateRequestSize(_ data: Data) -> Bool {
         if data.count > maxRequestBodySize {
-            print("SecurityValidator: Request body too large (\(data.count) bytes, max \(maxRequestBodySize))")
+            NativeLogger.d("SecurityValidator: Request body too large (max \(maxRequestBodySize) bytes)")
             return false
         }
         return true
@@ -191,7 +223,7 @@ enum SecurityValidator {
     /// - Returns: true if size is acceptable, false if too large
     static func validateResponseSize(_ data: Data) -> Bool {
         if data.count > maxResponseBodySize {
-            print("SecurityValidator: Response body too large (\(data.count) bytes, max \(maxResponseBodySize))")
+            NativeLogger.d("SecurityValidator: Response body too large (max \(maxResponseBodySize) bytes)")
             return false
         }
         return true
@@ -205,27 +237,27 @@ enum SecurityValidator {
     /// - Returns: true if file size is acceptable, false if too large or file doesn't exist
     static func validateFileSize(_ fileURL: URL) -> Bool {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            print("SecurityValidator: File does not exist: \(fileURL.path)")
+            NativeLogger.d("SecurityValidator: File does not exist")
             return false
         }
 
         do {
             let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
             guard let fileSize = attributes[.size] as? Int64 else {
-                print("SecurityValidator: Cannot determine file size")
+                NativeLogger.d("SecurityValidator: Cannot determine file size")
                 return false
             }
 
             if fileSize > maxFileSize {
                 let sizeMB = fileSize / 1024 / 1024
                 let maxMB = maxFileSize / 1024 / 1024
-                print("SecurityValidator: File too large: \(sizeMB)MB (max \(maxMB)MB)")
+                NativeLogger.d("SecurityValidator: File too large: \(sizeMB)MB (max \(maxMB)MB)")
                 return false
             }
 
             return true
         } catch {
-            print("SecurityValidator: Error reading file attributes: \(error)")
+            NativeLogger.d("SecurityValidator: Error reading file attributes")
             return false
         }
     }
@@ -236,14 +268,14 @@ enum SecurityValidator {
     /// - Returns: true if size is acceptable, false if too large
     static func validateContentLength(_ contentLength: Int64) -> Bool {
         if contentLength < 0 {
-            print("SecurityValidator: Content-Length unknown - cannot pre-validate download size")
+            NativeLogger.d("SecurityValidator: Content-Length unknown — cannot pre-validate download size")
             return true  // Allow with warning
         }
 
         if contentLength > maxFileSize {
             let sizeMB = contentLength / 1024 / 1024
             let maxMB = maxFileSize / 1024 / 1024
-            print("SecurityValidator: Download too large: \(sizeMB)MB (max \(maxMB)MB)")
+            NativeLogger.d("SecurityValidator: Download too large: \(sizeMB)MB (max \(maxMB)MB)")
             return false
         }
 
@@ -256,27 +288,27 @@ enum SecurityValidator {
     /// - Returns: true if archive size is acceptable, false if too large or file doesn't exist
     static func validateArchiveSize(_ fileURL: URL) -> Bool {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            print("SecurityValidator: Archive does not exist: \(fileURL.path)")
+            NativeLogger.d("SecurityValidator: Archive does not exist")
             return false
         }
 
         do {
             let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
             guard let fileSize = attributes[.size] as? Int64 else {
-                print("SecurityValidator: Cannot determine archive size")
+                NativeLogger.d("SecurityValidator: Cannot determine archive size")
                 return false
             }
 
             if fileSize > maxArchiveSize {
                 let sizeMB = fileSize / 1024 / 1024
                 let maxMB = maxArchiveSize / 1024 / 1024
-                print("SecurityValidator: Archive too large: \(sizeMB)MB (max \(maxMB)MB)")
+                NativeLogger.d("SecurityValidator: Archive too large: \(sizeMB)MB (max \(maxMB)MB)")
                 return false
             }
 
             return true
         } catch {
-            print("SecurityValidator: Error reading archive attributes: \(error)")
+            NativeLogger.d("SecurityValidator: Error reading archive attributes")
             return false
         }
     }
@@ -308,7 +340,7 @@ enum SecurityValidator {
         do {
             let attributes = try FileManager.default.attributesOfFileSystem(forPath: checkPath)
             guard let freeSpace = attributes[.systemFreeSize] as? Int64 else {
-                print("SecurityValidator: Cannot determine free disk space at '\(checkPath)'")
+                NativeLogger.d("SecurityValidator: Cannot determine free disk space")
                 return true  // Cannot check — allow and let the OS report the actual error
             }
 
@@ -319,7 +351,7 @@ enum SecurityValidator {
             if freeSpace < requiredWithMargin {
                 let availableMB = freeSpace / 1024 / 1024
                 let requiredKB = requiredWithMargin / 1024
-                print("SecurityValidator: Insufficient disk space: \(availableMB)MB available, \(requiredKB)KB needed")
+                NativeLogger.d("SecurityValidator: Insufficient disk space: \(availableMB)MB available, \(requiredKB)KB needed")
                 return false
             }
 
@@ -328,9 +360,70 @@ enum SecurityValidator {
             // Cannot query disk space (older OS, unexpected path, permissions).
             // Log clearly and fail-open: the OS will raise a genuine error if the
             // write truly fails due to disk full (NSFileWriteOutOfSpaceError).
-            print("SecurityValidator: Cannot check disk space at '\(checkPath)': \(error) — allowing operation (OS will surface actual disk-full errors)")
+            NativeLogger.d("SecurityValidator: Cannot check disk space — allowing operation (OS will surface actual disk-full errors)")
             return true
         }
+    }
+
+    // MARK: - Private IP Detection
+
+    /// Returns true if `host` is a private/loopback IPv4 or IPv6 literal.
+    ///
+    /// Only IP literals are matched — hostnames are NOT resolved (no DNS lookup).
+    /// Covers:
+    ///   IPv4: 127.x, 10.x, 172.16-31.x, 192.168.x, 169.254.x (link-local)
+    ///   IPv6: ::1, fc00::/7 (ULA), fe80::/10 (link-local)
+    static func isPrivateIP(_ host: String) -> Bool {
+        guard !host.isEmpty else { return false }
+        // Strip IPv6 brackets: [::1] → ::1
+        let h: String
+        if host.hasPrefix("[") && host.hasSuffix("]") {
+            h = String(host.dropFirst().dropLast())
+        } else {
+            h = host
+        }
+        // IPv6 loopback
+        if h == "::1" { return true }
+        // IPv6 ULA (fc00::/7 — first byte fc or fd) and link-local (fe80::/10)
+        let lower = h.lowercased()
+        if lower.hasPrefix("fc") || lower.hasPrefix("fd") || lower.hasPrefix("fe80") { return true }
+        // IPv4 — split on "." and validate octets
+        let parts = h.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4,
+              let a = Int(parts[0]),
+              let b = Int(parts[1]) else { return false }
+        switch a {
+        case 127: return true                    // 127.x loopback
+        case 10:  return true                    // 10.x/8
+        case 172: return b >= 16 && b <= 31      // 172.16-31.x/12
+        case 192: return b == 168               // 192.168.x/16
+        case 169: return b == 254               // 169.254.x link-local
+        default:  return false
+        }
+    }
+
+    // MARK: - Safe Header Logging
+
+    /// Return a loggable representation of HTTP headers with sensitive values redacted.
+    ///
+    /// Sensitive header names (Authorization, X-API-Key, X-Auth-Token, Cookie,
+    /// Set-Cookie, Proxy-Authorization) are replaced with `[redacted]`.
+    /// Non-sensitive headers are included as-is.
+    ///
+    /// - Parameter headers: HTTP request or response headers
+    /// - Returns: String summary safe for logging
+    static func safeLog(headers: [String: String]) -> String {
+        let sensitiveNames: Set<String> = [
+            "authorization", "x-api-key", "x-auth-token",
+            "cookie", "set-cookie", "proxy-authorization",
+        ]
+        let entries = headers.map { key, value -> String in
+            if sensitiveNames.contains(key.lowercased()) {
+                return "\(key): [redacted]"
+            }
+            return "\(key): \(value)"
+        }
+        return entries.sorted().joined(separator: ", ")
     }
 
     // MARK: - Additional Field Validation
@@ -351,7 +444,7 @@ enum SecurityValidator {
     static func validateAdditionalFields(_ fields: [String: String]) -> Bool {
         // Check field count
         if fields.count > maxAdditionalFields {
-            print("SecurityValidator: Too many form fields: \(fields.count) (max \(maxAdditionalFields))")
+            NativeLogger.d("SecurityValidator: Too many form fields: \(fields.count) (max \(maxAdditionalFields))")
             return false
         }
 
@@ -363,7 +456,7 @@ enum SecurityValidator {
 
             if valueSize > maxFieldValueSize {
                 let sizeMB = Double(valueSize) / 1024.0 / 1024.0
-                print("SecurityValidator: Field '\(key)' too large: \(String(format: "%.2f", sizeMB))MB (max 1MB)")
+                NativeLogger.d("SecurityValidator: Field too large: \(String(format: "%.2f", sizeMB))MB (max 1MB)")
                 return false
             }
 
@@ -373,7 +466,7 @@ enum SecurityValidator {
         // Check total payload size
         if totalSize > maxTotalPayloadSize {
             let sizeMB = Double(totalSize) / 1024.0 / 1024.0
-            print("SecurityValidator: Total payload too large: \(String(format: "%.2f", sizeMB))MB (max 10MB)")
+            NativeLogger.d("SecurityValidator: Total payload too large: \(String(format: "%.2f", sizeMB))MB (max 10MB)")
             return false
         }
 

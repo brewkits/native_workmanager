@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- Required on Android 14+ (API 34+) for typed foreground services -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Required on Android 13+ (API 33+) to show notifications -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application>
         <!-- Declare foreground service type for WorkManager's SystemForegroundService.
@@ -15,5 +17,34 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+
+        <!-- BroadcastReceiver for the Cancel button in download progress notifications. -->
+        <receiver
+            android:name="dev.brewkits.native_workmanager.notification.NotificationCancelReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="dev.brewkits.native_workmanager.CANCEL_DOWNLOAD" />
+            </intent-filter>
+        </receiver>
+
+        <!-- BroadcastReceiver for the Pause button in download progress notifications. -->
+        <receiver
+            android:name="dev.brewkits.native_workmanager.notification.NotificationPauseReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="dev.brewkits.native_workmanager.PAUSE_DOWNLOAD" />
+            </intent-filter>
+        </receiver>
+
+        <!-- FileProvider for openFile support (ACTION_VIEW with content:// URIs). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.native_workmanager.provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/native_workmanager_file_paths" />
+        </provider>
     </application>
 </manifest>

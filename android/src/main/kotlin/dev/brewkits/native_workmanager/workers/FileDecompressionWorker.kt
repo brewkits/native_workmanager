@@ -6,6 +6,8 @@ import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.io.File
 import java.io.FileOutputStream
 import java.util.zip.ZipEntry
@@ -46,6 +48,7 @@ class FileDecompressionWorker : AndroidWorker {
     companion object {
         private const val TAG = "FileDecompressionWorker"
         private const val BUFFER_SIZE = 8192
+        private const val MAX_ENTRY_COUNT = 10_000   // FS-M-002: zip with too many entries
     }
 
     data class Config(
@@ -134,8 +137,17 @@ class FileDecompressionWorker : AndroidWorker {
         return@withContext try {
             ZipInputStream(zipFile.inputStream()).use { zipInput ->
                 var entry: ZipEntry? = zipInput.nextEntry
+                var entryCount = 0   // FS-M-002: entry count guard
 
                 while (entry != null) {
+                    // FS-M-002: Prevent zip archives with excessive entry counts
+                    entryCount++
+                    if (entryCount > MAX_ENTRY_COUNT) {
+                        Log.e(TAG, "Security - Entry count exceeded limit ($MAX_ENTRY_COUNT)")
+                        cleanupExtractedFiles(extractedPaths)
+                        return@withContext WorkerResult.Failure("Archive entry count exceeds limit ($MAX_ENTRY_COUNT)")
+                    }
+
                     val entryName = entry.name
 
                     // ✅ SECURITY: Prevent zip slip attack
@@ -189,12 +201,21 @@ class FileDecompressionWorker : AndroidWorker {
                                 bytesWritten += len
                                 totalBytes += len
 
-                                // ✅ SECURITY: Prevent zip bombs (check extracted size)
-                                // Guard: entry.size == -1 when ZIP uses data descriptors (most modern ZIPs)
-                                if (entry.size > 0 && bytesWritten > entry.size * 2) {
-                                    Log.e(TAG, "Security - Possible zip bomb detected: $entryName")
+                                // ✅ SECURITY: Robust Zip Bomb Protection
+                                // Check 1: Absolute Total Size Limit (2GB)
+                                if (totalBytes > 2L * 1024 * 1024 * 1024) {
+                                    Log.e(TAG, "Security - Total extracted size exceeded limit (2GB)")
                                     cleanupExtractedFiles(extractedPaths)
-                                    return@withContext WorkerResult.Failure("Possible zip bomb detected")
+                                    destFile.delete()  // FS-H-003: delete partial current file
+                                    return@withContext WorkerResult.Failure("Total extracted size too large (Zip Bomb protection)")
+                                }
+
+                                // Check 2: Dynamic Compression Ratio (Max 100:1)
+                                if (entry.size > 0 && bytesWritten > entry.size * 100) {
+                                    Log.e(TAG, "Security - Suspicious compression ratio detected (>100:1) for: $entryName")
+                                    cleanupExtractedFiles(extractedPaths)
+                                    destFile.delete()  // FS-H-003: delete partial current file
+                                    return@withContext WorkerResult.Failure("Suspicious compression ratio (Zip Bomb protection)")
                                 }
                             }
                         }
@@ -231,13 +252,13 @@ class FileDecompressionWorker : AndroidWorker {
             // ✅ Return success with extraction data
             WorkerResult.Success(
                 message = "Extracted $extractedFiles files, $extractedDirs directories",
-                data = mapOf(
-                    "extractedFiles" to extractedFiles,
-                    "extractedDirs" to extractedDirs,
-                    "totalBytes" to totalBytes,
-                    "targetDir" to targetDir.absolutePath,
-                    "zipDeleted" to config.deleteAfterExtract
-                )
+                data = buildJsonObject {
+                    put("extractedFiles", extractedFiles)
+                    put("extractedDirs", extractedDirs)
+                    put("totalBytes", totalBytes)
+                    put("targetDir", targetDir.absolutePath)
+                    put("zipDeleted", config.deleteAfterExtract)
+                }
             )
 
         } catch (e: Exception) {

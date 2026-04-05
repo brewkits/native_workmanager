@@ -2,6 +2,7 @@ package dev.brewkits.native_workmanager.workers
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapRegionDecoder
 import android.graphics.Matrix
 import android.graphics.Rect
 import androidx.exifinterface.media.ExifInterface
@@ -15,7 +16,10 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import kotlin.math.ceil
 import kotlin.math.min
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Built-in worker: Image processing (resize, compress, convert)
@@ -174,7 +178,7 @@ class ImageProcessWorker : AndroidWorker {
 
             // Apply crop if specified
             if (config.cropRect != null) {
-                bitmap = cropBitmap(bitmap, config.cropRect)
+                bitmap = cropBitmap(config.inputPath, config.cropRect)
                     ?: return@withContext WorkerResult.Failure("Failed to crop image")
                 Log.d(TAG, "Cropped to: ${bitmap.width}x${bitmap.height}")
 
@@ -220,7 +224,12 @@ class ImageProcessWorker : AndroidWorker {
 
             // Save processed image
             val outputFile = File(config.outputPath)
-            outputFile.parentFile?.mkdirs()
+            // MEDIA-009: treat mkdirs failure as an error — silent failure would cause the
+            // FileOutputStream below to throw with a misleading "No such file or directory".
+            val parentDir = outputFile.parentFile
+            if (parentDir != null && !parentDir.exists() && !parentDir.mkdirs()) {
+                return@withContext WorkerResult.Failure("Failed to create output directory: ${parentDir.path}")
+            }
 
             // Report progress: Compressing (80%)
             taskId?.let {
@@ -237,8 +246,20 @@ class ImageProcessWorker : AndroidWorker {
             val processedWidth = bitmap.width
             val processedHeight = bitmap.height
 
-            FileOutputStream(outputFile).use { out ->
-                bitmap.compress(format, config.quality, out)
+            // MEDIA-005: Write to a temp file then atomically rename to the final destination.
+            // Without this, a crash/OOM mid-compress leaves a partial output file.
+            val tempFile = File(outputFile.parent, ".${outputFile.name}.tmp")
+            try {
+                FileOutputStream(tempFile).use { out ->
+                    bitmap.compress(format, config.quality, out)
+                }
+                if (!tempFile.renameTo(outputFile)) {
+                    tempFile.delete()
+                    return@withContext WorkerResult.Failure("Failed to rename temp file to output path")
+                }
+            } catch (e: Exception) {
+                tempFile.delete()
+                throw e
             }
 
             bitmap.recycle()
@@ -272,18 +293,18 @@ class ImageProcessWorker : AndroidWorker {
 
             WorkerResult.Success(
                 message = "Image processed successfully",
-                data = mapOf(
-                    "inputPath" to config.inputPath,
-                    "outputPath" to config.outputPath,
-                    "originalWidth" to originalWidth,
-                    "originalHeight" to originalHeight,
-                    "processedWidth" to processedWidth,
-                    "processedHeight" to processedHeight,
-                    "originalSize" to originalSize,
-                    "processedSize" to processedSize,
-                    "compressionRatio" to compressionRatio,
-                    "format" to format.name
-                )
+                data = buildJsonObject {
+                    put("inputPath", config.inputPath)
+                    put("outputPath", config.outputPath)
+                    put("originalWidth", originalWidth)
+                    put("originalHeight", originalHeight)
+                    put("processedWidth", processedWidth)
+                    put("processedHeight", processedHeight)
+                    put("originalSize", originalSize)
+                    put("processedSize", processedSize)
+                    put("compressionRatio", compressionRatio)
+                    put("format", format.name)
+                }
             )
         } catch (e: OutOfMemoryError) {
             Log.e(TAG, "Out of memory during image processing", e)
@@ -299,11 +320,17 @@ class ImageProcessWorker : AndroidWorker {
 
         val cropRect = if (json.has("cropRect")) {
             val crop = json.getJSONObject("cropRect")
+            val w = crop.getInt("width")
+            val h = crop.getInt("height")
+            // MEDIA-007: reject non-positive crop dimensions early so callers get a
+            // clear error rather than a silent null from cropBitmap.
+            if (w <= 0) throw IllegalArgumentException("cropRect.width must be > 0 (got $w)")
+            if (h <= 0) throw IllegalArgumentException("cropRect.height must be > 0 (got $h)")
             CropRect(
                 x = crop.getInt("x"),
                 y = crop.getInt("y"),
-                width = crop.getInt("width"),
-                height = crop.getInt("height")
+                width = w,
+                height = h
             )
         } else null
 
@@ -329,30 +356,42 @@ class ImageProcessWorker : AndroidWorker {
         var sampleSize = 1
 
         if (width > maxWidth || height > maxHeight) {
-            val widthRatio = (width.toFloat() / maxWidth.toFloat()).toInt()
-            val heightRatio = (height.toFloat() / maxHeight.toFloat()).toInt()
-            // max(1, ...) prevents sampleSize=0 when one dimension fits within bounds
+            // Use ceil so the decoded dimension is guaranteed ≤ target.
+            // floor (toInt) could produce a sample that decodes slightly larger than target.
+            val widthRatio = ceil(width.toFloat() / maxWidth.toFloat()).toInt()
+            val heightRatio = ceil(height.toFloat() / maxHeight.toFloat()).toInt()
             sampleSize = maxOf(1, min(widthRatio, heightRatio))
         }
 
         return sampleSize
     }
 
-    private fun cropBitmap(source: Bitmap, cropRect: CropRect): Bitmap? {
+    private fun cropBitmap(sourcePath: String, cropRect: CropRect): Bitmap? {
         return try {
+            // Use the InputStream overload (non-deprecated on all API levels).
+            val decoder = java.io.FileInputStream(sourcePath).use { fis ->
+                @Suppress("DEPRECATION")
+                BitmapRegionDecoder.newInstance(fis, false)
+            } ?: return null
+
             val rect = Rect(
                 cropRect.x.coerceAtLeast(0),
                 cropRect.y.coerceAtLeast(0),
-                (cropRect.x + cropRect.width).coerceAtMost(source.width),
-                (cropRect.y + cropRect.height).coerceAtMost(source.height)
+                (cropRect.x + cropRect.width).coerceAtMost(decoder.width),
+                (cropRect.y + cropRect.height).coerceAtMost(decoder.height)
             )
 
-            if (rect.width() <= 0 || rect.height() <= 0) {
-                Log.e(TAG, "Invalid crop rectangle")
-                return null
-            }
+            if (rect.width() <= 0 || rect.height() <= 0) return null
 
-            Bitmap.createBitmap(source, rect.left, rect.top, rect.width(), rect.height())
+            val options = BitmapFactory.Options().apply {
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            try {
+                decoder.decodeRegion(rect, options)
+            } finally {
+                // MEDIA-001: BitmapRegionDecoder holds a native handle; must recycle to avoid leak.
+                decoder.recycle()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Crop failed: ${e.message}", e)
             null

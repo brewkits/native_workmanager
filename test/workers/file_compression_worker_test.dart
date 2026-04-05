@@ -73,7 +73,8 @@ void main() {
         );
 
         final compression = worker as FileCompressionWorker;
-        expect(compression.excludePatterns, ['*.tmp', '*.cache', 'node_modules/**']);
+        expect(compression.excludePatterns,
+            ['*.tmp', '*.cache', 'node_modules/**']);
       });
 
       test('should create worker with deleteOriginal flag', () {
@@ -149,7 +150,8 @@ void main() {
         );
       });
 
-      test('should throw ArgumentError if outputPath does not end with .zip', () {
+      test('should throw ArgumentError if outputPath does not end with .zip',
+          () {
         expect(
           () => NativeWorker.fileCompress(
             inputPath: '/data/files',
@@ -165,7 +167,9 @@ void main() {
         );
       });
 
-      test('should throw ArgumentError if outputPath does not end with .zip (no extension)', () {
+      test(
+          'should throw ArgumentError if outputPath does not end with .zip (no extension)',
+          () {
         expect(
           () => NativeWorker.fileCompress(
             inputPath: '/data/files',
@@ -339,7 +343,8 @@ void main() {
         );
 
         final compression = worker as FileCompressionWorker;
-        expect(compression.inputPath, '/data/files with spaces/special-chars_123');
+        expect(
+            compression.inputPath, '/data/files with spaces/special-chars_123');
         expect(compression.outputPath, '/backup/archive (2024).zip');
       });
 
@@ -360,7 +365,8 @@ void main() {
           outputPath: '/backup/archive.backup.zip',
         );
 
-        expect((worker as FileCompressionWorker).inputPath, '/data/file.name.with.dots');
+        expect((worker as FileCompressionWorker).inputPath,
+            '/data/file.name.with.dots');
       });
 
       test('should handle complex exclude patterns', () {
@@ -394,7 +400,8 @@ void main() {
         expect(compression.inputPath, '/storage/DCIM');
       });
 
-      test('should configure for compressing documents with high compression', () {
+      test('should configure for compressing documents with high compression',
+          () {
         final worker = NativeWorker.fileCompress(
           inputPath: '/documents',
           outputPath: '/archives/documents-2024.zip',

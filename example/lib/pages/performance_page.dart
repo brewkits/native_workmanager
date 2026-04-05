@@ -72,9 +72,9 @@ class _PerformancePageState extends State<PerformancePage> {
           _isRunningBenchmarks = false;
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('✅ Benchmarks completed')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('✅ Benchmarks completed')));
       }
     } catch (e) {
       if (mounted) {
@@ -82,9 +82,9 @@ class _PerformancePageState extends State<PerformancePage> {
           _isRunningBenchmarks = false;
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('❌ Benchmark error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('❌ Benchmark error: $e')));
       }
     }
   }

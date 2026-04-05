@@ -536,9 +536,13 @@ void main() {
 
     test('worker operation strings match FileOperation values', () {
       // Ensures workers send the same strings that the FileOperation enum defines.
-      expect(FileSystemCopyWorker(sourcePath: '/s', destinationPath: '/d').toMap()['operation'],
+      expect(
+          FileSystemCopyWorker(sourcePath: '/s', destinationPath: '/d')
+              .toMap()['operation'],
           FileOperation.copy.value);
-      expect(FileSystemMoveWorker(sourcePath: '/s', destinationPath: '/d').toMap()['operation'],
+      expect(
+          FileSystemMoveWorker(sourcePath: '/s', destinationPath: '/d')
+              .toMap()['operation'],
           FileOperation.move.value);
       expect(FileSystemDeleteWorker(path: '/p').toMap()['operation'],
           FileOperation.delete.value);

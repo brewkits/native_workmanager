@@ -62,6 +62,15 @@ class FlutterEngineManager {
         }
     }
 
+    /// BRIDGE-006: Check if a Dart callback handle has been registered via setCallbackHandle().
+    ///
+    /// Returns false if initialize(callbackHandle:) was never called — in which case
+    /// DartCallbackWorker tasks cannot execute and should be rejected at enqueue time
+    /// rather than accepted and silently failing at runtime.
+    var hasCallbackHandle: Bool {
+        queue.sync { callbackHandle != nil }
+    }
+
     /// Execute a Dart callback in the background isolate.
     ///
     /// This method ensures the engine is initialized, then invokes the specified
@@ -238,19 +247,22 @@ class FlutterEngineManager {
 
     /// Wait for Dart side to signal it's ready.
     private func waitForDartReady(channel: FlutterMethodChannel, timeout: TimeInterval) {
+        // DART-001/DART-003 FIX: `isReady` must only be accessed from `self.queue`
+        // (a serial queue) so the timeout check and the handler's write are serialized.
+        // The old code set isReady on the main thread and checked it on DispatchQueue.global(),
+        // creating a data race that could resume continuations twice → crash.
         var isReady = false
-        let startTime = Date()
 
         channel.setMethodCallHandler { [weak self] (call, result) in
             guard let self = self else { return }
 
             if call.method == "dartReady" {
-                isReady = true
                 result(nil)
-
                 print("FlutterEngineManager: Dart side ready")
 
+                // All writes to isReady AND continuation-resume happen on self.queue (serial).
                 self.queue.async {
+                    isReady = true   // guarded: only accessed from queue blocks below
                     self.isInitialized = true
                     self.isInitializing = false
 
@@ -262,11 +274,26 @@ class FlutterEngineManager {
                         continuation.resume()
                     }
                 }
+            } else if call.method == "reportProgress" {
+                // Progress reports emitted from inside a DartWorker callback.
+                // The Dart side calls MethodChannel('dev.brewkits/dart_worker_channel')
+                // .invokeMethod('reportProgress', {...}) which arrives here and is
+                // forwarded to ProgressReporter → Flutter EventChannel.
+                let args     = call.arguments as? [String: Any]
+                let taskId   = args?["taskId"]   as? String ?? ""
+                let progress = args?["progress"] as? Int    ?? 0
+                let message  = args?["message"]  as? String
+                ProgressReporter.shared.report(taskId: taskId, progress: progress, message: message)
+                result(nil)
+            } else {
+                result(FlutterMethodNotImplemented)
             }
         }
 
-        // Timeout check
-        DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak self] in
+        // DART-001/DART-003 FIX: Use self.queue (serial) instead of DispatchQueue.global().
+        // This serializes the timeout check with the handler's queue.async block above,
+        // so only one of them can see isReady == false and call completeInitialization.
+        queue.asyncAfter(deadline: .now() + timeout) { [weak self] in
             guard let self = self else { return }
 
             if !isReady {

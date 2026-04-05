@@ -11,6 +11,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Native HTTP sync worker for Android.
@@ -55,7 +57,8 @@ class HttpSyncWorker : AndroidWorker {
         val method: String? = null,
         val headers: Map<String, String>? = null,
         val requestBody: String? = null,
-        val timeoutMs: Long? = null
+        val timeoutMs: Long? = null,
+        val requestSigningConfig: dev.brewkits.native_workmanager.workers.utils.RequestSigner.Config? = null,
     ) {
         val httpMethod: String get() = (method ?: "post").uppercase()
         val timeout: Long get() = timeoutMs ?: DEFAULT_TIMEOUT_MS
@@ -74,7 +77,8 @@ class HttpSyncWorker : AndroidWorker {
                 method = if (j.has("method") && !j.isNull("method")) j.getString("method") else null,
                 headers = parseStringMap(j.optJSONObject("headers")),
                 requestBody = if (j.has("requestBody") && !j.isNull("requestBody")) j.get("requestBody").toString() else null,
-                timeoutMs = if (j.has("timeoutMs")) j.getLong("timeoutMs") else null
+                timeoutMs = if (j.has("timeoutMs")) j.getLong("timeoutMs") else null,
+                requestSigningConfig = dev.brewkits.native_workmanager.workers.utils.RequestSigner.fromMap(j.optJSONObject("requestSigning")),
             )
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid config JSON: ${e.message}", e)
@@ -99,6 +103,19 @@ class HttpSyncWorker : AndroidWorker {
 
         // Encode request body
         val requestBody = if (config.requestBody != null) {
+            // NET-009: validate that the body is valid JSON before sending with Content-Type: application/json.
+            // A non-JSON body would be silently transmitted, confusing the server.
+            try {
+                org.json.JSONObject(config.requestBody)
+            } catch (_: org.json.JSONException) {
+                try {
+                    org.json.JSONArray(config.requestBody)
+                } catch (_: org.json.JSONException) {
+                    Log.e(TAG, "requestBody is not valid JSON; refusing to send with Content-Type: application/json")
+                    return@withContext WorkerResult.Failure("requestBody is not valid JSON")
+                }
+            }
+
             val bodyBytes = config.requestBody.toByteArray(Charsets.UTF_8)
 
             // ✅ SECURITY: Validate request body size
@@ -129,7 +146,9 @@ class HttpSyncWorker : AndroidWorker {
             requestBuilder.header(key, value)
         }
 
-        val request = requestBuilder.build()
+        val request = config.requestSigningConfig
+            ?.let { dev.brewkits.native_workmanager.workers.utils.RequestSigner.sign(requestBuilder.build(), it) }
+            ?: requestBuilder.build()
 
         // Execute request
         return@withContext try {
@@ -161,11 +180,10 @@ class HttpSyncWorker : AndroidWorker {
                     // ✅ Return success with response data
                     WorkerResult.Success(
                         message = "HTTP $statusCode",
-                        data = mapOf(
-                            "statusCode" to statusCode,
-                            "body" to responseString,
-                            "headers" to headers
-                        )
+                        data = buildJsonObject {
+                            put("statusCode", statusCode)
+                            put("body", responseString)
+                        }
                     )
                 } else {
                     // ✅ SECURITY: Truncate error body for logging
@@ -191,7 +209,9 @@ class HttpSyncWorker : AndroidWorker {
     private fun parseStringMap(obj: org.json.JSONObject?): Map<String, String>? {
         if (obj == null) return null
         val map = mutableMapOf<String, String>()
-        obj.keys().forEach { key -> map[key] = obj.getString(key) }
+        // CRIT-003: use opt().toString() instead of getString() so non-string values
+        // (numbers, booleans) are coerced safely instead of throwing JSONException.
+        obj.keys().forEach { key -> map[key] = obj.opt(key)?.toString() ?: "" }
         return map
     }
 }

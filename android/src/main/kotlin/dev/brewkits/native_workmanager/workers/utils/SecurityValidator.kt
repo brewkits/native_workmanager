@@ -17,19 +17,17 @@ object SecurityValidator {
 
     private const val TAG = "SecurityValidator"
 
-    // MARK: - Constants
+    @Volatile
+    var enforceHttps: Boolean = false
 
-    /** Maximum allowed request body size (10MB) */
-    const val MAX_REQUEST_BODY_SIZE = 10 * 1024 * 1024
+    @Volatile
+    var blockPrivateIPs: Boolean = false
 
-    /** Maximum allowed response body size (50MB) */
-    const val MAX_RESPONSE_BODY_SIZE = 50 * 1024 * 1024
-
-    /** Maximum allowed file size for uploads/downloads (100MB) */
-    const val MAX_FILE_SIZE = 100 * 1024 * 1024
-
-    /** Maximum allowed compressed archive size (200MB) */
-    const val MAX_ARCHIVE_SIZE = 200 * 1024 * 1024
+    // MARK: - Configurable Limits (Allow users to override these)
+    @Volatile var maxRequestBodySize = 10 * 1024 * 1024L
+    @Volatile var maxResponseBodySize = 50 * 1024 * 1024L
+    @Volatile var maxFileSize = 500 * 1024 * 1024L // Increased to 500MB default
+    @Volatile var maxArchiveSize = 1024 * 1024 * 1024L // Increased to 1GB default
 
     // MARK: - URL Validation
 
@@ -53,13 +51,28 @@ object SecurityValidator {
             // ✅ SECURITY: Only allow HTTP and HTTPS schemes
             val allowedSchemes = listOf("http", "https")
             if (scheme !in allowedSchemes) {
+                // FIX #06: Explicitly reject content:// and file:// schemes for URL-based workers
+                // unless they are specifically designed to handle them.
                 Log.e(TAG, "Unsafe URL scheme '$scheme'. Only HTTP/HTTPS allowed.")
                 return false
             }
 
-            // ⚠️ Warning for non-HTTPS
+            // Reject plain HTTP when global HTTPS enforcement is enabled.
             if (scheme == "http") {
+                if (enforceHttps) {
+                    Log.e(TAG, "Plain HTTP rejected — enforceHttps=true. Use an HTTPS URL.")
+                    return false
+                }
                 Log.w(TAG, "WARNING - Using HTTP (unencrypted). Consider HTTPS for security.")
+            }
+
+            // SSRF protection: block requests to private/loopback IP literals.
+            if (blockPrivateIPs) {
+                val host = uri.host ?: ""
+                if (isPrivateIP(host)) {
+                    Log.e(TAG, "Request blocked — '$host' is a private/loopback IP (blockPrivateIPs=true).")
+                    return false
+                }
             }
 
             return true
@@ -201,8 +214,8 @@ object SecurityValidator {
      * @return true if size is acceptable, false if too large
      */
     fun validateRequestSize(data: ByteArray): Boolean {
-        if (data.size > MAX_REQUEST_BODY_SIZE) {
-            Log.e(TAG, "Request body too large (${data.size} bytes, max $MAX_REQUEST_BODY_SIZE)")
+        if (data.size > maxRequestBodySize) {
+            Log.e(TAG, "Request body too large (${data.size} bytes, max $maxRequestBodySize)")
             return false
         }
         return true
@@ -215,8 +228,8 @@ object SecurityValidator {
      * @return true if size is acceptable, false if too large
      */
     fun validateResponseSize(data: ByteArray): Boolean {
-        if (data.size > MAX_RESPONSE_BODY_SIZE) {
-            Log.e(TAG, "Response body too large (${data.size} bytes, max $MAX_RESPONSE_BODY_SIZE)")
+        if (data.size > maxResponseBodySize) {
+            Log.e(TAG, "Response body too large (${data.size} bytes, max $maxResponseBodySize)")
             return false
         }
         return true
@@ -239,9 +252,9 @@ object SecurityValidator {
         }
 
         val fileSize = file.length()
-        if (fileSize > MAX_FILE_SIZE) {
+        if (fileSize > maxFileSize) {
             val sizeMB = fileSize / 1024 / 1024
-            val maxMB = MAX_FILE_SIZE / 1024 / 1024
+            val maxMB = maxFileSize / 1024 / 1024
             Log.e(TAG, "File too large: ${sizeMB}MB (max ${maxMB}MB)")
             return false
         }
@@ -264,9 +277,9 @@ object SecurityValidator {
             return true
         }
 
-        if (contentLength > MAX_FILE_SIZE) {
+        if (contentLength > maxFileSize) {
             val sizeMB = contentLength / 1024 / 1024
-            val maxMB = MAX_FILE_SIZE / 1024 / 1024
+            val maxMB = maxFileSize / 1024 / 1024
             Log.e(TAG, "Download too large: ${sizeMB}MB (max ${maxMB}MB)")
             return false
         }
@@ -289,14 +302,47 @@ object SecurityValidator {
         }
 
         val fileSize = file.length()
-        if (fileSize > MAX_ARCHIVE_SIZE) {
+        if (fileSize > maxArchiveSize) {
             val sizeMB = fileSize / 1024 / 1024
-            val maxMB = MAX_ARCHIVE_SIZE / 1024 / 1024
+            val maxMB = maxArchiveSize / 1024 / 1024
             Log.e(TAG, "Archive too large: ${sizeMB}MB (max ${maxMB}MB)")
             return false
         }
 
         return true
+    }
+
+    // MARK: - Private IP Detection
+
+    /**
+     * Returns true if [host] is a private/loopback IPv4 or IPv6 literal.
+     *
+     * Only IP literals are matched — hostnames are NOT resolved (no DNS lookup).
+     * Covers:
+     *   IPv4: 127.x, 10.x, 172.16-31.x, 192.168.x, 169.254.x (link-local)
+     *   IPv6: ::1, fc00::/7 (ULA), fe80::/10 (link-local)
+     */
+    private fun isPrivateIP(host: String): Boolean {
+        if (host.isEmpty()) return false
+        // Strip IPv6 brackets: [::1] → ::1
+        val h = if (host.startsWith("[") && host.endsWith("]")) host.drop(1).dropLast(1) else host
+        // IPv6 loopback, ULA (fc00::/7), and link-local (fe80::/10)
+        if (h == "::1") return true
+        val lower = h.lowercase()
+        if (lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("fe80")) return true
+        // IPv4 private ranges
+        val ipv4Regex = Regex("""^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$""")
+        val match = ipv4Regex.matchEntire(h) ?: return false
+        val (a, b) = match.destructured.let { it.component1().toIntOrNull() to it.component2().toIntOrNull() }
+        return when {
+            a == null || b == null -> false
+            a == 127 -> true                      // 127.x loopback
+            a == 10 -> true                       // 10.x/8
+            a == 172 && b in 16..31 -> true       // 172.16-31.x/12
+            a == 192 && b == 168 -> true          // 192.168.x/16
+            a == 169 && b == 254 -> true          // 169.254.x link-local
+            else -> false
+        }
     }
 
     /**

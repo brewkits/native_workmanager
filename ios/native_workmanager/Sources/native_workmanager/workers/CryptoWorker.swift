@@ -61,40 +61,69 @@ class CryptoWorker: IosWorker {
     private static let nonceSize = 12   // GCM nonce size
     private static let saltSize = 16   // Random salt prepended to encrypted file
 
-    struct Config: Codable {
+    struct Config: Codable, CustomStringConvertible {
         let operation: String            // "hash", "encrypt", "decrypt"
         let filePath: String?            // File to operate on
         let data: String?                // String data (for hash)
         let outputPath: String?          // Output file (for encrypt/decrypt)
         let algorithm: String?           // Algorithm (MD5, SHA-256, AES, etc.)
         let password: String?            // Password (for encrypt/decrypt)
+        let passwordKey: String?         // SC-C-001: vault key (replaces password in task DB)
 
         var effectiveAlgorithm: String {
             algorithm ?? CryptoWorker.defaultAlgorithm
         }
+
+        // SC-H-003: prevent password leaking via default struct description in logs
+        var description: String {
+            "Config(operation=\(operation), filePath=\(filePath ?? "nil"), " +
+            "algorithm=\(algorithm ?? "nil"), password=\(password != nil ? "[REDACTED]" : "nil"))"
+        }
     }
 
     func doWork(input: String?) async throws -> WorkerResult {
+        // ✅ IOS: Register background task to request extra execution time
+        // iOS will freeze the app shortly after moving to background otherwise.
+        var bgTaskId = UIBackgroundTaskIdentifier.invalid
+        bgTaskId = UIApplication.shared.beginBackgroundTask(withName: "BrewkitsCrypto") {
+            NativeLogger.d("CryptoWorker: Background time expired — ending task")
+            UIApplication.shared.endBackgroundTask(bgTaskId)
+        }
+
+        defer {
+            UIApplication.shared.endBackgroundTask(bgTaskId)
+        }
+
         guard let input = input, !input.isEmpty else {
-            print("CryptoWorker: Error - Empty or null input")
+            NativeLogger.e("CryptoWorker: Empty or null input")
             return .failure(message: "Empty or null input")
         }
 
         // Parse configuration
         guard let data = input.data(using: .utf8) else {
-            print("CryptoWorker: Error - Invalid UTF-8 encoding")
+            NativeLogger.e("CryptoWorker: Invalid UTF-8 encoding")
             return .failure(message: "Invalid input encoding")
         }
 
-        let config: Config
+        var config: Config
         do {
             config = try JSONDecoder().decode(Config.self, from: data)
         } catch {
-            print("CryptoWorker: Error parsing JSON config: \(error)")
+            NativeLogger.e("CryptoWorker: Error parsing JSON config")
             return .failure(message: "Invalid JSON config: \(error.localizedDescription)")
         }
 
-        print("CryptoWorker: Operation: \(config.operation), Algorithm: \(config.effectiveAlgorithm)")
+        // SC-C-001: resolve password from Keychain vault if passwordKey is present
+        if let vaultKey = config.passwordKey, !vaultKey.isEmpty {
+            guard let secret = KeystorePasswordVault.shared.retrieveAndDelete(vaultKey) else {
+                return .failure(message: "Password vault key not found — retry not possible")
+            }
+            config = Config(operation: config.operation, filePath: config.filePath,
+                            data: config.data, outputPath: config.outputPath,
+                            algorithm: config.algorithm, password: secret, passwordKey: nil)
+        }
+
+        NativeLogger.d("CryptoWorker: Operation: \(config.operation), Algorithm: \(config.effectiveAlgorithm)")
 
         switch config.operation.lowercased() {
         case "hash":
@@ -115,20 +144,21 @@ class CryptoWorker: IosWorker {
         if let filePath = config.filePath {
             // Hash file
             guard SecurityValidator.validateFilePath(filePath) else {
-                print("CryptoWorker: Error - Invalid file path")
+                NativeLogger.e("CryptoWorker: Invalid file path")
                 return .failure(message: "Invalid file path")
             }
 
             let fileURL = URL(fileURLWithPath: filePath)
             guard FileManager.default.fileExists(atPath: filePath) else {
-                print("CryptoWorker: Error - File not found: \(filePath)")
+                NativeLogger.e("CryptoWorker: File not found")
                 return .failure(message: "File not found: \(filePath)")
             }
 
             do {
                 let hash = try calculateFileHash(fileURL: fileURL, algorithm: algorithm)
                 let fileSize = try FileManager.default.attributesOfItem(atPath: filePath)[.size] as? Int64 ?? 0
-                print("CryptoWorker: Hash calculated: \(fileURL.lastPathComponent) → \(hash)")
+                // SC-M-003: do not log hash value — it is sensitive data
+                NativeLogger.d("CryptoWorker: Hash calculated: \(fileURL.lastPathComponent) (\(algorithm))")
 
                 return .success(
                     message: "\(algorithm) hash calculated",
@@ -140,14 +170,15 @@ class CryptoWorker: IosWorker {
                     ]
                 )
             } catch {
-                print("CryptoWorker: Error calculating hash: \(error)")
+                NativeLogger.e("CryptoWorker: Error calculating hash")
                 return .failure(message: "Failed to calculate hash: \(error.localizedDescription)")
             }
         } else if let data = config.data {
             // Hash string
             do {
                 let hash = try calculateStringHash(data: data, algorithm: algorithm)
-                print("CryptoWorker: Hash calculated: \(data.count) chars → \(hash)")
+                // SC-M-003: do not log hash value — it is sensitive data
+                NativeLogger.d("CryptoWorker: Hash calculated: \(data.count) chars (\(algorithm))")
 
                 return .success(
                     message: "\(algorithm) hash calculated",
@@ -158,11 +189,11 @@ class CryptoWorker: IosWorker {
                     ]
                 )
             } catch {
-                print("CryptoWorker: Error calculating hash: \(error)")
+                NativeLogger.e("CryptoWorker: Error calculating hash")
                 return .failure(message: "Failed to calculate hash: \(error.localizedDescription)")
             }
         } else {
-            print("CryptoWorker: Error - No filePath or data provided")
+            NativeLogger.e("CryptoWorker: No filePath or data provided")
             return .failure(message: "No filePath or data provided for hash operation")
         }
     }
@@ -171,41 +202,41 @@ class CryptoWorker: IosWorker {
     @available(iOS 13.0, *)
     private func performEncrypt(config: Config) async -> WorkerResult {
         guard let filePath = config.filePath else {
-            print("CryptoWorker: Error - filePath required for encrypt operation")
+            NativeLogger.e("CryptoWorker: filePath required for encrypt operation")
             return .failure(message: "filePath required for encrypt operation")
         }
 
         guard let password = config.password else {
-            print("CryptoWorker: Error - password required for encrypt operation")
+            NativeLogger.e("CryptoWorker: password required for encrypt operation")
             return .failure(message: "password required for encrypt operation")
         }
 
         // ✅ SECURITY: Validate paths
         guard SecurityValidator.validateFilePath(filePath) else {
-            print("CryptoWorker: Error - Invalid input file path")
+            NativeLogger.e("CryptoWorker: Invalid input file path")
             return .failure(message: "Invalid input file path")
         }
 
         let inputURL = URL(fileURLWithPath: filePath)
         guard FileManager.default.fileExists(atPath: filePath) else {
-            print("CryptoWorker: Error - Input file not found: \(filePath)")
+            NativeLogger.e("CryptoWorker: Input file not found")
             return .failure(message: "Input file not found: \(filePath)")
         }
 
         // Determine output path
         let outputPath = config.outputPath ?? "\(filePath).enc"
         guard SecurityValidator.validateFilePath(outputPath) else {
-            print("CryptoWorker: Error - Invalid output file path")
+            NativeLogger.e("CryptoWorker: Invalid output file path")
             return .failure(message: "Invalid output file path")
         }
 
         let outputURL = URL(fileURLWithPath: outputPath)
 
-        print("CryptoWorker: Encrypting: \(inputURL.lastPathComponent) → \(outputURL.lastPathComponent)")
+        NativeLogger.d("CryptoWorker: Encrypting: \(inputURL.lastPathComponent) → \(outputURL.lastPathComponent)")
 
         // ✅ SECURITY: Validate file size before loading into RAM (AES-GCM is not streaming)
         guard SecurityValidator.validateFileSize(inputURL) else {
-            print("CryptoWorker: Error - Input file exceeds size limit for encryption")
+            NativeLogger.e("CryptoWorker: Input file exceeds size limit for encryption")
             return .failure(message: "Input file exceeds size limit for encryption (max 100MB)")
         }
 
@@ -233,7 +264,7 @@ class CryptoWorker: IosWorker {
             let inputSize = try FileManager.default.attributesOfItem(atPath: filePath)[.size] as? Int64 ?? 0
             let outputSize = try FileManager.default.attributesOfItem(atPath: outputPath)[.size] as? Int64 ?? 0
 
-            print("CryptoWorker: Encryption complete: \(outputSize) bytes")
+            NativeLogger.d("CryptoWorker: Encryption complete: \(outputSize) bytes")
 
             return .success(
                 message: "File encrypted successfully",
@@ -246,7 +277,7 @@ class CryptoWorker: IosWorker {
                 ]
             )
         } catch {
-            print("CryptoWorker: Error during encryption: \(error)")
+            NativeLogger.e("CryptoWorker: Encryption failed")
             try? FileManager.default.removeItem(at: outputURL)  // Clean up on error
             return .failure(message: "Encryption failed: \(error.localizedDescription)")
         }
@@ -256,50 +287,53 @@ class CryptoWorker: IosWorker {
     @available(iOS 13.0, *)
     private func performDecrypt(config: Config) async -> WorkerResult {
         guard let filePath = config.filePath else {
-            print("CryptoWorker: Error - filePath required for decrypt operation")
+            NativeLogger.e("CryptoWorker: filePath required for decrypt operation")
             return .failure(message: "filePath required for decrypt operation")
         }
 
         guard let password = config.password else {
-            print("CryptoWorker: Error - password required for decrypt operation")
+            NativeLogger.e("CryptoWorker: password required for decrypt operation")
             return .failure(message: "password required for decrypt operation")
         }
 
         // ✅ SECURITY: Validate paths
         guard SecurityValidator.validateFilePath(filePath) else {
-            print("CryptoWorker: Error - Invalid input file path")
+            NativeLogger.e("CryptoWorker: Invalid input file path")
             return .failure(message: "Invalid input file path")
         }
 
         let inputURL = URL(fileURLWithPath: filePath)
         guard FileManager.default.fileExists(atPath: filePath) else {
-            print("CryptoWorker: Error - Input file not found: \(filePath)")
+            NativeLogger.e("CryptoWorker: Input file not found")
             return .failure(message: "Input file not found: \(filePath)")
         }
 
-        // Determine output path
-        let outputPath = config.outputPath ?? filePath.replacingOccurrences(of: ".enc", with: "")
+        // Determine output path. Use suffix removal to avoid replacing ".enc" that
+        // appears in the middle of the filename (M-4: replacingOccurrences replaces all occurrences).
+        let outputPath = config.outputPath ?? (filePath.hasSuffix(".enc") ? String(filePath.dropLast(4)) : filePath)
         guard SecurityValidator.validateFilePath(outputPath) else {
-            print("CryptoWorker: Error - Invalid output file path")
+            NativeLogger.e("CryptoWorker: Invalid output file path")
             return .failure(message: "Invalid output file path")
         }
 
         let outputURL = URL(fileURLWithPath: outputPath)
 
-        print("CryptoWorker: Decrypting: \(inputURL.lastPathComponent) → \(outputURL.lastPathComponent)")
+        NativeLogger.d("CryptoWorker: Decrypting: \(inputURL.lastPathComponent) → \(outputURL.lastPathComponent)")
 
         // ✅ SECURITY: Validate file size before loading into RAM (AES-GCM is not streaming)
         guard SecurityValidator.validateFileSize(inputURL) else {
-            print("CryptoWorker: Error - Encrypted file exceeds size limit for decryption")
+            NativeLogger.e("CryptoWorker: Encrypted file exceeds size limit for decryption")
             return .failure(message: "Encrypted file exceeds size limit for decryption (max 100MB)")
         }
 
         do {
             // Read encrypted file: [salt(16)][nonce(12)+ciphertext+tag(16)]
             let encryptedData = try Data(contentsOf: inputURL)
-            guard encryptedData.count > CryptoWorker.saltSize else {
+            // SC-M-002: salt(16) + nonce(12) + GCM tag(16) = 44 bytes minimum
+            let minValidSize = CryptoWorker.saltSize + CryptoWorker.nonceSize + 16
+            guard encryptedData.count >= minValidSize else {
                 throw NSError(domain: "CryptoWorker", code: -1,
-                              userInfo: [NSLocalizedDescriptionKey: "Invalid encrypted file (too short)"])
+                              userInfo: [NSLocalizedDescriptionKey: "Invalid encrypted file (too short, min \(minValidSize) bytes)"])
             }
             let salt = encryptedData.prefix(CryptoWorker.saltSize)
             let cipherData = encryptedData.dropFirst(CryptoWorker.saltSize)
@@ -316,7 +350,7 @@ class CryptoWorker: IosWorker {
             let inputSize = try FileManager.default.attributesOfItem(atPath: filePath)[.size] as? Int64 ?? 0
             let outputSize = try FileManager.default.attributesOfItem(atPath: outputPath)[.size] as? Int64 ?? 0
 
-            print("CryptoWorker: Decryption complete: \(outputSize) bytes")
+            NativeLogger.d("CryptoWorker: Decryption complete: \(outputSize) bytes")
 
             return .success(
                 message: "File decrypted successfully",
@@ -329,7 +363,7 @@ class CryptoWorker: IosWorker {
                 ]
             )
         } catch {
-            print("CryptoWorker: Error during decryption: \(error)")
+            NativeLogger.e("CryptoWorker: Decryption failed")
             try? FileManager.default.removeItem(at: outputURL)  // Clean up on error
             return .failure(message: "Decryption failed: \(error.localizedDescription)")
         }

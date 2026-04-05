@@ -163,8 +163,7 @@ void main() {
         worker: DartWorker(callbackId: 'callbackC'),
       );
 
-      final chain =
-          TaskChainBuilder.internal([taskA]).then(taskB).then(taskC);
+      final chain = TaskChainBuilder.internal([taskA]).then(taskB).then(taskC);
 
       expect(chain.steps, hasLength(3));
       expect(chain.steps[0][0].id, 'task-a');
@@ -310,8 +309,7 @@ void main() {
       );
 
       final chain = TaskChainBuilder.internal([fetch])
-          .thenAll([download1, download2])
-          .then(process);
+          .thenAll([download1, download2]).then(process);
 
       // fetch -> [download-1, download-2] -> process
       expect(chain.steps, hasLength(3));
@@ -490,8 +488,7 @@ void main() {
       );
 
       final chain = TaskChainBuilder.internal([task]);
-      final result =
-          chain.withConstraints(Constraints(requiresNetwork: true));
+      final result = chain.withConstraints(Constraints(requiresNetwork: true));
 
       expect(result, same(chain));
     });
@@ -504,8 +501,7 @@ void main() {
         worker: DartWorker(callbackId: 'callback'),
       );
 
-      final chain =
-          TaskChainBuilder.internal([task]).named('test-chain');
+      final chain = TaskChainBuilder.internal([task]).named('test-chain');
       final map = chain.toMap();
 
       expect(map['name'], 'test-chain');
@@ -610,8 +606,7 @@ void main() {
         worker: DartWorker(callbackId: 'cb'),
       );
 
-      final chain =
-          TaskChainBuilder.internal([task]).named('my-pipeline');
+      final chain = TaskChainBuilder.internal([task]).named('my-pipeline');
       final str = chain.toString();
 
       expect(str, contains('my-pipeline'));
@@ -682,8 +677,7 @@ void main() {
       final download = TaskRequest(
         id: 'download',
         worker: NativeWorker.httpDownload(
-            url: 'https://cdn.example.com/data.zip',
-            savePath: '/tmp/data.zip'),
+            url: 'https://cdn.example.com/data.zip', savePath: '/tmp/data.zip'),
       );
       final process = TaskRequest(
         id: 'process',

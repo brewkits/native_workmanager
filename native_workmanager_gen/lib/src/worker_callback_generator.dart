@@ -1,0 +1,218 @@
+import 'package:analyzer/dart/element/element.dart';
+import 'package:build/build.dart';
+import 'package:native_workmanager/native_workmanager.dart';
+import 'package:source_gen/source_gen.dart';
+
+/// Generates type-safe worker IDs and a registry map from [@WorkerCallback]
+/// annotations.
+///
+/// For a source file `lib/workers.dart`:
+/// ```dart
+/// part 'workers.g.dart';
+///
+/// @WorkerCallback('sync_contacts')
+/// Future<bool> syncContacts(Map<String, dynamic>? input) async => true;
+///
+/// @WorkerCallback('backup_photos')
+/// Future<bool> backupPhotos(Map<String, dynamic>? input) async => true;
+/// ```
+///
+/// Generates `lib/workers.g.dart`:
+/// ```dart
+/// // GENERATED CODE - DO NOT MODIFY BY HAND
+/// part of 'workers.dart';
+///
+/// abstract final class WorkerIds {
+///   static const String syncContacts = 'sync_contacts';
+///   static const String backupPhotos = 'backup_photos';
+/// }
+///
+/// final Map<String, DartWorkerCallback> generatedWorkerRegistry = {
+///   'sync_contacts': syncContacts,
+///   'backup_photos': backupPhotos,
+/// };
+/// ```
+class WorkerCallbackGenerator extends Generator {
+  const WorkerCallbackGenerator();
+
+  static const _checker = TypeChecker.fromRuntime(WorkerCallback);
+
+  @override
+  Future<String> generate(LibraryReader library, BuildStep buildStep) async {
+    final workers = <_WorkerEntry>[];
+
+    for (final annotatedElement in library.annotatedWith(_checker)) {
+      final element = annotatedElement.element;
+      final annotation = annotatedElement.annotation;
+
+      // ── Validate: must be a top-level function ──────────────────────────
+      if (element is! FunctionElement) {
+        throw InvalidGenerationSourceError(
+          '@WorkerCallback can only be applied to top-level functions.\n'
+          '"${element.name}" is a ${element.kind.displayName}.',
+          element: element,
+          todo: 'Move the function to the top level of the file.',
+        );
+      }
+      if (element.enclosingElement is! LibraryElement) {
+        throw InvalidGenerationSourceError(
+          '@WorkerCallback must be on a top-level function, not a method.\n'
+          '"${element.name}" is inside "${element.enclosingElement?.name}".',
+          element: element,
+          todo: 'Extract to a top-level function.',
+        );
+      }
+
+      // ── Validate: return type must be Future<bool> ──────────────────────
+      final returnType = element.returnType.toString();
+      if (returnType != 'Future<bool>') {
+        throw InvalidGenerationSourceError(
+          '@WorkerCallback function must return Future<bool>.\n'
+          '"${element.name}" returns "$returnType".',
+          element: element,
+          todo: "Change the return type to 'Future<bool>'.",
+        );
+      }
+
+      // ── Validate: exactly one parameter Map<String, dynamic>? ───────────
+      // C-01 fix: zero-parameter functions pass Dart's type-checker but crash
+      // at runtime because the native side always calls with an input argument.
+      final params = element.parameters;
+      if (params.isEmpty) {
+        throw InvalidGenerationSourceError(
+          '@WorkerCallback function must have exactly one parameter: '
+          'Map<String, dynamic>? input\n'
+          '"${element.name}" has no parameters.\n'
+          'A zero-parameter function compiles without error but crashes at '
+          'runtime when the native side passes the input argument.',
+          element: element,
+          todo:
+              'Add the parameter: Future<bool> ${element.name}(Map<String, dynamic>? input)',
+        );
+      }
+      if (params.length != 1) {
+        throw InvalidGenerationSourceError(
+          '@WorkerCallback function must have exactly one parameter '
+          '(Map<String, dynamic>?).\n'
+          '"${element.name}" has ${params.length} parameters.',
+          element: element,
+          todo:
+              'Use signature: Future<bool> ${element.name}(Map<String, dynamic>? input)',
+        );
+      }
+      final paramType = params.first.type.toString();
+      if (!paramType.startsWith('Map<String, dynamic>')) {
+        throw InvalidGenerationSourceError(
+          '@WorkerCallback parameter must be Map<String, dynamic>?.\n'
+          '"${element.name}" has parameter type "$paramType".',
+          element: element,
+          todo: "Change the parameter type to 'Map<String, dynamic>?'.",
+        );
+      }
+
+      // ── Read annotation ID ──────────────────────────────────────────────
+      final String id;
+      try {
+        id = annotation.read('id').stringValue;
+      } catch (e) {
+        throw InvalidGenerationSourceError(
+          '@WorkerCallback annotation on "${element.name}" has a malformed '
+          'or missing "id" value: $e',
+          element: element,
+          todo: "Ensure the annotation is @WorkerCallback('some_id')",
+        );
+      }
+
+      if (id.isEmpty) {
+        throw InvalidGenerationSourceError(
+          '@WorkerCallback id cannot be empty.\n'
+          'Annotated function: "${element.name}".',
+          element: element,
+          todo: "Provide a non-empty string id: @WorkerCallback('my_worker')",
+        );
+      }
+
+      // ── M-01 fix: detect duplicate IDs within this library ──────────────
+      final duplicate = workers.where((w) => w.id == id).firstOrNull;
+      if (duplicate != null) {
+        throw InvalidGenerationSourceError(
+          "@WorkerCallback id '$id' is already used by '${duplicate.functionName}' "
+          'in this library.\n'
+          '"${element.name}" cannot reuse the same id.',
+          element: element,
+          todo: 'Each @WorkerCallback must have a unique id.',
+        );
+      }
+
+      workers.add(_WorkerEntry(id: id, functionName: element.name));
+    }
+
+    if (workers.isEmpty) return '';
+
+    final buf = StringBuffer();
+
+    // ── WorkerIds constants class ─────────────────────────────────────────
+    buf
+      ..writeln('/// Type-safe worker callback ID constants.')
+      ..writeln('///')
+      ..writeln('/// Generated from [@WorkerCallback] annotations.')
+      ..writeln('/// Use these constants instead of raw strings to prevent')
+      ..writeln('/// typos and enable IDE rename-refactoring.')
+      ..writeln('// ignore_for_file: type=lint')
+      ..writeln('abstract final class WorkerIds {');
+
+    for (final w in workers) {
+      final fieldName = _toCamelCase(w.id);
+      buf
+        ..writeln('  /// Callback ID for `${w.functionName}`.')
+        ..writeln("  static const String $fieldName = '${w.id}';");
+    }
+    buf
+      ..writeln('}')
+      ..writeln();
+
+    // ── generatedWorkerRegistry map ───────────────────────────────────────
+    buf
+      ..writeln(
+          '/// Worker registry generated from [@WorkerCallback] annotations.')
+      ..writeln('///')
+      ..writeln('/// Pass this map to [NativeWorkManager.initialize]:')
+      ..writeln('///')
+      ..writeln('/// ```dart')
+      ..writeln('/// await NativeWorkManager.initialize(')
+      ..writeln('///   dartWorkers: generatedWorkerRegistry,')
+      ..writeln('/// );')
+      ..writeln('/// ```')
+      ..writeln(
+          'final Map<String, DartWorkerCallback> generatedWorkerRegistry = {');
+
+    for (final w in workers) {
+      buf.writeln("  '${w.id}': ${w.functionName},");
+    }
+    buf.writeln('};');
+
+    return buf.toString();
+  }
+
+  /// Converts snake_case / kebab-case to lowerCamelCase.
+  ///
+  /// Examples:
+  ///   'sync_contacts' → 'syncContacts'
+  ///   'backup-photos' → 'backupPhotos'
+  ///   'myWorker'      → 'myWorker'
+  static String _toCamelCase(String id) {
+    final parts = id.split(RegExp(r'[_\-]'));
+    if (parts.length == 1) return id;
+    return parts.first +
+        parts
+            .skip(1)
+            .map((p) => p.isEmpty ? '' : p[0].toUpperCase() + p.substring(1))
+            .join();
+  }
+}
+
+class _WorkerEntry {
+  const _WorkerEntry({required this.id, required this.functionName});
+  final String id;
+  final String functionName;
+}

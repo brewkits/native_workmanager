@@ -1,5 +1,67 @@
 import 'package:flutter/foundation.dart';
 
+/// Record from the persistent task store.
+@immutable
+class TaskRecord {
+  const TaskRecord({
+    required this.taskId,
+    this.tag,
+    required this.status,
+    required this.workerClassName,
+    this.workerConfig,
+    this.resultData,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String taskId;
+  final String? tag;
+
+  /// Status string: pending / running / completed / failed / cancelled / paused
+  final String status;
+
+  final String workerClassName;
+
+  /// Raw worker configuration (often sanitized/redacted by native side).
+  final String? workerConfig;
+
+  /// Optional result data (null or decoded from JSON stored by the native side).
+  final Map<String, dynamic>? resultData;
+
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  factory TaskRecord.fromMap(Map<String, dynamic> m) => TaskRecord(
+        taskId: m['taskId'] as String,
+        tag: m['tag'] as String?,
+        status: m['status'] as String? ?? 'unknown',
+        workerClassName: m['workerClassName'] as String? ?? '',
+        workerConfig: m['workerConfig'] as String?,
+        resultData: m['resultData'] is Map
+            ? Map<String, dynamic>.from(m['resultData'] as Map)
+            : null,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(
+            (m['createdAt'] as num).toInt()),
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(
+            (m['updatedAt'] as num).toInt()),
+      );
+
+  Map<String, dynamic> toMap() => {
+        'taskId': taskId,
+        'tag': tag,
+        'status': status,
+        'workerClassName': workerClassName,
+        'workerConfig': workerConfig,
+        'resultData': resultData,
+        'createdAt': createdAt.millisecondsSinceEpoch,
+        'updatedAt': updatedAt.millisecondsSinceEpoch,
+      };
+
+  @override
+  String toString() => 'TaskRecord(taskId: $taskId, status: $status, '
+      'workerClassName: $workerClassName, tag: $tag)';
+}
+
 /// Result of scheduling a task.
 ///
 /// Returned by [NativeWorkManager.enqueue] to indicate whether the OS
@@ -218,7 +280,7 @@ enum ExistingTaskPolicy {
 /// ## Checking Task Status
 ///
 /// ```dart
-/// final status = await NativeWorkManager.getTaskStatus('upload-photos');
+/// final status = await NativeWorkManager.getTaskStatus(taskId: 'upload-photos');
 ///
 /// switch (status) {
 ///   case TaskStatus.pending:
@@ -246,7 +308,7 @@ enum ExistingTaskPolicy {
 ///
 /// ```dart
 /// Future<void> checkUploads() async {
-///   final tasks = await NativeWorkManager.getTasksByTag('upload');
+///   final tasks = await NativeWorkManager.getTasksByTag(tag: 'upload');
 ///
 ///   final pending = tasks.where((t) => t.status == TaskStatus.pending).length;
 ///   final running = tasks.where((t) => t.status == TaskStatus.running).length;
@@ -322,13 +384,125 @@ enum TaskStatus {
   /// [NativeWorkManager.cancelByTag], or [NativeWorkManager.cancelAll].
   /// Cancelled tasks are removed from the queue and cannot be resumed.
   cancelled,
+
+  /// Task is paused.
+  ///
+  /// The task was paused via [NativeWorkManager.pause] or
+  /// [NativeWorkManager.pauseByTag]. Resume with [NativeWorkManager.resume].
+  paused,
 }
 
-/// Event emitted when a task completes (success or failure).
+/// Typed error codes for failed [TaskEvent]s.
+///
+/// Maps the raw error-code string from the native side into a Dart enum so
+/// callers can switch on structured values instead of comparing arbitrary
+/// strings from [TaskEvent.message].
+///
+/// ## Usage
+///
+/// ```dart
+/// NativeWorkManager.events.listen((event) {
+///   if (!event.success) {
+///     switch (event.errorCode) {
+///       case NativeWorkManagerError.networkError:
+///         retryLater(event.taskId);
+///       case NativeWorkManagerError.timeout:
+///         showTimeoutDialog();
+///       case NativeWorkManagerError.securityViolation:
+///         log('Blocked by security policy: ${event.message}');
+///       case NativeWorkManagerError.unknown:
+///       case null:
+///         log('Unclassified failure: ${event.message}');
+///     }
+///   }
+/// });
+/// ```
+enum NativeWorkManagerError {
+  /// A network-layer failure (DNS, TCP, SSL, etc.).
+  networkError,
+
+  /// The worker exceeded its allowed execution time.
+  timeout,
+
+  /// The server returned a 4xx client-error response.
+  httpClientError,
+
+  /// The server returned a 5xx server-error response.
+  httpServerError,
+
+  /// The file was not found or could not be read/written.
+  fileNotFound,
+
+  /// Insufficient storage space to complete the operation.
+  insufficientStorage,
+
+  /// The request was blocked by the security validator
+  /// (e.g. SSRF attempt, invalid URL scheme).
+  securityViolation,
+
+  /// The task was cancelled before it could complete.
+  cancelled,
+
+  /// The native worker threw an unhandled exception.
+  workerException,
+
+  /// Error string received from native is not recognised by this version of
+  /// the Dart library.  Check [TaskEvent.message] for the raw value.
+  unknown;
+
+  /// Parse the raw error-code string sent by the native side.
+  static NativeWorkManagerError fromString(String? raw) => switch (raw) {
+        'NETWORK_ERROR' => networkError,
+        'TIMEOUT' => timeout,
+        'HTTP_CLIENT_ERROR' => httpClientError,
+        'HTTP_SERVER_ERROR' => httpServerError,
+        'FILE_NOT_FOUND' => fileNotFound,
+        'INSUFFICIENT_STORAGE' => insufficientStorage,
+        'SECURITY_VIOLATION' => securityViolation,
+        'CANCELLED' => cancelled,
+        'WORKER_EXCEPTION' => workerException,
+        _ => unknown,
+      };
+
+  /// The canonical string exchanged over the platform channel.
+  String get rawValue => switch (this) {
+        networkError => 'NETWORK_ERROR',
+        timeout => 'TIMEOUT',
+        httpClientError => 'HTTP_CLIENT_ERROR',
+        httpServerError => 'HTTP_SERVER_ERROR',
+        fileNotFound => 'FILE_NOT_FOUND',
+        insufficientStorage => 'INSUFFICIENT_STORAGE',
+        securityViolation => 'SECURITY_VIOLATION',
+        cancelled => 'CANCELLED',
+        workerException => 'WORKER_EXCEPTION',
+        unknown => 'UNKNOWN',
+      };
+}
+
+/// Event emitted for task lifecycle transitions (started, completed, failed).
 ///
 /// Listen to [NativeWorkManager.events] to receive notifications when
-/// background tasks finish executing. Useful for updating UI, logging,
+/// background tasks start or finish executing. Useful for updating UI, logging,
 /// or triggering follow-up actions.
+///
+/// ## Distinguishing Event Types
+///
+/// Check [isStarted] to determine whether this is a lifecycle notification or
+/// a completion event:
+///
+/// ```dart
+/// NativeWorkManager.events.listen((event) {
+///   if (event.isStarted) {
+///     print('Task ${event.taskId} began executing');
+///     return;
+///   }
+///   if (event.success) {
+///     print('Task ${event.taskId} completed');
+///   } else {
+///     print('Task ${event.taskId} failed: ${event.message}');
+///   }
+/// });
+/// ```
 ///
 /// ## Basic Event Listening
 ///
@@ -471,7 +645,7 @@ enum TaskStatus {
 /// - If app is terminated, events are **not persisted**
 /// - For critical outcomes, persist state in the **worker itself**
 /// - Events are **fire-and-forget** (no replay mechanism)
-/// - Use [getTaskStatus] to check status if you miss events
+/// - Use [NativeWorkManager.getTaskStatus] to check status if you miss events
 ///
 /// ## Best Practices
 ///
@@ -494,12 +668,31 @@ class TaskEvent {
     required this.taskId,
     required this.success,
     this.message,
+    this.errorCode,
     this.resultData,
     required this.timestamp,
+    this.isStarted = false,
+    this.workerType,
   });
 
-  /// ID of the completed task.
+  /// ID of the task.
   final String taskId;
+
+  /// `true` when the native worker has just begun execution.
+  ///
+  /// When this flag is set the event is a **lifecycle notification**, not a
+  /// completion event. [success], [message], [errorCode], and [resultData] are
+  /// irrelevant for started events. [workerType] carries the worker class name.
+  ///
+  /// Use this to implement `onTaskStart` semantics without depending on
+  /// progress events — reliable even for fast workers that emit no progress.
+  final bool isStarted;
+
+  /// Worker class name, set when [isStarted] is `true`.
+  ///
+  /// Examples: `'HttpDownloadWorker'`, `'HttpUploadWorker'`, `'DartCallbackWorker'`.
+  /// `null` for completion events.
+  final String? workerType;
 
   /// Whether the task succeeded.
   final bool success;
@@ -507,10 +700,17 @@ class TaskEvent {
   /// Optional message (error message if failed).
   final String? message;
 
+  /// Typed error code for failed tasks.
+  ///
+  /// `null` when [success] is `true` or when the native side did not supply an
+  /// error code (e.g. older plugin versions).  Switch on this field to handle
+  /// failure categories without parsing [message] strings.
+  final NativeWorkManagerError? errorCode;
+
   /// Optional result data from the worker.
   final Map<String, dynamic>? resultData;
 
-  /// When the task completed.
+  /// When the event occurred.
   final DateTime timestamp;
 
   /// Create from platform channel map.
@@ -518,23 +718,38 @@ class TaskEvent {
   /// FIX M5: Uses null-safe access on every field. A version mismatch between
   /// native and Dart (or a platform bug) could send null for required fields;
   /// an unchecked cast would throw and close the EventChannel stream silently.
-  factory TaskEvent.fromMap(Map<String, dynamic> map) => TaskEvent(
-        taskId: (map['taskId'] as String?) ?? '',
-        success: (map['success'] as bool?) ?? false,
-        message: map['message'] as String?,
-        resultData: map['resultData'] != null
-            ? Map<String, dynamic>.from(map['resultData'] as Map)
-            : null,
-        timestamp: map['timestamp'] != null
-            ? DateTime.fromMillisecondsSinceEpoch((map['timestamp'] as num).toInt())
-            : DateTime.now(),
-      );
+  factory TaskEvent.fromMap(Map<String, dynamic> map) {
+    final started = (map['isStarted'] as bool?) ?? false;
+    final success = (map['success'] as bool?) ?? false;
+    final rawErrorCode = map['errorCode'] as String?;
+    return TaskEvent(
+      taskId: (map['taskId'] as String?) ?? '',
+      isStarted: started,
+      workerType: map['workerType'] as String?,
+      success: success,
+      message: map['message'] as String?,
+      // Only parse errorCode on failure; ignore stray codes on success.
+      errorCode: (!success && !started && rawErrorCode != null)
+          ? NativeWorkManagerError.fromString(rawErrorCode)
+          : null,
+      resultData: map['resultData'] is Map
+          ? Map<String, dynamic>.from(map['resultData'] as Map)
+          : null,
+      timestamp: map['timestamp'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(
+              (map['timestamp'] as num).toInt())
+          : DateTime.now(),
+    );
+  }
 
   /// Convert to map.
   Map<String, dynamic> toMap() => {
         'taskId': taskId,
+        if (isStarted) 'isStarted': isStarted,
+        if (workerType != null) 'workerType': workerType,
         'success': success,
         'message': message,
+        if (errorCode != null) 'errorCode': errorCode!.rawValue,
         'resultData': resultData,
         'timestamp': timestamp.millisecondsSinceEpoch,
       };
@@ -544,20 +759,48 @@ class TaskEvent {
       identical(this, other) ||
       other is TaskEvent &&
           taskId == other.taskId &&
+          isStarted == other.isStarted &&
+          workerType == other.workerType &&
           success == other.success &&
+          errorCode == other.errorCode &&
           message == other.message &&
+          // M-7: include resultData so events with different result payloads are not equal.
+          _mapsEqual(resultData, other.resultData) &&
           timestamp == other.timestamp;
 
-  // FIX L6: Include message in hashCode to match the updated == operator.
-  @override
-  int get hashCode => Object.hash(taskId, success, message, timestamp);
+  static bool _mapsEqual(Map<String, dynamic>? a, Map<String, dynamic>? b) {
+    if (identical(a, b)) return true;
+    if (a == null || b == null) return a == b;
+    if (a.length != b.length) return false;
+    for (final key in a.keys) {
+      if (!b.containsKey(key) || b[key] != a[key]) return false;
+    }
+    return true;
+  }
 
   @override
-  String toString() => 'TaskEvent('
-      'taskId: $taskId, '
-      'success: $success, '
-      'message: $message, '
-      'timestamp: $timestamp)';
+  int get hashCode => Object.hash(
+      taskId,
+      isStarted,
+      workerType,
+      success,
+      errorCode,
+      message,
+      resultData == null
+          ? null
+          : Object.hashAll(
+              resultData!.entries.map((e) => Object.hash(e.key, e.value))),
+      timestamp);
+
+  @override
+  String toString() => isStarted
+      ? 'TaskEvent(taskId: $taskId, isStarted: true, workerType: $workerType, timestamp: $timestamp)'
+      : 'TaskEvent('
+          'taskId: $taskId, '
+          'success: $success, '
+          '${errorCode != null ? "errorCode: ${errorCode!.rawValue}, " : ""}'
+          'message: $message, '
+          'timestamp: $timestamp)';
 }
 
 /// Progress update during task execution.
@@ -769,7 +1012,7 @@ class TaskEvent {
 ///
 /// See also:
 /// - [NativeWorkManager.progress] - Stream of progress updates
-/// - [WorkerInput.reportProgress] - Report from worker
+/// - [NativeWorkManager.reportDartWorkerProgress] - Report from DartWorker callback
 /// - [TaskEvent] - Task completion notification
 @immutable
 class TaskProgress {
@@ -779,6 +1022,10 @@ class TaskProgress {
     this.message,
     this.currentStep,
     this.totalSteps,
+    this.bytesDownloaded,
+    this.totalBytes,
+    this.networkSpeed,
+    this.timeRemaining,
   });
 
   /// ID of the task.
@@ -796,6 +1043,31 @@ class TaskProgress {
   /// Total number of steps.
   final int? totalSteps;
 
+  /// Bytes downloaded so far (download workers only).
+  ///
+  /// `null` if the worker does not report byte-level progress.
+  final int? bytesDownloaded;
+
+  /// Total file size in bytes (download workers only).
+  ///
+  /// `null` if the server did not return a `Content-Length` header.
+  final int? totalBytes;
+
+  /// Current download/upload speed in bytes per second.
+  ///
+  /// `null` if speed cannot be computed (e.g. task just started).
+  final double? networkSpeed;
+
+  /// Estimated time remaining in milliseconds.
+  ///
+  /// Computed as `(totalBytes - bytesDownloaded) / networkSpeed`.
+  /// `null` if either [networkSpeed] or [totalBytes] is unavailable.
+  final Duration? timeRemaining;
+
+  /// Whether this progress update carries byte-level information.
+  bool get hasNetworkInfo =>
+      bytesDownloaded != null && totalBytes != null && networkSpeed != null;
+
   /// Create from platform channel map.
   ///
   /// FIX M5: Null-safe access prevents crash if platform omits a required field.
@@ -805,6 +1077,12 @@ class TaskProgress {
         message: map['message'] as String?,
         currentStep: (map['currentStep'] as num?)?.toInt(),
         totalSteps: (map['totalSteps'] as num?)?.toInt(),
+        bytesDownloaded: (map['bytesDownloaded'] as num?)?.toInt(),
+        totalBytes: (map['totalBytes'] as num?)?.toInt(),
+        networkSpeed: (map['networkSpeed'] as num?)?.toDouble(),
+        timeRemaining: map['timeRemainingMs'] != null
+            ? Duration(milliseconds: (map['timeRemainingMs'] as num).toInt())
+            : null,
       );
 
   /// Convert to map.
@@ -814,6 +1092,11 @@ class TaskProgress {
         'message': message,
         'currentStep': currentStep,
         'totalSteps': totalSteps,
+        if (bytesDownloaded != null) 'bytesDownloaded': bytesDownloaded,
+        if (totalBytes != null) 'totalBytes': totalBytes,
+        if (networkSpeed != null) 'networkSpeed': networkSpeed,
+        if (timeRemaining != null)
+          'timeRemainingMs': timeRemaining!.inMilliseconds,
       };
 
   @override
@@ -831,5 +1114,7 @@ class TaskProgress {
       'taskId: $taskId, '
       'progress: $progress%, '
       'message: $message, '
-      'step: $currentStep/$totalSteps)';
+      'step: $currentStep/$totalSteps, '
+      'bytes: $bytesDownloaded/$totalBytes, '
+      'speed: ${networkSpeed != null ? "${(networkSpeed! / 1024).toStringAsFixed(1)} KB/s" : "n/a"})';
 }

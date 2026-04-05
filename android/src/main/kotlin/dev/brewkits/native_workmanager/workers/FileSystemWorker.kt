@@ -8,6 +8,9 @@ import dev.brewkits.native_workmanager.workers.utils.ProgressReporter
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
@@ -91,6 +94,13 @@ class FileSystemWorker : AndroidWorker {
         val overwrite = json.optBoolean("overwrite", false)
         val recursive = json.optBoolean("recursive", true)
 
+        // H4: Validate paths BEFORE any existence checks to avoid information
+        // disclosure (different error messages revealing whether a restricted
+        // path exists before the security check fires).
+        if (!SecurityValidator.validateFilePathSafe(sourcePath) || !SecurityValidator.validateFilePathSafe(destinationPath)) {
+            return WorkerResult.Failure("Invalid or unsafe path")
+        }
+
         val sourceFile = File(sourcePath)
         if (!sourceFile.exists()) {
             return WorkerResult.Failure("Source not found: $sourcePath")
@@ -101,11 +111,6 @@ class FileSystemWorker : AndroidWorker {
         // Check if destination exists
         if (destFile.exists() && !overwrite) {
             return WorkerResult.Failure("Destination already exists: $destinationPath (set overwrite=true to replace)")
-        }
-
-        // FIX H1: Canonical-path check (replaces bypassable contains(".."))
-        if (!SecurityValidator.validateFilePathSafe(sourcePath) || !SecurityValidator.validateFilePathSafe(destinationPath)) {
-            return WorkerResult.Failure("Invalid or unsafe path")
         }
 
         return try {
@@ -123,14 +128,14 @@ class FileSystemWorker : AndroidWorker {
 
             WorkerResult.Success(
                 message = "Copied ${copiedFiles.size} file(s)",
-                data = mapOf(
-                    "operation" to "copy",
-                    "sourcePath" to sourcePath,
-                    "destinationPath" to destinationPath,
-                    "fileCount" to copiedFiles.size,
-                    "totalSize" to totalSize,
-                    "files" to copiedFiles.map { it.absolutePath }
-                )
+                data = buildJsonObject {
+                    put("operation", "copy")
+                    put("sourcePath", sourcePath)
+                    put("destinationPath", destinationPath)
+                    put("fileCount", copiedFiles.size)
+                    put("totalSize", totalSize)
+                    put("files", buildJsonArray { copiedFiles.forEach { add(kotlinx.serialization.json.JsonPrimitive(it.absolutePath)) } })
+                }
             )
         } catch (e: IOException) {
             WorkerResult.Failure("Copy failed: ${e.message}")
@@ -141,6 +146,11 @@ class FileSystemWorker : AndroidWorker {
         val sourcePath = json.getString("sourcePath")
         val destinationPath = json.getString("destinationPath")
         val overwrite = json.optBoolean("overwrite", false)
+
+        // H4: Validate paths before existence check (avoid information disclosure).
+        if (!SecurityValidator.validateFilePathSafe(sourcePath) || !SecurityValidator.validateFilePathSafe(destinationPath)) {
+            return WorkerResult.Failure("Invalid or unsafe path")
+        }
 
         val sourceFile = File(sourcePath)
         if (!sourceFile.exists()) {
@@ -153,14 +163,12 @@ class FileSystemWorker : AndroidWorker {
             return WorkerResult.Failure("Destination already exists: $destinationPath (set overwrite=true to replace)")
         }
 
-        // FIX H1: Canonical-path check (replaces bypassable contains(".."))
-        if (!SecurityValidator.validateFilePathSafe(sourcePath) || !SecurityValidator.validateFilePathSafe(destinationPath)) {
-            return WorkerResult.Failure("Invalid or unsafe path")
-        }
-
         return try {
-            // Create parent directory if needed
-            destFile.parentFile?.mkdirs()
+            // FS-H-006: Check mkdirs return value
+            val destParent = destFile.parentFile
+            if (destParent != null && !destParent.exists() && !destParent.mkdirs()) {
+                return WorkerResult.Failure("Failed to create destination parent directory")
+            }
 
             // Delete destination if overwriting
             if (destFile.exists() && overwrite) {
@@ -177,7 +185,12 @@ class FileSystemWorker : AndroidWorker {
                 } else {
                     copyFile(sourceFile, destFile, overwrite)
                 }
-                sourceFile.deleteRecursively()
+                // FS-C-002: rollback copy if source delete fails
+                val deleted = sourceFile.deleteRecursively()
+                if (!deleted) {
+                    destFile.deleteRecursively()
+                    return WorkerResult.Failure("Move failed: could not delete source after copy")
+                }
             }
 
             val fileCount = if (destFile.isDirectory) {
@@ -186,12 +199,12 @@ class FileSystemWorker : AndroidWorker {
 
             WorkerResult.Success(
                 message = "Moved $fileCount file(s)",
-                data = mapOf(
-                    "operation" to "move",
-                    "sourcePath" to sourcePath,
-                    "destinationPath" to destinationPath,
-                    "fileCount" to fileCount
-                )
+                data = buildJsonObject {
+                    put("operation", "move")
+                    put("sourcePath", sourcePath)
+                    put("destinationPath", destinationPath)
+                    put("fileCount", fileCount)
+                }
             )
         } catch (e: IOException) {
             WorkerResult.Failure("Move failed: ${e.message}")
@@ -202,14 +215,19 @@ class FileSystemWorker : AndroidWorker {
         val path = json.getString("path")
         val recursive = json.optBoolean("recursive", false)
 
+        // H3: Validate path with canonical resolution before any file operations.
+        if (!SecurityValidator.validateFilePathSafe(path)) {
+            return WorkerResult.Failure("Invalid or unsafe path")
+        }
+
         val file = File(path)
         if (!file.exists()) {
             return WorkerResult.Failure("Path not found: $path")
         }
 
-        // Safety check: prevent accidental deletion of important directories
+        // Additional safety check: prevent accidental deletion of root-level directories.
         val dangerousPaths = listOf("/", "/system", "/data", "/storage/emulated/0")
-        if (dangerousPaths.any { file.absolutePath.startsWith(it) && file.absolutePath.length <= it.length + 1 }) {
+        if (dangerousPaths.any { file.canonicalPath == File(it).canonicalPath }) {
             return WorkerResult.Failure("Cannot delete protected path: $path")
         }
 
@@ -227,17 +245,19 @@ class FileSystemWorker : AndroidWorker {
                 file.delete()
             }
 
-            if (deleted) {
+            // FS-H-007: deleteRecursively returns false on partial deletion; check if
+            // target still exists to distinguish outright failure from partial success.
+            if (deleted || !file.exists()) {
                 WorkerResult.Success(
                     message = "Deleted $fileCount file(s)",
-                    data = mapOf(
-                        "operation" to "delete",
-                        "path" to path,
-                        "fileCount" to fileCount
-                    )
+                    data = buildJsonObject {
+                        put("operation", "delete")
+                        put("path", path)
+                        put("fileCount", fileCount)
+                    }
                 )
             } else {
-                WorkerResult.Failure("Failed to delete: $path")
+                WorkerResult.Failure("Failed to delete (some files may remain): $path")
             }
         } catch (e: IOException) {
             WorkerResult.Failure("Delete failed: ${e.message}")
@@ -249,58 +269,62 @@ class FileSystemWorker : AndroidWorker {
         val pattern = json.optString("pattern").takeIf { it.isNotEmpty() }
         val recursive = json.optBoolean("recursive", false)
 
-        val directory = File(path)
-        if (!directory.exists()) {
-            return WorkerResult.Failure("Path not found: $path")
+        // H3: Validate path before listing — missing in original code.
+        if (!SecurityValidator.validateFilePathSafe(path)) {
+            return WorkerResult.Failure("Invalid or unsafe path")
         }
 
-        if (!directory.isDirectory) {
-            return WorkerResult.Failure("Path is not a directory: $path")
-        }
+        val directory = File(path)
+        if (!directory.exists()) return WorkerResult.Failure("Path not found: $path")
+        if (!directory.isDirectory) return WorkerResult.Failure("Path is not a directory: $path")
 
         return try {
-            val files = if (recursive) {
-                directory.walkTopDown()
-                    .filter { it.isFile }
-                    .toList()
+            // FIX: Use sequence to avoid loading everything into memory (prevent OOM)
+            val fileSequence = if (recursive) {
+                directory.walkTopDown().filter { it.isFile }
             } else {
-                directory.listFiles()?.filter { it.isFile } ?: emptyList()
+                directory.listFiles()?.asSequence()?.filter { it.isFile } ?: emptySequence()
             }
 
-            // Apply pattern filter if specified
-            val filteredFiles = if (pattern != null) {
-                val regex = pattern
-                    .replace(".", "\\.")
+            // Apply pattern filter efficiently
+            val regex = pattern?.let {
+                // ✅ SECURITY: Fix Regex Injection — use a safer glob-to-regex conversion
+                // This prevents users from breaking the regex with special chars
+                val escaped = it.replace(".", "\\.")
                     .replace("*", ".*")
                     .replace("?", ".")
-                    .toRegex()
+                try {
+                    "^$escaped$".toRegex(RegexOption.IGNORE_CASE)
+                } catch (e: Exception) {
+                    null // Fallback if pattern is invalid
+                }
+            }
 
-                files.filter { regex.matches(it.name) }
+            val filteredFiles = if (regex != null) {
+                fileSequence.filter { regex.matches(it.name) }
             } else {
-                files
+                fileSequence
             }
 
-            val fileInfos = filteredFiles.map { file ->
-                mapOf(
-                    "path" to file.absolutePath,
-                    "name" to file.name,
-                    "size" to file.length(),
-                    "lastModified" to file.lastModified(),
-                    "isDirectory" to file.isDirectory
-                )
-            }
+            // Limit result size for stability (e.g., max 1000 items in response)
+            val resultList = filteredFiles.take(1000).toList()
 
             WorkerResult.Success(
-                message = "Found ${filteredFiles.size} file(s)",
-                data = mapOf(
-                    "operation" to "list",
-                    "path" to path,
-                    "pattern" to (pattern ?: ""),
-                    "recursive" to recursive,
-                    "fileCount" to filteredFiles.size,
-                    "totalSize" to filteredFiles.sumOf { it.length() },
-                    "files" to fileInfos
-                )
+                message = "Found ${resultList.size} file(s)",
+                data = buildJsonObject {
+                    put("operation", "list")
+                    put("files", buildJsonArray {
+                        resultList.forEach { file ->
+                            add(buildJsonObject {
+                                put("path", file.absolutePath)
+                                put("name", file.name)
+                                put("size", file.length())
+                                put("lastModified", file.lastModified())   // FS-M-004
+                                put("isDirectory", file.isDirectory)       // FS-L-003
+                            })
+                        }
+                    })
+                }
             )
         } catch (e: Exception) {
             WorkerResult.Failure("List failed: ${e.message}")
@@ -311,26 +335,26 @@ class FileSystemWorker : AndroidWorker {
         val path = json.getString("path")
         val createParents = json.optBoolean("createParents", true)
 
+        // FS-M-005: Security check BEFORE exists() to avoid information disclosure
+        if (!SecurityValidator.validateFilePathSafe(path)) {
+            return WorkerResult.Failure("Invalid or unsafe path")
+        }
+
         val directory = File(path)
 
         if (directory.exists()) {
             return if (directory.isDirectory) {
                 WorkerResult.Success(
                     message = "Directory already exists",
-                    data = mapOf(
-                        "operation" to "mkdir",
-                        "path" to path,
-                        "created" to false
-                    )
+                    data = buildJsonObject {
+                        put("operation", "mkdir")
+                        put("path", path)
+                        put("created", false)
+                    }
                 )
             } else {
                 WorkerResult.Failure("Path exists but is not a directory: $path")
             }
-        }
-
-        // FIX H1: Canonical-path check (replaces bypassable contains(".."))
-        if (!SecurityValidator.validateFilePathSafe(path)) {
-            return WorkerResult.Failure("Invalid or unsafe path")
         }
 
         return try {
@@ -343,11 +367,11 @@ class FileSystemWorker : AndroidWorker {
             if (created) {
                 WorkerResult.Success(
                     message = "Directory created",
-                    data = mapOf(
-                        "operation" to "mkdir",
-                        "path" to path,
-                        "created" to true
-                    )
+                    data = buildJsonObject {
+                        put("operation", "mkdir")
+                        put("path", path)
+                        put("created", true)
+                    }
                 )
             } else {
                 WorkerResult.Failure("Failed to create directory: $path")

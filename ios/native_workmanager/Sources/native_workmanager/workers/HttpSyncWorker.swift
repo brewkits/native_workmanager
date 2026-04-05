@@ -107,6 +107,12 @@ class HttpSyncWorker: IosWorker {
             print("HttpSyncWorker: Request body size: \(bodyData.count) bytes")
         }
 
+        // T3-7: HMAC-SHA256 request signing
+        let syncRawDict = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+        if let signingCfg = RequestSigner.Config.from(syncRawDict?["requestSigning"] as? [String: Any]) {
+            RequestSigner.sign(request: &request, config: signingCfg)
+        }
+
         // Execute request
         do {
             let (data, response) = try await URLSession.shared.data(for: request)

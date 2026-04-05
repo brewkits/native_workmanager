@@ -270,37 +270,36 @@ void main() {
 
   group('Worker Class Hierarchy', () {
     test('all worker classes extend Worker', () {
-      expect(FileSystemCopyWorker(sourcePath: '', destinationPath: ''),
+      expect(FileSystemCopyWorker(sourcePath: '/s', destinationPath: '/d'),
           isA<Worker>());
-      expect(
-          FileSystemMoveWorker(sourcePath: '', destinationPath: ''),
+      expect(FileSystemMoveWorker(sourcePath: '/s', destinationPath: '/d'),
           isA<Worker>());
-      expect(FileSystemDeleteWorker(path: ''), isA<Worker>());
-      expect(FileSystemListWorker(path: ''), isA<Worker>());
-      expect(FileSystemMkdirWorker(path: ''), isA<Worker>());
+      expect(FileSystemDeleteWorker(path: '/p'), isA<Worker>());
+      expect(FileSystemListWorker(path: '/p'), isA<Worker>());
+      expect(FileSystemMkdirWorker(path: '/p'), isA<Worker>());
     });
 
     test('all workers have correct workerClassName', () {
       expect(
-        FileSystemCopyWorker(sourcePath: '', destinationPath: '')
+        FileSystemCopyWorker(sourcePath: '/s', destinationPath: '/d')
             .workerClassName,
         'FileSystemWorker',
       );
       expect(
-        FileSystemMoveWorker(sourcePath: '', destinationPath: '')
+        FileSystemMoveWorker(sourcePath: '/s', destinationPath: '/d')
             .workerClassName,
         'FileSystemWorker',
       );
       expect(
-        FileSystemDeleteWorker(path: '').workerClassName,
+        FileSystemDeleteWorker(path: '/p').workerClassName,
         'FileSystemWorker',
       );
       expect(
-        FileSystemListWorker(path: '').workerClassName,
+        FileSystemListWorker(path: '/p').workerClassName,
         'FileSystemWorker',
       );
       expect(
-        FileSystemMkdirWorker(path: '').workerClassName,
+        FileSystemMkdirWorker(path: '/p').workerClassName,
         'FileSystemWorker',
       );
     });

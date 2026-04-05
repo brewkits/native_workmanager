@@ -11,8 +11,10 @@ import 'package:native_workmanager/native_workmanager.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const MethodChannel channel = MethodChannel('dev.brewkits/native_workmanager');
-  const EventChannel eventChannel = EventChannel('dev.brewkits/native_workmanager/events');
+  const MethodChannel channel =
+      MethodChannel('dev.brewkits/native_workmanager');
+  const EventChannel eventChannel =
+      EventChannel('dev.brewkits/native_workmanager/events');
 
   group('NativeWorkManager API Tests -', () {
     setUp(() {
@@ -89,7 +91,8 @@ void main() {
       expect(result, equals(ScheduleResult.accepted));
     });
 
-    test('enqueue() with DartWorker - throws StateError when not registered', () async {
+    test('enqueue() with DartWorker - throws StateError when not registered',
+        () async {
       // DartWorker requires both registration AND a real Flutter VM callback
       // handle (PluginUtilities.getCallbackHandle). In unit tests, we can only
       // verify the registration check.
@@ -147,7 +150,7 @@ void main() {
       );
 
       // Cancel it
-      await NativeWorkManager.cancel('test-cancel');
+      await NativeWorkManager.cancel(taskId: 'test-cancel');
       // Test passes if no exception thrown
     });
 
@@ -324,15 +327,17 @@ void main() {
             method: HttpMethod.get,
           ),
         ),
-      ).then(
-        TaskRequest(
-          id: 'chain-2',
-          worker: HttpRequestWorker(
-            url: 'https://api.example.com/process',
-            method: HttpMethod.post,
-          ),
-        ),
-      ).enqueue();
+      )
+          .then(
+            TaskRequest(
+              id: 'chain-2',
+              worker: HttpRequestWorker(
+                url: 'https://api.example.com/process',
+                method: HttpMethod.post,
+              ),
+            ),
+          )
+          .enqueue();
 
       // Test passes if no exception thrown
     });
@@ -386,31 +391,35 @@ void main() {
             method: HttpMethod.post,
           ),
         ),
-      ).then(
-        TaskRequest(
-          id: 'step-2',
-          worker: HttpRequestWorker(
-            url: 'https://api.example.com/data',
-            method: HttpMethod.get,
-          ),
-        ),
-      ).then(
-        TaskRequest(
-          id: 'step-3',
-          worker: HttpRequestWorker(
-            url: 'https://api.example.com/process',
-            method: HttpMethod.post,
-          ),
-        ),
-      ).then(
-        TaskRequest(
-          id: 'step-4',
-          worker: HttpUploadWorker(
-            url: 'https://api.example.com/upload',
-            filePath: '/tmp/result.json',
-          ),
-        ),
-      ).enqueue();
+      )
+          .then(
+            TaskRequest(
+              id: 'step-2',
+              worker: HttpRequestWorker(
+                url: 'https://api.example.com/data',
+                method: HttpMethod.get,
+              ),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: 'step-3',
+              worker: HttpRequestWorker(
+                url: 'https://api.example.com/process',
+                method: HttpMethod.post,
+              ),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: 'step-4',
+              worker: HttpUploadWorker(
+                url: 'https://api.example.com/upload',
+                filePath: '/tmp/result.json',
+              ),
+            ),
+          )
+          .enqueue();
 
       // Test passes if no exception thrown
     });
@@ -426,7 +435,8 @@ void main() {
         'taskId': 'test-event',
         'success': true,
         'message': 'Task completed successfully',
-        'timestamp': DateTime.now().millisecondsSinceEpoch, // int, not ISO string
+        'timestamp':
+            DateTime.now().millisecondsSinceEpoch, // int, not ISO string
         'resultData': {
           'statusCode': 200,
           'responseBody': '{"status":"ok"}',
@@ -637,15 +647,18 @@ void main() {
           case 'enqueue':
             return 'accepted';
           case 'cancelByTag':
-            capturedTag = (call.arguments as Map<dynamic, dynamic>)['tag'] as String?;
+            capturedTag =
+                (call.arguments as Map<dynamic, dynamic>)['tag'] as String?;
             return null;
           case 'getTasksByTag':
-            capturedTag = (call.arguments as Map<dynamic, dynamic>)['tag'] as String?;
+            capturedTag =
+                (call.arguments as Map<dynamic, dynamic>)['tag'] as String?;
             return ['task-1', 'task-2'];
           case 'getAllTags':
             return ['sync', 'upload', 'backup'];
           case 'getTaskStatus':
-            capturedTaskId = (call.arguments as Map<dynamic, dynamic>)['taskId'] as String?;
+            capturedTaskId =
+                (call.arguments as Map<dynamic, dynamic>)['taskId'] as String?;
             return 'running';
           default:
             return null;
@@ -661,16 +674,17 @@ void main() {
     test('cancelByTag() sends correct tag to platform', () async {
       await NativeWorkManager.initialize();
 
-      await NativeWorkManager.cancelByTag('sync-group');
+      await NativeWorkManager.cancelByTag(tag: 'sync-group');
 
       expect(capturedTag, equals('sync-group'));
     });
 
-    test('cancelByTag() with empty tag throws ArgumentError (Dart validation)', () async {
+    test('cancelByTag() with empty tag throws ArgumentError (Dart validation)',
+        () async {
       await NativeWorkManager.initialize();
 
       expect(
-        () => NativeWorkManager.cancelByTag(''),
+        () => NativeWorkManager.cancelByTag(tag: ''),
         throwsArgumentError,
       );
     });
@@ -678,17 +692,19 @@ void main() {
     test('getTasksByTag() returns task list from platform', () async {
       await NativeWorkManager.initialize();
 
-      final tasks = await NativeWorkManager.getTasksByTag('upload');
+      final tasks = await NativeWorkManager.getTasksByTag(tag: 'upload');
 
       expect(capturedTag, equals('upload'));
       expect(tasks, equals(['task-1', 'task-2']));
     });
 
-    test('getTasksByTag() with empty tag throws ArgumentError (Dart validation)', () async {
+    test(
+        'getTasksByTag() with empty tag throws ArgumentError (Dart validation)',
+        () async {
       await NativeWorkManager.initialize();
 
       expect(
-        () => NativeWorkManager.getTasksByTag(''),
+        () => NativeWorkManager.getTasksByTag(tag: ''),
         throwsArgumentError,
       );
     });
@@ -705,7 +721,7 @@ void main() {
     test('getTaskStatus() returns correct status from platform', () async {
       await NativeWorkManager.initialize();
 
-      final status = await NativeWorkManager.getTaskStatus('my-task');
+      final status = await NativeWorkManager.getTaskStatus(taskId: 'my-task');
 
       expect(capturedTaskId, equals('my-task'));
       expect(status, equals(TaskStatus.running));
@@ -725,7 +741,8 @@ void main() {
       });
 
       await NativeWorkManager.initialize();
-      final status = await NativeWorkManager.getTaskStatus('unknown-task');
+      final status =
+          await NativeWorkManager.getTaskStatus(taskId: 'unknown-task');
 
       expect(status, isNull);
     });
@@ -748,13 +765,14 @@ void main() {
         });
 
         await NativeWorkManager.initialize();
-        final status = await NativeWorkManager.getTaskStatus('task');
+        final status = await NativeWorkManager.getTaskStatus(taskId: 'task');
         expect(status, equals(entry.value),
             reason: 'Failed to parse status "${entry.key}"');
       }
     });
 
-    test('enqueue() with periodic trigger < 15 min throws ArgumentError', () async {
+    test('enqueue() with periodic trigger < 15 min throws ArgumentError',
+        () async {
       await NativeWorkManager.initialize();
 
       expect(

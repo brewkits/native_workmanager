@@ -30,7 +30,11 @@ object ProgressReporter {
         val progress: Int,
         val message: String? = null,
         val currentStep: Int? = null,
-        val totalSteps: Int? = null
+        val totalSteps: Int? = null,
+        val bytesDownloaded: Long? = null,
+        val totalBytes: Long? = null,
+        val networkSpeed: Double? = null,   // bytes per second
+        val timeRemainingMs: Long? = null   // milliseconds
     ) {
         /**
          * Convert to map for Flutter EventChannel.
@@ -41,6 +45,10 @@ object ProgressReporter {
             if (message != null) put("message", message)
             if (currentStep != null) put("currentStep", currentStep)
             if (totalSteps != null) put("totalSteps", totalSteps)
+            if (bytesDownloaded != null) put("bytesDownloaded", bytesDownloaded)
+            if (totalBytes != null) put("totalBytes", totalBytes)
+            if (networkSpeed != null) put("networkSpeed", networkSpeed)
+            if (timeRemainingMs != null) put("timeRemainingMs", timeRemainingMs)
         }
     }
 
@@ -53,6 +61,18 @@ object ProgressReporter {
      * - DROP_OLDEST strategy ensures latest progress always visible
      */
     private const val PROGRESS_BUFFER_CAPACITY = 64
+
+    /**
+     * Last emitted progress value per task.
+     *
+     * Guards against time-travel progress: URLSession / OkHttp callbacks can
+     * fire in rapid bursts, and even 1% steps can flood the Flutter bridge
+     * when downloading large files with small chunks.  By skipping updates
+     * that are < 1% away from the last emitted value (except the final 100%)
+     * we cut Flutter-bridge traffic by an order of magnitude on typical
+     * large-file downloads without losing any meaningful UI resolution.
+     */
+    private val lastEmittedProgress = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
     private val _progressFlow = MutableSharedFlow<ProgressUpdate>(
         replay = 0,
@@ -82,6 +102,14 @@ object ProgressReporter {
         totalSteps: Int? = null
     ) {
         val clampedProgress = progress.coerceIn(0, 100)
+
+        // Skip if the change is less than 1% (unless it is the final 100% sentinel).
+        // Prevents flooding the Flutter bridge on fast-chunk downloads/uploads.
+        val last = lastEmittedProgress[taskId]
+        if (last != null && clampedProgress != 100 && kotlin.math.abs(clampedProgress - last) < 1) {
+            return
+        }
+        lastEmittedProgress[taskId] = clampedProgress
 
         val update = ProgressUpdate(
             taskId = taskId,
@@ -117,16 +145,31 @@ object ProgressReporter {
         progress: Int,
         message: String? = null,
         currentStep: Int? = null,
-        totalSteps: Int? = null
+        totalSteps: Int? = null,
+        bytesDownloaded: Long? = null,
+        totalBytes: Long? = null,
+        networkSpeed: Double? = null,
+        timeRemainingMs: Long? = null
     ): Boolean {
         val clampedProgress = progress.coerceIn(0, 100)
+
+        // Same 1% filter as the suspend variant.
+        val last = lastEmittedProgress[taskId]
+        if (last != null && clampedProgress != 100 && kotlin.math.abs(clampedProgress - last) < 1) {
+            return false
+        }
+        lastEmittedProgress[taskId] = clampedProgress
 
         val update = ProgressUpdate(
             taskId = taskId,
             progress = clampedProgress,
             message = message,
             currentStep = currentStep,
-            totalSteps = totalSteps
+            totalSteps = totalSteps,
+            bytesDownloaded = bytesDownloaded,
+            totalBytes = totalBytes,
+            networkSpeed = networkSpeed,
+            timeRemainingMs = timeRemainingMs
         )
 
         return try {

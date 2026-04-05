@@ -18,6 +18,20 @@ public protocol IosWorker {
     /// - Returns: WorkerResult indicating success/failure with optional data and message
     /// - Throws: Can throw errors which will be caught and logged
     func doWork(input: String?) async throws -> WorkerResult
+
+    /// Called when the task must stop immediately (e.g. iOS expiration).
+    ///
+    /// v2.3.0+: Added to support BGTaskScheduler expirationHandler.
+    /// Implementation should cancel any ongoing network requests or heavy I/O
+    /// to ensure the app is not killed by the OS (SIGKILL).
+    func stop()
+}
+
+/// Extension to provide default empty implementation for stop()
+public extension IosWorker {
+    func stop() {
+        // Default: no-op. Custom workers can override this.
+    }
 }
 
 /// Factory for creating iOS workers by class name.
@@ -76,6 +90,10 @@ public class IosWorkerFactory {
             return HttpUploadWorker()
         case "HttpDownloadWorker":
             return HttpDownloadWorker()
+        case "ParallelHttpDownloadWorker":
+            return ParallelHttpDownloadWorker()
+        case "ParallelHttpUploadWorker":
+            return ParallelHttpUploadWorker()
         case "HttpSyncWorker":
             return HttpSyncWorker()
         case "DartCallbackWorker":
@@ -84,12 +102,16 @@ public class IosWorkerFactory {
             return FileCompressionWorker()
         case "FileDecompressionWorker":
             return FileDecompressionWorker()
-        case "ImageProcessWorker":  // ⚠️ DO NOT REMOVE - Required for v1.0.0
+        case "ImageProcessWorker":
             return ImageProcessWorker()
         case "CryptoWorker":
             return CryptoWorker()
-        case "FileSystemWorker":  // ⚠️ DO NOT REMOVE - Required for v1.0.0
+        case "FileSystemWorker":
             return FileSystemWorker()
+        case "MoveToSharedStorageWorker":
+            return MoveToSharedStorageWorker()
+        case "PdfWorker":
+            return PdfWorker()
         default:
             print("IosWorkerFactory: Unknown worker class: \(className)")
             return nil

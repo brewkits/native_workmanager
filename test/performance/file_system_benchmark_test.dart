@@ -60,10 +60,8 @@ void main() {
     test('benchmark: create mixed worker types (500 each)', () {
       final sw = Stopwatch()..start();
       for (int i = 0; i < 500; i++) {
-        FileSystemCopyWorker(
-            sourcePath: '/src/$i', destinationPath: '/dst/$i');
-        FileSystemMoveWorker(
-            sourcePath: '/src/$i', destinationPath: '/dst/$i');
+        FileSystemCopyWorker(sourcePath: '/src/$i', destinationPath: '/dst/$i');
+        FileSystemMoveWorker(sourcePath: '/src/$i', destinationPath: '/dst/$i');
         FileSystemDeleteWorker(path: '/path/$i');
         FileSystemListWorker(path: '/dir/$i', pattern: '*.txt');
         FileSystemMkdirWorker(path: '/new/$i');
@@ -155,8 +153,7 @@ void main() {
 
     test('benchmark: copy 10MB file via Dart I/O', () async {
       final src = File('$testDirPath/10mb.bin');
-      await src.writeAsBytes(
-          List.generate(10 * 1024 * 1024, (i) => i % 256));
+      await src.writeAsBytes(List.generate(10 * 1024 * 1024, (i) => i % 256));
 
       final sw = Stopwatch()..start();
       await src.copy('$testDirPath/10mb_copy.bin');
@@ -183,8 +180,7 @@ void main() {
 
     test('benchmark: copy 100 small files via Dart I/O', () async {
       for (int i = 0; i < 100; i++) {
-        await File('$testDirPath/src_$i.txt')
-            .writeAsString('Content $i' * 100);
+        await File('$testDirPath/src_$i.txt').writeAsString('Content $i' * 100);
       }
       final destDir = Directory('$testDirPath/dest');
       await destDir.create();
@@ -275,7 +271,8 @@ void main() {
       expect(files, isEmpty);
     });
 
-    test('edge: create directory when it already exists (idempotent)', () async {
+    test('edge: create directory when it already exists (idempotent)',
+        () async {
       final dir = Directory('$testDirPath/existing_dir');
       await dir.create();
       expect(await dir.exists(), isTrue);
@@ -298,11 +295,11 @@ void main() {
       expect(map['destinationPath'], contains('复制'));
     });
 
-    test('edge: worker config for zero-length path accepted', () {
-      // Workers accept any string path; validation happens at native execution
+    test('edge: worker config for zero-length path rejected', () {
+      // Workers now reject empty strings via assertions for security
       expect(
         () => FileSystemCopyWorker(sourcePath: '', destinationPath: ''),
-        returnsNormally,
+        throwsA(isA<AssertionError>()),
       );
     });
   });
@@ -409,8 +406,7 @@ void main() {
       final memAfter = ProcessInfo.currentRss;
       final memIncreaseMB = (memAfter - memBefore) / (1024 * 1024);
 
-      developer
-          .log('Memory increase: ${memIncreaseMB.toStringAsFixed(2)} MB');
+      developer.log('Memory increase: ${memIncreaseMB.toStringAsFixed(2)} MB');
 
       expect(await dst.length(), await src.length());
       // Streaming should not load entire 20MB at once
@@ -423,8 +419,7 @@ void main() {
 
       for (int i = 0; i < 50000; i++) {
         // Create and let GC collect
-        FileSystemCopyWorker(
-            sourcePath: '/src/$i', destinationPath: '/dst/$i');
+        FileSystemCopyWorker(sourcePath: '/src/$i', destinationPath: '/dst/$i');
       }
 
       final memAfter = ProcessInfo.currentRss;

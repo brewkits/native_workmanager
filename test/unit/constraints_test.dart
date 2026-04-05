@@ -148,7 +148,8 @@ void main() {
   });
 
   group('Constraints - Use Cases', () {
-    test('should create constraints for background sync (network required)', () {
+    test('should create constraints for background sync (network required)',
+        () {
       final constraints = Constraints(requiresNetwork: true);
 
       expect(constraints.requiresNetwork, isTrue);
@@ -156,7 +157,8 @@ void main() {
       expect(map['requiresNetwork'], isTrue);
     });
 
-    test('should create constraints for large download (network + charging)', () {
+    test('should create constraints for large download (network + charging)',
+        () {
       final constraints = Constraints(
         requiresNetwork: true,
         requiresCharging: true,
@@ -166,7 +168,8 @@ void main() {
       expect(constraints.requiresCharging, isTrue);
     });
 
-    test('should create constraints for backup (charging + storage + idle)', () {
+    test('should create constraints for backup (charging + storage + idle)',
+        () {
       final constraints = Constraints(
         requiresCharging: true,
         requiresStorageNotLow: true,
@@ -178,7 +181,8 @@ void main() {
       expect(constraints.requiresDeviceIdle, isTrue);
     });
 
-    test('should create constraints for media processing (charging + battery)', () {
+    test('should create constraints for media processing (charging + battery)',
+        () {
       final constraints = Constraints(
         requiresCharging: true,
         requiresBatteryNotLow: true,
@@ -198,7 +202,8 @@ void main() {
       expect(constraints.requiresDeviceIdle, isFalse);
     });
 
-    test('should create constraints for night maintenance (all requirements)', () {
+    test('should create constraints for night maintenance (all requirements)',
+        () {
       final constraints = Constraints(
         requiresNetwork: true,
         requiresCharging: true,
@@ -281,14 +286,17 @@ void main() {
 
       expect(reconstructed.requiresNetwork, original.requiresNetwork);
       expect(reconstructed.requiresCharging, original.requiresCharging);
-      expect(reconstructed.requiresBatteryNotLow, original.requiresBatteryNotLow);
-      expect(reconstructed.requiresStorageNotLow, original.requiresStorageNotLow);
+      expect(
+          reconstructed.requiresBatteryNotLow, original.requiresBatteryNotLow);
+      expect(
+          reconstructed.requiresStorageNotLow, original.requiresStorageNotLow);
       expect(reconstructed.requiresDeviceIdle, original.requiresDeviceIdle);
     });
   });
 
   group('Constraints - Platform Compatibility', () {
-    test('should create Android-compatible constraints (network + charging)', () {
+    test('should create Android-compatible constraints (network + charging)',
+        () {
       // Common Android WorkManager constraints
       final constraints = Constraints(
         requiresNetwork: true,
@@ -575,7 +583,8 @@ void main() {
 
     test('systemConstraints: different sets are not equal', () {
       final a = Constraints(systemConstraints: {SystemConstraint.deviceIdle});
-      final b = Constraints(systemConstraints: {SystemConstraint.allowLowBattery});
+      final b =
+          Constraints(systemConstraints: {SystemConstraint.allowLowBattery});
       expect(a, isNot(equals(b)));
     });
 
@@ -616,20 +625,25 @@ void main() {
     });
 
     test('foregroundServiceType: same value is equal', () {
-      final a = Constraints(foregroundServiceType: ForegroundServiceType.dataSync);
-      final b = Constraints(foregroundServiceType: ForegroundServiceType.dataSync);
+      final a =
+          Constraints(foregroundServiceType: ForegroundServiceType.dataSync);
+      final b =
+          Constraints(foregroundServiceType: ForegroundServiceType.dataSync);
       expect(a, equals(b));
     });
 
     test('foregroundServiceType: different values are not equal', () {
-      final a = Constraints(foregroundServiceType: ForegroundServiceType.dataSync);
-      final b = Constraints(foregroundServiceType: ForegroundServiceType.location);
+      final a =
+          Constraints(foregroundServiceType: ForegroundServiceType.dataSync);
+      final b =
+          Constraints(foregroundServiceType: ForegroundServiceType.location);
       expect(a, isNot(equals(b)));
     });
 
     test('foregroundServiceType: null vs non-null is not equal', () {
       final a = Constraints();
-      final b = Constraints(foregroundServiceType: ForegroundServiceType.camera);
+      final b =
+          Constraints(foregroundServiceType: ForegroundServiceType.camera);
       expect(a, isNot(equals(b)));
     });
 
@@ -660,7 +674,8 @@ void main() {
         systemConstraints: {SystemConstraint.deviceIdle},
       );
       final withoutConstraint = Constraints();
-      expect(withConstraint.hashCode, isNot(equals(withoutConstraint.hashCode)));
+      expect(
+          withConstraint.hashCode, isNot(equals(withoutConstraint.hashCode)));
     });
 
     test('bgTaskType affects hashCode', () {
@@ -759,7 +774,8 @@ void main() {
     });
 
     test('dataSync foregroundServiceType serializes as "dataSync"', () {
-      final c = Constraints(foregroundServiceType: ForegroundServiceType.dataSync);
+      final c =
+          Constraints(foregroundServiceType: ForegroundServiceType.dataSync);
       expect(c.toMap()['foregroundServiceType'], 'dataSync');
     });
 

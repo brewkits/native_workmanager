@@ -100,10 +100,14 @@ void main() {
 
       test('should serialize with different algorithms correctly', () {
         final workers = [
-          const CryptoHashWorker.file(filePath: '/f', algorithm: HashAlgorithm.md5),
-          const CryptoHashWorker.file(filePath: '/f', algorithm: HashAlgorithm.sha1),
-          const CryptoHashWorker.file(filePath: '/f', algorithm: HashAlgorithm.sha256),
-          const CryptoHashWorker.file(filePath: '/f', algorithm: HashAlgorithm.sha512),
+          const CryptoHashWorker.file(
+              filePath: '/f', algorithm: HashAlgorithm.md5),
+          const CryptoHashWorker.file(
+              filePath: '/f', algorithm: HashAlgorithm.sha1),
+          const CryptoHashWorker.file(
+              filePath: '/f', algorithm: HashAlgorithm.sha256),
+          const CryptoHashWorker.file(
+              filePath: '/f', algorithm: HashAlgorithm.sha512),
         ];
 
         expect(workers[0].toMap()['algorithm'], 'MD5');
@@ -220,7 +224,8 @@ void main() {
         );
 
         expect(worker, isA<CryptoHashWorker>());
-        expect((worker as CryptoHashWorker).filePath, '/documents/contract.pdf');
+        expect(
+            (worker as CryptoHashWorker).filePath, '/documents/contract.pdf');
       });
 
       test('should create file hash worker with custom algorithm', () {
@@ -677,7 +682,8 @@ void main() {
     // These tests document the Dart API behavior and highlight the constraint.
     // ────────────────────────────────────────────────────────────────────────
     group('Platform Encryption Incompatibility', () {
-      test('encrypt and decrypt send same algorithm string to native layer', () {
+      test('encrypt and decrypt send same algorithm string to native layer',
+          () {
         // Both sides pass 'AES' — but Android interprets as CBC, iOS as GCM.
         // Decryption MUST happen on the same platform as encryption.
         const encryptWorker = CryptoEncryptWorker(
@@ -691,7 +697,8 @@ void main() {
           password: 'secret',
         );
 
-        expect(encryptWorker.toMap()['algorithm'], decryptWorker.toMap()['algorithm']);
+        expect(encryptWorker.toMap()['algorithm'],
+            decryptWorker.toMap()['algorithm']);
         expect(encryptWorker.toMap()['algorithm'], 'AES');
       });
 
@@ -759,8 +766,10 @@ void main() {
 
         expect((md5Worker as CryptoHashWorker).algorithm, HashAlgorithm.md5);
         expect((sha1Worker as CryptoHashWorker).algorithm, HashAlgorithm.sha1);
-        expect((sha256Worker as CryptoHashWorker).algorithm, HashAlgorithm.sha256);
-        expect((sha512Worker as CryptoHashWorker).algorithm, HashAlgorithm.sha512);
+        expect(
+            (sha256Worker as CryptoHashWorker).algorithm, HashAlgorithm.sha256);
+        expect(
+            (sha512Worker as CryptoHashWorker).algorithm, HashAlgorithm.sha512);
       });
 
       test('should serialize all hash algorithms correctly', () {

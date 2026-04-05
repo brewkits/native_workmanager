@@ -48,7 +48,8 @@ void main() {
       expect(
         () => DartWorker(callbackId: ''),
         throwsA(isA<ArgumentError>()),
-        reason: 'Empty callbackId should throw ArgumentError (works in release builds)',
+        reason:
+            'Empty callbackId should throw ArgumentError (works in release builds)',
       );
     });
 
@@ -161,8 +162,7 @@ void main() {
     });
 
     test('isDartWorkerRegistered returns false for unknown id', () {
-      expect(
-          NativeWorkManager.isDartWorkerRegistered('nonexistent'), isFalse);
+      expect(NativeWorkManager.isDartWorkerRegistered('nonexistent'), isFalse);
     });
 
     test('multiple workers are independent', () {

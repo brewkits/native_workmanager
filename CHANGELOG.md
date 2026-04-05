@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.0] - 2026-04-05
+
+### Added
+- **`DartWorker.timeoutMs`**: New optional parameter to set a per-task callback timeout (milliseconds). Both Android and iOS already respected a `timeoutMs` field in the native config — this exposes it through the Dart API. Default is `null` (uses platform default: 300 000 ms / 5 min).
+- **`LoggingMiddleware` fully implemented**: Previously a stub; now fires a fire-and-forget HTTP POST to `logUrl` after each task completes (success or failure). Payload includes `taskId`, `workerClassName`, `success`, `durationMs`, `timestamp`, and optionally `workerConfig`. Network failures are silently swallowed and never affect task results.
+- **`registerMiddleware` is now idempotent**: Calling `NativeWorkManager.registerMiddleware()` with the same middleware type twice now **replaces** the existing config instead of accumulating duplicate records. Both Android and iOS `MiddlewareStore` use delete-then-insert semantics.
+- **25+ Built-in Native Workers**: Massive expansion of the native worker library, including PDF generation, Video compression, WebSocket long-running tasks, and advanced File System operations.
+- **Zero-Flutter-Engine Architecture**: Enhanced engine that runs complex I/O and processing tasks without spawning a Dart Isolate, saving up to 50MB RAM per task.
+- **Smart Isolate Caching**: Flutter Engine is now cached for 5 minutes after a `DartWorker` completes, enabling near-instant execution for subsequent steps in a `TaskChain`.
+- **Enterprise-Grade Security**:
+    - **Certificate Pinning**: Secure your background HTTP requests against MITM attacks.
+    - **HMAC Request Signing**: Ensure data integrity with automatic request signing.
+    - **SSRF Protection**: Built-in blocking of private and loopback IP addresses for background tasks.
+    - **Zip-Bomb & Zip-Slip Protection**: Hardened archive extraction logic.
+- **Remote Trigger Support**: Support for FCM (Android) and APNs (iOS) data messages to trigger native workers without waking Flutter.
+- **Improved Task Chaining**: Support for more complex sequential and parallel task graphs with native SQLite persistence for state recovery.
+- **DevTools Extension**: New Flutter DevTools integration for inspecting scheduled tasks, monitoring real-time progress, and debugging the background engine.
+- **Adaptive Resource Management**: Automatically disposes the Flutter engine under system memory pressure (`onTrimMemory` on Android).
+
+### Fixed
+
+- **CRITICAL**
+    - **iOS Graph: `WorkerResult` type mismatch** — Fixed issue where graph tasks always appeared to fail because the result struct was passed incorrectly.
+    - **OfflineQueue double-enqueue** — Fixed a bug where tasks were being enqueued twice (both native and Dart paths).
+    - **OfflineQueue lifecycle matching** — Fixed queue incorrectly treating "started" events as completion.
+    - **DevTools Extension**: Fixed "Undefined name '_metrics'" and structural errors in the DevTools plugin.
+
+- **HIGH**
+    - **Android Persistence**: `getTasksByTag`, `getAllTags`, and `getTaskStatus` now correctly fallback to SQLite `TaskStore` for tasks from previous sessions.
+    - **iOS Graph Resilience**: Implemented `resumePendingGraphs()` to restart interrupted task graphs on app launch.
+    - **iOS Worker Factory**: Fixed `executeWorkerStateless` to correctly use `IosWorkerFactory` for all worker types, enabling remote-triggered non-HTTP workers.
+    - **Android Cycle Detection**: Added DFS-based cycle detection to prevent `StackOverflowError` in complex task graphs.
+    - **iOS Atomic Guards**: Fixed race conditions in `OfflineQueue` and `handleEnqueue` using atomic barrier blocks.
+
+- **MEDIUM**
+    - **Android SQLite Consolidation**: Unified all internal stores (Task, OfflineQueue, RemoteTrigger) to use a single database (version 6) with proper migrations, fixing table-missing errors.
+    - **Android Middleware**: Refactored `MiddlewareStore` to use a singleton pattern, preventing redundant database connections.
+    - **iOS Middleware Types**: Enhanced middleware to support non-string header values (numeric/boolean).
+
+- **LOW**
+    - **Consistency**: Aligned `RetryConfig` defaults between Android (0) and iOS.
+    - **Memory Management**: Fixed `taskBusSignals` memory growth in periodic tasks on Android.
+    - **Documentation**: Updated multiple docstrings and README examples for API accuracy.
+
+### Fixed (2026-04-05 — demo & example fixes)
+
+- **Example: `isStarted` lifecycle event caused false "Task failed" toast** — All event listeners in the example app (`demo_scenarios_page`, `comprehensive_demo_page`, `file_system_demo_page`, `floating_metrics_overlay`, `advanced_metrics_overlay`, `bug_fix_demo_screen`) now guard with `if (event.isStarted) return` before processing completion state. Root cause: `TaskEvent.fromMap` defaults `success` to `false` when the key is absent; lifecycle events (`isStarted: true`) don't carry a `success` key, so every task start was incorrectly shown as a failure.
+
+- **Example: `_demoPhotoBackup()` chain always failed** — Replaced `List.filled(1024, 0)` dummy bytes (invalid JPEG) with a 5-step chain: `HttpDownloadWorker` fetches a real JPEG from `httpbin.org/image/jpeg` before `ImageProcessWorker` runs.
+
+- **Example: `_demoImageProcess()` standalone task always failed** — Same root cause as above; now a 2-step chain (download → process).
+
+- **Example: 4 `ImageProcessWorker` cards in `ComprehensiveDemoPage` always failed** — Replaced dummy byte pre-seeding with download-then-process chains (jpeg ×3, png ×1).
+
+- **Example: `RenderFlex` overflow 2px on iPhone 6s Plus (4.7" screen)** — Set `mainAxisSize: MainAxisSize.min` on the engine-log `Column` and reduced header `SizedBox` height from 48 → 46 px.
+
+- **Android: `onTrimMemory` logged spurious `CancellationException` on second call** (`NativeWorkmanagerPlugin.kt`)
+  - When the OS called `onTrimMemory` twice in quick succession, the second call tried to launch a coroutine into an already-cancelled `ioScope`, producing a `JobCancellationException` in logcat. Added `if (!ioScope.isActive) return` guard and explicit `CancellationException` re-throw inside the disposal block.
+
+- **iOS: `ChainStateManager` class docstring incorrectly stated UserDefaults as primary storage**
+  - Comment updated to accurately describe SQLite (via `ChainStore`) as the primary store. The one-time migration from UserDefaults on first launch is preserved for backward compatibility.
+
+---
+
 ## [1.0.8] - 2026-03-07
 
 ### Fixed
