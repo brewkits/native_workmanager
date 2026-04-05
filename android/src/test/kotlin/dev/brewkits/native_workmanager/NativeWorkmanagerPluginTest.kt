@@ -2,6 +2,7 @@ package dev.brewkits.native_workmanager
 
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import org.junit.Ignore
 import org.mockito.Mockito
 import kotlin.test.Test
 
@@ -14,6 +15,7 @@ import kotlin.test.Test
  */
 
 internal class NativeWorkmanagerPluginTest {
+    @Ignore("getPlatformVersion was removed in the v1.1.0 plugin refactor")
     @Test
     fun onMethodCall_getPlatformVersion_returnsExpectedValue() {
         val plugin = NativeWorkmanagerPlugin()
