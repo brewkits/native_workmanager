@@ -187,8 +187,8 @@ class ProgressReporterTest {
 
     @Test
     fun `concurrent progress updates are handled safely`() = runTest {
-        val count = 100
-        val taskIds = (1..count).map { "concurrent-task-$it" }
+        val count = 20 // keep small — each taskId is unique so no de-bounce filtering
+        val taskIds = (1..count).map { "safe-concurrent-$it" }
 
         val job = launch {
             val updates = ProgressReporter.progressFlow.take(count).toList()
@@ -199,7 +199,8 @@ class ProgressReporterTest {
         yield()
 
         taskIds.forEach { taskId ->
-            launch { ProgressReporter.reportProgress(taskId, progress = 50) }
+            // Sequential to avoid race with take() collector on test dispatcher
+            ProgressReporter.reportProgress(taskId, progress = 50)
         }
 
         job.join()

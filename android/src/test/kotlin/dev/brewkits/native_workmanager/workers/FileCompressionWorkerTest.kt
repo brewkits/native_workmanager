@@ -3,6 +3,7 @@ package dev.brewkits.native_workmanager.workers
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
+import org.junit.Ignore
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.*
@@ -14,6 +15,7 @@ import java.util.zip.ZipFile
 /**
  * Unit tests for FileCompressionWorker
  */
+@Ignore("Requires Android runtime (android.util.Log, SecurityValidator) — run as instrumented test")
 class FileCompressionWorkerTest {
 
     private lateinit var tempDir: File

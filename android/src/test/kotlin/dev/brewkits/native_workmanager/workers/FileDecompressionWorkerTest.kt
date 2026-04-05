@@ -4,6 +4,7 @@ import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import kotlinx.coroutines.test.runTest
 import org.json.JSONObject
 import org.junit.Assert.assertTrue
+import org.junit.Ignore
 import org.junit.Test
 import org.mockito.Mockito.`when`
 import org.mockito.Mockito.mock
@@ -18,6 +19,7 @@ import java.util.zip.ZipEntry
  * - Absolute Size Limits (Hard Limit)
  * - Error Handling and Cleanup
  */
+@Ignore("Requires Android runtime (android.util.Log) — run as instrumented test")
 class FileDecompressionWorkerTest {
 
     @Test

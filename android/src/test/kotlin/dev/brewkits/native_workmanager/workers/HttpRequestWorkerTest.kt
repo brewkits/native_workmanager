@@ -3,6 +3,7 @@ package dev.brewkits.native_workmanager.workers
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
+import org.junit.Ignore
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Before
@@ -21,6 +22,7 @@ import kotlin.test.assertTrue
  * - JSON parsing
  * - Custom headers and body
  */
+@Ignore("Requires Android runtime (android.net.Uri, android.util.Log) — run as instrumented test")
 class HttpRequestWorkerTest {
 
     private lateinit var mockWebServer: MockWebServer
