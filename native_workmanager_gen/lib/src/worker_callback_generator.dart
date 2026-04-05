@@ -57,7 +57,7 @@ class WorkerCallbackGenerator extends Generator {
       if (element.enclosingElement is! LibraryElement) {
         throw InvalidGenerationSourceError(
           '@WorkerCallback must be on a top-level function, not a method.\n'
-          '"${element.name}" is inside "${element.enclosingElement?.name}".',
+          '"${element.name}" is inside "${element.enclosingElement.name}".',
           element: element,
           todo: 'Extract to a top-level function.',
         );
