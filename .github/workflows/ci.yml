@@ -57,9 +57,7 @@ jobs:
 
       - name: Pub publish dry-run (gen)
         working-directory: native_workmanager_gen
-        run: |
-          rm -f pubspec_overrides.yaml
-          dart pub publish --dry-run
+        run: dart pub publish --dry-run
 
   # ── Dart unit tests ─────────────────────────────────────────────────────────
   test:
