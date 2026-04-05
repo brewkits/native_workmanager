@@ -1,5 +1,5 @@
 name: native_workmanager_gen
-version: 1.0.2
+version: 1.0.3
 description: >
   Code generator for native_workmanager.
   Generates type-safe DartWorker callback IDs and worker registry from
@@ -8,13 +8,13 @@ repository: https://github.com/brewkits/native_workmanager
 homepage: https://github.com/brewkits/native_workmanager/tree/main/native_workmanager_gen
 
 environment:
-  sdk: '>=3.6.0 <4.0.0'
+  sdk: '>=3.9.0 <4.0.0'
 
 dependencies:
   # Code generation infrastructure
-  build: '>=2.4.0 <5.0.0'
-  source_gen: '>=1.5.0 <5.0.0'
-  analyzer: '>=6.0.0 <13.0.0'
+  build: '>=4.0.0 <5.0.0'
+  source_gen: '>=4.0.0 <5.0.0'
+  analyzer: '>=12.0.0 <13.0.0'
 
 dev_dependencies:
   build_runner: '>=2.4.0 <4.0.0'

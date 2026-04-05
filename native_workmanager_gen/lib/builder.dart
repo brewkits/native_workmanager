@@ -10,7 +10,5 @@ import 'src/worker_callback_generator.dart';
 ///
 /// This function is the entry point invoked by `build_runner` — it is not
 /// called directly by application code.
-Builder workerCallbackBuilder(BuilderOptions options) => SharedPartBuilder(
-      [WorkerCallbackGenerator()],
-      'worker_callback',
-    );
+Builder workerCallbackBuilder(BuilderOptions options) =>
+    SharedPartBuilder([WorkerCallbackGenerator()], 'worker_callback');

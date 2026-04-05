@@ -1,3 +1,16 @@
+## 1.0.3
+
+- Require analyzer `>=12.0.0` and Dart SDK `>=3.9.0` to match pub.dev analysis
+  environment and gain access to stable analyzer 12.x APIs.
+- Replace `FunctionElement` (removed in analyzer 12.x / Dart 3.11+) with
+  `ElementKind.FUNCTION` check and `TopLevelFunctionElement` cast.
+- Replace `element.parameters` (renamed to `formalParameters` in analyzer 12.x)
+  with `fn.formalParameters` throughout validation logic.
+- Replace `element.name` (now `String?` in analyzer 12.x) with
+  `element.displayName` (always non-null `String`) throughout.
+- Drop redundant `enclosingElement is! LibraryElement` guard — annotated
+  top-level functions always satisfy `kind == ElementKind.FUNCTION`.
+
 ## 1.0.2
 
 - Replace `TypeChecker.fromRuntime` (removed in source_gen 4.x) with `TypeChecker.fromUrl`

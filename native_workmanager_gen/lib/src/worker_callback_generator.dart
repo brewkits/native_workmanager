@@ -54,29 +54,27 @@ class WorkerCallbackGenerator extends Generator {
       final annotation = annotatedElement.annotation;
 
       // ── Validate: must be a top-level function ──────────────────────────
-      if (element is! FunctionElement) {
+      // Use ElementKind.FUNCTION instead of `is FunctionElement` because
+      // FunctionElement was removed in analyzer 12.x (Dart 3.11+).
+      if (element.kind != ElementKind.FUNCTION) {
         throw InvalidGenerationSourceError(
           '@WorkerCallback can only be applied to top-level functions.\n'
-          '"${element.name}" is a ${element.kind.displayName}.',
+          '"${element.displayName}" is a ${element.kind.displayName}.',
           element: element,
           todo: 'Move the function to the top level of the file.',
         );
       }
-      if (element.enclosingElement is! LibraryElement) {
-        throw InvalidGenerationSourceError(
-          '@WorkerCallback must be on a top-level function, not a method.\n'
-          '"${element.name}" is inside "${element.enclosingElement.name}".',
-          element: element,
-          todo: 'Extract to a top-level function.',
-        );
-      }
+
+      // Cast to TopLevelFunctionElement (analyzer 12.x) to access
+      // formalParameters and returnType via FunctionTypedElement.
+      final fn = element as TopLevelFunctionElement;
 
       // ── Validate: return type must be Future<bool> ──────────────────────
-      final returnType = element.returnType.toString();
+      final returnType = fn.returnType.toString();
       if (returnType != 'Future<bool>') {
         throw InvalidGenerationSourceError(
           '@WorkerCallback function must return Future<bool>.\n'
-          '"${element.name}" returns "$returnType".',
+          '"${element.displayName}" returns "$returnType".',
           element: element,
           todo: "Change the return type to 'Future<bool>'.",
         );
@@ -85,34 +83,34 @@ class WorkerCallbackGenerator extends Generator {
       // ── Validate: exactly one parameter Map<String, dynamic>? ───────────
       // C-01 fix: zero-parameter functions pass Dart's type-checker but crash
       // at runtime because the native side always calls with an input argument.
-      final params = element.parameters;
+      final params = fn.formalParameters;
       if (params.isEmpty) {
         throw InvalidGenerationSourceError(
           '@WorkerCallback function must have exactly one parameter: '
           'Map<String, dynamic>? input\n'
-          '"${element.name}" has no parameters.\n'
+          '"${element.displayName}" has no parameters.\n'
           'A zero-parameter function compiles without error but crashes at '
           'runtime when the native side passes the input argument.',
           element: element,
           todo:
-              'Add the parameter: Future<bool> ${element.name}(Map<String, dynamic>? input)',
+              'Add the parameter: Future<bool> ${element.displayName}(Map<String, dynamic>? input)',
         );
       }
       if (params.length != 1) {
         throw InvalidGenerationSourceError(
           '@WorkerCallback function must have exactly one parameter '
           '(Map<String, dynamic>?).\n'
-          '"${element.name}" has ${params.length} parameters.',
+          '"${element.displayName}" has ${params.length} parameters.',
           element: element,
           todo:
-              'Use signature: Future<bool> ${element.name}(Map<String, dynamic>? input)',
+              'Use signature: Future<bool> ${element.displayName}(Map<String, dynamic>? input)',
         );
       }
       final paramType = params.first.type.toString();
       if (!paramType.startsWith('Map<String, dynamic>')) {
         throw InvalidGenerationSourceError(
           '@WorkerCallback parameter must be Map<String, dynamic>?.\n'
-          '"${element.name}" has parameter type "$paramType".',
+          '"${element.displayName}" has parameter type "$paramType".',
           element: element,
           todo: "Change the parameter type to 'Map<String, dynamic>?'.",
         );
@@ -124,7 +122,7 @@ class WorkerCallbackGenerator extends Generator {
         id = annotation.read('id').stringValue;
       } catch (e) {
         throw InvalidGenerationSourceError(
-          '@WorkerCallback annotation on "${element.name}" has a malformed '
+          '@WorkerCallback annotation on "${element.displayName}" has a malformed '
           'or missing "id" value: $e',
           element: element,
           todo: "Ensure the annotation is @WorkerCallback('some_id')",
@@ -134,7 +132,7 @@ class WorkerCallbackGenerator extends Generator {
       if (id.isEmpty) {
         throw InvalidGenerationSourceError(
           '@WorkerCallback id cannot be empty.\n'
-          'Annotated function: "${element.name}".',
+          'Annotated function: "${element.displayName}".',
           element: element,
           todo: "Provide a non-empty string id: @WorkerCallback('my_worker')",
         );
@@ -146,13 +144,13 @@ class WorkerCallbackGenerator extends Generator {
         throw InvalidGenerationSourceError(
           "@WorkerCallback id '$id' is already used by '${duplicate.functionName}' "
           'in this library.\n'
-          '"${element.name}" cannot reuse the same id.',
+          '"${element.displayName}" cannot reuse the same id.',
           element: element,
           todo: 'Each @WorkerCallback must have a unique id.',
         );
       }
 
-      workers.add(_WorkerEntry(id: id, functionName: element.name));
+      workers.add(_WorkerEntry(id: id, functionName: element.displayName));
     }
 
     if (workers.isEmpty) return '';
@@ -182,7 +180,8 @@ class WorkerCallbackGenerator extends Generator {
     // ── generatedWorkerRegistry map ───────────────────────────────────────
     buf
       ..writeln(
-          '/// Worker registry generated from [@WorkerCallback] annotations.')
+        '/// Worker registry generated from [@WorkerCallback] annotations.',
+      )
       ..writeln('///')
       ..writeln('/// Pass this map to [NativeWorkManager.initialize]:')
       ..writeln('///')
@@ -192,7 +191,8 @@ class WorkerCallbackGenerator extends Generator {
       ..writeln('/// );')
       ..writeln('/// ```')
       ..writeln(
-          'final Map<String, DartWorkerCallback> generatedWorkerRegistry = {');
+        'final Map<String, DartWorkerCallback> generatedWorkerRegistry = {',
+      );
 
     for (final w in workers) {
       buf.writeln("  '${w.id}': ${w.functionName},");
