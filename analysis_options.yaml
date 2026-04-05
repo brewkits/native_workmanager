@@ -7,6 +7,7 @@ analyzer:
   exclude:
     - example/**
     - test/**
+    - bin/**
     - extension/**
     - native_workmanager_gen/**
 

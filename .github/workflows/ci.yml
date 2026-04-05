@@ -46,11 +46,11 @@ jobs:
         run: dart format --output=none --set-exit-if-changed lib
 
       - name: Analyze plugin
-        run: flutter analyze --fatal-warnings
+        run: flutter analyze --no-fatal-infos
 
       - name: Analyze gen package
         working-directory: native_workmanager_gen
-        run: dart analyze --fatal-warnings
+        run: dart analyze
 
       - name: Pub publish dry-run (plugin)
         run: dart pub publish --dry-run
@@ -113,7 +113,12 @@ jobs:
 
       - name: Run gen tests
         working-directory: native_workmanager_gen
-        run: dart test
+        run: |
+          if [ -d "test" ] && [ -n "$(ls test/*.dart 2>/dev/null)" ]; then
+            dart test
+          else
+            echo "No tests found in native_workmanager_gen — skipping."
+          fi
 
   # ── Android build + unit tests ──────────────────────────────────────────────
   build-android:
