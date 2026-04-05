@@ -1,3 +1,9 @@
+## 1.0.1
+
+- Widen dependency constraints: `build <5`, `source_gen <5`, `analyzer <13`, `build_runner <4`.
+- Add dartdoc to `workerCallbackBuilder` and `WorkerCallbackGenerator` constructor.
+- Add example demonstrating codegen setup.
+
 ## 1.0.0
 
 - Initial release: `@WorkerCallback` annotation code generator for `native_workmanager`.

@@ -33,6 +33,10 @@ import 'package:source_gen/source_gen.dart';
 /// };
 /// ```
 class WorkerCallbackGenerator extends Generator {
+  /// Creates a [WorkerCallbackGenerator].
+  ///
+  /// Registered automatically by [workerCallbackBuilder] — do not instantiate
+  /// directly in application code.
   const WorkerCallbackGenerator();
 
   static const _checker = TypeChecker.fromRuntime(WorkerCallback);
