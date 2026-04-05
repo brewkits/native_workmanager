@@ -31,7 +31,8 @@ jobs:
         run: flutter pub get
 
       - name: Override gen dependency to local path
-        run: printf 'dependency_overrides:\n  native_workmanager:\n    path: ..\n' > native_workmanager_gen/pubspec_overrides.yaml
+        run: |
+          printf 'dependency_overrides:\n  native_workmanager:\n    path: ..\n' > native_workmanager_gen/pubspec_overrides.yaml
 
       - name: Get dependencies (gen)
         working-directory: native_workmanager_gen
@@ -103,7 +104,8 @@ jobs:
         run: flutter pub get
 
       - name: Override gen dependency to local path
-        run: printf 'dependency_overrides:\n  native_workmanager:\n    path: ..\n' > native_workmanager_gen/pubspec_overrides.yaml
+        run: |
+          printf 'dependency_overrides:\n  native_workmanager:\n    path: ..\n' > native_workmanager_gen/pubspec_overrides.yaml
 
       - name: Get dependencies (gen)
         working-directory: native_workmanager_gen

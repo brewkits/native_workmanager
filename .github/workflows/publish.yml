@@ -57,7 +57,8 @@ jobs:
 
       - name: Override gen dependency to local path (for dry-run)
         if: ${{ inputs.publish_gen }}
-        run: printf 'dependency_overrides:\n  native_workmanager:\n    path: ..\n' > native_workmanager_gen/pubspec_overrides.yaml
+        run: |
+          printf 'dependency_overrides:\n  native_workmanager:\n    path: ..\n' > native_workmanager_gen/pubspec_overrides.yaml
 
       - name: Format check
         run: dart format --output=none --set-exit-if-changed lib test
