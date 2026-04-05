@@ -1,6 +1,5 @@
 import 'package:analyzer/dart/element/element.dart';
 import 'package:build/build.dart';
-import 'package:native_workmanager/native_workmanager.dart';
 import 'package:source_gen/source_gen.dart';
 
 /// Generates type-safe worker IDs and a registry map from [@WorkerCallback]
@@ -39,7 +38,12 @@ class WorkerCallbackGenerator extends Generator {
   /// directly in application code.
   const WorkerCallbackGenerator();
 
-  static const _checker = TypeChecker.fromRuntime(WorkerCallback);
+  // Use fromUrl instead of fromRuntime to avoid dart:mirrors dependency.
+  // This makes the package compatible with all platforms and source_gen >=2.0.
+  static final _checker = TypeChecker.fromUrl(
+    'package:native_workmanager/src/worker_callback_generator_annotation.dart'
+    '#WorkerCallback',
+  );
 
   @override
   Future<String> generate(LibraryReader library, BuildStep buildStep) async {

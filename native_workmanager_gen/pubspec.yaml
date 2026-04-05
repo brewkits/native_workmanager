@@ -1,5 +1,5 @@
 name: native_workmanager_gen
-version: 1.0.1
+version: 1.0.2
 description: >
   Code generator for native_workmanager.
   Generates type-safe DartWorker callback IDs and worker registry from
@@ -15,9 +15,6 @@ dependencies:
   build: '>=2.4.0 <5.0.0'
   source_gen: '>=1.5.0 <5.0.0'
   analyzer: '>=6.0.0 <13.0.0'
-
-  # For accessing the WorkerCallback annotation type at build time.
-  native_workmanager: ^1.1.0
 
 dev_dependencies:
   build_runner: '>=2.4.0 <4.0.0'

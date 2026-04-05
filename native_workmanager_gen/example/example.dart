@@ -13,23 +13,27 @@ library;
 //
 // For illustration purposes the generated output is shown below as comments.
 
-import 'package:native_workmanager/native_workmanager.dart';
+// --- Step 1: Annotate your worker functions (in your app's lib/workers.dart) ---
+//
+// part 'workers.g.dart';
+//
+// @WorkerCallback('sync_contacts')
+// Future<bool> syncContacts(String? inputJson) async {
+//   // background work
+//   return true;
+// }
+//
+// @WorkerCallback('backup_photos')
+// Future<bool> backupPhotos(String? inputJson) async {
+//   // background work
+//   return true;
+// }
 
-// --- Annotated worker functions ---
+// --- Step 2: Run code generation ---
+//
+//   dart run build_runner build --delete-conflicting-outputs
 
-@WorkerCallback('sync_contacts')
-Future<bool> syncContacts(String? inputJson) async {
-  print('Syncing contacts: $inputJson');
-  return true;
-}
-
-@WorkerCallback('backup_photos')
-Future<bool> backupPhotos(String? inputJson) async {
-  print('Backing up photos: $inputJson');
-  return true;
-}
-
-// --- What build_runner generates (example.g.dart) ---
+// --- Step 3: build_runner generates workers.g.dart ---
 //
 // abstract final class WorkerIds {
 //   static const String syncContacts = 'sync_contacts';
@@ -41,20 +45,18 @@ Future<bool> backupPhotos(String? inputJson) async {
 //   'backup_photos': backupPhotos,
 // };
 
-// --- Usage in main ---
+// --- Step 4: Use in your app ---
+//
+// await NativeWorkManager.initialize(
+//   dartWorkers: generatedWorkerRegistry,
+// );
+//
+// await NativeWorkManager.enqueue(
+//   taskId: 'task-001',
+//   trigger: TaskTrigger.oneTime(),
+//   worker: DartWorker(callbackId: WorkerIds.syncContacts),
+// );
 
 Future<void> main() async {
-  // Initialize with the generated registry.
-  // await NativeWorkManager.initialize(
-  //   dartWorkers: generatedWorkerRegistry,
-  // );
-
-  // Schedule a task using a type-safe ID.
-  // await NativeWorkManager.enqueue(
-  //   taskId: 'task-001',
-  //   trigger: TaskTrigger.oneTime(),
-  //   worker: DartWorker(callbackId: WorkerIds.syncContacts),
-  // );
-
-  print('native_workmanager_gen example — run build_runner to generate code.');
+  print('native_workmanager_gen — run build_runner to generate type-safe worker IDs.');
 }
