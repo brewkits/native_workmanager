@@ -1,5 +1,6 @@
 package dev.brewkits.native_workmanager.workers
 
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -53,7 +54,7 @@ class HttpRequestWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertTrue(result, "GET request should succeed")
+        assertTrue(result is WorkerResult.Success, "GET request should succeed")
 
         val recordedRequest = mockWebServer.takeRequest()
         assertEquals("GET", recordedRequest.method)
@@ -80,7 +81,7 @@ class HttpRequestWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertTrue(result, "POST request should succeed")
+        assertTrue(result is WorkerResult.Success, "POST request should succeed")
 
         val recordedRequest = mockWebServer.takeRequest()
         assertEquals("POST", recordedRequest.method)
@@ -105,7 +106,7 @@ class HttpRequestWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertFalse(result, "404 request should fail")
+        assertFalse(result is WorkerResult.Success, "404 request should fail")
     }
 
     @Test
@@ -124,7 +125,7 @@ class HttpRequestWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertFalse(result, "500 request should fail")
+        assertFalse(result is WorkerResult.Success, "500 request should fail")
     }
 
     @Test
@@ -144,7 +145,7 @@ class HttpRequestWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertTrue(result, "PUT request should succeed")
+        assertTrue(result is WorkerResult.Success, "PUT request should succeed")
 
         val recordedRequest = mockWebServer.takeRequest()
         assertEquals("PUT", recordedRequest.method)
@@ -167,7 +168,7 @@ class HttpRequestWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertTrue(result, "DELETE request should succeed")
+        assertTrue(result is WorkerResult.Success, "DELETE request should succeed")
 
         val recordedRequest = mockWebServer.takeRequest()
         assertEquals("DELETE", recordedRequest.method)
@@ -190,7 +191,7 @@ class HttpRequestWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertTrue(result, "PATCH request should succeed")
+        assertTrue(result is WorkerResult.Success, "PATCH request should succeed")
 
         val recordedRequest = mockWebServer.takeRequest()
         assertEquals("PATCH", recordedRequest.method)
@@ -213,7 +214,7 @@ class HttpRequestWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertTrue(result, "Request with custom timeout should succeed")
+        assertTrue(result is WorkerResult.Success, "Request with custom timeout should succeed")
     }
 
     @Test

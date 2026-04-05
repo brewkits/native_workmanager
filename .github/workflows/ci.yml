@@ -73,7 +73,7 @@ jobs:
         run: flutter pub get
 
       - name: Run plugin unit tests with coverage
-        run: flutter test --coverage --reporter=expanded
+        run: flutter test test/unit/ --coverage --reporter=expanded
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4

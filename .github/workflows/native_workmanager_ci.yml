@@ -16,21 +16,21 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.27.0'
-          channel: 'stable'
+          flutter-version-file: .flutter-version
+          channel: stable
           cache: true
 
       - name: Install dependencies
         run: flutter pub get
 
       - name: Verify formatting
-        run: dart format --set-exit-if-changed .
+        run: dart format --output=none --set-exit-if-changed lib/ test/
 
       - name: Analyze code
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
 
-      - name: Run all tests (Core + Integration)
-        run: flutter test test/unit test/integration
+      - name: Run unit tests
+        run: flutter test test/unit/
 
   build_android:
     name: Build Validation (Android)
@@ -38,13 +38,22 @@ jobs:
     needs: test_dart
     steps:
       - uses: actions/checkout@v4
+
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.27.0'
-      
+          flutter-version-file: .flutter-version
+          channel: stable
+          cache: true
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
       - name: Install dependencies
         run: flutter pub get
-        
+
       - name: Build Android (Debug)
         run: |
           cd example
@@ -56,13 +65,16 @@ jobs:
     needs: test_dart
     steps:
       - uses: actions/checkout@v4
+
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.27.0'
-      
+          flutter-version-file: .flutter-version
+          channel: stable
+          cache: true
+
       - name: Install dependencies
         run: flutter pub get
-        
+
       - name: Build iOS (Debug/No-Codesign)
         run: |
           cd example

@@ -1,5 +1,6 @@
 package dev.brewkits.native_workmanager.workers
 
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
@@ -58,7 +59,7 @@ class FileCompressionWorkerTest {
         val result = worker.doWork(input)
 
         // Verify
-        assertTrue("Worker should succeed", result)
+        assertTrue("Worker should succeed", result is WorkerResult.Success)
         assertTrue("Output file should exist", outputFile.exists())
         assertTrue("Output file should not be empty", outputFile.length() > 0)
 
@@ -95,7 +96,7 @@ class FileCompressionWorkerTest {
         val result = worker.doWork(input)
 
         // Verify
-        assertTrue("Worker should succeed", result)
+        assertTrue("Worker should succeed", result is WorkerResult.Success)
         assertTrue("Output file should exist", outputFile.exists())
 
         // Verify ZIP contents
@@ -138,7 +139,7 @@ class FileCompressionWorkerTest {
         val result = worker.doWork(input)
 
         // Verify
-        assertTrue("Worker should succeed", result)
+        assertTrue("Worker should succeed", result is WorkerResult.Success)
 
         // Verify ZIP contents
         ZipFile(outputFile).use { zip ->
@@ -178,7 +179,7 @@ class FileCompressionWorkerTest {
         val result = worker.doWork(input)
 
         // Verify
-        assertTrue("Worker should succeed", result)
+        assertTrue("Worker should succeed", result is WorkerResult.Success)
 
         ZipFile(outputFile).use { zip ->
             val entries = zip.entries().toList().map { it.name }
@@ -213,7 +214,7 @@ class FileCompressionWorkerTest {
         val result = worker.doWork(input)
 
         // Verify
-        assertTrue("Worker should succeed", result)
+        assertTrue("Worker should succeed", result is WorkerResult.Success)
         assertTrue("Output should exist", outputFile.exists())
         assertFalse("Original file should be deleted", testFile.exists())
     }
@@ -238,7 +239,7 @@ class FileCompressionWorkerTest {
         val result = worker.doWork(input)
 
         // Verify
-        assertTrue("Worker should succeed", result)
+        assertTrue("Worker should succeed", result is WorkerResult.Success)
         assertFalse("Original directory should be deleted", testDir.exists())
     }
 
@@ -290,7 +291,7 @@ class FileCompressionWorkerTest {
     @Test
     fun `fail when input is null`() = runBlocking {
         val result = worker.doWork(null)
-        assertFalse("Should fail with null input", result)
+        assertFalse("Should fail with null input", result is WorkerResult.Success)
     }
 
     @Test
@@ -300,7 +301,7 @@ class FileCompressionWorkerTest {
         }.toString()
 
         val result = worker.doWork(input)
-        assertFalse("Should fail when inputPath is missing", result)
+        assertFalse("Should fail when inputPath is missing", result is WorkerResult.Success)
     }
 
     @Test
@@ -310,7 +311,7 @@ class FileCompressionWorkerTest {
         }.toString()
 
         val result = worker.doWork(input)
-        assertFalse("Should fail when outputPath is missing", result)
+        assertFalse("Should fail when outputPath is missing", result is WorkerResult.Success)
     }
 
     @Test
@@ -321,7 +322,7 @@ class FileCompressionWorkerTest {
         }.toString()
 
         val result = worker.doWork(input)
-        assertFalse("Should fail when input file doesn't exist", result)
+        assertFalse("Should fail when input file doesn't exist", result is WorkerResult.Success)
     }
 
     @Test
@@ -335,7 +336,7 @@ class FileCompressionWorkerTest {
         }.toString()
 
         val result = worker.doWork(input)
-        assertFalse("Should fail when output doesn't end with .zip", result)
+        assertFalse("Should fail when output doesn't end with .zip", result is WorkerResult.Success)
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -357,7 +358,7 @@ class FileCompressionWorkerTest {
         val result = worker.doWork(input)
 
         // Should succeed even with empty directory
-        assertTrue("Should succeed with empty directory", result)
+        assertTrue("Should succeed with empty directory", result is WorkerResult.Success)
         assertTrue("Output should exist", outputFile.exists())
 
         ZipFile(outputFile).use { zip ->
@@ -382,7 +383,7 @@ class FileCompressionWorkerTest {
 
         val result = worker.doWork(input)
 
-        assertTrue("Should succeed with large file", result)
+        assertTrue("Should succeed with large file", result is WorkerResult.Success)
         assertTrue("Output should exist", outputFile.exists())
         assertTrue("Compressed size should be less than original",
             outputFile.length() < largeFile.length())
@@ -406,7 +407,7 @@ class FileCompressionWorkerTest {
 
         val result = worker.doWork(input)
 
-        assertTrue("Should succeed", result)
+        assertTrue("Should succeed", result is WorkerResult.Success)
         assertNotEquals("File should be replaced", oldSize, outputFile.length())
     }
 }

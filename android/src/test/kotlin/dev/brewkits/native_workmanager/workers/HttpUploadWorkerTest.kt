@@ -1,5 +1,6 @@
 package dev.brewkits.native_workmanager.workers
 
+import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -61,7 +62,7 @@ class HttpUploadWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertTrue(result, "Upload should succeed")
+        assertTrue(result is WorkerResult.Success, "Upload should succeed")
 
         val recordedRequest = mockWebServer.takeRequest()
         assertEquals("POST", recordedRequest.method)
@@ -85,7 +86,7 @@ class HttpUploadWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertTrue(result, "Upload with custom fileName should succeed")
+        assertTrue(result is WorkerResult.Success, "Upload with custom fileName should succeed")
 
         val recordedRequest = mockWebServer.takeRequest()
         val requestBody = recordedRequest.body.readUtf8()
@@ -110,7 +111,7 @@ class HttpUploadWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertTrue(result, "Upload with custom mimeType should succeed")
+        assertTrue(result is WorkerResult.Success, "Upload with custom mimeType should succeed")
 
         val recordedRequest = mockWebServer.takeRequest()
         val contentType = recordedRequest.getHeader("Content-Type")
@@ -135,7 +136,7 @@ class HttpUploadWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertTrue(result, "Upload with custom fileName and mimeType should succeed")
+        assertTrue(result is WorkerResult.Success, "Upload with custom fileName and mimeType should succeed")
 
         val recordedRequest = mockWebServer.takeRequest()
         val requestBody = recordedRequest.body.readUtf8()
@@ -162,7 +163,7 @@ class HttpUploadWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertTrue(result, "Upload with additional fields should succeed")
+        assertTrue(result is WorkerResult.Success, "Upload with additional fields should succeed")
 
         val recordedRequest = mockWebServer.takeRequest()
         val requestBody = recordedRequest.body.readUtf8()
@@ -191,7 +192,7 @@ class HttpUploadWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertTrue(result, "Upload with custom headers should succeed")
+        assertTrue(result is WorkerResult.Success, "Upload with custom headers should succeed")
 
         val recordedRequest = mockWebServer.takeRequest()
         assertEquals("Bearer token123", recordedRequest.getHeader("Authorization"))
@@ -215,7 +216,7 @@ class HttpUploadWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertTrue(result, "Upload with custom fileFieldName should succeed")
+        assertTrue(result is WorkerResult.Success, "Upload with custom fileFieldName should succeed")
 
         val recordedRequest = mockWebServer.takeRequest()
         val requestBody = recordedRequest.body.readUtf8()
@@ -238,7 +239,7 @@ class HttpUploadWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertFalse(result, "Upload should fail with 404")
+        assertFalse(result is WorkerResult.Success, "Upload should fail with 404")
     }
 
     @Test
@@ -257,7 +258,7 @@ class HttpUploadWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertFalse(result, "Upload should fail with 500")
+        assertFalse(result is WorkerResult.Success, "Upload should fail with 500")
     }
 
     @Test
@@ -274,7 +275,7 @@ class HttpUploadWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertFalse(result, "Upload should fail when file doesn't exist")
+        assertFalse(result is WorkerResult.Success, "Upload should fail when file doesn't exist")
     }
 
     @Test
@@ -291,7 +292,7 @@ class HttpUploadWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertFalse(result, "Upload should fail with path traversal attempt")
+        assertFalse(result is WorkerResult.Success, "Upload should fail with path traversal attempt")
     }
 
     @Test
@@ -347,7 +348,7 @@ class HttpUploadWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertTrue(result, "Upload with custom timeout should succeed")
+        assertTrue(result is WorkerResult.Success, "Upload with custom timeout should succeed")
     }
 
     @Test
@@ -376,7 +377,7 @@ class HttpUploadWorkerTest {
         val result = worker.doWork(config)
 
         // Assert
-        assertTrue(result, "Real-world iOS HEIC upload should succeed")
+        assertTrue(result is WorkerResult.Success, "Real-world iOS HEIC upload should succeed")
 
         val recordedRequest = mockWebServer.takeRequest()
         assertEquals("Bearer test-token", recordedRequest.getHeader("Authorization"))
