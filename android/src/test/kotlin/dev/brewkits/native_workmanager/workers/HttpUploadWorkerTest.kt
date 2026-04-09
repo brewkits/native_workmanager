@@ -61,7 +61,7 @@ class HttpUploadWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertTrue(result is WorkerResult.Success, "Upload should succeed")
@@ -85,7 +85,7 @@ class HttpUploadWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertTrue(result is WorkerResult.Success, "Upload with custom fileName should succeed")
@@ -110,7 +110,7 @@ class HttpUploadWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertTrue(result is WorkerResult.Success, "Upload with custom mimeType should succeed")
@@ -135,7 +135,7 @@ class HttpUploadWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertTrue(result is WorkerResult.Success, "Upload with custom fileName and mimeType should succeed")
@@ -162,7 +162,7 @@ class HttpUploadWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertTrue(result is WorkerResult.Success, "Upload with additional fields should succeed")
@@ -191,7 +191,7 @@ class HttpUploadWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertTrue(result is WorkerResult.Success, "Upload with custom headers should succeed")
@@ -215,7 +215,7 @@ class HttpUploadWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertTrue(result is WorkerResult.Success, "Upload with custom fileFieldName should succeed")
@@ -238,7 +238,7 @@ class HttpUploadWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertFalse(result is WorkerResult.Success, "Upload should fail with 404")
@@ -257,7 +257,7 @@ class HttpUploadWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertFalse(result is WorkerResult.Success, "Upload should fail with 500")
@@ -274,7 +274,7 @@ class HttpUploadWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertFalse(result is WorkerResult.Success, "Upload should fail when file doesn't exist")
@@ -291,7 +291,7 @@ class HttpUploadWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertFalse(result is WorkerResult.Success, "Upload should fail with path traversal attempt")
@@ -304,7 +304,7 @@ class HttpUploadWorkerTest {
 
         // Act & Assert
         try {
-            worker.doWork(invalidConfig)
+            worker.doWork(invalidConfig, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
             throw AssertionError("Should have thrown IllegalArgumentException")
         } catch (e: IllegalArgumentException) {
             assertTrue(e.message!!.contains("Invalid config JSON"))
@@ -315,7 +315,7 @@ class HttpUploadWorkerTest {
     fun `test empty input`() = runBlocking {
         // Act & Assert
         try {
-            worker.doWork("")
+            worker.doWork("", dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
             throw AssertionError("Should have thrown IllegalArgumentException")
         } catch (e: IllegalArgumentException) {
             assertTrue(e.message!!.contains("Input JSON is required"))
@@ -326,7 +326,7 @@ class HttpUploadWorkerTest {
     fun `test null input`() = runBlocking {
         // Act & Assert
         try {
-            worker.doWork(null)
+            worker.doWork(null, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
             throw AssertionError("Should have thrown IllegalArgumentException")
         } catch (e: IllegalArgumentException) {
             assertTrue(e.message!!.contains("Input JSON is required"))
@@ -347,7 +347,7 @@ class HttpUploadWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertTrue(result is WorkerResult.Success, "Upload with custom timeout should succeed")
@@ -376,7 +376,7 @@ class HttpUploadWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertTrue(result is WorkerResult.Success, "Real-world iOS HEIC upload should succeed")

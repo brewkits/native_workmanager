@@ -54,7 +54,7 @@ class ImageProcessWorker: IosWorker {
         let height: Int
     }
 
-    func doWork(input: String?) async throws -> WorkerResult {
+    func doWork(input: String?, env: WorkerEnvironment) async throws -> WorkerResult {
         // ✅ IOS: Register background task to request extra execution time
         // iOS will freeze the app shortly after moving to background otherwise.
         var bgTaskId = UIBackgroundTaskIdentifier.invalid

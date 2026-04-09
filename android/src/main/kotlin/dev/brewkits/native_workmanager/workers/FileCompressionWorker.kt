@@ -57,7 +57,7 @@ class FileCompressionWorker : AndroidWorker {
         private const val COMPRESSION_HIGH = 9
     }
 
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult {
         // MEDIA-004: declared outside the try block so the catch handler can delete a
         // partial archive if compression fails mid-stream.
         var outputFile: File? = null

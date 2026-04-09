@@ -20,7 +20,7 @@ import Photos
 /// ```
 class MoveToSharedStorageWorker: IosWorker {
 
-    func doWork(input: String?) async throws -> WorkerResult {
+    func doWork(input: String?, env: WorkerEnvironment) async throws -> WorkerResult {
         guard let input = input, !input.isEmpty,
               let data = input.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {

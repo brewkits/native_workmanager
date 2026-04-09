@@ -26,7 +26,7 @@ class FileDecompressionWorkerTest {
     fun `doWork returns failure when input is null`() = runTest {
         val worker = FileDecompressionWorker()
         val result = try {
-            worker.doWork(null)
+            worker.doWork(null, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
         } catch (e: Exception) {
             null
         }

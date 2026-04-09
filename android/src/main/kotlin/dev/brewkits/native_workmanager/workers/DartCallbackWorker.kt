@@ -53,7 +53,7 @@ class DartCallbackWorkerWrapper(
      * @param input JSON string containing callback handle and optional input data
      * @return WorkerResult indicating success/failure (data from Dart callback)
      */
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult {
         return try {
             Log.d(TAG, "DartCallbackWorker started")
 

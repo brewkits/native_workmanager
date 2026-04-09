@@ -104,7 +104,7 @@ class HttpDownloadWorker: IosWorker {
         var effectiveAuthHeaderTemplate: String { authHeaderTemplate ?? HttpConstants.defaultAuthHeaderTemplate }
     }
 
-    func doWork(input: String?) async throws -> WorkerResult {
+    func doWork(input: String?, env: WorkerEnvironment) async throws -> WorkerResult {
         guard let input = input, !input.isEmpty else {
             print("HttpDownloadWorker: Error - Empty or null input")
             return .failure(message: "Empty or null input")

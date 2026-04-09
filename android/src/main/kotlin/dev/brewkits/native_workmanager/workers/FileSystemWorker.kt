@@ -66,7 +66,7 @@ import java.nio.file.StandardCopyOption
  */
 class FileSystemWorker : AndroidWorker {
 
-    override suspend fun doWork(input: String?): WorkerResult = withContext(Dispatchers.IO) {
+    override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult = withContext(Dispatchers.IO) {
         try {
             if (input.isNullOrEmpty()) {
                 return@withContext WorkerResult.Failure("Input JSON is required")

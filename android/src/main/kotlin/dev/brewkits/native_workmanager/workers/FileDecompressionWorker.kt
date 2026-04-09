@@ -58,7 +58,7 @@ class FileDecompressionWorker : AndroidWorker {
         val deleteAfterExtract: Boolean = false
     )
 
-    override suspend fun doWork(input: String?): WorkerResult = withContext(Dispatchers.IO) {
+    override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult = withContext(Dispatchers.IO) {
         if (input.isNullOrEmpty()) {
             throw IllegalArgumentException("Input JSON is required")
         }

@@ -58,7 +58,7 @@ class FileCompressionWorkerTest {
         }.toString()
 
         // Execute worker
-        val result = worker.doWork(input)
+        val result = worker.doWork(input, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Verify
         assertTrue("Worker should succeed", result is WorkerResult.Success)
@@ -95,7 +95,7 @@ class FileCompressionWorkerTest {
         }.toString()
 
         // Execute worker
-        val result = worker.doWork(input)
+        val result = worker.doWork(input, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Verify
         assertTrue("Worker should succeed", result is WorkerResult.Success)
@@ -138,7 +138,7 @@ class FileCompressionWorkerTest {
         }.toString()
 
         // Execute worker
-        val result = worker.doWork(input)
+        val result = worker.doWork(input, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Verify
         assertTrue("Worker should succeed", result is WorkerResult.Success)
@@ -178,7 +178,7 @@ class FileCompressionWorkerTest {
         }.toString()
 
         // Execute worker
-        val result = worker.doWork(input)
+        val result = worker.doWork(input, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Verify
         assertTrue("Worker should succeed", result is WorkerResult.Success)
@@ -213,7 +213,7 @@ class FileCompressionWorkerTest {
         assertTrue("Test file should exist before compression", testFile.exists())
 
         // Execute worker
-        val result = worker.doWork(input)
+        val result = worker.doWork(input, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Verify
         assertTrue("Worker should succeed", result is WorkerResult.Success)
@@ -238,7 +238,7 @@ class FileCompressionWorkerTest {
         }.toString()
 
         // Execute worker
-        val result = worker.doWork(input)
+        val result = worker.doWork(input, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Verify
         assertTrue("Worker should succeed", result is WorkerResult.Success)
@@ -271,7 +271,7 @@ class FileCompressionWorkerTest {
                 put("compressionLevel", level)
             }.toString()
 
-            worker.doWork(input)
+            worker.doWork(input, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
         }
 
         // Verify all succeeded
@@ -292,7 +292,7 @@ class FileCompressionWorkerTest {
 
     @Test
     fun `fail when input is null`() = runBlocking {
-        val result = worker.doWork(null)
+        val result = worker.doWork(null, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
         assertFalse("Should fail with null input", result is WorkerResult.Success)
     }
 
@@ -302,7 +302,7 @@ class FileCompressionWorkerTest {
             put("outputPath", "/tmp/output.zip")
         }.toString()
 
-        val result = worker.doWork(input)
+        val result = worker.doWork(input, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
         assertFalse("Should fail when inputPath is missing", result is WorkerResult.Success)
     }
 
@@ -312,7 +312,7 @@ class FileCompressionWorkerTest {
             put("inputPath", "/tmp/test.txt")
         }.toString()
 
-        val result = worker.doWork(input)
+        val result = worker.doWork(input, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
         assertFalse("Should fail when outputPath is missing", result is WorkerResult.Success)
     }
 
@@ -323,7 +323,7 @@ class FileCompressionWorkerTest {
             put("outputPath", File(tempDir, "output.zip").absolutePath)
         }.toString()
 
-        val result = worker.doWork(input)
+        val result = worker.doWork(input, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
         assertFalse("Should fail when input file doesn't exist", result is WorkerResult.Success)
     }
 
@@ -337,7 +337,7 @@ class FileCompressionWorkerTest {
             put("outputPath", File(tempDir, "output.txt").absolutePath)
         }.toString()
 
-        val result = worker.doWork(input)
+        val result = worker.doWork(input, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
         assertFalse("Should fail when output doesn't end with .zip", result is WorkerResult.Success)
     }
 
@@ -357,7 +357,7 @@ class FileCompressionWorkerTest {
             put("outputPath", outputFile.absolutePath)
         }.toString()
 
-        val result = worker.doWork(input)
+        val result = worker.doWork(input, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Should succeed even with empty directory
         assertTrue("Should succeed with empty directory", result is WorkerResult.Success)
@@ -383,7 +383,7 @@ class FileCompressionWorkerTest {
             put("outputPath", outputFile.absolutePath)
         }.toString()
 
-        val result = worker.doWork(input)
+        val result = worker.doWork(input, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         assertTrue("Should succeed with large file", result is WorkerResult.Success)
         assertTrue("Output should exist", outputFile.exists())
@@ -407,7 +407,7 @@ class FileCompressionWorkerTest {
             put("outputPath", outputFile.absolutePath)
         }.toString()
 
-        val result = worker.doWork(input)
+        val result = worker.doWork(input, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         assertTrue("Should succeed", result is WorkerResult.Success)
         assertNotEquals("File should be replaced", oldSize, outputFile.length())

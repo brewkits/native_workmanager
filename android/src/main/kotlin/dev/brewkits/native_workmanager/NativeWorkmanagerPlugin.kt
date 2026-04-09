@@ -54,7 +54,7 @@ import okhttp3.OkHttpClient
 /**
  * Native WorkManager Flutter Plugin for Android.
  *
- * Uses kmpworkmanager v2.3.7 from Maven Central as the core engine.
+ * Uses kmpworkmanager v2.3.8 from Maven Central as the core engine.
  * This ensures compatibility with Pro/Enterprise versions.
  */
 class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
@@ -239,7 +239,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
             scheduler = NativeTaskScheduler(context)
 
             isSchedulerInitialized = true
-            NativeLogger.d("✅ Scheduler initialized with kmpworkmanager v2.3.7 from Maven Central")
+            NativeLogger.d("✅ Scheduler initialized with kmpworkmanager v2.3.8 from Maven Central")
         } catch (e: Exception) {
             NativeLogger.e("❌ Failed to initialize scheduler", e)
         }

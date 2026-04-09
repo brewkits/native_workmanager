@@ -26,7 +26,7 @@
 |-----------|---------|
 | Current Version | v1.1.0 |
 | Platforms | Android (API 26+), iOS (14.0+) |
-| Engine Core | kmpworkmanager 2.3.7 (KMP, Maven Central) |
+| Engine Core | kmpworkmanager 2.3.8 (KMP, Maven Central) |
 | Dart SDK | >=3.6.0 <4.0.0 |
 | Flutter | >=3.27.0 |
 | License | MIT |
@@ -65,7 +65,7 @@ For mid-range Android devices running multiple apps, starting the Flutter Engine
 │  KMP Engine Layer                                            │
 │  Android: WorkManager 2.10.1 (Androidx)                     │
 │  iOS: BGTaskScheduler / BGProcessingTask                    │
-│  Shared domain: kmpworkmanager 2.3.7                        │
+│  Shared domain: kmpworkmanager 2.3.8                        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -709,7 +709,7 @@ With the right strategy:
 
 | Dependency | Version | Notes |
 |------------|---------|---------|
-| kmpworkmanager | 2.3.7 | Core engine, Maven Central |
+| kmpworkmanager | 2.3.8 | Core engine, Maven Central |
 | androidx.work | 2.10.1 | Android WorkManager |
 | okhttp3 | 4.12.0 | Android HTTP client |
 | kotlinx.coroutines | 1.8.0 | Android async |

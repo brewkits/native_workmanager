@@ -57,7 +57,7 @@ class DartCallbackWorker: IosWorker {
 
     // MARK: - Worker Implementation
 
-    func doWork(input: String?) async throws -> WorkerResult {
+    func doWork(input: String?, env: WorkerEnvironment) async throws -> WorkerResult {
         guard let input = input, !input.isEmpty else {
             print("DartCallbackWorker: Error - Empty or null input")
             return WorkerResult.failure(message: "Empty or null input")

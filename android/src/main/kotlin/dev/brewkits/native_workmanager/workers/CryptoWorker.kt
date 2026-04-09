@@ -99,7 +99,7 @@ class CryptoWorker : AndroidWorker {
             "password=${if (password != null) "[REDACTED]" else "null"})"
     }
 
-    override suspend fun doWork(input: String?): WorkerResult = withContext(Dispatchers.IO) {
+    override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult = withContext(Dispatchers.IO) {
         if (input.isNullOrEmpty()) {
             throw IllegalArgumentException("Input JSON is required")
         }

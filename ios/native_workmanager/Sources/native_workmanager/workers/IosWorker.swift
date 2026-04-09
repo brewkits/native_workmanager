@@ -17,7 +17,7 @@ public protocol IosWorker {
     /// - Parameter input: JSON configuration string for the worker
     /// - Returns: WorkerResult indicating success/failure with optional data and message
     /// - Throws: Can throw errors which will be caught and logged
-    func doWork(input: String?) async throws -> WorkerResult
+    func doWork(input: String?, env: WorkerEnvironment) async throws -> WorkerResult
 
     /// Called when the task must stop immediately (e.g. iOS expiration).
     ///

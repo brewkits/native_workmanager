@@ -3,11 +3,9 @@ package dev.brewkits.native_workmanager
 import android.content.Intent
 import androidx.core.content.FileProvider
 import androidx.work.Data
-import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
-import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
 import androidx.work.await
 import dev.brewkits.kmpworkmanager.background.data.KmpHeavyWorker
@@ -351,20 +349,6 @@ internal fun NativeWorkmanagerPlugin.handleEnqueue(call: MethodCall, result: Res
                 enqueueOneTimeWorkDirect(taskId, workerClassName, inputJson, tag, constraints, delayMs, policy, isExpedited)
                 taskStatuses[taskId] = "pending"
                 observeWorkCompletion(taskId, false)
-                result.success("ACCEPTED")
-                return@launch
-            }
-
-            // Fix: kmpworkmanager scheduler.enqueue() silently creates a OneTimeWorkRequest
-            // even when given a Periodic trigger — so the task runs once then never repeats.
-            // Bypass kmpworkmanager for Periodic tasks and enqueue PeriodicWorkRequest directly.
-            if (trigger is TaskTrigger.Periodic) {
-                val intervalMs = trigger.intervalMs
-                val flexMs = trigger.flexMs
-                NativeLogger.d("Scheduling '$taskId': Periodic(interval=${intervalMs}ms, flex=${flexMs}ms) → direct WorkManager")
-                enqueuePeriodicWorkDirect(taskId, workerClassName, inputJson, tag, constraints, intervalMs, flexMs, policy)
-                taskStatuses[taskId] = "pending"
-                observeWorkCompletion(taskId, true)
                 result.success("ACCEPTED")
                 return@launch
             }
@@ -721,87 +705,4 @@ internal fun NativeWorkmanagerPlugin.enqueueOneTimeWorkDirect(
     NativeLogger.d("✅ OneTime '$taskId' enqueued via direct WorkManager (delay=${delayMs}ms, heavy=${constraints.isHeavyTask}, policy=$workPolicy)")
 }
 
-/**
- * Schedules a Periodic task directly via WorkManager, bypassing kmpworkmanager.
- *
- * kmpworkmanager's BackgroundTaskScheduler.enqueue() creates a OneTimeWorkRequest even when
- * given a Periodic trigger — so the task runs once and never repeats.
- * This method creates a true PeriodicWorkRequest so WorkManager re-schedules it automatically.
- *
- * Note: WorkManager enforces a minimum repeat interval of 15 minutes (900,000 ms).
- * Shorter intervals are silently coerced up to 15 minutes by WorkManager.
- */
-internal fun NativeWorkmanagerPlugin.enqueuePeriodicWorkDirect(
-    taskId: String,
-    workerClassName: String,
-    inputJson: String?,
-    tag: String?,
-    constraints: Constraints,
-    intervalMs: Long,
-    flexMs: Long?,
-    policy: ExistingPolicy,
-) {
-    val workerClass = if (constraints.isHeavyTask) KmpHeavyWorker::class.java else KmpWorker::class.java
-
-    val dataBuilder = Data.Builder().putString("workerClassName", workerClassName)
-    
-    // Apply middleware to inputJson before enqueuing (Phase 2)
-    val effectiveInputJson = if (inputJson != null) {
-        NativeWorkmanagerPlugin.applyMiddleware(context, workerClassName, inputJson)
-    } else inputJson
-    
-    if (effectiveInputJson != null) dataBuilder.putString("inputJson", effectiveInputJson)
-
-    val networkType = when {
-        constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
-        constraints.requiresNetwork -> NetworkType.CONNECTED
-        else -> NetworkType.NOT_REQUIRED
-    }
-    val wmConstraintsBuilder = androidx.work.Constraints.Builder()
-        .setRequiredNetworkType(networkType)
-        .setRequiresCharging(constraints.requiresCharging)
-    val sysConstraints = constraints.systemConstraints ?: emptySet()
-    if (sysConstraints.contains(SystemConstraint.DEVICE_IDLE)) wmConstraintsBuilder.setRequiresDeviceIdle(true)
-    if (sysConstraints.contains(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)) wmConstraintsBuilder.setRequiresBatteryNotLow(true)
-
-    // WorkManager minimum interval is 15 minutes; coerce silently to match WM behaviour
-    val effectiveIntervalMs = intervalMs.coerceAtLeast(15 * 60 * 1000L)
-
-    val requestBuilder = if (flexMs != null && flexMs > 0) {
-        // Flex must be ≤ interval and ≥ 5 minutes per WorkManager constraints
-        val effectiveFlexMs = flexMs.coerceIn(5 * 60 * 1000L, effectiveIntervalMs)
-        PeriodicWorkRequest.Builder(
-            workerClass,
-            effectiveIntervalMs, TimeUnit.MILLISECONDS,
-            effectiveFlexMs, TimeUnit.MILLISECONDS
-        )
-    } else {
-        PeriodicWorkRequest.Builder(workerClass, effectiveIntervalMs, TimeUnit.MILLISECONDS)
-    }
-
-    requestBuilder
-        .setConstraints(wmConstraintsBuilder.build())
-        .setInputData(dataBuilder.build())
-        .addTag(NativeTaskScheduler.TAG_KMP_TASK)
-        .addTag("worker-$workerClassName")
-        .addTag(taskId)
-        .addTag(workerClassName)
-    if (tag != null) requestBuilder.addTag(tag)
-
-    val wmBackoffPolicy = when (constraints.backoffPolicy) {
-        BackoffPolicy.LINEAR -> androidx.work.BackoffPolicy.LINEAR
-        else -> androidx.work.BackoffPolicy.EXPONENTIAL
-    }
-    requestBuilder.setBackoffCriteria(wmBackoffPolicy, constraints.backoffDelayMs, TimeUnit.MILLISECONDS)
-
-    // ExistingPeriodicWorkPolicy.REPLACE was deprecated in WorkManager 2.8.0;
-    // CANCEL_AND_REENQUEUE is the correct replacement.
-    val workPolicy = when (policy) {
-        ExistingPolicy.REPLACE -> ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE
-        else -> ExistingPeriodicWorkPolicy.KEEP
-    }
-
-    WorkManager.getInstance(context).enqueueUniquePeriodicWork(taskId, workPolicy, requestBuilder.build())
-    NativeLogger.d("✅ Periodic '$taskId' enqueued via direct WorkManager (interval=${effectiveIntervalMs}ms, flex=${flexMs}ms, policy=$workPolicy)")
-}
 

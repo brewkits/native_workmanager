@@ -32,7 +32,7 @@ internal class DbCleanupWorker : AndroidWorker {
         private const val RETENTION_MS = 30L * 24 * 60 * 60 * 1000L
     }
 
-    override suspend fun doWork(input: String?): WorkerResult = withContext(Dispatchers.IO) {
+    override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult = withContext(Dispatchers.IO) {
         return@withContext try {
             val context = AppContextHolder.appContext
             val store = TaskStore(context)

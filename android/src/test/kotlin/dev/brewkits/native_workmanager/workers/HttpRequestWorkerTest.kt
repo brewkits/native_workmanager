@@ -53,7 +53,7 @@ class HttpRequestWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertTrue(result is WorkerResult.Success, "GET request should succeed")
@@ -80,7 +80,7 @@ class HttpRequestWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertTrue(result is WorkerResult.Success, "POST request should succeed")
@@ -105,7 +105,7 @@ class HttpRequestWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertFalse(result is WorkerResult.Success, "404 request should fail")
@@ -124,7 +124,7 @@ class HttpRequestWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertFalse(result is WorkerResult.Success, "500 request should fail")
@@ -144,7 +144,7 @@ class HttpRequestWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertTrue(result is WorkerResult.Success, "PUT request should succeed")
@@ -167,7 +167,7 @@ class HttpRequestWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertTrue(result is WorkerResult.Success, "DELETE request should succeed")
@@ -190,7 +190,7 @@ class HttpRequestWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertTrue(result is WorkerResult.Success, "PATCH request should succeed")
@@ -213,7 +213,7 @@ class HttpRequestWorkerTest {
         """.trimIndent()
 
         // Act
-        val result = worker.doWork(config)
+        val result = worker.doWork(config, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
 
         // Assert
         assertTrue(result is WorkerResult.Success, "Request with custom timeout should succeed")
@@ -226,7 +226,7 @@ class HttpRequestWorkerTest {
 
         // Act & Assert
         try {
-            worker.doWork(invalidConfig)
+            worker.doWork(invalidConfig, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
             throw AssertionError("Should have thrown IllegalArgumentException")
         } catch (e: IllegalArgumentException) {
             assertTrue(e.message!!.contains("Invalid config JSON"))
@@ -237,7 +237,7 @@ class HttpRequestWorkerTest {
     fun `test empty input`() = runBlocking {
         // Act & Assert
         try {
-            worker.doWork("")
+            worker.doWork("", dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
             throw AssertionError("Should have thrown IllegalArgumentException")
         } catch (e: IllegalArgumentException) {
             assertTrue(e.message!!.contains("Input JSON is required"))
@@ -248,7 +248,7 @@ class HttpRequestWorkerTest {
     fun `test null input`() = runBlocking {
         // Act & Assert
         try {
-            worker.doWork(null)
+            worker.doWork(null, dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment())
             throw AssertionError("Should have thrown IllegalArgumentException")
         } catch (e: IllegalArgumentException) {
             assertTrue(e.message!!.contains("Input JSON is required"))

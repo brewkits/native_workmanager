@@ -33,10 +33,10 @@ android {
     }
 
     dependencies {
-        // KMP WorkManager - Core library (from Maven Central v2.3.7)
-        api("dev.brewkits:kmpworkmanager:2.3.7")
+        // KMP WorkManager - Core library (from Maven Central v2.3.8)
+        api("dev.brewkits:kmpworkmanager:2.3.8")
 
-        // Android WorkManager — safe to use 2.10.0+ with kmpworkmanager 2.3.7+
+        // Android WorkManager — safe to use 2.10.0+ with kmpworkmanager 2.3.8+
         // (getForegroundInfo() override added in kmpworkmanager 2.3.3)
         api("androidx.work:work-runtime-ktx:2.10.1")
 
