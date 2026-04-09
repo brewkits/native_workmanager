@@ -24,7 +24,7 @@
 
 | Attribute | Value |
 |-----------|---------|
-| Current Version | v1.1.0 |
+| Current Version | v1.1.1 |
 | Platforms | Android (API 26+), iOS (14.0+) |
 | Engine Core | kmpworkmanager 2.3.8 (KMP, Maven Central) |
 | Dart SDK | >=3.6.0 <4.0.0 |
@@ -671,7 +671,7 @@ All proposed improvements are **additive** — no rewrites required.
 | **Security** | 8/10 | Canonical path hardening, needs iOS SQLite |
 | **Feature Coverage** | 8/10 | 11 workers, missing remote trigger + DAG |
 | **Developer Experience** | 8.5/10 | Type-safe, fluent API, well-documented |
-| **Production Readiness** | 8/10 | v1.1.0 stable, iOS persistence gap |
+| **Production Readiness** | 8/10 | v1.1.1 stable, iOS persistence gap |
 | **Competitive Position** | 7.5/10 | Technically superior, needs traction |
 | **Growth Potential** | 9/10 | Clear roadmap, solid foundation |
 | **Overall** | **8.3/10** | |
@@ -725,7 +725,7 @@ With the right strategy:
 | Integration tests | 37 | Android |
 | Integration tests | 37 | iOS |
 | Security tests | ~20 | Dart |
-| Regression tests (v1.1.0 audit) | 33 | Dart |
+| Regression tests (v1.1.1 audit) | 33 | Dart |
 
 ### Performance Benchmarks
 
