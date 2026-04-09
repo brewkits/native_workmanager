@@ -29,7 +29,7 @@ class PdfWorker: IosWorker {
 
     // MARK: - doWork
 
-    func doWork(input: String?, env: WorkerEnvironment) async throws -> WorkerResult {
+    func doWork(input: String?, env: KMPWorkManager.WorkerEnvironment) async throws -> WorkerResult {
         guard let input = input, !input.isEmpty else {
             return .failure(message: "Empty or null input")
         }

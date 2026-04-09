@@ -20,7 +20,7 @@ enum ImageCompressError: Error {
 /// }
 /// ```
 class ImageCompressWorker: IosWorker {
-    func doWork(input: String?, env: WorkerEnvironment) async throws -> WorkerResult {
+    func doWork(input: String?, env: KMPWorkManager.WorkerEnvironment) async throws -> WorkerResult {
         // Parse JSON input
         guard let inputString = input,
               let data = inputString.data(using: .utf8),
