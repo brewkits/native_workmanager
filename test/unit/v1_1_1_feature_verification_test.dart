@@ -43,14 +43,22 @@ void main() {
     });
 
     test('BackoffPolicy serialization handles all enum values', () {
-      expect(const Constraints(backoffPolicy: BackoffPolicy.exponential).toMap()['backoffPolicy'], 'exponential');
-      expect(const Constraints(backoffPolicy: BackoffPolicy.linear).toMap()['backoffPolicy'], 'linear');
+      expect(
+          const Constraints(backoffPolicy: BackoffPolicy.exponential)
+              .toMap()['backoffPolicy'],
+          'exponential');
+      expect(
+          const Constraints(backoffPolicy: BackoffPolicy.linear)
+              .toMap()['backoffPolicy'],
+          'linear');
     });
 
-    test('ContentUriTrigger toMap includes all necessary fields for Android', () {
+    test('ContentUriTrigger toMap includes all necessary fields for Android',
+        () {
       final uri = Uri.parse('content://com.android.contacts/contacts');
-      final trigger = TaskTrigger.contentUri(uri: uri, triggerForDescendants: true);
-      
+      final trigger =
+          TaskTrigger.contentUri(uri: uri, triggerForDescendants: true);
+
       final map = trigger.toMap();
       expect(map['type'], 'contentUri');
       expect(map['uriString'], 'content://com.android.contacts/contacts');

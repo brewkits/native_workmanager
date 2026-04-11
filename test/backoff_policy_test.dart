@@ -117,8 +117,8 @@ void main() {
       final uri = Uri.parse('content://com.example/path?query=1#fragment');
       final trigger = TaskTrigger.contentUri(uri: uri);
 
-      expect((trigger as ContentUriTrigger).uri.toString(),
-          contains('query=1'));
+      expect(
+          (trigger as ContentUriTrigger).uri.toString(), contains('query=1'));
       expect(trigger.uri.toString(), contains('fragment'));
       expect(trigger.toMap()['uriString'], equals(uri.toString()));
     });

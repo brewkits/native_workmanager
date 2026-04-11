@@ -16,7 +16,8 @@ import 'worker.dart';
 class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   /// The method channel used to interact with the native platform.
   @visibleForTesting
-  late final methodChannel = const MethodChannel('dev.brewkits/native_workmanager');
+  late final methodChannel =
+      const MethodChannel('dev.brewkits/native_workmanager');
 
   /// Event channel for task completion events.
   @visibleForTesting
@@ -236,7 +237,8 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
 
   @override
   Future<TaskRecord?> getTaskRecord({required String taskId}) async {
-    developer.log('MethodChannel[${methodChannel.name}]: invoking getTaskRecord for $taskId');
+    developer.log(
+        'MethodChannel[${methodChannel.name}]: invoking getTaskRecord for $taskId');
     try {
       final result = await methodChannel.invokeMapMethod<String, dynamic>(
         'getTaskRecord',
@@ -248,7 +250,8 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
       if (result == null) return null;
       return TaskRecord.fromMap(result);
     } catch (e, s) {
-      developer.log('MethodChannel[${methodChannel.name}]: error in getTaskRecord: $e\n$s');
+      developer.log(
+          'MethodChannel[${methodChannel.name}]: error in getTaskRecord: $e\n$s');
       return null;
     }
   }
