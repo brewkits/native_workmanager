@@ -471,7 +471,7 @@ if (userPassword != storedPassword) {
 
 ## Changelog
 
-### v1.0.0 (2026-02-07)
+### v1.1.1 (2026-02-07)
 - ✅ File hashing (MD5, SHA-1, SHA-256, SHA-512)
 - ✅ String hashing
 - ✅ File encryption (AES-256-GCM)
@@ -479,7 +479,7 @@ if (userPassword != storedPassword) {
 - ✅ Password validation (8 char minimum)
 - ✅ Streaming operations (low memory)
 
-### Planned for v1.1.0
+### Planned for v1.1.1
 - Advanced key derivation (PBKDF2 iterations configurable)
 - Public key encryption (RSA)
 - Digital signatures

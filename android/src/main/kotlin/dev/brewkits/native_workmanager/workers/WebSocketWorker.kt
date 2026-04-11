@@ -82,7 +82,7 @@ class WebSocketWorker : AndroidWorker {
         val expectedMessages: Int get() = (receiveMessages ?: DEFAULT_RECEIVE_MESSAGES).coerceAtLeast(0)
     }
 
-    override suspend fun doWork(input: String?): WorkerResult = withContext(Dispatchers.IO) {
+    override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult = withContext(Dispatchers.IO) {
         if (input.isNullOrEmpty()) {
             throw IllegalArgumentException("Input JSON is required")
         }
@@ -108,13 +108,13 @@ class WebSocketWorker : AndroidWorker {
             throw IllegalArgumentException("Invalid config JSON: ${e.message}", e)
         }
 
-        // ✅ SECURITY: Validate WebSocket URL (ws:// and wss:// only)
+        // Validate WebSocket URL (ws:// and wss:// only)
         if (!validateWebSocketURL(config.url)) {
             Log.e(TAG, "Error - Invalid or unsafe WebSocket URL")
             return@withContext WorkerResult.Failure("Invalid or unsafe WebSocket URL")
         }
 
-        // ✅ SECURITY: Validate output path
+        // Validate output path
         config.storeResponseAt?.let { path ->
             if (!SecurityValidator.validateFilePathSafe(path)) {
                 Log.e(TAG, "Error - Unsafe storeResponseAt: $path")

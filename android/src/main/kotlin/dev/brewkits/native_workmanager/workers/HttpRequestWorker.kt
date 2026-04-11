@@ -67,16 +67,16 @@ class HttpRequestWorker : AndroidWorker {
         val headers: Map<String, String>? = null,
         val body: String? = null,
         val timeoutMs: Long? = null,
-        // 👇 NEW: Response validation patterns
         val successPattern: String? = null,  // Regex pattern that response must match to be success
         val failurePattern: String? = null,  // Regex pattern that indicates failure (overrides 200)
         val requestSigningConfig: dev.brewkits.native_workmanager.workers.utils.RequestSigner.Config? = null,
+        val tokenRefreshConfig: dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper.TokenRefreshConfig? = null,
     ) {
         val httpMethod: String get() = (method ?: "get").uppercase()
         val timeout: Long get() = timeoutMs ?: DEFAULT_TIMEOUT_MS
     }
 
-    override suspend fun doWork(input: String?): WorkerResult = withContext(Dispatchers.IO) {
+    override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult = withContext(Dispatchers.IO) {
         if (input.isNullOrEmpty()) {
             throw IllegalArgumentException("Input JSON is required")
         }
@@ -90,22 +90,22 @@ class HttpRequestWorker : AndroidWorker {
                 headers = parseStringMap(j.optJSONObject("headers")),
                 body = if (j.has("body") && !j.isNull("body")) j.getString("body") else null,
                 timeoutMs = if (j.has("timeoutMs")) j.getLong("timeoutMs") else null,
-                // 👇 NEW: Response validation
                 successPattern = if (j.has("successPattern") && !j.isNull("successPattern")) j.getString("successPattern") else null,
                 failurePattern = if (j.has("failurePattern") && !j.isNull("failurePattern")) j.getString("failurePattern") else null,
                 requestSigningConfig = dev.brewkits.native_workmanager.workers.utils.RequestSigner.fromMap(j.optJSONObject("requestSigning")),
+                tokenRefreshConfig = dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper.TokenRefreshConfig.fromMap(j.optJSONObject("tokenRefresh")),
             )
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid config JSON: ${e.message}", e)
         }
 
-        // ✅ SECURITY: Validate URL scheme (prevent file://, content://, etc.)
+        // Validate URL scheme (prevent file://, content://, etc.)
         if (!SecurityValidator.validateURL(config.url)) {
             Log.e(TAG, "Error - Invalid or unsafe URL")
             return@withContext WorkerResult.Failure("Invalid or unsafe URL")
         }
 
-        // ✅ SECURITY: Sanitize URL for logging (redact query params)
+        // Sanitize URL for logging (redact query params)
         val sanitizedURL = SecurityValidator.sanitizedURL(config.url)
         Log.d(TAG, "${config.httpMethod} $sanitizedURL")
 
@@ -116,48 +116,65 @@ class HttpRequestWorker : AndroidWorker {
             .writeTimeout(config.timeout, TimeUnit.MILLISECONDS)
             .build()
 
-        // Build request
-        val requestBuilder = Request.Builder()
-            .url(config.url)
-            .method(
-                config.httpMethod,
-                when {
-                    config.body != null -> {
-                        val bodyBytes = config.body.toByteArray(Charsets.UTF_8)
-
-                        // ✅ SECURITY: Validate request body size
-                        if (!SecurityValidator.validateRequestSize(bodyBytes)) {
-                            Log.e(TAG, "Error - Request body too large")
-                            return@withContext WorkerResult.Failure("Request body too large")
-                        }
-
-                        val contentType = config.headers?.get("Content-Type")
-                            ?: "application/json"
-                        bodyBytes.toRequestBody(contentType.toMediaType())
-                    }
-                    config.httpMethod in listOf("POST", "PUT", "PATCH") -> {
-                        // Empty body for POST/PUT/PATCH if no body provided
-                        ByteArray(0).toRequestBody(null)
-                    }
-                    else -> null
+        // Build request helper
+        fun buildRequest(newToken: String? = null): Request {
+            val requestBuilder = Request.Builder().url(config.url)
+            
+            // Add headers
+            config.headers?.forEach { (key, value) -> requestBuilder.addHeader(key, value) }
+            
+            // Inject refreshed token if available
+            newToken?.let { token ->
+                config.tokenRefreshConfig?.let { tr ->
+                    requestBuilder.header(tr.tokenHeaderName, "${tr.tokenPrefix}$token")
                 }
-            )
+            }
 
-        // Add headers
-        config.headers?.forEach { (key, value) ->
-            requestBuilder.addHeader(key, value)
+            // Set method and body
+            val requestBody = config.body?.let { body ->
+                val bodyBytes = body.toByteArray(Charsets.UTF_8)
+                if (!SecurityValidator.validateRequestSize(bodyBytes)) null
+                else {
+                    val contentType = config.headers?.get("Content-Type") ?: "application/json"
+                    bodyBytes.toRequestBody(contentType.toMediaType())
+                }
+            } ?: if (config.httpMethod in listOf("POST", "PUT", "PATCH")) {
+                ByteArray(0).toRequestBody(null)
+            } else null
+            
+            requestBuilder.method(config.httpMethod, requestBody)
+            
+            return config.requestSigningConfig?.let { 
+                dev.brewkits.native_workmanager.workers.utils.RequestSigner.sign(requestBuilder.build(), it) 
+            } ?: requestBuilder.build()
         }
-
-        val request = config.requestSigningConfig
-            ?.let { dev.brewkits.native_workmanager.workers.utils.RequestSigner.sign(requestBuilder.build(), it) }
-            ?: requestBuilder.build()
 
         // Execute request
         return@withContext try {
-            client.newCall(request).execute().use { response ->
-                val responseBody = response.body?.bytes() ?: ByteArray(0)
+            var request = buildRequest()
+            var response = client.newCall(request).execute()
+            
+            // Handle 401 with token refresh
+            if (response.code == 401 && config.tokenRefreshConfig != null) {
+                Log.d(TAG, "Received 401 — Attempting token refresh...")
+                val newToken = dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper.attemptTokenRefresh(
+                    client, config.tokenRefreshConfig
+                )
+                
+                if (newToken != null) {
+                    Log.d(TAG, "Token refresh successful — retrying request...")
+                    response.close() // Close original response
+                    request = buildRequest(newToken)
+                    response = client.newCall(request).execute()
+                } else {
+                    Log.e(TAG, "Token refresh failed")
+                }
+            }
 
-                // ✅ SECURITY: Validate response body size
+            response.use { resp ->
+                val responseBody = resp.body?.bytes() ?: ByteArray(0)
+
+                // Validate response body size
                 if (!SecurityValidator.validateResponseSize(responseBody)) {
                     Log.e(TAG, "Error - Response body too large")
                     return@withContext WorkerResult.Failure("Response body too large")
@@ -174,7 +191,7 @@ class HttpRequestWorker : AndroidWorker {
                 }
 
                 if (success) {
-                    // 👇 NEW: Validate response body against patterns (even if HTTP 200)
+                    // Validate response body against patterns (even if HTTP 200)
                     val validationError = validateResponse(bodyString, config)
                     if (validationError != null) {
                         Log.e(TAG, "Validation failed - $validationError")
@@ -187,7 +204,6 @@ class HttpRequestWorker : AndroidWorker {
 
                     Log.d(TAG, "Success - Status $statusCode, Body size: ${responseBody.size} bytes")
 
-                    // ✅ Return success with response data
                     WorkerResult.Success(
                         message = "HTTP $statusCode",
                         data = buildJsonObject {
@@ -197,7 +213,7 @@ class HttpRequestWorker : AndroidWorker {
                         }
                     )
                 } else {
-                    // ✅ SECURITY: Truncate error body for logging
+                    // Truncate error body for logging (security: avoid leaking full response)
                     val truncatedError = SecurityValidator.truncateForLogging(bodyString, 200)
                     Log.e(TAG, "Failed - Status $statusCode")
                     Log.e(TAG, "Error body: $truncatedError")

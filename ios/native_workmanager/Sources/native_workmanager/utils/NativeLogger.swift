@@ -5,14 +5,6 @@ import Foundation
 /// All diagnostic output is gated behind `enabled`. The flag is set to `true`
 /// when the host app calls `initialize(debugMode: true)` **and** the build is
 /// a debug build (checked via `#if DEBUG`).
-///
-/// In production `enabled` stays `false`, preventing task metadata such as
-/// task IDs, URLs, and file paths from appearing in the system log or
-/// Console.app — a requirement for apps that handle sensitive user operations.
-///
-/// Error-level messages are always emitted because they represent unexpected
-/// failures that engineers need to diagnose. Do NOT include user-identifiable
-/// data (task IDs, file paths, URLs) in error message strings.
 struct NativeLogger {
 
     // MARK: - State
@@ -26,14 +18,22 @@ struct NativeLogger {
 
     /// Debug log — silenced in production.
     static func d(_ message: String) {
+        #if targetEnvironment(simulator)
+        print("\(prefix) \(message)")
+        #else
         guard enabled else { return }
         print("\(prefix) \(message)")
+        #endif
     }
 
     /// Warning log — silenced in production.
     static func w(_ message: String) {
+        #if targetEnvironment(simulator)
+        print("\(prefix) ⚠️ \(message)")
+        #else
         guard enabled else { return }
         print("\(prefix) ⚠️ \(message)")
+        #endif
     }
 
     /// Error log — always emitted.
@@ -47,7 +47,10 @@ struct NativeLogger {
     /// Logs a URL after redacting sensitive query parameters.
     /// FIX #05: Prevents sensitive tokens from leaking via Console.
     static func url(_ prefixStr: String, _ urlStr: String) {
+        #if !targetEnvironment(simulator)
         guard enabled else { return }
+        #endif
+        
         guard var components = URLComponents(string: urlStr) else {
             d("\(prefixStr) [REDACTED URL]")
             return

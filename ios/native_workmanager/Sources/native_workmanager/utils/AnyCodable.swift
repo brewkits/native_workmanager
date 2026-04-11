@@ -5,14 +5,14 @@ import Foundation
 /// This type allows us to handle dynamic JSON structures where the exact
 /// schema is not known at compile time. Commonly used for task parameters,
 /// worker configurations, and API responses.
-struct AnyCodable: Codable {
-    let value: Any
+public struct AnyCodable: Codable {
+    public let value: Any
 
-    init(_ value: Any) {
+    public init(_ value: Any) {
         self.value = value
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
 
         if let bool = try? container.decode(Bool.self) {
@@ -35,7 +35,7 @@ struct AnyCodable: Codable {
         }
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
 
         switch value {

@@ -54,7 +54,7 @@ import okhttp3.OkHttpClient
 /**
  * Native WorkManager Flutter Plugin for Android.
  *
- * Uses kmpworkmanager v2.3.7 from Maven Central as the core engine.
+ * Uses kmpworkmanager v2.3.8 from Maven Central as the core engine.
  * This ensures compatibility with Pro/Enterprise versions.
  */
 class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
@@ -169,12 +169,11 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
         // Initialize persistent task store, chain store, and download notification channel
         taskStore = TaskStore(context)
         
-        // ✅ RELIABILITY (10/10): Recover "zombie" tasks stuck in 'running' state 
-        // after app crash or reboot. Reset to 'failed' so they can be retried.
-        ioScope.launch { 
-            taskStore.recoverZombieTasks() 
-            // ✅ PERFORMANCE: Auto-cleanup tasks older than 7 days to keep SQLite lightweight.
-            taskStore.deleteCompleted(olderThanMs = 604_800_000L) 
+        // Recover "zombie" tasks stuck in 'running' state after app crash or reboot.
+        // Reset to 'failed' so they can be retried, and clean up completed tasks older than 7 days.
+        ioScope.launch {
+            taskStore.recoverZombieTasks()
+            taskStore.deleteCompleted(olderThanMs = 604_800_000L)
         }
 
         chainStore = dev.brewkits.native_workmanager.store.ChainStore(context)
@@ -201,9 +200,8 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
                 subscribeToTaskEvents()
             }
             override fun onCancel(arguments: Any?) {
-                // BRIDGE-005 FIX: Cancel the collection job so it doesn't accumulate on hot restart.
-                // Without this, each subscribe/unsubscribe cycle leaves an orphaned coroutine
-                // collecting from TaskEventBus in the background.
+                // Cancel the collection job on unsubscribe; without this, each subscribe/unsubscribe
+                // cycle leaves an orphaned coroutine collecting from TaskEventBus.
                 eventJob?.cancel()
                 eventSink = null
             }
@@ -216,7 +214,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
                 subscribeToProgressUpdates()
             }
             override fun onCancel(arguments: Any?) {
-                // BRIDGE-005 FIX: Cancel the progress collection job on unsubscribe.
+                // Cancel the progress collection job on unsubscribe.
                 progressJob?.cancel()
                 progressSink = null
             }
@@ -239,7 +237,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
             scheduler = NativeTaskScheduler(context)
 
             isSchedulerInitialized = true
-            NativeLogger.d("✅ Scheduler initialized with kmpworkmanager v2.3.7 from Maven Central")
+            NativeLogger.d("✅ Scheduler initialized with kmpworkmanager v2.3.8 from Maven Central")
         } catch (e: Exception) {
             NativeLogger.e("❌ Failed to initialize scheduler", e)
         }
@@ -257,7 +255,9 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
             "getAllTags" -> handleGetAllTags(result)
             "enqueueChain" -> handleEnqueueChain(call, result)
             "getTaskStatus" -> handleGetTaskStatus(call, result)
-            "pause" -> handlePause(call, result)
+            "getTaskRecord" -> handleGetTaskRecord(call, result)
+            "cancel" -> handleCancel(call, result)
+
             "resume" -> handleResume(call, result)
             "allTasks" -> handleAllTasks(result)
             "getServerFilename" -> handleGetServerFilename(call, result)

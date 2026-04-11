@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import KMPWorkManager
 
 // MARK: - Task Execution
 // Separated from NativeWorkmanagerPlugin.swift to reduce God Object complexity.
@@ -32,7 +33,7 @@ extension NativeWorkmanagerPlugin {
                 NativeLogger.d("Resuming chain '\(chainState.chainId)'")
                 NativeLogger.d("  Progress: Step \(chainState.currentStep + 1)/\(chainState.totalSteps)")
 
-                // ✅ ISSUE 2 FIX: Wrap resumption in a background task
+                // Wrap resumption in a UIBackgroundTask to extend background time
                 let taskId = UIApplication.shared.beginBackgroundTask(withName: "ResumingChain_\(chainState.chainId)") { [weak self] in
                     self?.stopAllWorkers()
                 }
@@ -105,7 +106,6 @@ extension NativeWorkmanagerPlugin {
                     for task in stepTasks {
                         let taskId = task.taskId
                         let workerClassName = task.workerClassName
-                        // ✅ ISSUE 1 FIX: Secure placeholder substitution
                         var workerConfig: [String: Any] = task.workerConfig.mapValues { $0.value }
                         if let previousData = previousStepData {
                             workerConfig = substitutePlaceholders(config: workerConfig, data: previousData)
@@ -166,7 +166,7 @@ extension NativeWorkmanagerPlugin {
         qos: String,
         onEnqueued: (() -> Void)? = nil
     ) async {
-        // ✅ ISSUE 2 FIX: Wrap in UIBackgroundTaskIdentifier to extend background time (30s -> 3min)
+        // Wrap in UIBackgroundTaskIdentifier to extend background time (up to 3 minutes)
         let bgTask = UIApplication.shared.beginBackgroundTask(withName: "NativeWorkManagerChain_\(chainCancelId)") { [weak self] in
             NativeLogger.w("Chain background task for '\(chainCancelId)' expired! Stopping all workers.")
             self?.stopAllWorkers()
@@ -186,7 +186,7 @@ extension NativeWorkmanagerPlugin {
                 stepsData: steps
             )
             try await chainStateManager.saveChainState(initialState)
-            // ✅ ISSUE 4 FIX: Only notify Dart AFTER state is persisted to SQLite
+            // Notify Dart only after state is persisted to SQLite
             onEnqueued?()
         } catch {
             NativeLogger.d("Failed to create chain state: \(error)")
@@ -318,7 +318,7 @@ extension NativeWorkmanagerPlugin {
 
     // MARK: - Security Helpers
 
-    /// ✅ ISSUE 1 FIX: Replace placeholders like {{taskId.key}} with values from previous steps.
+    /// Replace placeholders like {{taskId.key}} with values from previous chain steps.
     private func substitutePlaceholders(config: [String: Any], data: [String: Any]) -> [String: Any] {
         var result = config
         
@@ -457,51 +457,59 @@ extension NativeWorkmanagerPlugin {
         let qosClass = mapQoS(qos)
 
         return await withCheckedContinuation { (continuation: CheckedContinuation<WorkerResult, Never>) in
-            DispatchQueue.global(qos: qosClass).async {
-                Task {
-                    var enrichedConfig = workerConfig
-                    enrichedConfig["__taskId"] = taskId
-                    
-                    let inputJson: String
-                    if let nestedInput = workerConfig["input"] as? String {
-                        inputJson = nestedInput
-                    } else {
-                        guard let jsonData = try? JSONSerialization.data(withJSONObject: enrichedConfig),
-                              let configJson = String(data: jsonData, encoding: .utf8) else {
-                            NativeLogger.d("Error serializing worker config")
-                            continuation.resume(returning: .failure(message: "Config serialization failed"))
-                            return
-                        }
-                        inputJson = configJson
-                    }
+            Task(priority: mapToConcurrencyPriority(qos)) {
+                var enrichedConfig = workerConfig
+                enrichedConfig["__taskId"] = taskId
 
-                    guard let worker = IosWorkerFactory.createWorker(className: workerClassName) else {
-                        NativeLogger.d("Unknown worker class: \(workerClassName)")
-                        continuation.resume(returning: .failure(message: "Unknown worker class"))
+                let inputJson: String
+                if let nestedInput = workerConfig["input"] as? String {
+                    inputJson = nestedInput
+                } else {
+                    guard let jsonData = try? JSONSerialization.data(withJSONObject: enrichedConfig),
+                          let configJson = String(data: jsonData, encoding: .utf8) else {
+                        NativeLogger.d("Error serializing worker config")
+                        continuation.resume(returning: .failure(message: "Config serialization failed"))
                         return
                     }
-                    
-                    // ✅ ISSUE 2 FIX: Register active worker
-                    self.stateQueue.sync(flags: .barrier) {
-                        self.workers[taskId] = worker
-                    }
-                    
-                    defer {
-                        // ✅ ISSUE 2 FIX: Unregister worker on completion
-                        self.stateQueue.sync(flags: .barrier) {
-                            self.workers.removeValue(forKey: taskId)
-                        }
-                    }
+                    inputJson = configJson
+                }
 
-                    do {
-                        let result = try await worker.doWork(input: inputJson)
-                        continuation.resume(returning: result)
-                    } catch {
-                        NativeLogger.d("Task '\(taskId)' error: \(error.localizedDescription)")
-                        continuation.resume(returning: .failure(message: error.localizedDescription))
+                guard let worker = IosWorkerFactory.createWorker(className: workerClassName) else {
+                    NativeLogger.d("Unknown worker class: \(workerClassName)")
+                    continuation.resume(returning: .failure(message: "Unknown worker class"))
+                    return
+                }
+
+                
+                self.stateQueue.sync(flags: .barrier) {
+                    self.workers[taskId] = worker
+                }
+
+                defer {
+                    self.stateQueue.sync(flags: .barrier) {
+                        self.workers.removeValue(forKey: taskId)
                     }
                 }
+
+                do {
+                    let env = WorkerEnvironment(progressListener: nil, isCancelled: { KotlinBoolean(bool: false) })
+                    let result = try await worker.doWork(input: inputJson, env: env)
+                    continuation.resume(returning: result)
+                } catch {
+                    NativeLogger.d("Task '\(taskId)' error: \(error.localizedDescription)")
+                    continuation.resume(returning: .failure(message: error.localizedDescription))
+                }
             }
+        }
+    }
+
+    private func mapToConcurrencyPriority(_ qos: String) -> _Concurrency.TaskPriority {
+        switch qos.lowercased() {
+        case "userinteractive": return .high
+        case "userinitiated":   return .userInitiated
+        case "utility":         return .utility
+        case "background":      return .background
+        default:                return .background
         }
     }
 

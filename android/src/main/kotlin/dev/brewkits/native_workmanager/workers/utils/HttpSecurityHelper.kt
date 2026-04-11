@@ -4,6 +4,8 @@ import android.util.Log
 import okhttp3.CertificatePinner
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MediaType.Companion.toMediaType
 import org.json.JSONObject
 
 object HttpSecurityHelper {
@@ -13,11 +15,12 @@ object HttpSecurityHelper {
 
     data class TokenRefreshConfig(
         val url: String,
-        val tokenHeaderName: String,
-        val tokenPrefix: String,
-        val refreshTokenKey: String,
-        val refreshTokenValue: String,
-        val responseTokenKey: String
+        val method: String = "POST",
+        val headers: Map<String, String>? = null,
+        val body: Map<String, Any>? = null,
+        val responseKey: String = "access_token",
+        val tokenHeaderName: String = "Authorization",
+        val tokenPrefix: String = "Bearer "
     ) {
         companion object {
             fun fromMap(map: JSONObject?): TokenRefreshConfig? {
@@ -25,16 +28,31 @@ object HttpSecurityHelper {
                 return try {
                     TokenRefreshConfig(
                         url = map.getString("url"),
-                        tokenHeaderName = map.getString("tokenHeaderName"),
-                        tokenPrefix = map.optString("tokenPrefix", ""),
-                        refreshTokenKey = map.getString("refreshTokenKey"),
-                        refreshTokenValue = map.getString("refreshTokenValue"),
-                        responseTokenKey = map.getString("responseTokenKey")
+                        method = map.optString("method", "POST"),
+                        headers = parseStringMap(map.optJSONObject("headers")),
+                        body = parseAnyMap(map.optJSONObject("body")),
+                        responseKey = map.optString("responseKey", "access_token"),
+                        tokenHeaderName = map.optString("tokenHeaderName", "Authorization"),
+                        tokenPrefix = map.optString("tokenPrefix", "Bearer ")
                     )
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to parse TokenRefreshConfig: ${e.message}")
                     null
                 }
+            }
+
+            private fun parseStringMap(obj: JSONObject?): Map<String, String>? {
+                if (obj == null) return null
+                val map = mutableMapOf<String, String>()
+                obj.keys().forEach { key -> map[key] = obj.getString(key) }
+                return map
+            }
+
+            private fun parseAnyMap(obj: JSONObject?): Map<String, Any>? {
+                if (obj == null) return null
+                val map = mutableMapOf<String, Any>()
+                obj.keys().forEach { key -> map[key] = obj.get(key) }
+                return map
             }
         }
     }
@@ -69,18 +87,41 @@ object HttpSecurityHelper {
     fun attemptTokenRefresh(client: OkHttpClient, config: TokenRefreshConfig): String? {
         try {
             Log.d(TAG, "Attempting token refresh at ${config.url}")
-            val request = Request.Builder()
-                .url(config.url)
-                .header(config.tokenHeaderName, "${config.tokenPrefix}${config.refreshTokenValue}")
-                .post(okhttp3.RequestBody.create(null, ByteArray(0))) // Empty POST
-                .build()
+            val builder = Request.Builder().url(config.url)
+            
+            // Add headers
+            config.headers?.forEach { (k, v) -> builder.header(k, v) }
+            
+            // Add body if needed
+            val requestBody = if (config.body != null) {
+                JSONObject(config.body).toString().toRequestBody("application/json".toMediaType())
+            } else if (config.method.uppercase() in listOf("POST", "PUT", "PATCH")) {
+                ByteArray(0).toRequestBody(null)
+            } else {
+                null
+            }
+            
+            val request = builder.method(config.method.uppercase(), requestBody).build()
 
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
                     val bodyString = response.body?.string()
                     if (bodyString != null) {
                         val json = JSONObject(bodyString)
-                        val newToken = json.optString(config.responseTokenKey, null)
+                        
+                        // Support nested keys (e.g. "json.access_token")
+                        val keyParts = config.responseKey.split(".")
+                        var current: Any? = json
+                        for (part in keyParts) {
+                            if (current is JSONObject) {
+                                current = current.opt(part)
+                            } else {
+                                current = null
+                                break
+                            }
+                        }
+                        
+                        val newToken = current?.toString()
                         if (!newToken.isNullOrEmpty()) {
                             Log.d(TAG, "Token refresh successful")
                             return newToken
@@ -101,9 +142,6 @@ object HttpSecurityHelper {
         val pinnerBuilder = CertificatePinner.Builder()
         for ((pattern, hashes) in config.pins) {
             for (hash in hashes) {
-                // SC-H-006: OkHttp CertificatePinner requires "sha256/" prefix.
-                // Silently prepend it if the caller omitted it so the pinner does not
-                // accept a raw base64 string and skip verification entirely.
                 val normalizedHash = if (hash.startsWith("sha256/") || hash.startsWith("sha1/")) {
                     hash
                 } else {

@@ -46,6 +46,7 @@ final class HttpDownloadWorker extends Worker {
     this.deleteArchiveAfterExtract = false,
     this.bandwidthLimitBytesPerSecond,
     this.requestSigning,
+    this.tokenRefresh,
   });
 
   /// The URL to download from.
@@ -235,6 +236,9 @@ final class HttpDownloadWorker extends Worker {
   ///
   /// Default: `null` (no signing).
   final RequestSigning? requestSigning;
+
+  /// Automatic token refresh configuration.
+  final TokenRefreshConfig? tokenRefresh;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // BUILDER-STYLE copyWith — avoids parameter explosion at call sites

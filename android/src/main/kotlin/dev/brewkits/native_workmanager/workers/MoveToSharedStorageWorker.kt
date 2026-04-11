@@ -47,7 +47,7 @@ class MoveToSharedStorageWorker(private val context: Context) : AndroidWorker {
         val subDir: String?
     )
 
-    override suspend fun doWork(input: String?): WorkerResult = withContext(Dispatchers.IO) {
+    override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult = withContext(Dispatchers.IO) {
         if (input.isNullOrEmpty()) {
             return@withContext WorkerResult.Failure("Input JSON is required")
         }

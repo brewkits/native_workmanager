@@ -57,7 +57,7 @@ class FileCompressionWorker : AndroidWorker {
         private const val COMPRESSION_HIGH = 9
     }
 
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult {
         // MEDIA-004: declared outside the try block so the catch handler can delete a
         // partial archive if compression fails mid-stream.
         var outputFile: File? = null
@@ -171,7 +171,7 @@ class FileCompressionWorker : AndroidWorker {
             // ════════════════════════════════════════════════════════════
             val totalFiles = countFiles(inputFile, excludePatterns)
 
-            // ✅ FIX #3: Use AtomicInteger to prevent memory leak in recursive calls
+            // Use AtomicInteger to prevent memory leak in recursive calls
             val filesProcessed = AtomicInteger(0)
 
             // Report initial progress
@@ -203,7 +203,7 @@ class FileCompressionWorker : AndroidWorker {
                         excludePatterns = excludePatterns,
                         taskId = taskId,
                         totalFiles = totalFiles,
-                        filesProcessedCounter = filesProcessed  // ✅ Pass AtomicInteger
+                        filesProcessedCounter = filesProcessed  // Pass AtomicInteger
                     )
                 } else {
                     // Compress single file
@@ -247,7 +247,7 @@ class FileCompressionWorker : AndroidWorker {
                 return WorkerResult.Failure("Compression failed: output file is empty or missing")
             }
 
-            // ✅ SECURITY: Validate archive size (prevent creating huge archives)
+            // Validate archive size (prevent creating huge archives)
             if (!SecurityValidator.validateArchiveSize(outputFile)) {
                 Log.e(TAG, "Error - Compressed archive exceeds size limit")
                 outputFile.delete() // Clean up
@@ -278,7 +278,7 @@ class FileCompressionWorker : AndroidWorker {
                 }
             }
 
-            // ✅ Return success with compression data
+            // Return success with compression data
             WorkerResult.Success(
                 message = "Compressed $filesCompressed files ($compressionRatio% ratio)",
                 data = buildJsonObject {
@@ -355,14 +355,14 @@ class FileCompressionWorker : AndroidWorker {
                     excludePatterns = excludePatterns,
                     taskId = taskId,
                     totalFiles = totalFiles,
-                    filesProcessedCounter = filesProcessedCounter  // ✅ Pass same counter
+                    filesProcessedCounter = filesProcessedCounter  // Pass same counter
                 )
             } else {
                 // Add file
                 compressFile(zipOut, file, entryName)
                 count++
 
-                // ✅ FIX #3: Thread-safe increment without lambda capture
+                // Thread-safe increment without lambda capture
                 val processed = filesProcessedCounter.incrementAndGet()
 
                 // Report progress (non-blocking — compressDirectory is not a suspend function)

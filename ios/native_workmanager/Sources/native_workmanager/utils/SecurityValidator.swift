@@ -33,7 +33,7 @@ enum SecurityValidator {
             return nil
         }
 
-        // ✅ SECURITY: Only allow HTTP and HTTPS schemes
+        // Only allow HTTP and HTTPS schemes
         guard let scheme = url.scheme?.lowercased() else {
             NativeLogger.d("SecurityValidator: URL missing scheme")
             return nil
@@ -103,7 +103,7 @@ enum SecurityValidator {
 
         let allowedURLs: [URL] = [documentsURL, cachesURL, tempURL].compactMap { $0 }
 
-        // ✅ SECURITY: Only allow paths within app sandbox (resolve symlinks on both sides)
+        // Only allow paths within app sandbox (resolve symlinks on both sides)
         for allowedURL in allowedURLs {
             let resolvedAllowed = allowedURL.resolvingSymlinksInPath().path
             if resolvedPath.hasPrefix(resolvedAllowed) {
@@ -165,7 +165,7 @@ enum SecurityValidator {
             return "[invalid URL]"
         }
 
-        // ✅ SECURITY: Redact query parameters (may contain secrets)
+        // Redact query parameters (may contain secrets)
         if let queryItems = components.queryItems, !queryItems.isEmpty {
             components.queryItems = [URLQueryItem(name: "...", value: "[redacted]")]
         }

@@ -1,4 +1,5 @@
 import Foundation
+import KMPWorkManager
 
 /// Built-in worker: File system operations
 ///
@@ -47,8 +48,8 @@ import Foundation
 /// ```
 class FileSystemWorker: IosWorker {
 
-    func doWork(input: String?) async throws -> WorkerResult {
-        // ✅ IOS: Register background task to request extra execution time
+    func doWork(input: String?, env: KMPWorkManager.WorkerEnvironment) async throws -> WorkerResult {
+        // Register background task to request extra execution time
         // iOS will freeze the app shortly after moving to background otherwise.
         var bgTaskId = UIBackgroundTaskIdentifier.invalid
         bgTaskId = UIApplication.shared.beginBackgroundTask(withName: "BrewkitsFileSystem") {
@@ -344,7 +345,7 @@ class FileSystemWorker: IosWorker {
         }
 
         do {
-            // ✅ MEMORY: Use streaming enumerator instead of loading all URLs into array
+            // Use streaming enumerator instead of loading all URLs into array
             var fileInfos: [[String: Any]] = []
             var totalSize: Int64 = 0
             var count = 0
@@ -363,7 +364,7 @@ class FileSystemWorker: IosWorker {
                 return .failure(message: "Cannot enumerate directory")
             }
             
-            // ✅ SECURITY: Fix Regex Injection — pre-compile and escape pattern
+            // Fix Regex Injection — pre-compile and escape pattern
             let regex = try pattern.flatMap { p -> NSRegularExpression? in
                 let escaped = p.replacingOccurrences(of: ".", with: "\\.")
                                .replacingOccurrences(of: "*", with: ".*")
@@ -405,7 +406,7 @@ class FileSystemWorker: IosWorker {
                     "recursive": recursive,
                     "fileCount": count,
                     "totalSize": totalSize,
-                    "files": fileInfos
+                    "entries": fileInfos.map { $0["path"] as? String ?? "" }
                 ]
             )
         } catch {

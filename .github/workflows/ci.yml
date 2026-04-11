@@ -32,7 +32,7 @@ jobs:
 
       - name: Override gen dependency to local path
         run: |
-          printf 'dependency_overrides:\n  native_workmanager:\n    path: ..\n' > native_workmanager_gen/pubspec_overrides.yaml
+          printf 'dependency_overrides:\n  native_workmanager:\n    path: ..\n  meta: ">=1.17.0 <3.0.0"\n' > native_workmanager_gen/pubspec_overrides.yaml
 
       - name: Get dependencies (gen)
         working-directory: native_workmanager_gen
@@ -105,7 +105,7 @@ jobs:
 
       - name: Override gen dependency to local path
         run: |
-          printf 'dependency_overrides:\n  native_workmanager:\n    path: ..\n' > native_workmanager_gen/pubspec_overrides.yaml
+          printf 'dependency_overrides:\n  native_workmanager:\n    path: ..\n  meta: ">=1.17.0 <3.0.0"\n' > native_workmanager_gen/pubspec_overrides.yaml
 
       - name: Get dependencies (gen)
         working-directory: native_workmanager_gen

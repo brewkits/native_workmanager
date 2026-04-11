@@ -28,7 +28,7 @@ import org.json.JSONObject
  * ```json
  * {
  *   "callbackId": "myCallback",        // For logging/debugging
- *   "callbackHandle": 12345678,        // ✅ Serializable handle (REQUIRED)
+ *   "callbackHandle": 12345678,        // Serializable handle (REQUIRED)
  *   "input": "{\"key\": \"value\"}",   // Optional JSON string input
  *   "autoDispose": true                // Optional: Kill engine immediately after completion (default: false)
  * }
@@ -53,7 +53,7 @@ class DartCallbackWorkerWrapper(
      * @param input JSON string containing callback handle and optional input data
      * @return WorkerResult indicating success/failure (data from Dart callback)
      */
-    override suspend fun doWork(input: String?): WorkerResult {
+    override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult {
         return try {
             Log.d(TAG, "DartCallbackWorker started")
 
@@ -85,7 +85,7 @@ class DartCallbackWorkerWrapper(
             // Extract optional input data
             val callbackInput = json.optString("input", null)
 
-            // ✅ NEW: Extract autoDispose flag (default: false)
+            // Extract autoDispose flag (default: false)
             val autoDispose = json.optBoolean("autoDispose", false)
 
             // EDGE-004: respect caller-supplied timeoutMs; default 5 minutes
@@ -95,13 +95,13 @@ class DartCallbackWorkerWrapper(
             Log.d(TAG, "Executing callback: $callbackId (handle: $callbackHandle, autoDispose: $autoDispose, timeoutMs: $timeoutMs)")
 
             // Execute Dart callback via FlutterEngineManager
-            // ✅ Pass callbackHandle (not callbackId) to enable cross-isolate execution
+            // Pass callbackHandle (not callbackId) to enable cross-isolate execution
             val result = FlutterEngineManager.executeDartCallback(
                 context = context,
-                callbackHandle = callbackHandle,  // ✅ Serializable handle
+                callbackHandle = callbackHandle,  // Serializable handle
                 input = callbackInput,
                 timeoutMs = timeoutMs,
-                disposeImmediately = autoDispose // ✅ NEW: Aggressive disposal flag
+                disposeImmediately = autoDispose // Aggressive disposal flag
             )
 
             Log.d(TAG, "Dart callback completed: $callbackId, result: $result")

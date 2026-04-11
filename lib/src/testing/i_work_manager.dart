@@ -108,6 +108,9 @@ abstract interface class IWorkManager {
   /// Returns the current status of a task, or `null` if not found.
   Future<TaskStatus?> getTaskStatus({required String taskId});
 
+  /// Returns the detailed record of a task, or `null` if not found.
+  Future<TaskRecord?> getTaskRecord({required String taskId});
+
   /// Returns all task IDs associated with [tag].
   Future<List<String>> getTasksByTag({required String tag});
 

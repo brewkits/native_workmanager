@@ -99,6 +99,10 @@ class NativeWorkManagerClient implements IWorkManager {
       NativeWorkManager.getTaskStatus(taskId: taskId);
 
   @override
+  Future<TaskRecord?> getTaskRecord({required String taskId}) =>
+      NativeWorkManager.getTaskRecord(taskId: taskId);
+
+  @override
   Future<List<String>> getTasksByTag({required String tag}) =>
       NativeWorkManager.getTasksByTag(tag: tag);
 

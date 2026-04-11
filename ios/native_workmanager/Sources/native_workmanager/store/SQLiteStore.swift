@@ -52,7 +52,7 @@ class SQLiteStore {
             
             bind(statement: statement, params: params)
             
-            // ✅ IMPROVED: Loop until SQLITE_DONE and handle SQLITE_BUSY
+            // Loop until SQLITE_DONE and handle SQLITE_BUSY (retry up to maxRetries times)
             var result = sqlite3_step(statement)
             var retryCount = 0
             let maxRetries = 5

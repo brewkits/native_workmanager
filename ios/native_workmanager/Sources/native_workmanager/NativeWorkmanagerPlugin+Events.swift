@@ -37,7 +37,7 @@ extension NativeWorkmanagerPlugin {
     func emitTaskEvent(taskId: String, success: Bool, message: String?, resultData: [String: Any]? = nil) {
         // Update task state
         stateQueue.async(flags: .barrier) {
-            self.taskStates[taskId] = success ? "completed" : "failed"
+            self.taskStates[taskId] = success ? "success" : "failed"
         }
 
         // Persist status change to SQLite store
@@ -48,9 +48,10 @@ extension NativeWorkmanagerPlugin {
             }
             taskStore?.updateStatus(
                 taskId: taskId,
-                status: success ? "completed" : "failed",
+                status: success ? "success" : "failed",
                 resultData: resultJson
             )
+
 
             // Show download completion/failure notification if enabled for this task
             let notifTitle: String? = stateQueue.sync { taskNotifTitles[taskId] }

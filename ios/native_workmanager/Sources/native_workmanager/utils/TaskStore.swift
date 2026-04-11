@@ -54,7 +54,7 @@ class TaskStore {
         sqlite.execute(sql: registrySql)
         sqlite.execute(sql: "CREATE INDEX IF NOT EXISTS idx_registry_url ON background_registry(url_string);")
         
-        // ✅ NEW: Migrate data from legacy UserDefaults if exists
+        // Migrate data from legacy UserDefaults if it exists
         migrateFromUserDefaults()
     }
 
@@ -82,7 +82,7 @@ class TaskStore {
             }
         }
         
-        // ✅ Clean up: Remove old keys after successful migration to avoid re-migration
+        // Remove old keys after successful migration to avoid re-migration
         defaults.removeObject(forKey: destRegistryKey)
         defaults.removeObject(forKey: urlRegistryKey)
         
@@ -243,12 +243,15 @@ struct TaskRecord {
     }
 
     func toFlutterMap() -> [String: Any] {
+        NSLog("[NativeWorkManager] TaskRecord.toFlutterMap: taskId=\(taskId), status=\(status), resultData=\(resultData ?? "nil")")
         return [
             "taskId": taskId,
             "tag": tag as Any,
             "status": status,
             "workerClassName": workerClassName,
-            "createdAt": createdAt * 1000, // Ms for Dart
+            "workerConfig": workerConfig as Any,
+            "resultData": resultData as Any,
+            "createdAt": createdAt * 1000,
             "updatedAt": updatedAt * 1000
         ]
     }

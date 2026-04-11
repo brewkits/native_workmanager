@@ -56,7 +56,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Native WorkManager v1.1.0 Demo',
+      title: 'Native WorkManager v1.1.1 Demo',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
@@ -98,7 +98,7 @@ class _DemoHomePageState extends State<DemoHomePage>
       });
     });
 
-    _addLog('🚀 Native WorkManager v1.1.0 initialized (100% KMP parity)');
+    _addLog('🚀 Native WorkManager v1.1.1 initialized (kmpworkmanager v2.3.8)');
   }
 
   @override
@@ -183,7 +183,7 @@ class _DemoHomePageState extends State<DemoHomePage>
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // TAB 2: v1.1.0 Features - BackoffPolicy
+  // TAB 2: v1.1.1 Features - BackoffPolicy
   // ═══════════════════════════════════════════════════════════════
 
   Future<void> _scheduleWithExponentialBackoff() async {
@@ -233,7 +233,7 @@ class _DemoHomePageState extends State<DemoHomePage>
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // TAB 3: v1.1.0 Features - ContentUri (Android only)
+  // TAB 3: v1.1.1 Features - ContentUri (Android only)
   // ═══════════════════════════════════════════════════════════════
 
   Future<void> _schedulePhotoBackup() async {
@@ -473,7 +473,7 @@ class _DemoHomePageState extends State<DemoHomePage>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Native WorkManager v1.1.0'),
+        title: const Text('Native WorkManager v1.1.1'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         bottom: TabBar(
           controller: _tabController,
@@ -542,7 +542,7 @@ class _DemoHomePageState extends State<DemoHomePage>
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const _SectionTitle('v1.1.0: Intelligent Retry (Android)'),
+        const _SectionTitle('v1.1.1: Intelligent Retry (Android)'),
         const Text(
           'Automatic retry with exponential or linear backoff\n'
           'Failed tasks will retry automatically with increasing delays',
@@ -601,7 +601,7 @@ class _DemoHomePageState extends State<DemoHomePage>
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const _SectionTitle('v1.1.0: ContentUri Trigger (Android)'),
+        const _SectionTitle('v1.1.1: ContentUri Trigger (Android)'),
         const Text(
           'React to content provider changes\n'
           'Auto-backup photos, sync contacts, etc.',

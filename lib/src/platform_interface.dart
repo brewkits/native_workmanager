@@ -103,6 +103,11 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
     throw UnimplementedError('getTaskStatus() has not been implemented.');
   }
 
+  /// Get detailed task record.
+  Future<TaskRecord?> getTaskRecord({required String taskId}) {
+    throw UnimplementedError('getTaskRecord() has not been implemented.');
+  }
+
   /// Schedule a task chain.
   Future<ScheduleResult> enqueueChain(Map<String, dynamic> chainData) {
     throw UnimplementedError('enqueueChain() has not been implemented.');

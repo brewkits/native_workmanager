@@ -1,4 +1,5 @@
 import Foundation
+import KMPWorkManager
 import UniformTypeIdentifiers
 
 /// Parallel multi-file HTTP upload worker for iOS.
@@ -64,7 +65,7 @@ class ParallelHttpUploadWorker: IosWorker {
 
     // MARK: - doWork
 
-    func doWork(input: String?) async throws -> WorkerResult {
+    func doWork(input: String?, env: KMPWorkManager.WorkerEnvironment) async throws -> WorkerResult {
         guard let input = input, !input.isEmpty else {
             return .failure(message: "Empty or null input")
         }

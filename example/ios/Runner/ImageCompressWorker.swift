@@ -1,5 +1,7 @@
 import Foundation
 import UIKit
+import native_workmanager
+import KMPWorkManager
 
 /// Errors thrown by ImageCompressWorker.
 enum ImageCompressError: Error {
@@ -20,7 +22,7 @@ enum ImageCompressError: Error {
 /// }
 /// ```
 class ImageCompressWorker: IosWorker {
-    func doWork(input: String?) async throws -> WorkerResult {
+    func doWork(input: String?, env: KMPWorkManager.WorkerEnvironment) async throws -> WorkerResult {
         // Parse JSON input
         guard let inputString = input,
               let data = inputString.data(using: .utf8),

@@ -25,7 +25,7 @@
 
 ```yaml
 dependencies:
-  native_workmanager: ^1.1.0
+  native_workmanager: ^1.1.1
 ```
 
 **2. Initialize once in `main()`:**
@@ -62,7 +62,15 @@ The popular `workmanager` plugin boots a **full Flutter Engine for every backgro
 
 `native_workmanager` skips the engine entirely. Workers run as pure Kotlin coroutines or Swift async tasks.
 
-| Metric | workmanager (Dart-based) | native_workmanager |
+### Core Engine: kmpworkmanager 2.3.8
+
+The latest version is powered by **kmpworkmanager 2.3.8**, which brings:
+- **Massive Performance:** O(1) queue complexity for iOS (40x faster enqueue/dequeue).
+- **Hardened Security:** Built-in SSRF protection, path traversal validation, and Zip-bomb detection.
+- **Enterprise Resilience:** Fixed `TaskEventBus` event drops on Android and atomic state recovery for task chains.
+- **Low Memory:** Optimized for devices with aggressive battery saving (Samsung, Xiaomi, etc.).
+
+| Metric | workmanager (Dart-based) | native_workmanager (v1.1.1) |
 | :--- | :---: | :---: |
 | Memory per task | ~50–100 MB | **~2–5 MB** |
 | Task startup | 1,500–3,000 ms | **< 50 ms** |

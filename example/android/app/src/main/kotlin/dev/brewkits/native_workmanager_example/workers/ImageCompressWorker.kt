@@ -11,7 +11,7 @@ import java.io.File
 import java.io.FileOutputStream
 
 class ImageCompressWorker : AndroidWorker {
-    override suspend fun doWork(input: String?): WorkerResult { // Changed return type to WorkerResult
+    override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult { // Changed return type to WorkerResult
         try {
             // Parse JSON input
             val json = Json.parseToJsonElement(input ?: "{}")

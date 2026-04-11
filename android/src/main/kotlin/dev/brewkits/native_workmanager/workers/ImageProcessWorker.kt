@@ -80,7 +80,7 @@ class ImageProcessWorker : AndroidWorker {
         val height: Int
     )
 
-    override suspend fun doWork(input: String?): WorkerResult = withContext(Dispatchers.IO) {
+    override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Starting image processing...")
 

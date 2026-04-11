@@ -29,3 +29,4 @@ export 'workers/move_to_shared_storage_worker.dart';
 export 'workers/pdf_worker.dart';
 export 'workers/websocket_worker.dart';
 export 'workers/auth_config.dart';
+export 'workers/token_refresh_config.dart';

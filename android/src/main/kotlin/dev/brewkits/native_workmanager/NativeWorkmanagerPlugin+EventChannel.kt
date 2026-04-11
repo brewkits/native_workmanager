@@ -99,10 +99,9 @@ internal fun NativeWorkmanagerPlugin.subscribeToTaskEvents() {
 
                 val terminalStatus = if (event.success) "completed" else "failed"
 
-                // BRIDGE-010 FIX: Persist to SQLite BEFORE updating in-memory.
-                // If the process dies between the two, SQLite is the durable record —
-                // on restart, Dart sees "pending" (the old value) and can decide to re-enqueue
-                // rather than silently believing the task completed.
+                // Persist to SQLite BEFORE updating in-memory. If the process dies between the
+                // two, SQLite is the durable record — on restart, Dart sees "pending" and can
+                // decide to re-enqueue rather than silently believing the task completed.
                 val resultJson = event.outputData?.let { toJson(it) }
                 withContext(Dispatchers.IO) {
                     taskStore.updateStatus(
@@ -146,6 +145,17 @@ internal fun NativeWorkmanagerPlugin.subscribeToTaskEvents() {
 
                 // Signal any observeWorkCompletion waiter so it can skip the fallback path.
                 taskBusSignals.remove(event.taskName)?.complete(Unit)
+
+                NativeLogger.d("EventChannel: received event for ${event.taskName}, success=${event.success}, hasOutputData=${event.outputData != null}")
+
+                // Update TaskStore so getTaskRecord() sees the result data
+                withContext(Dispatchers.IO) {
+                    taskStore.updateStatus(
+                        taskId = event.taskName,
+                        status = if (event.success) "success" else "failed",
+                        resultData = event.outputData?.let { org.json.JSONObject(it).toString() }
+                    )
+                }
 
                 // Always emit event to Dart (v2.3.1+: includes outputData)
                 val eventMap = mutableMapOf<String, Any?>(
@@ -288,9 +298,9 @@ internal fun NativeWorkmanagerPlugin.observeWorkCompletion(taskId: String, isPer
                             }
                             WorkInfo.State.ENQUEUED -> {
                                 if (previousState == WorkInfo.State.RUNNING) {
-                                    // BRIDGE-003 FIX: Do NOT emit success here. WorkInfo.State
-                                    // transitions RUNNING→ENQUEUED regardless of whether the worker
-                                    // returned Success or Failure (WorkManager retries periodic tasks).
+                                    // Do NOT emit success here. WorkInfo.State transitions
+                                    // RUNNING→ENQUEUED regardless of whether the worker returned
+                                    // Success or Failure (WorkManager retries periodic tasks).
                                     // Emitting success here would falsely report success when the
                                     // worker actually failed. TaskEventBus (subscribeToTaskEvents)
                                     // is the authoritative source for per-cycle results — it already

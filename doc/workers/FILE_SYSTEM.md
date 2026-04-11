@@ -506,7 +506,7 @@ worker: NativeWorker.fileCopy(
 
 ## Changelog
 
-### v1.0.0 (2026-02-07)
+### v1.1.1 (2026-02-07)
 - ✅ Copy files and directories
 - ✅ Move files and directories
 - ✅ Delete files and directories
@@ -515,7 +515,7 @@ worker: NativeWorker.fileCopy(
 - ✅ Security validations (path traversal, protected paths)
 - ✅ Atomic operations when possible
 
-### Planned for v1.1.0
+### Planned for v1.1.1
 - Batch operations (multiple operations in one task)
 - File attribute modification (permissions, dates)
 - Symbolic link support

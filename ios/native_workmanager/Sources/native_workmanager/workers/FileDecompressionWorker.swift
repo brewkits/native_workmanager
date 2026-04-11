@@ -1,4 +1,5 @@
 import Foundation
+import KMPWorkManager
 
 /// Native file decompression worker for iOS.
 ///
@@ -6,7 +7,7 @@ import Foundation
 /// Uses only Foundation — zero third-party dependencies.
 class FileDecompressionWorker: IosWorker {
 
-    func doWork(input: String?) async throws -> WorkerResult {
+    func doWork(input: String?, env: KMPWorkManager.WorkerEnvironment) async throws -> WorkerResult {
         guard let input,
               let data = input.data(using: .utf8),
               let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

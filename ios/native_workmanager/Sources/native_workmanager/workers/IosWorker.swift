@@ -1,4 +1,5 @@
 import Foundation
+import KMPWorkManager
 
 /// Protocol for iOS background workers.
 ///
@@ -17,7 +18,7 @@ public protocol IosWorker {
     /// - Parameter input: JSON configuration string for the worker
     /// - Returns: WorkerResult indicating success/failure with optional data and message
     /// - Throws: Can throw errors which will be caught and logged
-    func doWork(input: String?) async throws -> WorkerResult
+    func doWork(input: String?, env: KMPWorkManager.WorkerEnvironment) async throws -> WorkerResult
 
     /// Called when the task must stop immediately (e.g. iOS expiration).
     ///
@@ -77,6 +78,7 @@ public class IosWorkerFactory {
     /// - Parameter className: The worker class name (e.g., "HttpRequestWorker")
     /// - Returns: Worker instance, or nil if class not found
     static func createWorker(className: String) -> IosWorker? {
+        NSLog("[NativeWorkManager] IosWorkerFactory: creating worker '\(className)'")
         // Try user-registered worker first
         if let factory = userWorkers[className] {
             return factory()

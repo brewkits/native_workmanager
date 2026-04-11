@@ -58,7 +58,7 @@ class FileDecompressionWorker : AndroidWorker {
         val deleteAfterExtract: Boolean = false
     )
 
-    override suspend fun doWork(input: String?): WorkerResult = withContext(Dispatchers.IO) {
+    override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult = withContext(Dispatchers.IO) {
         if (input.isNullOrEmpty()) {
             throw IllegalArgumentException("Input JSON is required")
         }
@@ -106,7 +106,7 @@ class FileDecompressionWorker : AndroidWorker {
             return@withContext WorkerResult.Failure("Path is not a file")
         }
 
-        // ✅ SECURITY: Validate ZIP file size
+        // Validate ZIP file size
         if (!SecurityValidator.validateFileSize(zipFile)) {
             Log.e(TAG, "Error - ZIP file too large")
             return@withContext WorkerResult.Failure("ZIP file exceeds size limit")
@@ -150,7 +150,7 @@ class FileDecompressionWorker : AndroidWorker {
 
                     val entryName = entry.name
 
-                    // ✅ SECURITY: Prevent zip slip attack
+                    // Prevent zip slip attack
                     val destFile = File(targetDir, entryName)
                     val canonicalDestPath = destFile.canonicalPath
 
@@ -201,7 +201,7 @@ class FileDecompressionWorker : AndroidWorker {
                                 bytesWritten += len
                                 totalBytes += len
 
-                                // ✅ SECURITY: Robust Zip Bomb Protection
+                                // Robust Zip Bomb Protection
                                 // Check 1: Absolute Total Size Limit (2GB)
                                 if (totalBytes > 2L * 1024 * 1024 * 1024) {
                                     Log.e(TAG, "Security - Total extracted size exceeded limit (2GB)")
@@ -236,7 +236,7 @@ class FileDecompressionWorker : AndroidWorker {
                 }
             }
 
-            // ✅ Optional: Delete ZIP file after successful extraction
+            // Optional: Delete ZIP file after successful extraction
             if (config.deleteAfterExtract) {
                 if (zipFile.delete()) {
                     Log.d(TAG, "Deleted ZIP file: ${zipFile.name}")
@@ -249,7 +249,7 @@ class FileDecompressionWorker : AndroidWorker {
             Log.d(TAG, "  Files: $extractedFiles, Directories: $extractedDirs")
             Log.d(TAG, "  Total size: $totalBytes bytes")
 
-            // ✅ Return success with extraction data
+            // Return success with extraction data
             WorkerResult.Success(
                 message = "Extracted $extractedFiles files, $extractedDirs directories",
                 data = buildJsonObject {

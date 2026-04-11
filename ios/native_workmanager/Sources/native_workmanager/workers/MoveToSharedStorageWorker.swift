@@ -1,4 +1,5 @@
 import Foundation
+import KMPWorkManager
 import Photos
 
 /// Worker that moves/copies a file from app-private storage to a shared location.
@@ -20,7 +21,7 @@ import Photos
 /// ```
 class MoveToSharedStorageWorker: IosWorker {
 
-    func doWork(input: String?) async throws -> WorkerResult {
+    func doWork(input: String?, env: KMPWorkManager.WorkerEnvironment) async throws -> WorkerResult {
         guard let input = input, !input.isEmpty,
               let data = input.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {

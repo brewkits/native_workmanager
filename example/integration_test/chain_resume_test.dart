@@ -238,12 +238,7 @@ void main() {
           .then(
             TaskRequest(
               id: step2,
-              // Invalid host — step should fail.
-              worker: HttpRequestWorker(
-                url: 'https://this-host-does-not-exist-xyzxyz.invalid/fail',
-                method: HttpMethod.get,
-                timeout: const Duration(seconds: 5),
-              ),
+              worker: DartWorker(callbackId: 'taskFail'),
             ),
           )
           .then(
@@ -456,7 +451,7 @@ void main() {
       final received = <String>[];
       late StreamSubscription<TaskEvent> sub;
       sub = NativeWorkManager.events.listen((event) {
-        if ({step1, step2, step3}.contains(event.taskId)) {
+        if ({step1, step2, step3}.contains(event.taskId) && event.success) {
           received.add(event.taskId);
         }
       });

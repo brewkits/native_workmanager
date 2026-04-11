@@ -127,7 +127,7 @@ class HttpDownloadWorker : AndroidWorker {
         val isDirectory: Boolean get() = savePath.endsWith("/")
     }
 
-    override suspend fun doWork(input: String?): WorkerResult = withContext(Dispatchers.IO) {
+    override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult = withContext(Dispatchers.IO) {
         if (input.isNullOrEmpty()) {
             throw IllegalArgumentException("Input JSON is required")
         }
@@ -201,7 +201,7 @@ class HttpDownloadWorker : AndroidWorker {
             }
         }
 
-        // ✅ SECURITY: Validate URL scheme (prevent file://, content://, etc.)
+        // Validate URL scheme (prevent file://, content://, etc.)
         if (!SecurityValidator.validateURL(config.url)) {
             Log.e(TAG, "Error - Invalid or unsafe URL")
             return@withContext WorkerResult.Failure("Invalid or unsafe URL")
@@ -224,9 +224,9 @@ class HttpDownloadWorker : AndroidWorker {
 
         // When savePath is a directory, we need to resolve the filename from the server response.
         // Use a sentinel temp file in the directory until we know the real filename.
-        // L-003 FIX: ETag sidecar is derived from sentinelTempFile path (per-file) rather than
-        // from config.savePath (directory level). Multiple downloads to the same directory no
-        // longer share a single ETag file.
+        // ETag sidecar is derived from sentinelTempFile path (per-file) rather than from
+        // config.savePath (directory level), so multiple downloads to the same directory
+        // each have their own ETag file.
         val sentinelTempFile = if (config.isDirectory) File(config.savePath + PENDING_TMP_FILENAME) else File(config.savePath + ".tmp")
 
         // For directory mode, destinationFile is resolved after the response headers arrive.
@@ -244,11 +244,10 @@ class HttpDownloadWorker : AndroidWorker {
             Log.d(TAG, "Created directory: ${parentDir.path}")
         }
 
-        // ✅ SECURITY: Sanitize URL for logging
         NativeLogger.d("Downloading: ${config.url}")
         Log.d(TAG, "  Save to: ${destinationFile.name}")
 
-        // 👇 NEW: Check for existing partial download (resume support)
+        // Check for existing partial download (resume support)
         val existingBytes = if (config.enableResume && tempFile.exists()) {
             val size = tempFile.length()
             if (size > 0) {
@@ -279,12 +278,12 @@ class HttpDownloadWorker : AndroidWorker {
             .url(config.url)
             .get()
 
-        // 👇 NEW: Add Range header if resuming
+        // Add Range header if resuming a partial download
         if (existingBytes > 0) {
             requestBuilder.addHeader(HTTP_HEADER_RANGE, "bytes=$existingBytes-")
-            // If-Range: tell server to only honour the Range if the file hasn't changed.
+            // If-Range: only honour the Range if the file hasn't changed on the server.
             // Prevents silently appending bytes from a different file version (CDN rotation).
-            // L-003 FIX: Use tempFile path (per-file) for the ETag sidecar, not savePath (may be a directory).
+            // Use tempFile path (per-file) for the ETag sidecar, not savePath (may be a directory).
             val etagSidecar = java.io.File(tempFile.path + ETAG_SIDECAR_SUFFIX)
             if (etagSidecar.exists()) {
                 val stored = etagSidecar.readText().trim()
@@ -316,7 +315,7 @@ class HttpDownloadWorker : AndroidWorker {
             client.newCall(request).execute().use { response ->
                 val statusCode = response.code
 
-                // 👇 NEW: Handle both full content (200) and partial content (206)
+                // Handle both full content (200) and partial content (206)
                 val isPartialContent = statusCode == HTTP_PARTIAL_CONTENT
                 val isFullContent = statusCode in HTTP_OK..299
                 val isResumingDownload = existingBytes > 0 && isPartialContent
@@ -372,7 +371,7 @@ class HttpDownloadWorker : AndroidWorker {
                     java.io.File(tempFile.path + ETAG_SIDECAR_SUFFIX).delete()
                 }
 
-                // ✅ SECURITY: Validate content length (prevent downloading huge files)
+                // Validate content length (prevent downloading huge files)
                 val responseBody = response.body
                 if (responseBody == null) {
                     Log.e(TAG, "Error - No response body")
@@ -385,7 +384,7 @@ class HttpDownloadWorker : AndroidWorker {
                     return@downloadBlock WorkerResult.Failure("Download size exceeds limit")
                 }
 
-                // ✅ SECURITY: Validate available disk space
+                // Validate available disk space
                 if (contentLength > 0) {
                     if (!SecurityValidator.hasEnoughDiskSpace(contentLength, destinationFile.parentFile ?: destinationFile)) {
                         Log.e(TAG, "Error - Insufficient disk space")
@@ -394,8 +393,7 @@ class HttpDownloadWorker : AndroidWorker {
                     Log.d(TAG, "Storage check passed")
                 }
 
-                // ✅ PROGRESS: Wrap response body for progress tracking
-                // Apply bandwidth throttle (token-bucket, wraps the raw stream)
+                // Wrap response body for progress tracking; apply bandwidth throttle (token-bucket)
                 val throttledBody = config.bandwidthLimitBytesPerSecond
                     ?.takeIf { it > 0L }
                     ?.let { BandwidthThrottle.wrap(responseBody, it) }
@@ -413,7 +411,7 @@ class HttpDownloadWorker : AndroidWorker {
                 val contentType = response.header("Content-Type")
                 val finalUrl = response.request.url.toString()
 
-                // 👇 Feature 4: Resolve filename from Content-Disposition or URL when savePath is a directory
+                // Feature 4: Resolve filename from Content-Disposition or URL when savePath is a directory
                 val serverSuggestedName: String? = parseFilenameFromContentDisposition(response.header("Content-Disposition"))
                 if (config.isDirectory) {
                     val resolvedName = serverSuggestedName
@@ -446,7 +444,7 @@ class HttpDownloadWorker : AndroidWorker {
                     }
                 }
 
-                // 👇 NEW: Stream to temp file (append if resuming, overwrite if starting fresh)
+                // Stream to temp file (append if resuming, overwrite if starting fresh)
                 try {
                     inputStream.use { input ->
                         val outputStream = if (isResumingDownload) {
@@ -474,7 +472,7 @@ class HttpDownloadWorker : AndroidWorker {
                     }
                 }
 
-                // 👇 NEW: Verify checksum if expected checksum is provided
+                // Verify checksum if expected checksum is provided
                 if (config.expectedChecksum != null) {
                     Log.d(TAG, "Verifying checksum with ${config.effectiveChecksumAlgorithm}...")
                     val actualChecksum = calculateChecksum(tempFile, config.effectiveChecksumAlgorithm, taskId)
@@ -589,7 +587,7 @@ class HttpDownloadWorker : AndroidWorker {
                                     val entryFile = File(targetDir, entry.name)
                                     val canonicalEntryPath = entryFile.canonicalPath
                                     
-                                    // ✅ FIXED: Robust ZipSlip protection using canonicalPath validation
+                                    // ZipSlip protection using canonicalPath validation
                                     if (!canonicalEntryPath.startsWith(canonicalTargetPath + File.separator)) {
                                         Log.w(TAG, "Security - Preventing ZipSlip attack for entry: ${entry.name}")
                                         zis.closeEntry()
@@ -617,7 +615,7 @@ class HttpDownloadWorker : AndroidWorker {
                     }
                 }
 
-                // ✅ Return success
+                // Return success
                 WorkerResult.Success(
                     message = "Downloaded ${fileSize} bytes",
                     data = buildJsonObject {
@@ -643,7 +641,7 @@ class HttpDownloadWorker : AndroidWorker {
     }
 
     /** Find next available filename by appending _1, _2, … until a free slot is found.
-     *  M-001 FIX: Capped at 10,000 iterations to prevent an unbounded loop when a directory
+     *  Capped at 10,000 iterations to prevent an unbounded loop when a directory
      *  already contains thousands of similarly-named files (e.g. photo_1.jpg … photo_50000.jpg).
      *  Falls back to a timestamp-suffixed name so the download always completes. */
     private fun findNextAvailableFile(file: File): File {

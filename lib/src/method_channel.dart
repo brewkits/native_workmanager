@@ -16,7 +16,8 @@ import 'worker.dart';
 class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   /// The method channel used to interact with the native platform.
   @visibleForTesting
-  final methodChannel = const MethodChannel('dev.brewkits/native_workmanager');
+  late final methodChannel =
+      const MethodChannel('dev.brewkits/native_workmanager');
 
   /// Event channel for task completion events.
   @visibleForTesting
@@ -80,7 +81,7 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   }
 
   void _initEventStreams() {
-    // FIX: Cancel existing subscriptions and close old controllers before re-initializing.
+    // Cancel existing subscriptions and close old controllers before re-initializing.
     // This prevents memory leaks and duplicate event emissions during hot restarts.
     _eventSubscription?.cancel();
     _progressSubscription?.cancel();
@@ -232,6 +233,27 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
 
     if (result == null) return null;
     return TaskStatus.values.where((e) => e.name == result).firstOrNull;
+  }
+
+  @override
+  Future<TaskRecord?> getTaskRecord({required String taskId}) async {
+    developer.log(
+        'MethodChannel[${methodChannel.name}]: invoking getTaskRecord for $taskId');
+    try {
+      final result = await methodChannel.invokeMapMethod<String, dynamic>(
+        'getTaskRecord',
+        {'taskId': taskId},
+      );
+      developer.log(
+          'MethodChannel[${methodChannel.name}]: getTaskRecord result: ${result != null}');
+
+      if (result == null) return null;
+      return TaskRecord.fromMap(result);
+    } catch (e, s) {
+      developer.log(
+          'MethodChannel[${methodChannel.name}]: error in getTaskRecord: $e\n$s');
+      return null;
+    }
   }
 
   @override

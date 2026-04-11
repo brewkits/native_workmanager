@@ -21,17 +21,39 @@ public class KMPBridge {
         }
 
         let bufferBytes = Int64(diskSpaceBufferMB) * 1024 * 1024
-        scheduler = NativeTaskScheduler(additionalPermittedTaskIds: [],
-                                        diskSpaceBufferBytes: bufferBytes)
+        let storageConfig = IosFileStorageConfig(
+            diskSpaceBufferBytes: bufferBytes,
+            deletedMarkerMaxAgeMs: 7 * 24 * 60 * 60 * 1000,
+            isTestMode: nil,
+            fileCoordinationTimeoutMs: 30000
+        )
+        let fileStorage = IosFileStorage(config: storageConfig, baseDirectory: nil)
+        
+        scheduler = NativeTaskScheduler(
+            additionalPermittedTaskIds: [],
+            diskSpaceBufferBytes: bufferBytes,
+            fileStorage: fileStorage
+        )
 
         isInitialized = true
-        NativeLogger.d("KMPBridge: Initialized with NativeTaskScheduler from kmpworkmanager v2.3.3")
+        NativeLogger.d("KMPBridge: Initialized with NativeTaskScheduler from kmpworkmanager v2.3.8")
     }
 
     public func reinitialize(diskSpaceBufferMB: Int) {
         let bufferBytes = Int64(diskSpaceBufferMB) * 1024 * 1024
-        scheduler = NativeTaskScheduler(additionalPermittedTaskIds: [],
-                                        diskSpaceBufferBytes: bufferBytes)
+        let storageConfig = IosFileStorageConfig(
+            diskSpaceBufferBytes: bufferBytes,
+            deletedMarkerMaxAgeMs: 7 * 24 * 60 * 60 * 1000,
+            isTestMode: nil,
+            fileCoordinationTimeoutMs: 30000
+        )
+        let fileStorage = IosFileStorage(config: storageConfig, baseDirectory: nil)
+        
+        scheduler = NativeTaskScheduler(
+            additionalPermittedTaskIds: [],
+            diskSpaceBufferBytes: bufferBytes,
+            fileStorage: fileStorage
+        )
         NativeLogger.d("KMPBridge: scheduler recreated with diskSpaceBuffer=\(diskSpaceBufferMB)MB")
     }
 
@@ -65,6 +87,7 @@ public struct TokenRefreshConfig: Codable {
     public let url: String
     public let headers: [String: String]?
     public let method: String?
+    public let body: [String: AnyCodable]?
     public let responseKey: String?
     public let tokenHeaderName: String?
     public let tokenPrefix: String?
@@ -75,10 +98,16 @@ public struct TokenRefreshConfig: Codable {
             return nil
         }
 
+        var decodedBody: [String: AnyCodable]? = nil
+        if let bodyDict = dict["body"] as? [String: Any] {
+            decodedBody = bodyDict.mapValues { AnyCodable($0) }
+        }
+
         return TokenRefreshConfig(
             url: url,
             headers: dict["headers"] as? [String: String],
             method: dict["method"] as? String,
+            body: decodedBody,
             responseKey: dict["responseKey"] as? String,
             tokenHeaderName: dict["tokenHeaderName"] as? String,
             tokenPrefix: dict["tokenPrefix"] as? String
@@ -99,35 +128,45 @@ public actor AuthTokenManager {
     private var cachedNewToken: String?
 
     /// Refreshes the auth token, deduplicating concurrent refresh requests.
-    ///
-    /// The result is cached after a successful refresh. If the server later
-    /// revokes the token (HTTP 401), callers must call `invalidateCachedToken()`
-    /// before the next request so that stale token is not reused:
-    ///
-    /// ```swift
-    /// if httpResponse.statusCode == 401 {
-    ///     await AuthTokenManager.shared.invalidateCachedToken()
-    ///     // retry with fresh token
-    /// }
-    /// ```
     public func refreshToken(config: TokenRefreshConfig, currentSession: URLSession) async -> String? {
         if let token = cachedNewToken { return token }
         if let task = ongoingRefreshTask { return await task.value }
 
         let refreshTask = Task<String?, Never> {
             do {
-                var request = URLRequest(url: URL(string: config.url)!)
+                guard let url = URL(string: config.url) else { return nil }
+                var request = URLRequest(url: url)
                 request.httpMethod = config.effectiveMethod
                 config.headers?.forEach { request.setValue($1, forHTTPHeaderField: $0) }
+
+                if let body = config.body {
+                    let jsonData = try JSONEncoder().encode(body)
+                    request.httpBody = jsonData
+                    if request.value(forHTTPHeaderField: "Content-Type") == nil {
+                        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    }
+                }
 
                 let (data, response) = try await currentSession.data(for: request)
                 guard let httpResponse = response as? HTTPURLResponse,
                       (200..<300).contains(httpResponse.statusCode),
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let newToken = json[config.effectiveResponseKey] as? String else {
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                     return nil
                 }
-                return newToken
+                
+                // Support nested keys (e.g. "auth.token")
+                let keyParts = config.effectiveResponseKey.split(separator: ".")
+                var current: Any? = json
+                for part in keyParts {
+                    if let dict = current as? [String: Any] {
+                        current = dict[String(part)]
+                    } else {
+                        current = nil
+                        break
+                    }
+                }
+                
+                return current as? String
             } catch {
                 return nil
             }

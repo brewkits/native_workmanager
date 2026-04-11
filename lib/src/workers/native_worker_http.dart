@@ -120,6 +120,7 @@ Worker _buildHttpRequest({
   Map<String, String> headers = const {},
   String? body,
   Duration timeout = const Duration(seconds: 30),
+  TokenRefreshConfig? tokenRefresh,
 }) {
   NativeWorker._validateUrl(url);
 
@@ -145,6 +146,7 @@ Worker _buildHttpRequest({
     headers: headers,
     body: body,
     timeout: timeout,
+    tokenRefresh: tokenRefresh,
   );
 }
 
@@ -1093,6 +1095,7 @@ Worker _buildHttpSync({
   Map<String, String> headers = const {},
   Map<String, dynamic>? requestBody,
   Duration timeout = const Duration(seconds: 60),
+  TokenRefreshConfig? tokenRefresh,
 }) {
   NativeWorker._validateUrl(url);
 
@@ -1112,5 +1115,6 @@ Worker _buildHttpSync({
     headers: headers,
     requestBody: requestBody,
     timeout: timeout,
+    tokenRefresh: tokenRefresh,
   );
 }

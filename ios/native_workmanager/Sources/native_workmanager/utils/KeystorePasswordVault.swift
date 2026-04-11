@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-/// SC-C-001: Secure password vault backed by iOS Keychain Services.
+/// Secure password vault backed by iOS Keychain Services.
 ///
 /// The task database (SQLite) stores worker configuration including any fields passed at
 /// enqueue time. Passing a password directly in workerConfig would persist it on disk in

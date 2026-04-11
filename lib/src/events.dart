@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 /// Record from the persistent task store.
@@ -37,9 +38,22 @@ class TaskRecord {
         status: m['status'] as String? ?? 'unknown',
         workerClassName: m['workerClassName'] as String? ?? '',
         workerConfig: m['workerConfig'] as String?,
-        resultData: m['resultData'] is Map
-            ? Map<String, dynamic>.from(m['resultData'] as Map)
-            : null,
+        resultData: m['resultData'] == null
+            ? null
+            : (m['resultData'] is Map
+                ? Map<String, dynamic>.from(m['resultData'] as Map)
+                : (m['resultData'] is String
+                    ? (() {
+                        final decoded = jsonDecode(m['resultData'] as String);
+                        if (decoded is Map) {
+                          return Map<String, dynamic>.from(decoded);
+                        } else if (decoded is List) {
+                          // Wrap list in a map for TaskEvent compatibility
+                          return {'items': decoded};
+                        }
+                        return <String, dynamic>{};
+                      })()
+                    : null)),
         createdAt: DateTime.fromMillisecondsSinceEpoch(
             (m['createdAt'] as num).toInt()),
         updatedAt: DateTime.fromMillisecondsSinceEpoch(
@@ -764,7 +778,6 @@ class TaskEvent {
           success == other.success &&
           errorCode == other.errorCode &&
           message == other.message &&
-          // M-7: include resultData so events with different result payloads are not equal.
           _mapsEqual(resultData, other.resultData) &&
           timestamp == other.timestamp;
 

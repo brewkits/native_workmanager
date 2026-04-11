@@ -104,6 +104,7 @@ void main() async {
 
   // Initialize native_workmanager
   await NativeWorkManager.initialize(
+    debugMode: true,
     dartWorkers: {
       'customTask': customTaskCallback,
       'heavyTask': heavyTaskCallback,
@@ -300,7 +301,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
       });
     });
 
-    _addLog('🚀 NativeWorkManager v1.1.0 — High-Performance Background Engine');
+    _addLog('🚀 NativeWorkManager v1.1.1 — High-Performance Background Engine');
   }
 
   String _formatTime(DateTime dt) {

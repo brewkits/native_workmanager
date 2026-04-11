@@ -96,9 +96,9 @@ Future<void> _callbackDispatcher() async {
   const channel = MethodChannel('dev.brewkits/dart_worker_channel');
 
   // Signal that Dart is ready.
-  // M-002 FIX: Await the invokeMethod call and handle errors explicitly.
-  // An unawaited future would silently swallow any PlatformException, causing
-  // the native 10-second timeout to fire and destroy the engine.
+  // Await the invokeMethod call and handle errors explicitly — an unawaited future
+  // would silently swallow any PlatformException, causing the native 10-second
+  // timeout to fire and destroy the engine.
   await channel.invokeMethod<void>('dartReady').catchError((Object e) {
     developer.log('ERROR: dartReady signal failed: $e');
   });
@@ -106,7 +106,7 @@ Future<void> _callbackDispatcher() async {
   // Handle callback invocations
   channel.setMethodCallHandler((call) async {
     if (call.method == 'executeCallback') {
-      // DART-004 FIX: Guard against null arguments from native side.
+      // Guard against null arguments from native side.
       // null args indicates a platform channel protocol error or native
       // serialization failure — distinct from a worker with no input
       // (which arrives as args != null but args['input'] == null).
@@ -149,7 +149,7 @@ Future<void> _callbackDispatcher() async {
           );
         }
 
-        // DART-014 FIX: Validate function signature before invoking.
+        // Validate function signature before invoking.
         // Dart's `as` cast does not check function signatures at cast-time — it
         // only fails when the function is called, producing a cryptic TypeError.
         if (callbackInfo is! DartWorkerCallback) {
@@ -602,7 +602,7 @@ class NativeWorkManager {
   /// - [Constraints] - Available constraints
   static Future<ScheduleResult> enqueue({
     required String taskId,
-    required TaskTrigger trigger,
+    TaskTrigger trigger = const TaskTrigger.oneTime(),
     required Worker worker,
     Constraints constraints = const Constraints(),
     ExistingTaskPolicy existingPolicy = ExistingTaskPolicy.replace,
@@ -1049,9 +1049,16 @@ class NativeWorkManager {
   ///
   /// - [events] - Stream of task completion events
   /// - [progress] - Stream of task progress updates
+  /// Get task status.
   static Future<TaskStatus?> getTaskStatus({required String taskId}) async {
     _checkInitialized();
     return NativeWorkManagerPlatform.instance.getTaskStatus(taskId: taskId);
+  }
+
+  /// Get detailed task record.
+  static Future<TaskRecord?> getTaskRecord({required String taskId}) async {
+    _checkInitialized();
+    return NativeWorkManagerPlatform.instance.getTaskRecord(taskId: taskId);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

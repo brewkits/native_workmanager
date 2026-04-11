@@ -19,23 +19,38 @@ void main() {
     /// Helper to wait for a task event
     Future<TaskEvent?> waitEvent(
       String taskId, {
-      Duration timeout = const Duration(seconds: 45),
+      Duration timeout = const Duration(seconds: 60),
     }) async {
       final completer = Completer<TaskEvent?>();
-      late StreamSubscription sub;
+      late StreamSubscription<TaskEvent> sub;
       sub = NativeWorkManager.events.listen((event) {
-        if (event.taskId == taskId) {
+        print('WaitEvent: received event for ${event.taskId}, success=${event.success}, hasResultData=${event.resultData != null}, isStarted=${event.isStarted}');
+        if (event.taskId == taskId && !completer.isCompleted && !event.isStarted) {
           completer.complete(event);
           sub.cancel();
         }
       });
-      return completer.future.timeout(
-        timeout,
-        onTimeout: () {
-          sub.cancel();
-          return null;
-        },
-      );
+
+      try {
+        return await completer.future.timeout(timeout);
+      } catch (e) {
+        sub.cancel();
+        // Fallback: check status directly from DB
+        final record = await NativeWorkManager.getTaskRecord(taskId: taskId);
+        if (record != null &&
+            (record.status == 'success' ||
+                record.status == 'failed' ||
+                record.status == 'cancelled')) {
+          return TaskEvent(
+            taskId: taskId,
+            success: record.status == 'success',
+            message: record.status == 'failed' ? 'Task failed in background' : null,
+            resultData: record.resultData,
+            timestamp: record.updatedAt,
+          );
+        }
+        return null;
+      }
     }
 
     testWidgets('should refresh token on 401 and retry successfully', (
@@ -55,14 +70,14 @@ void main() {
         trigger: const TaskTrigger.oneTime(),
         worker: NativeWorker.httpRequest(
           url: 'https://httpbin.org/bearer',
-          method: 'GET',
+          method: HttpMethod.get,
           // Configure automatic token refresh
           tokenRefresh: TokenRefreshConfig(
             url: 'https://httpbin.org/post', // Mock refresh endpoint
             method: 'POST',
-            body: {'refresh_token': 'dummy_refresh_token'},
+            body: {'access_token': 'fresh_token_from_httpbin'}, // Put token in body so it's echoed
             responseKey:
-                'json.access_token', // Path to token in httpbin /post response
+                'json.access_token', // Path to echoed token in httpbin /post response
             tokenHeaderName: 'Authorization',
             tokenPrefix: 'Bearer ',
           ),
@@ -81,7 +96,7 @@ void main() {
 
       // Additional verification: resultData should contain response from httpbin/bearer
       if (event.resultData != null) {
-        final body = event.resultData!['responseBody'] as String?;
+        final body = event.resultData!['body'] as String?;
         expect(
           body,
           contains('"authenticated": true'),

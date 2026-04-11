@@ -24,9 +24,9 @@
 
 | Attribute | Value |
 |-----------|---------|
-| Current Version | v1.1.0 |
+| Current Version | v1.1.1 |
 | Platforms | Android (API 26+), iOS (14.0+) |
-| Engine Core | kmpworkmanager 2.3.7 (KMP, Maven Central) |
+| Engine Core | kmpworkmanager 2.3.8 (KMP, Maven Central) |
 | Dart SDK | >=3.6.0 <4.0.0 |
 | Flutter | >=3.27.0 |
 | License | MIT |
@@ -65,7 +65,7 @@ For mid-range Android devices running multiple apps, starting the Flutter Engine
 │  KMP Engine Layer                                            │
 │  Android: WorkManager 2.10.1 (Androidx)                     │
 │  iOS: BGTaskScheduler / BGProcessingTask                    │
-│  Shared domain: kmpworkmanager 2.3.7                        │
+│  Shared domain: kmpworkmanager 2.3.8                        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -671,7 +671,7 @@ All proposed improvements are **additive** — no rewrites required.
 | **Security** | 8/10 | Canonical path hardening, needs iOS SQLite |
 | **Feature Coverage** | 8/10 | 11 workers, missing remote trigger + DAG |
 | **Developer Experience** | 8.5/10 | Type-safe, fluent API, well-documented |
-| **Production Readiness** | 8/10 | v1.1.0 stable, iOS persistence gap |
+| **Production Readiness** | 8/10 | v1.1.1 stable, iOS persistence gap |
 | **Competitive Position** | 7.5/10 | Technically superior, needs traction |
 | **Growth Potential** | 9/10 | Clear roadmap, solid foundation |
 | **Overall** | **8.3/10** | |
@@ -709,7 +709,7 @@ With the right strategy:
 
 | Dependency | Version | Notes |
 |------------|---------|---------|
-| kmpworkmanager | 2.3.7 | Core engine, Maven Central |
+| kmpworkmanager | 2.3.8 | Core engine, Maven Central |
 | androidx.work | 2.10.1 | Android WorkManager |
 | okhttp3 | 4.12.0 | Android HTTP client |
 | kotlinx.coroutines | 1.8.0 | Android async |
@@ -725,7 +725,7 @@ With the right strategy:
 | Integration tests | 37 | Android |
 | Integration tests | 37 | iOS |
 | Security tests | ~20 | Dart |
-| Regression tests (v1.1.0 audit) | 33 | Dart |
+| Regression tests (v1.1.1 audit) | 33 | Dart |
 
 ### Performance Benchmarks
 

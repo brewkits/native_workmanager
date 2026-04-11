@@ -81,8 +81,8 @@ class WorkerCallbackGenerator extends Generator {
       }
 
       // ── Validate: exactly one parameter Map<String, dynamic>? ───────────
-      // C-01 fix: zero-parameter functions pass Dart's type-checker but crash
-      // at runtime because the native side always calls with an input argument.
+      // Zero-parameter functions pass Dart's type-checker but crash at runtime
+      // because the native side always calls with an input argument.
       final params = fn.formalParameters;
       if (params.isEmpty) {
         throw InvalidGenerationSourceError(

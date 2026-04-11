@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.1] - 2026-04-11
+
+### Added
+- **Token Refresh on 401**: `HttpRequestWorker` and `HttpSyncWorker` now support automatic token refresh when a 401 response is received. Configure via the new `tokenRefresh` field in worker config (or `TokenRefreshConfig` in the Dart API) with a refresh URL, optional request body, and a `responseKey` path to extract the new token (supports nested keys like `"json.access_token"`).
+- **Response Validation Patterns**: `HttpRequestWorker` supports `successPattern` and `failurePattern` regex fields. A 200 response is marked as failure if `failurePattern` matches or `successPattern` does not match — useful for APIs that always return HTTP 200 but embed error status in the body.
+- **`http_sync_test.dart`**: New integration test for `HttpSyncWorker` covering token refresh and request signing.
+
+### Changed
+- **KMPWorkManager iOS XCFramework**: Updated simulator slice from `ios-arm64-simulator` to `ios-arm64_x86_64-simulator` to support both Apple Silicon and Intel Simulator targets.
+- **Upgraded to kmpworkmanager 2.3.9**: Fixes `InvalidForegroundServiceTypeException` crash on Android 16 (API 36) when using `isHeavyTask: true`. `KmpHeavyWorker` now specifies `FOREGROUND_SERVICE_TYPE_DATA_SYNC` on API 31+.
+- **Upgraded Core Engine to `kmpworkmanager 2.3.8`**:
+    - Removed `enqueuePeriodicWorkDirect` workaround; periodic task scheduling is now correctly handled by the core engine.
+    - Resolves `TaskEventBus` drop events (Android), `AlarmManager` cancellation bugs (Android), iOS queue corruption vulnerabilities, and massively improves queue performance.
+    - Resolves SSRF URL path bypasses and exact alarm permission bugs on Android 12+.
+- **Refactored Workers**: Updated all built-in and example workers to support the new `WorkerEnvironment` signature required by kmpworkmanager 2.3.8.
+
+### Fixed
+- **Android: `FlutterEngineManager` dispose broken under memory pressure** — `engine.destroy()` threw `RuntimeException` when called from `onTrimMemory`, leaving the engine in a broken state (`isInitialized=true`, `methodChannel=null`). Any `DartWorker` task scheduled after this silently failed. Fix: wrap `engine.destroy()` in try-catch so cleanup always runs.
+- **Android: `pause` method not routed** — calling `pauseByTag()`, `pauseAll()`, or any pause operation on Android threw `MissingPluginException`. The `"pause"` case was missing from the method channel switch statement.
+
 ## [1.1.0] - 2026-04-05
 
 ### Added
@@ -52,7 +72,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - **Documentation**: Updated multiple docstrings and README examples for API accuracy.
 
 ### Fixed (2026-04-05 — demo & example fixes)
-
 - **Example: `isStarted` lifecycle event caused false "Task failed" toast** — All event listeners in the example app (`demo_scenarios_page`, `comprehensive_demo_page`, `file_system_demo_page`, `floating_metrics_overlay`, `advanced_metrics_overlay`, `bug_fix_demo_screen`) now guard with `if (event.isStarted) return` before processing completion state. Root cause: `TaskEvent.fromMap` defaults `success` to `false` when the key is absent; lifecycle events (`isStarted: true`) don't carry a `success` key, so every task start was incorrectly shown as a failure.
 
 - **Example: `_demoPhotoBackup()` chain always failed** — Replaced `List.filled(1024, 0)` dummy bytes (invalid JPEG) with a 5-step chain: `HttpDownloadWorker` fetches a real JPEG from `httpbin.org/image/jpeg` before `ImageProcessWorker` runs.
@@ -818,7 +837,7 @@ Minor difference: CryptoWorker uses AES-CBC (Android) vs AES-GCM (iOS), both AES
 
 ### 🙏 **Acknowledgments**
 
-Built on [kmpworkmanager v2.3.0](https://github.com/pablichjenkov/kmpworkmanager) for Kotlin Multiplatform.
+Built on [kmpworkmanager v2.3.8](https://github.com/pablichjenkov/kmpworkmanager) for Kotlin Multiplatform.
 
 ---
 
@@ -832,7 +851,7 @@ Built on [kmpworkmanager v2.3.0](https://github.com/pablichjenkov/kmpworkmanager
 
 ---
 
-**Latest Version:** 1.0.1
+**Latest Version:** 1.1.1
 **Status:**  Production Ready - Stable release for all production apps
-**KMP Parity:** 100%  (kmpworkmanager v2.3.3)
+**KMP Parity:** 100%  (kmpworkmanager v2.3.8)
 **Platforms:** Android  | iOS 

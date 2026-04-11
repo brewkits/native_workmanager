@@ -13,6 +13,7 @@ final class HttpRequestWorker extends Worker {
     this.body,
     this.timeout = const Duration(seconds: 30),
     this.requestSigning,
+    this.tokenRefresh,
   });
 
   final String url;
@@ -32,6 +33,9 @@ final class HttpRequestWorker extends Worker {
   /// signature is injected as a request header (default: `X-Signature`).
   final RequestSigning? requestSigning;
 
+  /// Automatic token refresh configuration.
+  final TokenRefreshConfig? tokenRefresh;
+
   // ═══════════════════════════════════════════════════════════════════════════
   // BUILDER-STYLE copyWith + convenience methods
   // ═══════════════════════════════════════════════════════════════════════════
@@ -44,6 +48,7 @@ final class HttpRequestWorker extends Worker {
     String? body,
     Duration? timeout,
     RequestSigning? requestSigning,
+    TokenRefreshConfig? tokenRefresh,
   }) =>
       HttpRequestWorker(
         url: url ?? this.url,
@@ -52,6 +57,7 @@ final class HttpRequestWorker extends Worker {
         body: body ?? this.body,
         timeout: timeout ?? this.timeout,
         requestSigning: requestSigning ?? this.requestSigning,
+        tokenRefresh: tokenRefresh ?? this.tokenRefresh,
       );
 
   /// Convenience: add or merge HTTP headers.
@@ -81,6 +87,10 @@ final class HttpRequestWorker extends Worker {
   HttpRequestWorker withSigning(RequestSigning signing) =>
       copyWith(requestSigning: signing);
 
+  /// Convenience: configure automatic token refresh.
+  HttpRequestWorker withTokenRefresh(TokenRefreshConfig config) =>
+      copyWith(tokenRefresh: config);
+
   @override
   String get workerClassName => 'HttpRequestWorker';
 
@@ -93,5 +103,6 @@ final class HttpRequestWorker extends Worker {
         'body': body,
         'timeoutMs': timeout.inMilliseconds,
         if (requestSigning != null) 'requestSigning': requestSigning!.toMap(),
+        if (tokenRefresh != null) 'tokenRefresh': tokenRefresh!.toMap(),
       };
 }

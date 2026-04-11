@@ -286,6 +286,11 @@ class FakeWorkManager implements IWorkManager {
       taskStatuses[taskId];
 
   @override
+  Future<TaskRecord?> getTaskRecord({required String taskId}) async {
+    return allTasksResult.where((t) => t.taskId == taskId).firstOrNull;
+  }
+
+  @override
   Future<List<String>> getTasksByTag({required String tag}) async =>
       tasksByTag[tag] ?? [];
 
