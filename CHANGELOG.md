@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.2.1] - 2026-04-10
+## [1.1.1] - 2026-04-11
 
 ### Added
 - **Token Refresh on 401**: `HttpRequestWorker` and `HttpSyncWorker` now support automatic token refresh when a 401 response is received. Configure via the new `tokenRefresh` field in worker config (or `TokenRefreshConfig` in the Dart API) with a refresh URL, optional request body, and a `responseKey` path to extract the new token (supports nested keys like `"json.access_token"`).
@@ -16,18 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **KMPWorkManager iOS XCFramework**: Updated simulator slice from `ios-arm64-simulator` to `ios-arm64_x86_64-simulator` to support both Apple Silicon and Intel Simulator targets.
-
----
-
-## [1.1.1] - 2026-04-09
-
-### Changed
-
-- **Upgraded Core Engine to `kmpworkmanager 2.3.8`**: 
+- **Upgraded to kmpworkmanager 2.3.9**: Fixes `InvalidForegroundServiceTypeException` crash on Android 16 (API 36) when using `isHeavyTask: true`. `KmpHeavyWorker` now specifies `FOREGROUND_SERVICE_TYPE_DATA_SYNC` on API 31+.
+- **Upgraded Core Engine to `kmpworkmanager 2.3.8`**:
     - Removed `enqueuePeriodicWorkDirect` workaround; periodic task scheduling is now correctly handled by the core engine.
     - Resolves `TaskEventBus` drop events (Android), `AlarmManager` cancellation bugs (Android), iOS queue corruption vulnerabilities, and massively improves queue performance.
     - Resolves SSRF URL path bypasses and exact alarm permission bugs on Android 12+.
 - **Refactored Workers**: Updated all built-in and example workers to support the new `WorkerEnvironment` signature required by kmpworkmanager 2.3.8.
+
+### Fixed
+- **Android: `FlutterEngineManager` dispose broken under memory pressure** — `engine.destroy()` threw `RuntimeException` when called from `onTrimMemory`, leaving the engine in a broken state (`isInitialized=true`, `methodChannel=null`). Any `DartWorker` task scheduled after this silently failed. Fix: wrap `engine.destroy()` in try-catch so cleanup always runs.
+- **Android: `pause` method not routed** — calling `pauseByTag()`, `pauseAll()`, or any pause operation on Android threw `MissingPluginException`. The `"pause"` case was missing from the method channel switch statement.
 
 ## [1.1.0] - 2026-04-05
 
