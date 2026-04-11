@@ -73,7 +73,7 @@ internal class TaskStore(context: Context) {
         val now = System.currentTimeMillis()
         val db = dbHelper.writableDatabase
         
-        // ✅ SECURITY: Sanitize config before persisting to prevent token leakage.
+        // Sanitize config before persisting to prevent token leakage.
         val sanitizedConfig = sanitizeConfig(workerConfig)
         
         db.beginTransaction()
@@ -100,6 +100,7 @@ internal class TaskStore(context: Context) {
     }
 
     fun updateStatus(taskId: String, status: String, resultData: String? = null) {
+        Log.d("TaskStore", "Updating task $taskId status to $status, resultData length: ${resultData?.length ?: 0}")
         val cv = ContentValues().apply {
             put("status", status)
             put("updated_at", System.currentTimeMillis())
@@ -226,8 +227,45 @@ internal class TaskStore(context: Context) {
         "tag"             to tag,
         "status"          to status,
         "workerClassName" to workerClassName,
+        "workerConfig"    to workerConfig,
         "createdAt"       to createdAt,
         "updatedAt"       to updatedAt,
-        "resultData"      to resultData
+        "resultData"      to try {
+            resultData?.let { org.json.JSONObject(it).toMap() }
+        } catch (_: Exception) {
+            null
+        }
     )
+
+    private fun org.json.JSONObject.toMap(): Map<String, Any?> {
+        val map = mutableMapOf<String, Any?>()
+        val keys = keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            var value = get(key)
+            if (value is org.json.JSONArray) {
+                value = value.toList()
+            } else if (value is org.json.JSONObject) {
+                value = value.toMap()
+            }
+            if (value == org.json.JSONObject.NULL) value = null
+            map[key] = value
+        }
+        return map
+    }
+
+    private fun org.json.JSONArray.toList(): List<Any?> {
+        val list = mutableListOf<Any?>()
+        for (i in 0 until length()) {
+            var value = get(i)
+            if (value is org.json.JSONArray) {
+                value = value.toList()
+            } else if (value is org.json.JSONObject) {
+                value = value.toMap()
+            }
+            if (value == org.json.JSONObject.NULL) value = null
+            list.add(value)
+        }
+        return list
+    }
 }

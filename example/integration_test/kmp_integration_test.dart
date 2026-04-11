@@ -3,6 +3,24 @@ import 'package:integration_test/integration_test.dart';
 import 'package:native_workmanager/native_workmanager.dart';
 import 'dart:developer' as developer;
 
+@pragma('vm:entry-point')
+Future<bool> _kmpTestTask(Map<String, dynamic>? input) async {
+  developer.log('✅ Test task executed with input: $input');
+  return true;
+}
+
+@pragma('vm:entry-point')
+Future<bool> _kmpTask1(Map<String, dynamic>? input) async {
+  developer.log('✅ Chain task 1 executed');
+  return true;
+}
+
+@pragma('vm:entry-point')
+Future<bool> _kmpTask2(Map<String, dynamic>? input) async {
+  developer.log('✅ Chain task 2 executed');
+  return true;
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -11,18 +29,9 @@ void main() {
       // Initialize WorkManager once for all tests
       await NativeWorkManager.initialize(
         dartWorkers: {
-          'testTask': (Map<String, dynamic>? input) async {
-            developer.log('✅ Test task executed with input: $input');
-            return true;
-          },
-          'task1': (input) async {
-            developer.log('✅ Chain task 1 executed');
-            return true;
-          },
-          'task2': (input) async {
-            developer.log('✅ Chain task 2 executed');
-            return true;
-          },
+          'testTask': _kmpTestTask,
+          'task1': _kmpTask1,
+          'task2': _kmpTask2,
         },
       );
     });

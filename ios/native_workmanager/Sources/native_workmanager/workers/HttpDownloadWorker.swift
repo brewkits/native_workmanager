@@ -1,4 +1,5 @@
 import Foundation
+import KMPWorkManager
 import CryptoKit
 import Photos
 
@@ -160,13 +161,13 @@ class HttpDownloadWorker: IosWorker {
             // "rename" is handled when the file is moved to its final destination (see resolveDestination)
         }
 
-        // ✅ SECURITY: Validate URL scheme (prevent file://, ftp://, etc.)
+        // Validate URL scheme (prevent file://, ftp://, etc.)
         guard let url = SecurityValidator.validateURL(config.url) else {
             print("HttpDownloadWorker: Error - Invalid or unsafe URL")
             return .failure(message: "Invalid or unsafe URL")
         }
 
-        // ✅ SECURITY: Validate file path is within app sandbox
+        // Validate file path is within app sandbox
         guard SecurityValidator.validateFilePath(config.savePath) else {
             print("HttpDownloadWorker: Error - File path outside app sandbox")
             return .failure(message: "File path outside app sandbox")
@@ -206,7 +207,7 @@ class HttpDownloadWorker: IosWorker {
         destinationURL = destinationURL.resolvingSymlinksInPath()
         tempURL = tempURL.resolvingSymlinksInPath()
 
-        // 👇 NEW: Check for existing partial download (resume support)
+        // Check for existing partial download (resume support)
         var existingBytes: Int64 = 0
         if config.resumeEnabled && FileManager.default.fileExists(atPath: tempURL.path) {
             do {
@@ -227,7 +228,7 @@ class HttpDownloadWorker: IosWorker {
             try? FileManager.default.removeItem(at: tempURL)
         }
 
-        // ✅ SECURITY: Sanitize URL for logging
+        // Sanitize URL for logging
         let sanitizedURL = SecurityValidator.sanitizedURL(config.url)
         print("HttpDownloadWorker: Downloading \(sanitizedURL)")
         print("  Save to: \(destinationURL.lastPathComponent)")
@@ -237,7 +238,7 @@ class HttpDownloadWorker: IosWorker {
         request.httpMethod = "GET"
         request.timeoutInterval = config.timeout
 
-        // 👇 NEW: Add Range header if resuming
+        // Add Range header if resuming
         if existingBytes > 0 {
             request.setValue("bytes=\(existingBytes)-", forHTTPHeaderField: HttpConstants.headerRange)
             // If-Range: only honour the Range if the file hasn't changed on the server.
@@ -285,7 +286,7 @@ class HttpDownloadWorker: IosWorker {
 
         // Execute download using background session or foreground session
         if config.shouldUseBackgroundSession {
-            // 👇 NEW v2.3.0: Background session (survives app termination)
+            // NEW v2.3.0: Background session (survives app termination)
             return await downloadWithBackgroundSession(
                 url: url,
                 destinationURL: destinationURL,
@@ -347,7 +348,7 @@ class HttpDownloadWorker: IosWorker {
 
                 let statusCode = httpResponse.statusCode
 
-                // 👇 NEW: Handle both full content (200) and partial content (206)
+                // Handle both full content (200) and partial content (206)
                 let isPartialContent = statusCode == HttpConstants.partialContent
                 let isFullContent = (200..<300).contains(statusCode)
                 let isResumingDownload = existingBytes > 0 && isPartialContent
@@ -370,7 +371,7 @@ class HttpDownloadWorker: IosWorker {
                     return
                 }
 
-                // ✅ SECURITY: Validate content length before downloading
+                // Validate content length before downloading
                 let contentLength = httpResponse.expectedContentLength
                 if contentLength > 0 {
                     if !SecurityValidator.validateContentLength(contentLength) {
@@ -380,7 +381,7 @@ class HttpDownloadWorker: IosWorker {
                         return
                     }
 
-                    // ✅ SECURITY: Check disk space
+                    // Check disk space
                     if !SecurityValidator.hasEnoughDiskSpace(requiredBytes: contentLength, targetURL: destinationURL) {
                         print("HttpDownloadWorker: Error - Insufficient disk space")
                         try? FileManager.default.removeItem(at: location)
@@ -398,7 +399,7 @@ class HttpDownloadWorker: IosWorker {
                     try? FileManager.default.removeItem(atPath: tempURL.path + HttpConstants.etagSidecarSuffix)
                 }
 
-                // 👇 Feature 4: Resolve filename from Content-Disposition or URL when savePath is a directory
+                // Feature 4: Resolve filename from Content-Disposition or URL when savePath is a directory
                 let cdHeader = httpResponse.value(forHTTPHeaderField: "Content-Disposition")
                 let serverSuggestedName: String? = self.parseFilenameFromContentDisposition(cdHeader)
                 if config.isDirectory {
@@ -424,7 +425,7 @@ class HttpDownloadWorker: IosWorker {
                 }
 
                 do {
-                    // 👇 NEW: Handle resume by appending to temp file
+                    // Handle resume by appending to temp file
                     if isResumingDownload {
                         // Stream-append downloaded chunk to existing temp file.
                         // Avoids loading the entire chunk into RAM (OOM risk for large files).
@@ -474,7 +475,7 @@ class HttpDownloadWorker: IosWorker {
                     let tempAttributes = try FileManager.default.attributesOfItem(atPath: tempURL.path)
                     let finalFileSize = tempAttributes[.size] as? Int64 ?? 0
 
-                    // 👇 NEW: Verify checksum if expected checksum is provided
+                    // Verify checksum if expected checksum is provided
                     if let expectedChecksum = config.expectedChecksum {
                         print("HttpDownloadWorker: Verifying checksum with \(config.effectiveChecksumAlgorithm)...")
 
@@ -522,7 +523,7 @@ class HttpDownloadWorker: IosWorker {
                     // Post-download actions
                     self.performPostDownloadActions(config: config, filePath: destinationURL.path)
 
-                    // ✅ Return success with rich data
+                    // Return success with rich data
                     var resultData: [String: Any] = [
                         "filePath": destinationURL.path,
                         "fileName": destinationURL.lastPathComponent,

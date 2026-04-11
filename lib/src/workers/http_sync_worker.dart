@@ -14,6 +14,7 @@ final class HttpSyncWorker extends Worker {
     this.requestBody,
     this.timeout = const Duration(seconds: 60),
     this.requestSigning,
+    this.tokenRefresh,
   });
 
   final String url;
@@ -27,6 +28,9 @@ final class HttpSyncWorker extends Worker {
   /// When set, each sync request is signed with the specified secret key and
   /// the signature is injected as a request header (default: `X-Signature`).
   final RequestSigning? requestSigning;
+
+  /// Automatic token refresh configuration.
+  final TokenRefreshConfig? tokenRefresh;
 
   @override
   String get workerClassName => 'HttpSyncWorker';
@@ -55,6 +59,7 @@ final class HttpSyncWorker extends Worker {
       'requestBody': encodedBody,
       'timeoutMs': timeout.inMilliseconds,
       if (requestSigning != null) 'requestSigning': requestSigning!.toMap(),
+      if (tokenRefresh != null) 'tokenRefresh': tokenRefresh!.toMap(),
     };
   }
 }

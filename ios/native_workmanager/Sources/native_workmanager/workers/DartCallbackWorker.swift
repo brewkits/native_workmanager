@@ -1,4 +1,5 @@
 import Foundation
+import KMPWorkManager
 
 /// Dart callback worker for iOS.
 ///
@@ -10,7 +11,7 @@ import Foundation
 /// ```json
 /// {
 ///   "callbackId": "myCallback",        // For logging/debugging
-///   "callbackHandle": 12345678,        // ✅ Serializable handle (REQUIRED)
+///   "callbackHandle": 12345678,        // Serializable handle (REQUIRED)
 ///   "input": "{\"key\":\"value\"}",    // Optional: JSON input string
 ///   "timeoutMs": 300000,               // Optional: Timeout (default: 5 minutes)
 ///   "autoDispose": true                // Optional: Kill engine immediately after completion (default: false)
@@ -41,10 +42,10 @@ class DartCallbackWorker: IosWorker {
 
     struct Config: Codable {
         let callbackId: String       // For logging/debugging
-        let callbackHandle: Int64    // ✅ Serializable handle (REQUIRED)
+        let callbackHandle: Int64    // Serializable handle (REQUIRED)
         let input: String?
         let timeoutMs: Int64?
-        let autoDispose: Bool?       // ✅ NEW: Aggressive disposal flag
+        let autoDispose: Bool?       // Aggressive disposal flag
 
         var timeoutSeconds: TimeInterval {
             TimeInterval((timeoutMs ?? DartCallbackWorker.defaultTimeoutMs) / 1000)
@@ -82,14 +83,14 @@ class DartCallbackWorker: IosWorker {
         let startTime = Date()
         let engineWasAlive = FlutterEngineManager.shared.isEngineAlive
 
-        // ✅ FIXED: Execute callback via FlutterEngineManager with callbackHandle
+        // Execute callback via FlutterEngineManager with callbackHandle
         // The callbackHandle enables cross-isolate execution
         do {
             let result = try await FlutterEngineManager.shared.executeDartCallback(
-                callbackHandle: config.callbackHandle,  // ✅ Pass serializable handle
+                callbackHandle: config.callbackHandle,  // Pass serializable handle
                 input: config.input,
                 timeoutSeconds: config.timeoutSeconds,
-                disposeImmediately: config.shouldAutoDispose // ✅ NEW: Aggressive disposal flag
+                disposeImmediately: config.shouldAutoDispose // Aggressive disposal flag
             )
 
             let executionTime = Date().timeIntervalSince(startTime)

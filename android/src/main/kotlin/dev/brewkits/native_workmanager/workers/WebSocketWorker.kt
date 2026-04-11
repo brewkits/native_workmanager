@@ -108,13 +108,13 @@ class WebSocketWorker : AndroidWorker {
             throw IllegalArgumentException("Invalid config JSON: ${e.message}", e)
         }
 
-        // ✅ SECURITY: Validate WebSocket URL (ws:// and wss:// only)
+        // Validate WebSocket URL (ws:// and wss:// only)
         if (!validateWebSocketURL(config.url)) {
             Log.e(TAG, "Error - Invalid or unsafe WebSocket URL")
             return@withContext WorkerResult.Failure("Invalid or unsafe WebSocket URL")
         }
 
-        // ✅ SECURITY: Validate output path
+        // Validate output path
         config.storeResponseAt?.let { path ->
             if (!SecurityValidator.validateFilePathSafe(path)) {
                 Log.e(TAG, "Error - Unsafe storeResponseAt: $path")

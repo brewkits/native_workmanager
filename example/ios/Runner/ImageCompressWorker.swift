@@ -1,5 +1,7 @@
 import Foundation
 import UIKit
+import native_workmanager
+import KMPWorkManager
 
 /// Errors thrown by ImageCompressWorker.
 enum ImageCompressError: Error {

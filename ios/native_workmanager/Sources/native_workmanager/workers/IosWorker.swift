@@ -1,4 +1,5 @@
 import Foundation
+import KMPWorkManager
 
 /// Protocol for iOS background workers.
 ///
@@ -77,6 +78,7 @@ public class IosWorkerFactory {
     /// - Parameter className: The worker class name (e.g., "HttpRequestWorker")
     /// - Returns: Worker instance, or nil if class not found
     static func createWorker(className: String) -> IosWorker? {
+        NSLog("[NativeWorkManager] IosWorkerFactory: creating worker '\(className)'")
         // Try user-registered worker first
         if let factory = userWorkers[className] {
             return factory()

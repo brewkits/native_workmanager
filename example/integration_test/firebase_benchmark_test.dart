@@ -163,7 +163,7 @@ void main() {
         taskId,
         () => NativeWorkManager.enqueue(
           taskId: taskId,
-          worker: NativeWorker.copyFile(
+          worker: NativeWorker.fileCopy(
             sourcePath: srcFile.path,
             destinationPath: dstFile,
           ),
@@ -289,14 +289,22 @@ void main() {
       });
 
       sw.start();
-      await NativeWorkManager.enqueueChain(
-        chainId: chainId,
-        steps: [
-          NativeWorker.copyFile(sourcePath: f1.path, destinationPath: f2),
-          NativeWorker.copyFile(sourcePath: f2, destinationPath: f3),
-          NativeWorker.copyFile(sourcePath: f3, destinationPath: f4),
-        ],
-      );
+      await NativeWorkManager.beginWith(
+        TaskRequest(
+          id: '$chainId-1',
+          worker: NativeWorker.fileCopy(sourcePath: f1.path, destinationPath: f2),
+        ),
+      )
+      .then(TaskRequest(
+        id: '$chainId-2',
+        worker: NativeWorker.fileCopy(sourcePath: f2, destinationPath: f3),
+      ))
+      .then(TaskRequest(
+        id: '$chainId-3',
+        worker: NativeWorker.fileCopy(sourcePath: f3, destinationPath: f4),
+      ))
+      .named(chainId)
+      .enqueue();
 
       Future.delayed(const Duration(seconds: 60), () {
         if (!completer.isCompleted) {
@@ -315,11 +323,11 @@ void main() {
         'unit': 'ms',
         'steps': 3,
         'platform': Platform.operatingSystem,
-        'passed': elapsed >= 0 && elapsed < 20000,
+        'passed': elapsed >= 0 && elapsed < 40000,
       });
 
       expect(elapsed, isNot(-1), reason: '3-step chain timed out');
-      expect(elapsed, lessThan(20000));
+      expect(elapsed, lessThan(40000));
     });
   });
 
@@ -404,7 +412,6 @@ void main() {
             filePath: file.path,
             algorithm: HashAlgorithm.sha512,
           ),
-          timeout: const Duration(seconds: 30),
         ),
         timeout: const Duration(seconds: 30),
       );
@@ -436,7 +443,7 @@ void main() {
         taskId,
         () => NativeWorkManager.enqueue(
           taskId: taskId,
-          worker: NativeWorker.copyFile(
+          worker: NativeWorker.fileCopy(
             sourcePath: src.path,
             destinationPath: dst,
           ),

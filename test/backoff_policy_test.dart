@@ -99,6 +99,7 @@ void main() {
         'content://media/external/audio/media',
         'content://com.android.contacts/contacts',
         'content://com.android.calendar/events',
+        'content://com.example.provider/data?id=123&type=sync',
       ];
 
       for (final uriString in testUris) {
@@ -109,6 +110,17 @@ void main() {
         expect((trigger as ContentUriTrigger).uri, equals(uri));
         expect(trigger.toMap()['uriString'], equals(uriString));
       }
+    });
+
+    test('ContentUriTrigger handles URIs with fragments and query parameters',
+        () {
+      final uri = Uri.parse('content://com.example/path?query=1#fragment');
+      final trigger = TaskTrigger.contentUri(uri: uri);
+
+      expect((trigger as ContentUriTrigger).uri.toString(),
+          contains('query=1'));
+      expect(trigger.uri.toString(), contains('fragment'));
+      expect(trigger.toMap()['uriString'], equals(uri.toString()));
     });
   });
 

@@ -54,7 +54,7 @@ object FlutterEngineManager {
     // Callback handle stored during plugin initialization
     private var callbackHandle: Long? = null
 
-    // ✅ NEW: Coroutine scope for auto-disposal management
+    // Coroutine scope for auto-disposal management
     private val disposalScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var disposalJob: Job? = null
 
@@ -174,7 +174,7 @@ object FlutterEngineManager {
             // Create engine
             val flutterEngine = FlutterEngine(context.applicationContext)
 
-            // DART-007 FIX: Destroy the engine on any init failure so we don't leak
+            // Destroy the engine on any init failure so we don't leak
             // ~30-50MB of RAM per failed attempt (invalid callback handle, 10s timeout, etc.).
             try {
                 // Get the correct app bundle path for the Flutter assets.
@@ -249,7 +249,7 @@ object FlutterEngineManager {
      * it will be disposed to free memory.
      */
     private fun scheduleDisposalCheck() {
-        // ✅ IMPLEMENTED: Auto-disposal with proper CoroutineScope
+        // Auto-disposal with proper CoroutineScope
         // Uses SupervisorJob to prevent leaks and properly managed lifecycle
 
         // Cancel any existing disposal job
@@ -285,8 +285,12 @@ object FlutterEngineManager {
             methodChannel?.setMethodCallHandler(null)
             methodChannel = null
 
-            withContext(Dispatchers.Main) {
-                engine?.destroy()
+            try {
+                withContext(Dispatchers.Main) {
+                    engine?.destroy()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error destroying engine (expected if already detached)", e)
             }
             engine = null
 

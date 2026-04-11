@@ -1,6 +1,7 @@
 
 
 import Foundation
+import KMPWorkManager
 import BackgroundTasks
 
 /// Manager for iOS background task scheduling using BGTaskScheduler.
@@ -54,7 +55,7 @@ class BGTaskSchedulerManager {
     /// Callback for task completion events
     var onTaskComplete: ((String, Bool, String?) -> Void)?
 
-    /// ✅ ISSUE 3 FIX: Callback when a background task handler is invoked by the OS.
+    /// Callback when a background task handler is invoked by the OS.
     /// Used to trigger resumePendingChains/Graphs in the main plugin.
     var onTaskStart: (() -> Void)?
 
@@ -229,7 +230,7 @@ class BGTaskSchedulerManager {
         }
 
         // Setup expiration handler
-        // ✅ FIX: Use [weak self] to prevent retain cycle and call stop()
+        // Use [weak self] to prevent retain cycle and call stop()
         task.expirationHandler = { [weak self] in
             print("BGTaskSchedulerManager: Task expired")
             self?.activeWorker?.stop()
@@ -269,7 +270,7 @@ class BGTaskSchedulerManager {
             return
         }
 
-        // ✅ FIX: Use [weak self] to prevent retain cycle and call stop()
+        // Use [weak self] to prevent retain cycle and call stop()
         task.expirationHandler = { [weak self] in
             print("BGTaskSchedulerManager: Refresh task expired")
             self?.activeWorker?.stop()
@@ -324,7 +325,7 @@ class BGTaskSchedulerManager {
                             inputForWorker = String(data: configData, encoding: .utf8)
                         }
 
-                        let result = try await worker.doWork(input: inputForWorker)
+                        let result = try await worker.doWork(input: inputForWorker, env: WorkerEnvironment(progressListener: nil, isCancelled: { KotlinBoolean(bool: false) }))
                         print("BGTaskSchedulerManager: Worker execution \(result.success ? "succeeded" : "failed")")
 
                         // Remove from pending tasks on success

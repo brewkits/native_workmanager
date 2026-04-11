@@ -49,7 +49,7 @@ internal fun NativeWorkmanagerPlugin.handleEnqueueChain(call: MethodCall, result
                     withContext(Dispatchers.IO) {
                         chainStore.addChainStep(chainId, stepIndex, taskId, "pending")
                         
-                        // ✅ FIX: Also persist to TaskStore so allTasks() surfaces chain nodes
+                        // Also persist to TaskStore so allTasks() surfaces chain nodes
                         taskStore.upsert(
                             taskId = taskId,
                             tag = chainName,

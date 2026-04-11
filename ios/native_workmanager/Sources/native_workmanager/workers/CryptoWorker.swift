@@ -1,4 +1,5 @@
 import Foundation
+import KMPWorkManager
 import CryptoKit
 import CommonCrypto
 
@@ -68,7 +69,7 @@ class CryptoWorker: IosWorker {
         let outputPath: String?          // Output file (for encrypt/decrypt)
         let algorithm: String?           // Algorithm (MD5, SHA-256, AES, etc.)
         let password: String?            // Password (for encrypt/decrypt)
-        let passwordKey: String?         // SC-C-001: vault key (replaces password in task DB)
+        let passwordKey: String?         // vault key (replaces password in task DB)
 
         var effectiveAlgorithm: String {
             algorithm ?? CryptoWorker.defaultAlgorithm
@@ -82,7 +83,7 @@ class CryptoWorker: IosWorker {
     }
 
     func doWork(input: String?, env: KMPWorkManager.WorkerEnvironment) async throws -> WorkerResult {
-        // ✅ IOS: Register background task to request extra execution time
+        // Register background task to request extra execution time
         // iOS will freeze the app shortly after moving to background otherwise.
         var bgTaskId = UIBackgroundTaskIdentifier.invalid
         bgTaskId = UIApplication.shared.beginBackgroundTask(withName: "BrewkitsCrypto") {
@@ -113,7 +114,7 @@ class CryptoWorker: IosWorker {
             return .failure(message: "Invalid JSON config: \(error.localizedDescription)")
         }
 
-        // SC-C-001: resolve password from Keychain vault if passwordKey is present
+        // resolve password from Keychain vault if passwordKey is present
         if let vaultKey = config.passwordKey, !vaultKey.isEmpty {
             guard let secret = KeystorePasswordVault.shared.retrieveAndDelete(vaultKey) else {
                 return .failure(message: "Password vault key not found — retry not possible")
@@ -211,7 +212,7 @@ class CryptoWorker: IosWorker {
             return .failure(message: "password required for encrypt operation")
         }
 
-        // ✅ SECURITY: Validate paths
+        // Validate paths
         guard SecurityValidator.validateFilePath(filePath) else {
             NativeLogger.e("CryptoWorker: Invalid input file path")
             return .failure(message: "Invalid input file path")
@@ -234,7 +235,7 @@ class CryptoWorker: IosWorker {
 
         NativeLogger.d("CryptoWorker: Encrypting: \(inputURL.lastPathComponent) → \(outputURL.lastPathComponent)")
 
-        // ✅ SECURITY: Validate file size before loading into RAM (AES-GCM is not streaming)
+        // Validate file size before loading into RAM (AES-GCM is not streaming)
         guard SecurityValidator.validateFileSize(inputURL) else {
             NativeLogger.e("CryptoWorker: Input file exceeds size limit for encryption")
             return .failure(message: "Input file exceeds size limit for encryption (max 100MB)")
@@ -296,7 +297,7 @@ class CryptoWorker: IosWorker {
             return .failure(message: "password required for decrypt operation")
         }
 
-        // ✅ SECURITY: Validate paths
+        // Validate paths
         guard SecurityValidator.validateFilePath(filePath) else {
             NativeLogger.e("CryptoWorker: Invalid input file path")
             return .failure(message: "Invalid input file path")
@@ -320,7 +321,7 @@ class CryptoWorker: IosWorker {
 
         NativeLogger.d("CryptoWorker: Decrypting: \(inputURL.lastPathComponent) → \(outputURL.lastPathComponent)")
 
-        // ✅ SECURITY: Validate file size before loading into RAM (AES-GCM is not streaming)
+        // Validate file size before loading into RAM (AES-GCM is not streaming)
         guard SecurityValidator.validateFileSize(inputURL) else {
             NativeLogger.e("CryptoWorker: Encrypted file exceeds size limit for decryption")
             return .failure(message: "Encrypted file exceeds size limit for decryption (max 100MB)")

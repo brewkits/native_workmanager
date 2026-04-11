@@ -1,4 +1,5 @@
 import Foundation
+import KMPWorkManager
 import UniformTypeIdentifiers
 
 /// Parallel multi-file HTTP upload worker for iOS.

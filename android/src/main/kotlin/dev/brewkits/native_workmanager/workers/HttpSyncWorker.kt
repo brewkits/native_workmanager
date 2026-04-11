@@ -16,32 +16,6 @@ import kotlinx.serialization.json.put
 
 /**
  * Native HTTP sync worker for Android.
- *
- * Optimized for JSON request/response synchronization scenarios.
- * Automatically sets Content-Type to application/json.
- *
- * **Configuration JSON:**
- * ```json
- * {
- *   "url": "https://api.example.com/sync",
- *   "method": "post",           // Optional: "get", "post", "put" (default: "post")
- *   "headers": {                // Optional
- *     "Authorization": "Bearer token"
- *   },
- *   "requestBody": {            // Optional: JSON object to send
- *     "lastSync": 1234567890,
- *     "data": [...]
- *   },
- *   "timeoutMs": 60000         // Optional: Timeout (default: 1 minute)
- * }
- * ```
- *
- * **Use Cases:**
- * - Periodic data synchronization
- * - API sync endpoints
- * - JSON-based communication
- *
- * **Performance:** ~3-5MB RAM, optimized for JSON
  */
 class HttpSyncWorker : AndroidWorker {
 
@@ -49,7 +23,6 @@ class HttpSyncWorker : AndroidWorker {
         private const val TAG = "HttpSyncWorker"
         private const val DEFAULT_TIMEOUT_MS = 60_000L
         private const val JSON_CONTENT_TYPE = "application/json"
-
     }
 
     data class Config(
@@ -59,6 +32,7 @@ class HttpSyncWorker : AndroidWorker {
         val requestBody: String? = null,
         val timeoutMs: Long? = null,
         val requestSigningConfig: dev.brewkits.native_workmanager.workers.utils.RequestSigner.Config? = null,
+        val tokenRefreshConfig: dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper.TokenRefreshConfig? = null,
     ) {
         val httpMethod: String get() = (method ?: "post").uppercase()
         val timeout: Long get() = timeoutMs ?: DEFAULT_TIMEOUT_MS
@@ -79,20 +53,17 @@ class HttpSyncWorker : AndroidWorker {
                 requestBody = if (j.has("requestBody") && !j.isNull("requestBody")) j.get("requestBody").toString() else null,
                 timeoutMs = if (j.has("timeoutMs")) j.getLong("timeoutMs") else null,
                 requestSigningConfig = dev.brewkits.native_workmanager.workers.utils.RequestSigner.fromMap(j.optJSONObject("requestSigning")),
+                tokenRefreshConfig = dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper.TokenRefreshConfig.fromMap(j.optJSONObject("tokenRefresh")),
             )
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid config JSON: ${e.message}", e)
         }
 
-        // ✅ SECURITY: Validate URL scheme (prevent file://, content://, etc.)
+        // Validate URL scheme (prevent file://, content://, etc.)
         if (!SecurityValidator.validateURL(config.url)) {
             Log.e(TAG, "Error - Invalid or unsafe URL")
             return@withContext WorkerResult.Failure("Invalid or unsafe URL")
         }
-
-        // ✅ SECURITY: Sanitize URL for logging (redact query params)
-        val sanitizedURL = SecurityValidator.sanitizedURL(config.url)
-        Log.d(TAG, "${config.httpMethod} $sanitizedURL")
 
         // Build HTTP client with timeout
         val client = OkHttpClient.Builder()
@@ -101,83 +72,73 @@ class HttpSyncWorker : AndroidWorker {
             .writeTimeout(config.timeout, TimeUnit.MILLISECONDS)
             .build()
 
-        // Encode request body
-        val requestBody = if (config.requestBody != null) {
-            // NET-009: validate that the body is valid JSON before sending with Content-Type: application/json.
-            // A non-JSON body would be silently transmitted, confusing the server.
-            try {
-                org.json.JSONObject(config.requestBody)
-            } catch (_: org.json.JSONException) {
-                try {
-                    org.json.JSONArray(config.requestBody)
-                } catch (_: org.json.JSONException) {
-                    Log.e(TAG, "requestBody is not valid JSON; refusing to send with Content-Type: application/json")
-                    return@withContext WorkerResult.Failure("requestBody is not valid JSON")
+        // Build request helper
+        fun buildRequest(newToken: String? = null): Request {
+            val sanitizedURL = SecurityValidator.sanitizedURL(config.url)
+            Log.d(TAG, "${config.httpMethod} $sanitizedURL")
+
+            val bodyData = config.requestBody?.toByteArray(Charsets.UTF_8)
+            val requestBody = bodyData?.let {
+                if (!SecurityValidator.validateRequestSize(it)) null
+                else it.toRequestBody(JSON_CONTENT_TYPE.toMediaType())
+            } ?: if (config.httpMethod in listOf("POST", "PUT", "PATCH")) {
+                ByteArray(0).toRequestBody(JSON_CONTENT_TYPE.toMediaType())
+            } else null
+
+            val requestBuilder = Request.Builder()
+                .url(config.url)
+                .method(config.httpMethod, requestBody)
+                .header("Content-Type", JSON_CONTENT_TYPE)
+
+            config.headers?.forEach { (key, value) -> requestBuilder.header(key, value) }
+
+            // Inject refreshed token
+            newToken?.let { token ->
+                config.tokenRefreshConfig?.let { tr ->
+                    requestBuilder.header(tr.tokenHeaderName, "${tr.tokenPrefix}$token")
                 }
             }
 
-            val bodyBytes = config.requestBody.toByteArray(Charsets.UTF_8)
-
-            // ✅ SECURITY: Validate request body size
-            if (!SecurityValidator.validateRequestSize(bodyBytes)) {
-                Log.e(TAG, "Error - Request body too large")
-                return@withContext WorkerResult.Failure("Request body too large")
-            }
-
-            Log.d(TAG, "Request body size: ${bodyBytes.size} bytes")
-            bodyBytes.toRequestBody(JSON_CONTENT_TYPE.toMediaType())
-        } else {
-            if (config.httpMethod in listOf("POST", "PUT", "PATCH")) {
-                ByteArray(0).toRequestBody(JSON_CONTENT_TYPE.toMediaType())
-            } else {
-                null
-            }
+            return config.requestSigningConfig?.let { 
+                dev.brewkits.native_workmanager.workers.utils.RequestSigner.sign(requestBuilder.build(), it) 
+            } ?: requestBuilder.build()
         }
-
-        // Build request. Use header() (not addHeader()) so custom Content-Type overrides the default.
-        val requestBuilder = Request.Builder()
-            .url(config.url)
-            .method(config.httpMethod, requestBody)
-            .header("Content-Type", JSON_CONTENT_TYPE)
-
-        // Add custom headers; addHeader() accumulates while header() replaces — use addHeader for
-        // all user headers so multiple values (e.g. multiple Accept entries) are preserved.
-        config.headers?.forEach { (key, value) ->
-            requestBuilder.header(key, value)
-        }
-
-        val request = config.requestSigningConfig
-            ?.let { dev.brewkits.native_workmanager.workers.utils.RequestSigner.sign(requestBuilder.build(), it) }
-            ?: requestBuilder.build()
 
         // Execute request
         return@withContext try {
-            client.newCall(request).execute().use { response ->
-                val responseBytes = response.body?.bytes() ?: ByteArray(0)
+            var request = buildRequest()
+            var response = client.newCall(request).execute()
 
-                // ✅ SECURITY: Validate response body size
+            // Handle 401 with Token Refresh
+            if (response.code == 401 && config.tokenRefreshConfig != null) {
+                Log.d(TAG, "Received 401 — Attempting token refresh...")
+                val newToken = dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper.attemptTokenRefresh(
+                    client, config.tokenRefreshConfig
+                )
+                
+                if (newToken != null) {
+                    Log.d(TAG, "Token refresh successful — retrying request...")
+                    response.close()
+                    request = buildRequest(newToken)
+                    response = client.newCall(request).execute()
+                }
+            }
+
+            response.use { resp ->
+                val responseBytes = resp.body?.bytes() ?: ByteArray(0)
+
+                // Validate response body size
                 if (!SecurityValidator.validateResponseSize(responseBytes)) {
                     Log.e(TAG, "Error - Response body too large")
                     return@use WorkerResult.Failure("Response body too large")
                 }
 
-                val statusCode = response.code
+                val statusCode = resp.code
                 val success = statusCode in 200..299
                 val responseString = responseBytes.toString(Charsets.UTF_8)
 
-                // Collect response headers
-                val headers = mutableMapOf<String, String>()
-                response.headers.forEach { (name, value) ->
-                    headers[name] = value
-                }
-
                 if (success) {
-                    // ✅ SECURITY: Truncate response JSON for logging
-                    val truncatedResponse = SecurityValidator.truncateForLogging(responseString, 500)
                     Log.d(TAG, "Success - Status $statusCode")
-                    Log.d(TAG, "Response JSON:\n$truncatedResponse")
-
-                    // ✅ Return success with response data
                     WorkerResult.Success(
                         message = "HTTP $statusCode",
                         data = buildJsonObject {
@@ -186,11 +147,8 @@ class HttpSyncWorker : AndroidWorker {
                         }
                     )
                 } else {
-                    // ✅ SECURITY: Truncate error body for logging
                     val truncatedError = SecurityValidator.truncateForLogging(responseString, 200)
                     Log.e(TAG, "Failed - Status $statusCode")
-                    Log.e(TAG, "Error: $truncatedError")
-
                     WorkerResult.Failure(
                         message = "HTTP $statusCode: $truncatedError",
                         shouldRetry = statusCode >= 500
@@ -209,8 +167,6 @@ class HttpSyncWorker : AndroidWorker {
     private fun parseStringMap(obj: org.json.JSONObject?): Map<String, String>? {
         if (obj == null) return null
         val map = mutableMapOf<String, String>()
-        // CRIT-003: use opt().toString() instead of getString() so non-string values
-        // (numbers, booleans) are coerced safely instead of throwing JSONException.
         obj.keys().forEach { key -> map[key] = obj.opt(key)?.toString() ?: "" }
         return map
     }

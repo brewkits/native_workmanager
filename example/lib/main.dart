@@ -104,6 +104,7 @@ void main() async {
 
   // Initialize native_workmanager
   await NativeWorkManager.initialize(
+    debugMode: true,
     dartWorkers: {
       'customTask': customTaskCallback,
       'heavyTask': heavyTaskCallback,

@@ -1,4 +1,5 @@
 import Foundation
+import KMPWorkManager
 import CryptoKit
 
 /// Parallel chunked HTTP download worker for iOS.
@@ -296,7 +297,7 @@ class ParallelHttpDownloadWorker: IosWorker {
             // Handle 401 with token refresh
             if let http = response as? HTTPURLResponse, http.statusCode == 401,
                let trCfg = tokenRefreshConfig {
-                // ✅ NEW: Uses AuthTokenManager actor to ensure serialized refresh across all chunks
+                // Uses AuthTokenManager actor to ensure serialized refresh across all chunks
                 if let newToken = await AuthTokenManager.shared.refreshToken(config: trCfg, currentSession: session) {
                     var retryRequest = URLRequest(url: url)
                     retryRequest.setValue("bytes=\(resumeFrom)-\(rangeEnd)", forHTTPHeaderField: "Range")
@@ -377,7 +378,7 @@ class ParallelHttpDownloadWorker: IosWorker {
             // Handle 401 with token refresh
             if let http = response as? HTTPURLResponse, http.statusCode == 401,
                let trCfg = tokenRefreshConfig {
-                // ✅ NEW: Uses AuthTokenManager actor to ensure serialized refresh
+                // Uses AuthTokenManager actor to ensure serialized refresh
                 if let newToken = await AuthTokenManager.shared.refreshToken(config: trCfg, currentSession: session) {
                     var retryRequest = URLRequest(url: url)
                     if existingBytes > 0 { retryRequest.setValue("bytes=\(existingBytes)-", forHTTPHeaderField: "Range") }

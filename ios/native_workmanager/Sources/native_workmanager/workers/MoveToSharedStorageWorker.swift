@@ -1,4 +1,5 @@
 import Foundation
+import KMPWorkManager
 import Photos
 
 /// Worker that moves/copies a file from app-private storage to a shared location.

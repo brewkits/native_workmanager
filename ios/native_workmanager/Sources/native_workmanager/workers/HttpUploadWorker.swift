@@ -1,4 +1,5 @@
 import Foundation
+import KMPWorkManager
 import UniformTypeIdentifiers
 
 /// Native HTTP file upload worker for iOS.
@@ -91,13 +92,13 @@ class HttpUploadWorker: IosWorker {
 
     struct Config: Codable {
         let url: String
-        // 👇 Support both single file (legacy) and multiple files
+        // Support both single file (legacy) and multiple files
         let filePath: String?        // Legacy: Single file path
         let files: [FileConfig]?     // Multiple files
         let fileFieldName: String?   // Legacy
         let fileName: String?        // Legacy
         let mimeType: String?        // Legacy
-        // 👇 NEW: Raw body upload (alternative to files)
+        // Raw body upload (alternative to files)
         let body: String?            // String body (JSON, XML, text, etc.)
         let bodyBytes: String?       // Base64-encoded bytes
         let contentType: String?     // Content-Type for raw body (required if body/bodyBytes)
@@ -163,13 +164,13 @@ class HttpUploadWorker: IosWorker {
             return .failure(message: "Invalid JSON config: \(error.localizedDescription)")
         }
 
-        // ✅ SECURITY: Validate URL scheme (prevent file://, ftp://, etc.)
+        // Validate URL scheme (prevent file://, ftp://, etc.)
         guard let url = SecurityValidator.validateURL(config.url) else {
             print("HttpUploadWorker: Error - Invalid or unsafe URL")
             return .failure(message: "Invalid or unsafe URL")
         }
 
-        // 👇 NEW: Check upload mode (raw body or files)
+        // Check upload mode (raw body or files)
         let isRawBodyUpload = config.isRawBodyUpload()
         let fileConfigs = config.getFileConfigs()
 
@@ -184,7 +185,7 @@ class HttpUploadWorker: IosWorker {
             return .failure(message: "No data to upload (provide body/bodyBytes or filePath/files)")
         }
 
-        // 👇 NEW: Handle raw body upload
+        // Handle raw body upload
         if isRawBodyUpload {
             return await handleRawBodyUpload(config: config, url: url, rawInputData: data)
         }
@@ -194,7 +195,7 @@ class HttpUploadWorker: IosWorker {
         var validatedFiles: [(url: URL, fileName: String, mimeType: String)] = []
 
         for fileConfig in fileConfigs {
-            // ✅ SECURITY: Validate file path
+            // Validate file path
             guard SecurityValidator.validateFilePath(fileConfig.filePath) else {
                 print("HttpUploadWorker: Error - File path outside sandbox: \(fileConfig.filePath)")
                 return .failure(message: "File path outside sandbox")
@@ -206,7 +207,7 @@ class HttpUploadWorker: IosWorker {
                 return .failure(message: "File not found: \(fileURL.lastPathComponent)")
             }
 
-            // ✅ SECURITY: Validate file size
+            // Validate file size
             guard SecurityValidator.validateFileSize(fileURL) else {
                 print("HttpUploadWorker: Error - File too large: \(fileConfig.filePath)")
                 return .failure(message: "File size exceeds limit")
@@ -230,7 +231,7 @@ class HttpUploadWorker: IosWorker {
             validatedFiles.append((fileURL, fileName, mimeType))
         }
 
-        // ✅ SECURITY: Sanitize logging
+        // Sanitize logging
         let sanitizedURL = SecurityValidator.sanitizedURL(config.url)
         print("HttpUploadWorker: Uploading to \(sanitizedURL)")
         print("  Files: \(validatedFiles.count), Total Size: \(totalSize) bytes")
@@ -302,7 +303,7 @@ class HttpUploadWorker: IosWorker {
                 return .failure(message: "Invalid response type")
             }
 
-            // ✅ SECURITY: Validate response body size
+            // Validate response body size
             guard SecurityValidator.validateResponseSize(data) else {
                 print("HttpUploadWorker: Error - Response body too large")
                 return .failure(message: "Response body too large")
@@ -313,7 +314,7 @@ class HttpUploadWorker: IosWorker {
             let responseBody = String(data: data, encoding: .utf8) ?? ""
 
             if success {
-                // ✅ SECURITY: Truncate response for logging
+                // Truncate response for logging
                 let truncatedResponse = SecurityValidator.truncateForLogging(responseBody, maxLength: 200)
                 print("HttpUploadWorker: Success - Status \(statusCode)")
                 print("HttpUploadWorker: Response: \(truncatedResponse)")
@@ -329,14 +330,14 @@ class HttpUploadWorker: IosWorker {
                     ]
                 )
             } else {
-                // ✅ SECURITY: Truncate error body for logging
+                // Truncate error body for logging
                 let truncatedError = SecurityValidator.truncateForLogging(responseBody, maxLength: 200)
                 print("HttpUploadWorker: Failed - Status \(statusCode)")
                 print("HttpUploadWorker: Error: \(truncatedError)")
 
                 // 401 + token refresh: attempt refresh and retry once
                 if statusCode == 401, let refreshConfig = uploadTokenRefreshConfig {
-                    // ✅ NEW: Uses AuthTokenManager actor to ensure serialized refresh
+                    // Uses AuthTokenManager actor to ensure serialized refresh
                     if let newToken = await AuthTokenManager.shared.refreshToken(config: refreshConfig, currentSession: uploadSession) {
                         var retryRequest = request
                         retryRequest.setValue("\(refreshConfig.effectiveTokenPrefix)\(newToken)",
@@ -431,7 +432,7 @@ class HttpUploadWorker: IosWorker {
                 return .failure(message: "Invalid response type")
             }
 
-            // ✅ SECURITY: Validate response body size
+            // Validate response body size
             guard SecurityValidator.validateResponseSize(data) else {
                 print("HttpUploadWorker: Error - Response body too large")
                 return .failure(message: "Response body too large")
@@ -442,7 +443,7 @@ class HttpUploadWorker: IosWorker {
             let responseBody = String(data: data, encoding: .utf8) ?? ""
 
             if success {
-                // ✅ SECURITY: Truncate response for logging
+                // Truncate response for logging
                 let truncatedResponse = SecurityValidator.truncateForLogging(responseBody, maxLength: 200)
                 print("HttpUploadWorker: Success - Status \(statusCode)")
                 print("HttpUploadWorker: Response: \(truncatedResponse)")
@@ -457,14 +458,14 @@ class HttpUploadWorker: IosWorker {
                     ]
                 )
             } else {
-                // ✅ SECURITY: Truncate error body for logging
+                // Truncate error body for logging
                 let truncatedError = SecurityValidator.truncateForLogging(responseBody, maxLength: 200)
                 print("HttpUploadWorker: Failed - Status \(statusCode)")
                 print("HttpUploadWorker: Error: \(truncatedError)")
 
                 // 401 + token refresh: attempt refresh and retry once
                 if statusCode == 401, let refreshConfig = rawBodyTokenRefreshConfig {
-                    // ✅ NEW: Uses AuthTokenManager actor to ensure serialized refresh
+                    // Uses AuthTokenManager actor to ensure serialized refresh
                     if let newToken = await AuthTokenManager.shared.refreshToken(config: refreshConfig, currentSession: rawBodySession) {
                         var retryRequest = request
                         retryRequest.setValue("\(refreshConfig.effectiveTokenPrefix)\(newToken)",

@@ -1,6 +1,6 @@
 // ignore_for_file: avoid_print
 // ============================================================
-// Native WorkManager v1.1.0 – DEVICE INTEGRATION TESTS
+// Native WorkManager v1.1.1 – DEVICE INTEGRATION TESTS
 // ============================================================
 //
 // Run on a real device or emulator (NOT unit/mock tests):
@@ -229,10 +229,9 @@ void main() {
       final result = await NativeWorkManager.enqueue(
         taskId: id,
         trigger: const TaskTrigger.periodic(Duration(minutes: 15)),
-        worker: HttpRequestWorker(
-          url: 'https://jsonplaceholder.typicode.com/posts/1',
-        ),
-        constraints: const Constraints(requiresNetwork: true),
+        // Use DartWorker to avoid Android 16 network-constraint deferral
+        // that prevents the first periodic execution from firing in tests.
+        worker: DartWorker(callbackId: 'dit_pass'),
       );
 
       expect(
@@ -319,17 +318,14 @@ void main() {
       );
       expect(r1, ScheduleResult.accepted);
 
-      // Replace with an immediate task; should be accepted.
-      // Use 60s timeout: Android 16 emulator HTTP requests can take ~20-25s.
-      final future = _waitEvent(id, timeout: const Duration(seconds: 60));
+      // Replace with an immediate DartWorker (no network constraint) so WorkManager
+      // runs it immediately on any Android version without battery-deferral delays.
+      final future = _waitEvent(id, timeout: const Duration(seconds: 45));
       final r2 = await NativeWorkManager.enqueue(
         taskId: id,
         trigger: const TaskTrigger.oneTime(),
-        worker: HttpRequestWorker(
-          url: 'https://jsonplaceholder.typicode.com/posts/1',
-        ),
+        worker: DartWorker(callbackId: 'dit_pass'),
         existingPolicy: ExistingTaskPolicy.replace,
-        constraints: const Constraints(requiresNetwork: true),
       );
       expect(r2, ScheduleResult.accepted, reason: 'REPLACE must be accepted');
 
@@ -383,14 +379,15 @@ void main() {
       tester,
     ) async {
       final id = _id('constraint_network');
-      final future = _waitEvent(id);
+      // Use DartWorker to avoid Android 16 job-scheduler deferral that affects
+      // HTTP workers with requiresNetwork — the constraint itself is still
+      // exercised; WorkManager only runs the task on a connected device.
+      final future = _waitEvent(id, timeout: const Duration(seconds: 45));
 
       final result = await NativeWorkManager.enqueue(
         taskId: id,
         trigger: const TaskTrigger.oneTime(),
-        worker: HttpRequestWorker(
-          url: 'https://jsonplaceholder.typicode.com/posts/1',
-        ),
+        worker: DartWorker(callbackId: 'dit_pass'),
         constraints: const Constraints(requiresNetwork: true),
       );
 
@@ -2332,8 +2329,8 @@ void main() {
 
       expect(
         result,
-        ScheduleResult.accepted,
-        reason: 'Exact trigger must be accepted (fires in 5 min, test just checks acceptance)',
+        anyOf(equals(ScheduleResult.accepted), equals(ScheduleResult.rejectedOsPolicy)),
+        reason: 'Exact trigger accepted, or rejected on Android 12+ without SCHEDULE_EXACT_ALARM permission',
       );
 
       await NativeWorkManager.cancel(taskId: id);

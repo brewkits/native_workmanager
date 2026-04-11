@@ -116,6 +116,7 @@ class NativeWorker {
     Map<String, String> headers = const {},
     String? body,
     Duration timeout = const Duration(seconds: 30),
+    TokenRefreshConfig? tokenRefresh,
   }) =>
       _buildHttpRequest(
         url: url,
@@ -123,6 +124,7 @@ class NativeWorker {
         headers: headers,
         body: body,
         timeout: timeout,
+        tokenRefresh: tokenRefresh,
       );
 
   /// HTTP file upload worker (multipart).
@@ -274,6 +276,7 @@ class NativeWorker {
     Map<String, String> headers = const {},
     Map<String, dynamic>? requestBody,
     Duration timeout = const Duration(seconds: 60),
+    TokenRefreshConfig? tokenRefresh,
   }) =>
       _buildHttpSync(
         url: url,
@@ -281,6 +284,7 @@ class NativeWorker {
         headers: headers,
         requestBody: requestBody,
         timeout: timeout,
+        tokenRefresh: tokenRefresh,
       );
 
   // ── Custom worker ────────────────────────────────────────────────────────────

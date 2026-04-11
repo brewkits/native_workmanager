@@ -75,8 +75,6 @@ void main() {
           url: largeFileUrl,
           savePath: savePath,
           numChunks: 4, // Split into 4 chunks
-          expectedChecksum: 'optional_checksum_here', // If we know it
-          checksumAlgorithm: 'SHA-256',
         ),
         constraints: const Constraints(requiresNetwork: true),
       );

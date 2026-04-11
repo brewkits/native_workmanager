@@ -450,14 +450,14 @@ await NativeWorkManager.enqueue(
 
 ## Changelog
 
-### v1.0.0 (2026-02-07)
+### v1.1.1 (2026-02-07)
 - ✅ Initial release
 - ✅ ZIP extraction support
 - ✅ Security validations (path traversal, zip bomb)
 - ✅ Progress reporting
 - ❌ Password-protected ZIPs not supported (not yet supported)
 
-### Planned for v1.1.0
+### Planned for v1.1.1
 - Password-protected ZIP support
 - Selective file extraction (extract specific files only)
 - Multi-format support (TAR, GZ, 7Z)

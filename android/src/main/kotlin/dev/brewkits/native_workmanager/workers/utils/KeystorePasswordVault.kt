@@ -7,7 +7,7 @@ import dev.brewkits.native_workmanager.AppContextHolder
 import java.util.UUID
 
 /**
- * SC-C-001: Secure password vault backed by Android Keystore + EncryptedSharedPreferences.
+ * Secure password vault backed by Android Keystore + EncryptedSharedPreferences.
  *
  * WorkManager persists all input Data to an unencrypted Room database. Passing an
  * encryption password as a direct field would store it in plaintext on disk, defeating

@@ -1,4 +1,5 @@
 import Foundation
+import KMPWorkManager
 
 /// Native file compression worker for iOS.
 ///

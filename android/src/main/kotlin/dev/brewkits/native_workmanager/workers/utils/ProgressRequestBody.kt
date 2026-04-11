@@ -100,7 +100,7 @@ class ProgressRequestBody(
             if (progress != lastReportedProgress) {
                 lastReportedProgress = progress
 
-                // ✅ FIX #1: Non-blocking progress reporting from I/O thread
+                // Non-blocking progress reporting from I/O thread
                 ProgressReporter.reportProgressNonBlocking(
                     taskId = taskId,
                     progress = progress,

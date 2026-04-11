@@ -652,7 +652,7 @@ await NativeWorkManager.enqueue(
 
 ## Changelog
 
-### v1.0.0 (2026-02-07)
+### v1.1.1 (2026-02-07)
 - ✅ Android: EXIF orientation handling for all 8 orientations
 - ✅ Android: Progress reporting at 5 stages
 - ✅ Android: Added `androidx.exifinterface` dependency

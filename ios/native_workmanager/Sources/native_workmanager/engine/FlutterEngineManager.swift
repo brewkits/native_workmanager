@@ -36,7 +36,7 @@ class FlutterEngineManager {
     private static let initTimeoutSeconds: TimeInterval = 30
     private static let defaultCallbackTimeoutSeconds: TimeInterval = 300 // 5 minutes
 
-    // ✅ IMPLEMENTED: Auto-disposal after idle timeout
+    // Auto-disposal after idle timeout
     private var lastUsedTimestamp: Date?
     private static let idleTimeoutSeconds: TimeInterval = 300 // 5 minutes
     private var disposalWorkItem: DispatchWorkItem?
@@ -87,7 +87,7 @@ class FlutterEngineManager {
         callbackHandle: Int64,
         input: String?,
         timeoutSeconds: TimeInterval = defaultCallbackTimeoutSeconds,
-        disposeImmediately: Bool = false // ✅ NEW: Aggressive disposal flag
+        disposeImmediately: Bool = false
     ) async throws -> Bool {
         let startTime = Date()
         let wasEngineAlive = isEngineAlive
@@ -125,9 +125,8 @@ class FlutterEngineManager {
             let totalTime = Date().timeIntervalSince(startTime)
             print("FlutterEngineManager: Callback (handle: \(callbackHandle)) completed in \(Int(totalTime * 1000))ms")
 
-            // ✅ NEW: Aggressive disposal logic
             if disposeImmediately {
-                print("🔥 Aggressive disposal: Killing engine immediately to free RAM")
+                print("FlutterEngineManager: Aggressively disposing engine to free RAM")
                 dispose()
             } else {
                 // Original behavior: Keep engine alive for 5 minutes
@@ -149,15 +148,13 @@ class FlutterEngineManager {
         queue.sync {
             print("FlutterEngineManager: Disposing engine...")
 
-            // ✅ FIX: Remove method channel handler BEFORE clearing reference
-            // This prevents handler retention and ensures proper cleanup
+            // Remove method channel handler before clearing reference to prevent handler retention
             methodChannel?.setMethodCallHandler(nil)
             methodChannel = nil
 
             engine = nil
             isInitialized = false
 
-            // ✅ NEW: Cancel any pending disposal checks
             disposalWorkItem?.cancel()
             disposalWorkItem = nil
             lastUsedTimestamp = nil
@@ -247,10 +244,9 @@ class FlutterEngineManager {
 
     /// Wait for Dart side to signal it's ready.
     private func waitForDartReady(channel: FlutterMethodChannel, timeout: TimeInterval) {
-        // DART-001/DART-003 FIX: `isReady` must only be accessed from `self.queue`
-        // (a serial queue) so the timeout check and the handler's write are serialized.
-        // The old code set isReady on the main thread and checked it on DispatchQueue.global(),
-        // creating a data race that could resume continuations twice → crash.
+        // `isReady` must only be accessed from `self.queue` (a serial queue) so the timeout
+        // check and the handler's write are serialized.  Setting isReady on a different thread
+        // from where it's checked creates a data race that can resume continuations twice → crash.
         var isReady = false
 
         channel.setMethodCallHandler { [weak self] (call, result) in
@@ -290,7 +286,7 @@ class FlutterEngineManager {
             }
         }
 
-        // DART-001/DART-003 FIX: Use self.queue (serial) instead of DispatchQueue.global().
+        // Use self.queue (serial) instead of DispatchQueue.global() for the timeout check.
         // This serializes the timeout check with the handler's queue.async block above,
         // so only one of them can see isReady == false and call completeInitialization.
         queue.asyncAfter(deadline: .now() + timeout) { [weak self] in
@@ -325,8 +321,7 @@ class FlutterEngineManager {
 
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.main.async {
-                // ✅ FIXED: Pass callbackHandle (not callbackId) to background isolate
-                // The background isolate will resolve the handle to the actual callback function
+                // Pass callbackHandle (not callbackId) — the background isolate resolves the handle
                 let args: [String: Any?] = [
                     "callbackHandle": callbackHandle,
                     "input": input
@@ -347,7 +342,6 @@ class FlutterEngineManager {
         }
     }
 
-    // ✅ IMPLEMENTED: Auto-disposal implementation
     /// Schedule automatic engine disposal after idle timeout.
     ///
     /// This method schedules a check to dispose the engine if it has been idle

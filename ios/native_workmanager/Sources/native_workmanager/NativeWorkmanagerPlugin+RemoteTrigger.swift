@@ -1,4 +1,5 @@
 import Foundation
+import KMPWorkManager
 import Flutter
 
 extension NativeWorkmanagerPlugin {
@@ -161,7 +162,7 @@ extension NativeWorkmanagerPlugin {
         }
 
         do {
-            let result = try await worker.doWork(input: inputJson)
+            let result = try await worker.doWork(input: inputJson, env: WorkerEnvironment(progressListener: nil, isCancelled: { KotlinBoolean(bool: false) }))
             return result.success
         } catch {
             NativeLogger.e("executeWorkerStateless '\(taskId)': \(error.localizedDescription)")

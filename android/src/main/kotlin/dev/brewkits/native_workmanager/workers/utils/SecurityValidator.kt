@@ -41,14 +41,14 @@ object SecurityValidator {
         try {
             val uri = Uri.parse(urlString)
 
-            // ✅ SECURITY: Check if scheme exists
+            // Check if scheme exists
             val scheme = uri.scheme?.lowercase()
             if (scheme.isNullOrEmpty()) {
                 Log.e(TAG, "URL missing scheme")
                 return false
             }
 
-            // ✅ SECURITY: Only allow HTTP and HTTPS schemes
+            // Only allow HTTP and HTTPS schemes
             val allowedSchemes = listOf("http", "https")
             if (scheme !in allowedSchemes) {
                 // FIX #06: Explicitly reject content:// and file:// schemes for URL-based workers
@@ -137,7 +137,7 @@ object SecurityValidator {
             val file = File(path)
             val canonicalPath = file.canonicalPath
 
-            // ✅ SECURITY: Only allow paths within allowed directories
+            // Only allow paths within allowed directories
             for (allowedDir in allowedDirs) {
                 if (canonicalPath.startsWith(allowedDir.canonicalPath)) {
                     return true
@@ -172,7 +172,7 @@ object SecurityValidator {
         return try {
             val uri = Uri.parse(urlString)
 
-            // ✅ SECURITY: Redact query parameters (may contain secrets)
+            // Redact query parameters (may contain secrets)
             if (!uri.query.isNullOrEmpty()) {
                 uri.buildUpon()
                     .clearQuery()

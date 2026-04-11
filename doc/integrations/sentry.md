@@ -47,7 +47,7 @@ Future<void> main() async {
     (options) {
       options.dsn = 'YOUR_SENTRY_DSN';
       options.environment = 'production';
-      options.release = '1.0.0';
+      options.release = '1.1.1';
       options.tracesSampleRate = 1.0; // Capture 100% of transactions
       options.enableAutoSessionTracking = true;
       options.attachScreenshot = true;
@@ -679,7 +679,7 @@ Future<void> main() async {
     (options) {
       options.dsn = 'YOUR_SENTRY_DSN';
       options.environment = 'production';
-      options.release = '1.0.0';
+      options.release = '1.1.1';
       options.tracesSampleRate = 0.1; // 10% sampling
 
       // Custom sampler

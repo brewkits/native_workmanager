@@ -279,7 +279,7 @@ class FileSystemWorker : AndroidWorker {
         if (!directory.isDirectory) return WorkerResult.Failure("Path is not a directory: $path")
 
         return try {
-            // FIX: Use sequence to avoid loading everything into memory (prevent OOM)
+            // Use sequence to avoid loading everything into memory (prevent OOM)
             val fileSequence = if (recursive) {
                 directory.walkTopDown().filter { it.isFile }
             } else {
@@ -288,7 +288,7 @@ class FileSystemWorker : AndroidWorker {
 
             // Apply pattern filter efficiently
             val regex = pattern?.let {
-                // ✅ SECURITY: Fix Regex Injection — use a safer glob-to-regex conversion
+                // Fix Regex Injection — use a safer glob-to-regex conversion
                 // This prevents users from breaking the regex with special chars
                 val escaped = it.replace(".", "\\.")
                     .replace("*", ".*")

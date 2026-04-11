@@ -1,4 +1,5 @@
 import Foundation
+import KMPWorkManager
 
 /// Result type for Worker execution.
 ///

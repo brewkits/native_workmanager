@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.1] - 2026-04-10
+
+### Added
+- **Token Refresh on 401**: `HttpRequestWorker` and `HttpSyncWorker` now support automatic token refresh when a 401 response is received. Configure via the new `tokenRefresh` field in worker config (or `TokenRefreshConfig` in the Dart API) with a refresh URL, optional request body, and a `responseKey` path to extract the new token (supports nested keys like `"json.access_token"`).
+- **Response Validation Patterns**: `HttpRequestWorker` supports `successPattern` and `failurePattern` regex fields. A 200 response is marked as failure if `failurePattern` matches or `successPattern` does not match — useful for APIs that always return HTTP 200 but embed error status in the body.
+- **`http_sync_test.dart`**: New integration test for `HttpSyncWorker` covering token refresh and request signing.
+
+### Changed
+- **KMPWorkManager iOS XCFramework**: Updated simulator slice from `ios-arm64-simulator` to `ios-arm64_x86_64-simulator` to support both Apple Silicon and Intel Simulator targets.
+
+---
+
 ## [1.1.1] - 2026-04-09
 
 ### Changed

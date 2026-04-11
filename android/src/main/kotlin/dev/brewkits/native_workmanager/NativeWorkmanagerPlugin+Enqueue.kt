@@ -218,7 +218,7 @@ internal fun NativeWorkmanagerPlugin.handleEnqueue(call: MethodCall, result: Res
             val workerConfig = call.argument<Map<String, Any?>?>("workerConfig")
             // Custom workers carry a pre-encoded "input" JSON string;
             // built-in workers need the entire workerConfig serialised as their input.
-            // ✅ ENHANCEMENT: Inject taskId into all worker configs for progress reporting
+            // Inject taskId into all worker configs for progress reporting
             val inputJson: String? = when {
                 workerConfig == null -> null
                 workerConfig["workerType"] == "custom" -> workerConfig["input"] as? String
@@ -226,7 +226,7 @@ internal fun NativeWorkmanagerPlugin.handleEnqueue(call: MethodCall, result: Res
                     // Inject taskId into worker config for progress reporting
                     val enrichedConfig = workerConfig.toMutableMap()
                     enrichedConfig["__taskId"] = taskId
-                    // SC-C-001: intercept password for crypto workers — replace with vault key
+                    // intercept password for crypto workers — replace with vault key
                     // so the password is never written to the unencrypted WorkManager Room DB.
                     if (enrichedConfig["workerType"] == "crypto") {
                         val password = enrichedConfig["password"] as? String
@@ -247,20 +247,16 @@ internal fun NativeWorkmanagerPlugin.handleEnqueue(call: MethodCall, result: Res
                 NativeLogger.d("Stored tag '$tag' for task '$taskId'")
             }
 
-            // C-001 FIX: constraintsMap must be declared BEFORE it is used for constraintsJson.
-            // Previously declared at line ~316 (after the upsert block) — Kotlin forward reference
-            // to a local variable is a compile error.  Moved here so both constraintsJson
-            // persistence (below) and parseConstraints() call (below trigger parsing) share the
-            // same parsed value.
+            // constraintsMap must be declared before constraintsJson so both the persistence
+            // block below and parseConstraints() share the same parsed value.
             @Suppress("UNCHECKED_CAST")
             val constraintsMap = call.argument<Map<String, Any?>>("constraints")
 
             // Store task in persistent SQLite store (IO dispatcher — SQLite must not run on Main).
-            // H-001 FIX: Store the FULL (unsanitized) inputJson so that handleResume() can
-            // re-enqueue with the original auth headers, cookies, and tokens intact.
-            // toFlutterMap() does NOT include workerConfig, so sensitive fields are never sent
-            // to the Dart layer.  The Android app sandbox protects the DB file from other apps.
-            // M-5: also persist constraints JSON so resume() can restore original constraints.
+            // Store the FULL (unsanitized) inputJson so that handleResume() can re-enqueue with
+            // original auth headers, cookies, and tokens intact.  toFlutterMap() does NOT include
+            // workerConfig, so sensitive fields are never sent to the Dart layer.
+            // Also persist constraintsJson so resume() can restore original constraints.
             val constraintsJson = constraintsMap?.let { toJson(it) }
             withContext(Dispatchers.IO) {
                 taskStore.upsert(
@@ -403,10 +399,9 @@ internal suspend fun NativeWorkmanagerPlugin.cleanupTempFilesForTask(taskId: Str
         val savePath = try {
             org.json.JSONObject(config).optString("savePath").takeIf { it.isNotBlank() }
         } catch (_: Exception) { null } ?: return
-        // L-003 FIX: ETag sidecar is now stored next to the .tmp file (tempFile.path + .etag),
-        // which may be a sentinel "__pending__.tmp.etag" in directory mode.  Delete both the
-        // savePath-relative sentinel AND the savePath+suffix fallback to handle tasks persisted
-        // before the L-003 fix was applied.
+        // ETag sidecar is stored next to the .tmp file (tempFile.path + .etag), which may be a
+        // sentinel "__pending__.tmp.etag" in directory mode.  Delete both the savePath-relative
+        // sentinel AND the savePath+suffix fallback to handle both naming conventions.
         val tempPath = if (savePath.endsWith("/")) savePath + "__pending__.tmp" else savePath + ".tmp"
         for (suffix in listOf(".tmp", ".tmp.etag")) {
             for (base in listOf(savePath, tempPath).distinct()) {
@@ -428,7 +423,7 @@ internal fun NativeWorkmanagerPlugin.handleCancel(call: MethodCall, result: Resu
             val taskId = call.argument<String>("taskId")
                 ?: return@launch result.error("INVALID_ARGS", "taskId required", null)
 
-            // FIX: Use cancelAllWorkByTag instead of cancelUniqueWork so that both standalone
+            // Use cancelAllWorkByTag instead of cancelUniqueWork so that both standalone
             // tasks (unique work) AND chain steps (non-unique work tagged with taskId) are
             // correctly cancelled. All tasks are tagged with their taskId via addTag(taskId).
             withContext(Dispatchers.IO) {
@@ -497,7 +492,7 @@ internal fun NativeWorkmanagerPlugin.handleCancelByTag(call: MethodCall, result:
 
             NativeLogger.d("Canceling ${tasksToCancel.size} tasks with tag '$tag'")
 
-            // FIX: cancelAllWorkByTag is async; await result before returning to Dart.
+            // cancelAllWorkByTag is async; await result before returning to Dart.
             withContext(Dispatchers.IO) {
                 WorkManager.getInstance(context).cancelAllWorkByTag(tag).await()
                 tasksToCancel.forEach { taskId ->
@@ -573,6 +568,20 @@ internal fun NativeWorkmanagerPlugin.handleGetTaskStatus(call: MethodCall, resul
             }
             val fromDb = withContext(Dispatchers.IO) { taskStore.getTask(taskId)?.status }
             result.success(fromDb)
+        } catch (e: Exception) {
+            result.success(null)
+        }
+    }
+}
+
+internal fun NativeWorkmanagerPlugin.handleGetTaskRecord(call: MethodCall, result: Result) {
+    scope.launch {
+        try {
+            val taskId = call.argument<String>("taskId")
+                ?: return@launch result.error("INVALID_ARGS", "taskId required", null)
+
+            val record = withContext(Dispatchers.IO) { taskStore.getTask(taskId) }
+            result.success(record?.let { with(taskStore) { it.toFlutterMap() } })
         } catch (e: Exception) {
             result.success(null)
         }

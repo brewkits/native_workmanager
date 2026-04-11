@@ -82,6 +82,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     }
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        NSLog("[NativeWorkManager] handle: \(call.method)")
         switch call.method {
         case "initialize":              handleInitialize(call: call, result: result)
         case "enqueue":                 handleEnqueue(call: call, result: result)
@@ -91,7 +92,9 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         case "getTasksByTag":           handleGetTasksByTag(call: call, result: result)
         case "getAllTags":              handleGetAllTags(result: result)
         case "getTaskStatus":           handleGetTaskStatus(call: call, result: result)
+        case "getTaskRecord":           handleGetTaskRecord(call: call, result: result)
         case "allTasks":                handleAllTasks(result: result)
+
         case "pause":                   handlePause(call: call, result: result)
         case "resume":                  handleResume(call: call, result: result)
         case "getServerFilename":       handleGetServerFilename(call: call, result: result)
@@ -122,6 +125,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     }
 
     private func handleEnqueue(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        NSLog("[NativeWorkManager] handleEnqueue called")
         guard let args = call.arguments as? [String: Any],
               let taskId = args["taskId"] as? String,
               let workerClassName = args["workerClassName"] as? String else {
@@ -190,6 +194,23 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     private func handleGetTaskStatus(call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any], let taskId = args["taskId"] as? String else { return }
         result(stateQueue.sync { taskStates[taskId] })
+    }
+
+    private func handleGetTaskRecord(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any], let taskId = args["taskId"] as? String else {
+            result(nil)
+            return
+        }
+        
+        workerQueue.async {
+            let record = self.taskStore?.task(taskId: taskId)
+            if let r = record {
+                NSLog("[NativeWorkManager] handleGetTaskRecord: found task \(taskId), status \(r.status), hasResultData=\(r.resultData != nil)")
+            } else {
+                NSLog("[NativeWorkManager] handleGetTaskRecord: task \(taskId) not found")
+            }
+            DispatchQueue.main.async { result(record?.toFlutterMap()) }
+        }
     }
 
     private func handleAllTasks(result: @escaping FlutterResult) {

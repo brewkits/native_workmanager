@@ -1,4 +1,5 @@
 import Foundation
+import KMPWorkManager
 import UIKit
 import CoreGraphics
 
@@ -55,7 +56,7 @@ class ImageProcessWorker: IosWorker {
     }
 
     func doWork(input: String?, env: KMPWorkManager.WorkerEnvironment) async throws -> WorkerResult {
-        // ✅ IOS: Register background task to request extra execution time
+        // Register background task to request extra execution time
         // iOS will freeze the app shortly after moving to background otherwise.
         var bgTaskId = UIBackgroundTaskIdentifier.invalid
         bgTaskId = UIApplication.shared.beginBackgroundTask(withName: "BrewkitsImageProcess") {
@@ -90,7 +91,7 @@ class ImageProcessWorker: IosWorker {
             return .failure(message: "Input file not found: \(config.inputPath)")
         }
 
-        // ✅ SECURITY: Validate file size
+        // Validate file size
         guard SecurityValidator.validateFileSize(inputURL) else {
             return .failure(message: "Input file size exceeds limit")
         }
@@ -112,7 +113,7 @@ class ImageProcessWorker: IosWorker {
         let originalWidth = imageProperties?[kCGImagePropertyPixelWidth] as? Int ?? 0
         let originalHeight = imageProperties?[kCGImagePropertyPixelHeight] as? Int ?? 0
 
-        // ✅ MEMORY: Downsample using ImageIO (Prevents OOM)
+        // Downsample using ImageIO (Prevents OOM)
         // Never load a full UIImage directly in a background task.
         // This technique uses 1/10th of the memory for high-res photos.
         let maxPixel = max(config.maxWidth ?? originalWidth, config.maxHeight ?? originalHeight)

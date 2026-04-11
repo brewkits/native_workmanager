@@ -1,4 +1,5 @@
 import Foundation
+import KMPWorkManager
 
 /// Native HTTP request worker for iOS.
 ///
@@ -47,7 +48,7 @@ class HttpRequestWorker: IosWorker {
         let headers: [String: String]?
         let body: String?
         let timeoutMs: Int64?
-        // 👇 NEW: Response validation patterns
+        // Response validation patterns
         let successPattern: String?  // Regex pattern that response must match to be success
         let failurePattern: String?  // Regex pattern that indicates failure (overrides 200)
 
@@ -62,14 +63,14 @@ class HttpRequestWorker: IosWorker {
 
     func doWork(input: String?, env: KMPWorkManager.WorkerEnvironment) async throws -> WorkerResult {
         guard let input = input, !input.isEmpty else {
-            print("HttpRequestWorker: Error - Empty or null input")
+            NSLog("[NativeWorkManager] HttpRequestWorker: Error - Empty or null input")
             return .failure(message: "Empty or null input")
         }
 
         // Parse configuration
         // Parse configuration
         guard let data = input.data(using: .utf8) else {
-            print("HttpRequestWorker: Error - Invalid UTF-8 encoding")
+            NSLog("[NativeWorkManager] HttpRequestWorker: Error - Invalid UTF-8 encoding")
             return .failure(message: "Invalid input encoding")
         }
 
@@ -77,74 +78,100 @@ class HttpRequestWorker: IosWorker {
         do {
             config = try JSONDecoder().decode(Config.self, from: data)
         } catch {
-            print("HttpRequestWorker: Error parsing JSON config: \(error)")
+            NSLog("[NativeWorkManager] HttpRequestWorker: Error parsing JSON config: \(error)")
             return .failure(message: "Invalid JSON config: \(error.localizedDescription)")
         }
 
         // Parse request signing config from raw dict (not Codable — parsed separately)
         let rawDict = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
         let signingConfig = RequestSigner.Config.from(rawDict?["requestSigning"] as? [String: Any])
+        
+        // Token refresh config
+        let tokenRefreshConfig = TokenRefreshConfig.from(rawDict?["tokenRefresh"] as? [String: Any])
 
-        // ✅ SECURITY: Validate URL scheme (prevent file://, ftp://, etc.)
+        // Validate URL scheme (prevent file://, ftp://, etc.)
         guard let url = SecurityValidator.validateURL(config.url) else {
-            print("HttpRequestWorker: Error - Invalid or unsafe URL")
+            NSLog("[NativeWorkManager] HttpRequestWorker: Error - Invalid or unsafe URL")
             return .failure(message: "Invalid or unsafe URL")
         }
 
         // Build request
-        var request = URLRequest(url: url)
-        request.httpMethod = config.httpMethod
-        request.timeoutInterval = config.timeout
+        func buildRequest(url: URL, config: Config, signingConfig: RequestSigner.Config?, newToken: String? = nil, trConfig: TokenRefreshConfig? = nil) -> URLRequest {
+            var request = URLRequest(url: url)
+            request.httpMethod = config.httpMethod
+            request.timeoutInterval = config.timeout
 
-        // Add headers
-        if let headers = config.headers {
-            for (key, value) in headers {
-                request.setValue(value, forHTTPHeaderField: key)
+            // Add headers
+            if let headers = config.headers {
+                for (key, value) in headers {
+                    request.setValue(value, forHTTPHeaderField: key)
+                }
             }
+            
+            // Apply new token if refreshed
+            if let token = newToken, let tr = trConfig {
+                request.setValue("\(tr.effectiveTokenPrefix)\(token)", forHTTPHeaderField: tr.effectiveTokenHeaderName)
+            }
+
+            // Add body
+            if let body = config.body, !body.isEmpty {
+                if let bodyData = body.data(using: .utf8) {
+                    request.httpBody = bodyData
+                    if request.value(forHTTPHeaderField: "Content-Type") == nil {
+                        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    }
+                }
+            }
+
+            // Apply HMAC-SHA256 request signing if configured
+            if var sc = signingConfig {
+                RequestSigner.sign(request: &request, config: sc)
+            }
+            
+            return request
         }
 
-        // Add body
-        if let body = config.body, !body.isEmpty {
-            guard let bodyData = body.data(using: .utf8) else {
-                print("HttpRequestWorker: Error - Cannot encode body as UTF-8")
-                return .failure(message: "Cannot encode body as UTF-8")
-            }
+        var request = buildRequest(url: url, config: config, signingConfig: signingConfig)
 
-            // ✅ SECURITY: Validate request body size
-            guard SecurityValidator.validateRequestSize(bodyData) else {
-                print("HttpRequestWorker: Error - Request body too large")
-                return .failure(message: "Request body too large")
-            }
-
-            request.httpBody = bodyData
-
-            // Set default Content-Type if not provided
-            if request.value(forHTTPHeaderField: "Content-Type") == nil {
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            }
-        }
-
-        // Apply HMAC-SHA256 request signing if configured
-        if var sc = signingConfig {
-            RequestSigner.sign(request: &request, config: sc)
-        }
-
-        // ✅ SECURITY: Sanitize URL for logging (redact query params)
+        // Sanitize URL for logging (redact query params)
         let sanitizedURL = SecurityValidator.sanitizedURL(config.url)
-        print("HttpRequestWorker: \(config.httpMethod) \(sanitizedURL)")
+        NSLog("[NativeWorkManager] HttpRequestWorker: \(config.httpMethod) \(sanitizedURL)")
 
         // Execute request
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            NSLog("[NativeWorkManager] HttpRequestWorker: Starting network request for \(config.url)...")
+            
+            // Use a separate Task for the network call to avoid potential async/await state issues
+            var (data, response) = try await Task {
+                return try await URLSession.shared.data(for: request)
+            }.value
+            
+            NSLog("[NativeWorkManager] HttpRequestWorker: Request finished, data length: \(data.count)")
 
-            guard let httpResponse = response as? HTTPURLResponse else {
-                print("HttpRequestWorker: Error - Invalid response type")
+            guard var httpResponse = response as? HTTPURLResponse else {
+                NSLog("[NativeWorkManager] HttpRequestWorker: Error - Invalid response type")
                 return .failure(message: "Invalid response type")
             }
+            
+            // Handle 401 with Token Refresh
+            if httpResponse.statusCode == 401, let tr = tokenRefreshConfig {
+                NSLog("[NativeWorkManager] HttpRequestWorker: Received 401 — Attempting token refresh...")
+                await AuthTokenManager.shared.invalidateCachedToken()
+                if let newToken = await AuthTokenManager.shared.refreshToken(config: tr, currentSession: URLSession.shared) {
+                    NSLog("[NativeWorkManager] HttpRequestWorker: Token refresh successful — retrying request...")
+                    request = buildRequest(url: url, config: config, signingConfig: signingConfig, newToken: newToken, trConfig: tr)
+                    (data, response) = try await URLSession.shared.data(for: request)
+                    if let newHttpResponse = response as? HTTPURLResponse {
+                        httpResponse = newHttpResponse
+                    }
+                } else {
+                    NSLog("[NativeWorkManager] HttpRequestWorker: Token refresh failed")
+                }
+            }
 
-            // ✅ SECURITY: Validate response body size
+            // Validate response body size
             guard SecurityValidator.validateResponseSize(data) else {
-                print("HttpRequestWorker: Error - Response body too large")
+                NSLog("[NativeWorkManager] HttpRequestWorker: Error - Response body too large")
                 return .failure(message: "Response body too large")
             }
 
@@ -154,14 +181,14 @@ class HttpRequestWorker: IosWorker {
             let responseBody = String(data: data, encoding: .utf8) ?? ""
 
             if success {
-                // 👇 NEW: Validate response body against patterns (even if HTTP 200)
+                // Validate response body against patterns (even if HTTP 200)
                 if let validationError = validateResponse(responseBody: responseBody, config: config) {
-                    print("HttpRequestWorker: Validation failed - \(validationError)")
-                    print("HttpRequestWorker: Response body: \(SecurityValidator.truncateForLogging(responseBody, maxLength: 200))")
+                    NSLog("[NativeWorkManager] HttpRequestWorker: Validation failed - \(validationError)")
+                    NSLog("[NativeWorkManager] HttpRequestWorker: Response body: \(SecurityValidator.truncateForLogging(responseBody, maxLength: 200))")
                     return .failure(message: "Response validation failed: \(validationError)")
                 }
 
-                print("HttpRequestWorker: Success - Status \(statusCode), Body size: \(bodySize) bytes")
+                NSLog("[NativeWorkManager] HttpRequestWorker: Success - Status \(statusCode), Body size: \(bodySize) bytes")
                 return .success(
                     message: "HTTP \(statusCode) - \(bodySize) bytes",
                     data: [
@@ -172,14 +199,14 @@ class HttpRequestWorker: IosWorker {
                     ]
                 )
             } else {
-                // ✅ SECURITY: Truncate error body for logging
+                // Truncate error body for logging
                 let truncatedError = SecurityValidator.truncateForLogging(responseBody, maxLength: 200)
-                print("HttpRequestWorker: Failed - Status \(statusCode)")
-                print("HttpRequestWorker: Error body: \(truncatedError)")
+                NSLog("[NativeWorkManager] HttpRequestWorker: Failed - Status \(statusCode)")
+                NSLog("[NativeWorkManager] HttpRequestWorker: Error body: \(truncatedError)")
                 return .failure(message: "HTTP \(statusCode)")
             }
         } catch {
-            print("HttpRequestWorker: Error - \(error.localizedDescription)")
+            NSLog("[NativeWorkManager] HttpRequestWorker: Error - \(error.localizedDescription)")
             return .failure(message: error.localizedDescription)
         }
     }
@@ -197,11 +224,11 @@ class HttpRequestWorker: IosWorker {
                 let failureRegex = try NSRegularExpression(pattern: failurePattern, options: [.caseInsensitive])
                 let range = NSRange(responseBody.startIndex..., in: responseBody)
                 if failureRegex.firstMatch(in: responseBody, options: [], range: range) != nil {
-                    print("HttpRequestWorker: Response matched failure pattern: \(failurePattern)")
+                    NSLog("[NativeWorkManager] HttpRequestWorker: Response matched failure pattern: \(failurePattern)")
                     return "Response matches failure pattern"
                 }
             } catch {
-                print("HttpRequestWorker: Invalid failure pattern regex: \(error.localizedDescription)")
+                NSLog("[NativeWorkManager] HttpRequestWorker: Invalid failure pattern regex: \(error.localizedDescription)")
                 return "Invalid failure pattern regex: \(error.localizedDescription)"
             }
         }
@@ -212,11 +239,11 @@ class HttpRequestWorker: IosWorker {
                 let successRegex = try NSRegularExpression(pattern: successPattern, options: [.caseInsensitive])
                 let range = NSRange(responseBody.startIndex..., in: responseBody)
                 if successRegex.firstMatch(in: responseBody, options: [], range: range) == nil {
-                    print("HttpRequestWorker: Response did not match success pattern: \(successPattern)")
+                    NSLog("[NativeWorkManager] HttpRequestWorker: Response did not match success pattern: \(successPattern)")
                     return "Response does not match success pattern"
                 }
             } catch {
-                print("HttpRequestWorker: Invalid success pattern regex: \(error.localizedDescription)")
+                NSLog("[NativeWorkManager] HttpRequestWorker: Invalid success pattern regex: \(error.localizedDescription)")
                 return "Invalid success pattern regex: \(error.localizedDescription)"
             }
         }

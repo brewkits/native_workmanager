@@ -89,7 +89,7 @@ class CryptoWorker : AndroidWorker {
         val outputPath: String? = null,   // Output file (for encrypt/decrypt)
         val algorithm: String? = null,    // Algorithm (MD5, SHA-256, AES, etc.)
         val password: String? = null,     // Password (for encrypt/decrypt)
-        val passwordKey: String? = null   // SC-C-001: vault key (replaces password in WorkManager input)
+        val passwordKey: String? = null   // vault key (replaces password in WorkManager input)
     ) {
         val effectiveAlgorithm: String get() = algorithm ?: DEFAULT_ALGORITHM
 
@@ -120,7 +120,7 @@ class CryptoWorker : AndroidWorker {
             throw IllegalArgumentException("Invalid config JSON: ${e.message}", e)
         }
 
-        // SC-C-001: resolve password from Keychain vault if passwordKey is present
+        // resolve password from Keychain vault if passwordKey is present
         val effectiveConfig = if (!config.passwordKey.isNullOrEmpty()) {
             val resolvedPassword = KeystorePasswordVault.retrieveAndDelete(config.passwordKey)
                 ?: return@withContext WorkerResult.Failure("Password vault key not found — retry not possible")
@@ -269,7 +269,7 @@ class CryptoWorker : AndroidWorker {
             val salt = ByteArray(SALT_SIZE).also { SecureRandom().nextBytes(it) }
             val key = generateKey(config.password, salt)
 
-            // ✅ SECURITY: Upgrade to AES-GCM (Authenticated Encryption)
+            // Upgrade to AES-GCM (Authenticated Encryption)
             // GCM provides both confidentiality and integrity (prevents tampering)
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             val iv = ByteArray(12).also { SecureRandom().nextBytes(it) } // GCM standard IV size
@@ -380,7 +380,7 @@ class CryptoWorker : AndroidWorker {
 
                 val key = generateKey(config.password, salt)
 
-                // ✅ SECURITY: Upgrade to AES-GCM (Authenticated Encryption)
+                // Upgrade to AES-GCM (Authenticated Encryption)
                 val cipher = Cipher.getInstance("AES/GCM/NoPadding")
                 val spec = javax.crypto.spec.GCMParameterSpec(128, iv)
                 cipher.init(Cipher.DECRYPT_MODE, key, spec)

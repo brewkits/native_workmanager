@@ -109,13 +109,13 @@ class HttpUploadWorker : AndroidWorker {
 
     data class Config(
         val url: String,
-        // 👇 Support both single file (legacy) and multiple files
+        // Support both single file (legacy) and multiple files
         val filePath: String? = null,        // Legacy: Single file path
         val files: List<FileConfig>? = null, // Multiple files
         val fileFieldName: String? = null,   // Legacy
         val fileName: String? = null,        // Legacy
         val mimeType: String? = null,        // Legacy
-        // 👇 NEW: Raw body upload (alternative to files)
+        // Raw body upload (alternative to files)
         val body: String? = null,            // String body (JSON, XML, text, etc.)
         val bodyBytes: String? = null,       // Base64-encoded bytes
         val contentType: String? = null,     // Content-Type for raw body (required if body/bodyBytes)
@@ -155,7 +155,7 @@ class HttpUploadWorker : AndroidWorker {
         val config = try {
             val j = org.json.JSONObject(input)
 
-            // 👇 NEW: Parse files array if present
+            // Parse files array if present
             val files = if (j.has("files") && !j.isNull("files")) {
                 val filesArray = j.getJSONArray("files")
                 (0 until filesArray.length()).map { i ->
@@ -177,7 +177,7 @@ class HttpUploadWorker : AndroidWorker {
                 fileFieldName = if (j.has("fileFieldName") && !j.isNull("fileFieldName")) j.getString("fileFieldName") else null,
                 fileName = if (j.has("fileName") && !j.isNull("fileName")) j.getString("fileName") else null,
                 mimeType = if (j.has("mimeType") && !j.isNull("mimeType")) j.getString("mimeType") else null,
-                // 👇 NEW: Raw body upload
+                // Raw body upload
                 body = if (j.has("body") && !j.isNull("body")) j.getString("body") else null,
                 bodyBytes = if (j.has("bodyBytes") && !j.isNull("bodyBytes")) j.getString("bodyBytes") else null,
                 contentType = if (j.has("contentType") && !j.isNull("contentType")) j.getString("contentType") else null,
@@ -197,13 +197,13 @@ class HttpUploadWorker : AndroidWorker {
             null
         }
 
-        // ✅ SECURITY: Validate URL scheme (prevent file://, content://, etc.)
+        // Validate URL scheme (prevent file://, content://, etc.)
         if (!SecurityValidator.validateURL(config.url)) {
             Log.e(TAG, "Error - Invalid or unsafe URL")
             return@withContext WorkerResult.Failure("Invalid or unsafe URL")
         }
 
-        // 👇 NEW: Check upload mode (raw body or files)
+        // Check upload mode (raw body or files)
         val isRawBodyUpload = config.isRawBodyUpload()
         val fileConfigs = config.getFileConfigs()
 
@@ -218,7 +218,7 @@ class HttpUploadWorker : AndroidWorker {
             return@withContext WorkerResult.Failure("No data to upload (provide body/bodyBytes or filePath/files)")
         }
 
-        // 👇 NEW: Handle raw body upload
+        // Handle raw body upload
         if (isRawBodyUpload) {
             return@withContext handleRawBodyUpload(config, taskId)
         }
@@ -240,7 +240,7 @@ class HttpUploadWorker : AndroidWorker {
                 return@withContext WorkerResult.Failure("File not found: ${fileConfig.filePath}")
             }
 
-            // ✅ SECURITY: Validate file size
+            // Validate file size
             if (!SecurityValidator.validateFileSize(file)) {
                 Log.e(TAG, "Error - File size exceeds upload limit: ${fileConfig.filePath}")
                 return@withContext WorkerResult.Failure("File size exceeds limit: ${file.name}")
@@ -266,7 +266,7 @@ class HttpUploadWorker : AndroidWorker {
             )
         }
 
-        // ✅ SECURITY: Sanitize logging (don't log full paths)
+        // Sanitize logging (don't log full paths)
         val sanitizedURL = SecurityValidator.sanitizedURL(config.url)
         Log.d(TAG, "Uploading to $sanitizedURL")
         Log.d(TAG, "  Files: ${validatedFiles.size}, Total Size: $totalSize bytes")
@@ -290,7 +290,7 @@ class HttpUploadWorker : AndroidWorker {
             multipartBuilder.addFormDataPart(key, value)
         }
 
-        // 👇 NEW: Add all files to multipart body
+        // Add all files to multipart body
         validatedFiles.forEachIndexed { index, (file, fileName, mimeType) ->
             val fileFieldName = fileConfigs[index].fileFieldName
             multipartBuilder.addFormDataPart(
@@ -302,7 +302,7 @@ class HttpUploadWorker : AndroidWorker {
 
         val requestBody = multipartBuilder.build()
 
-        // ✅ PROGRESS: Wrap request body for progress tracking
+        // Wrap request body for progress tracking
         val allFileNames = validatedFiles.joinToString(", ") { it.second }
         val progressRequestBody = ProgressRequestBody(
             requestBody = requestBody,
@@ -329,7 +329,7 @@ class HttpUploadWorker : AndroidWorker {
             client.newCall(request).execute().use { response ->
                 val responseBody = response.body?.bytes() ?: ByteArray(0)
 
-                // ✅ SECURITY: Validate response body size
+                // Validate response body size
                 if (!SecurityValidator.validateResponseSize(responseBody)) {
                     Log.e(TAG, "Error - Response body too large")
                     return@withContext WorkerResult.Failure("Response body too large")
@@ -340,12 +340,12 @@ class HttpUploadWorker : AndroidWorker {
                 val responseString = responseBody.toString(Charsets.UTF_8)
 
                 if (success) {
-                    // ✅ SECURITY: Truncate response for logging
+                    // Truncate response for logging
                     val truncatedResponse = SecurityValidator.truncateForLogging(responseString, 200)
                     Log.d(TAG, "Success - Status $statusCode")
                     Log.d(TAG, "Response: $truncatedResponse")
 
-                    // ✅ Return success with upload data
+                    // Return success with upload data
                     WorkerResult.Success(
                         message = "Uploaded ${validatedFiles.size} file(s), $totalSize bytes",
                         data = buildJsonObject {
@@ -356,7 +356,7 @@ class HttpUploadWorker : AndroidWorker {
                         }
                     )
                 } else {
-                    // ✅ SECURITY: Truncate error body for logging
+                    // Truncate error body for logging
                     val truncatedError = SecurityValidator.truncateForLogging(responseString, 200)
                     Log.e(TAG, "Failed - Status $statusCode")
                     Log.e(TAG, "Error: $truncatedError")
@@ -428,7 +428,7 @@ class HttpUploadWorker : AndroidWorker {
             }
         }
 
-        // ✅ PROGRESS: Wrap request body for progress tracking
+        // Wrap request body for progress tracking
         val progressRequestBody = ProgressRequestBody(
             requestBody = requestBody,
             taskId = taskId,
@@ -461,7 +461,7 @@ class HttpUploadWorker : AndroidWorker {
             client.newCall(request).execute().use { response ->
                 val responseBody = response.body?.bytes() ?: ByteArray(0)
 
-                // ✅ SECURITY: Validate response body size
+                // Validate response body size
                 if (!SecurityValidator.validateResponseSize(responseBody)) {
                     Log.e(TAG, "Error - Response body too large")
                     return@withContext WorkerResult.Failure("Response body too large")
@@ -472,7 +472,7 @@ class HttpUploadWorker : AndroidWorker {
                 val responseString = responseBody.toString(Charsets.UTF_8)
 
                 if (success) {
-                    // ✅ SECURITY: Truncate response for logging
+                    // Truncate response for logging
                     val truncatedResponse = SecurityValidator.truncateForLogging(responseString, 200)
                     Log.d(TAG, "Success - Status $statusCode")
                     Log.d(TAG, "Response: $truncatedResponse")
@@ -487,7 +487,7 @@ class HttpUploadWorker : AndroidWorker {
                         }
                     )
                 } else {
-                    // ✅ SECURITY: Truncate error body for logging
+                    // Truncate error body for logging
                     val truncatedError = SecurityValidator.truncateForLogging(responseString, 200)
                     Log.e(TAG, "Failed - Status $statusCode")
                     Log.e(TAG, "Error: $truncatedError")
