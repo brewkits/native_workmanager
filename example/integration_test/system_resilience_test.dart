@@ -50,9 +50,7 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() async {
-    await NativeWorkManager.initialize(
-      dartWorkers: {'sys_pass': _sysPass},
-    );
+    await NativeWorkManager.initialize(dartWorkers: {'sys_pass': _sysPass});
     await NativeWorkManager.cancelAll();
   });
 
@@ -64,7 +62,9 @@ void main() {
   // STRESS – high task volume
   // ════════════════════════════════════════════════════════════
   group('Stress – high volume', () {
-    testWidgets('10 tasks enqueued simultaneously – all complete', (tester) async {
+    testWidgets('10 tasks enqueued simultaneously – all complete', (
+      tester,
+    ) async {
       const count = 10;
       final ids = List.generate(count, (i) => _id('bulk_$i'));
       final futures = ids
@@ -83,8 +83,7 @@ void main() {
       }
 
       final events = await Future.wait(futures);
-      final succeeded =
-          events.where((e) => e != null && e.success).length;
+      final succeeded = events.where((e) => e != null && e.success).length;
 
       print('[bulk_10] $succeeded/$count succeeded');
       expect(
@@ -115,7 +114,9 @@ void main() {
   // RESILIENCE – cancelAll mid-flight
   // ════════════════════════════════════════════════════════════
   group('Resilience – cancelAll', () {
-    testWidgets('cancelAll during active tasks stops further events', (tester) async {
+    testWidgets('cancelAll during active tasks stops further events', (
+      tester,
+    ) async {
       // Enqueue 5 tasks with a 120 s delay so they won't fire before cancelAll.
       final ids = List.generate(5, (i) => _id('cancelall_$i'));
       for (final id in ids) {
@@ -137,8 +138,11 @@ void main() {
       await Future<void>.delayed(const Duration(seconds: 4));
       await sub.cancel();
 
-      expect(fired, 0,
-          reason: 'No events must fire after cancelAll on 120 s-delayed tasks');
+      expect(
+        fired,
+        0,
+        reason: 'No events must fire after cancelAll on 120 s-delayed tasks',
+      );
     });
 
     testWidgets('new tasks work normally after cancelAll', (tester) async {
@@ -158,8 +162,11 @@ void main() {
 
       final event = await future;
       expect(event, isNotNull);
-      expect(event!.success, isTrue,
-          reason: 'Task enqueued after cancelAll must succeed');
+      expect(
+        event!.success,
+        isTrue,
+        reason: 'Task enqueued after cancelAll must succeed',
+      );
     });
   });
 
@@ -167,9 +174,13 @@ void main() {
   // RESILIENCE – tag operations at scale
   // ════════════════════════════════════════════════════════════
   group('Resilience – tag operations at scale', () {
-    testWidgets('3 tag groups × 3 tasks – cancelByTag clears each group', (tester) async {
+    testWidgets('3 tag groups × 3 tasks – cancelByTag clears each group', (
+      tester,
+    ) async {
       final tags = List.generate(
-          3, (i) => 'sys_tag${i}_${DateTime.now().millisecondsSinceEpoch}');
+        3,
+        (i) => 'sys_tag${i}_${DateTime.now().millisecondsSinceEpoch}',
+      );
 
       // Enqueue 3 tasks per tag (9 total), all with 60 s delay.
       for (final tag in tags) {
@@ -186,8 +197,11 @@ void main() {
       // Verify initial counts.
       for (final tag in tags) {
         final before = await NativeWorkManager.getTasksByTag(tag: tag);
-        expect(before.length, 3,
-            reason: 'Each tag group must have 3 tasks before cancel');
+        expect(
+          before.length,
+          3,
+          reason: 'Each tag group must have 3 tasks before cancel',
+        );
       }
 
       // Cancel each group.
@@ -198,14 +212,19 @@ void main() {
       // Verify all groups are empty.
       for (final tag in tags) {
         final after = await NativeWorkManager.getTasksByTag(tag: tag);
-        expect(after, isEmpty,
-            reason: 'Tag group "$tag" must be empty after cancelByTag');
+        expect(
+          after,
+          isEmpty,
+          reason: 'Tag group "$tag" must be empty after cancelByTag',
+        );
       }
     });
 
     testWidgets('getAllTags – reflects all active tags', (tester) async {
       final uniqueTags = List.generate(
-          3, (i) => 'sys_all_tag${i}_${DateTime.now().millisecondsSinceEpoch}');
+        3,
+        (i) => 'sys_all_tag${i}_${DateTime.now().millisecondsSinceEpoch}',
+      );
 
       for (final tag in uniqueTags) {
         await NativeWorkManager.enqueue(
@@ -218,8 +237,11 @@ void main() {
 
       final allTags = await NativeWorkManager.getAllTags();
       for (final tag in uniqueTags) {
-        expect(allTags, contains(tag),
-            reason: 'getAllTags must include tag "$tag"');
+        expect(
+          allTags,
+          contains(tag),
+          reason: 'getAllTags must include tag "$tag"',
+        );
       }
 
       // Cleanup
@@ -234,23 +256,16 @@ void main() {
   // ════════════════════════════════════════════════════════════
   group('Resilience – re-initialize', () {
     testWidgets('calling initialize twice does not crash', (tester) async {
-      expect(
-        () async {
-          await NativeWorkManager.initialize(
-            dartWorkers: {'sys_pass': _sysPass},
-          );
-          await NativeWorkManager.initialize(
-            dartWorkers: {'sys_pass': _sysPass},
-          );
-        },
-        returnsNormally,
-      );
+      expect(() async {
+        await NativeWorkManager.initialize(dartWorkers: {'sys_pass': _sysPass});
+        await NativeWorkManager.initialize(dartWorkers: {'sys_pass': _sysPass});
+      }, returnsNormally);
     });
 
-    testWidgets('enqueue immediately after re-initialize succeeds', (tester) async {
-      await NativeWorkManager.initialize(
-        dartWorkers: {'sys_pass': _sysPass},
-      );
+    testWidgets('enqueue immediately after re-initialize succeeds', (
+      tester,
+    ) async {
+      await NativeWorkManager.initialize(dartWorkers: {'sys_pass': _sysPass});
 
       final id = _id('post_reinit');
       final future = _waitEvent(id, timeout: const Duration(seconds: 30));
@@ -265,8 +280,11 @@ void main() {
       );
 
       final event = await future;
-      expect(event?.success, isTrue,
-          reason: 'Task after re-initialize must succeed');
+      expect(
+        event?.success,
+        isTrue,
+        reason: 'Task after re-initialize must succeed',
+      );
     });
   });
 
@@ -294,14 +312,18 @@ void main() {
 
       // The task should still complete (resume re-triggers it).
       final event = await future;
-      expect(event, isNotNull,
-          reason: 'Paused then resumed task must eventually emit an event');
+      expect(
+        event,
+        isNotNull,
+        reason: 'Paused then resumed task must eventually emit an event',
+      );
     });
 
     testWidgets('pauseAll then resumeAll – tasks complete', (tester) async {
       final ids = List.generate(2, (i) => _id('pause_all_$i'));
-      final futures =
-          ids.map((id) => _waitEvent(id, timeout: const Duration(seconds: 60))).toList();
+      final futures = ids
+          .map((id) => _waitEvent(id, timeout: const Duration(seconds: 60)))
+          .toList();
 
       for (final id in ids) {
         await NativeWorkManager.enqueue(
@@ -320,8 +342,11 @@ void main() {
 
       final events = await Future.wait(futures);
       for (var i = 0; i < ids.length; i++) {
-        expect(events[i], isNotNull,
-            reason: 'Task ${ids[i]} must emit event after pauseAll+resumeAll');
+        expect(
+          events[i],
+          isNotNull,
+          reason: 'Task ${ids[i]} must emit event after pauseAll+resumeAll',
+        );
       }
     });
   });
@@ -369,15 +394,19 @@ void main() {
       }
     });
 
-    testWidgets('isStarted events are separate from terminal events', (tester) async {
+    testWidgets('isStarted events are separate from terminal events', (
+      tester,
+    ) async {
       final id = _id('lifecycle');
       final startedIds = <String>[];
       final terminalIds = <String>[];
 
       final sub = NativeWorkManager.events.listen((event) {
         if (event.taskId == id) {
-          if (event.isStarted) startedIds.add(id);
-          else terminalIds.add(id);
+          if (event.isStarted)
+            startedIds.add(id);
+          else
+            terminalIds.add(id);
         }
       });
 
@@ -396,10 +425,16 @@ void main() {
       await Future<void>.delayed(const Duration(seconds: 1));
       await sub.cancel();
 
-      expect(terminalIds.length, 1,
-          reason: 'Exactly one terminal event for task $id');
-      expect(startedIds.length, lessThanOrEqualTo(1),
-          reason: 'At most one isStarted event per task');
+      expect(
+        terminalIds.length,
+        1,
+        reason: 'Exactly one terminal event for task $id',
+      );
+      expect(
+        startedIds.length,
+        lessThanOrEqualTo(1),
+        reason: 'At most one isStarted event per task',
+      );
     });
   });
 }

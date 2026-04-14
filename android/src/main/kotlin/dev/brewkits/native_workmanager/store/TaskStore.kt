@@ -26,7 +26,8 @@ internal class TaskStore(context: Context) {
         val createdAt: Long,
         val updatedAt: Long,
         val resultData: String?,
-        val constraintsJson: String? = null
+        val constraintsJson: String? = null,
+        val lastProgressJson: String? = null
     )
 
     private val dbHelper = DatabaseHelper.getInstance(context)
@@ -109,6 +110,14 @@ internal class TaskStore(context: Context) {
         dbHelper.writableDatabase.update("tasks", cv, "task_id = ?", arrayOf(taskId))
     }
 
+    fun updateProgress(taskId: String, progressJson: String) {
+        val cv = ContentValues().apply {
+            put("last_progress_json", progressJson)
+            put("updated_at", System.currentTimeMillis())
+        }
+        dbHelper.writableDatabase.update("tasks", cv, "task_id = ?", arrayOf(taskId))
+    }
+
     fun getTask(taskId: String): TaskRecord? =
         dbHelper.readableDatabase.rawQuery("SELECT * FROM tasks WHERE task_id = ?", arrayOf(taskId))
             .use { c -> if (c.moveToFirst()) c.toRecord() else null }
@@ -144,6 +153,7 @@ internal class TaskStore(context: Context) {
 
     private fun android.database.Cursor.toRecord(): TaskRecord {
         val constraintsColIdx = getColumnIndex("constraints_json")
+        val progressColIdx = getColumnIndex("last_progress_json")
         return TaskRecord(
             taskId          = getString(getColumnIndexOrThrow("task_id")),
             tag             = getString(getColumnIndexOrThrow("tag")),
@@ -153,7 +163,8 @@ internal class TaskStore(context: Context) {
             createdAt       = getLong(getColumnIndexOrThrow("created_at")),
             updatedAt       = getLong(getColumnIndexOrThrow("updated_at")),
             resultData      = getString(getColumnIndexOrThrow("result_data")),
-            constraintsJson = if (constraintsColIdx >= 0) getString(constraintsColIdx) else null
+            constraintsJson = if (constraintsColIdx >= 0) getString(constraintsColIdx) else null,
+            lastProgressJson = if (progressColIdx >= 0) getString(progressColIdx) else null
         )
     }
 

@@ -143,6 +143,8 @@ internal fun NativeWorkmanagerPlugin.subscribeToTaskEvents() {
                     }
                 }
 
+                ProgressReporter.clearTask(event.taskName)
+
                 // Signal any observeWorkCompletion waiter so it can skip the fallback path.
                 taskBusSignals.remove(event.taskName)?.complete(Unit)
 

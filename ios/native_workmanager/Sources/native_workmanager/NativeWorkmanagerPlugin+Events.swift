@@ -68,6 +68,8 @@ extension NativeWorkmanagerPlugin {
             }
         }
 
+        ProgressReporter.shared.clearTask(taskId)
+
         // Show debug notification if enabled
         if debugMode && isDebugBuild() {
             showDebugNotification(taskId: taskId, success: success, message: message)

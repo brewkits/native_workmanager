@@ -5,6 +5,7 @@ import android.util.Log
 import io.flutter.FlutterInjector
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.dart.DartExecutor
+import io.flutter.embedding.engine.FlutterJNI
 import dev.brewkits.native_workmanager.workers.utils.ProgressReporter
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.FlutterCallbackInformation
@@ -171,8 +172,33 @@ object FlutterEngineManager {
 
             Log.d(TAG, "Callback info: ${callbackInfo.callbackName}")
 
-            // Create engine
-            val flutterEngine = FlutterEngine(context.applicationContext)
+            // Create a headless engine WITHOUT auto-registering plugins.
+            //
+            // The default FlutterEngine(context) constructor calls GeneratedPluginRegistrant
+            // .registerWith(engine), which initialises every Flutter plugin in the host app —
+            // including Bluetooth (flutter_reactive_ble), camera, audio, etc.
+            //
+            // When this background engine is later destroyed, those plugins run their
+            // onDetachedFromEngine() cleanup (gatt.close(), unregister callbacks, …) against
+            // the SAME underlying Android system services (BluetoothManager, AudioManager, …)
+            // that the main engine's plugins are actively using, causing BLE disconnections
+            // and other side-effects in the foreground UI.
+            //
+            // This background engine only needs the single 'dev.brewkits/dart_worker_channel'
+            // MethodChannel, which is wired up manually below — no plugin auto-registration
+            // is required or desired.
+            //
+            // waitForRestorationData=false: background workers have no restoration state.
+            val flutterLoader = FlutterInjector.instance().flutterLoader()
+            val flutterEngine = FlutterEngine(
+                /* context                   */ context.applicationContext,
+                /* flutterLoader             */ flutterLoader,
+                /* flutterJNI                */ FlutterJNI(),
+                /* platformViewsController   */ io.flutter.plugin.platform.PlatformViewsController(),
+                /* dartVmArgs               */ emptyArray<String>(),
+                /* automaticallyRegisterPlugins */ false,
+                /* waitForRestorationData    */ false
+            )
 
             // Destroy the engine on any init failure so we don't leak
             // ~30-50MB of RAM per failed attempt (invalid callback handle, 10s timeout, etc.).
@@ -180,7 +206,7 @@ object FlutterEngineManager {
                 // Get the correct app bundle path for the Flutter assets.
                 // context.assets.toString() returns the AssetManager object string, which is wrong.
                 // FlutterLoader provides the correct path for both debug (JIT) and release (AOT) modes.
-                val bundlePath = FlutterInjector.instance().flutterLoader().findAppBundlePath()
+                val bundlePath = flutterLoader.findAppBundlePath()
 
                 val dartCallback = DartExecutor.DartCallback(
                     context.assets,

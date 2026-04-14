@@ -49,7 +49,8 @@ void main() async {
 
   if (!content.contains('<key>BGTaskSchedulerPermittedIdentifiers</key>')) {
     print('➕ Adding BGTaskSchedulerPermittedIdentifiers...');
-    final idString = identifiers.map((id) => '\t\t<string>$id</string>').join('\n');
+    final idString =
+        identifiers.map((id) => '\t\t<string>$id</string>').join('\n');
     content = content.replaceFirst(
       '</dict>',
       '''

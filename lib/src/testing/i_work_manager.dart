@@ -3,6 +3,7 @@ import '../enqueue_request.dart';
 import '../events.dart';
 import '../task_chain.dart';
 import '../task_graph.dart';
+import '../task_handler.dart';
 import '../task_trigger.dart';
 import '../worker.dart';
 
@@ -61,10 +62,13 @@ abstract interface class IWorkManager {
   /// Task progress updates (downloads, uploads, chains).
   Stream<TaskProgress> get progress;
 
+  /// Get the current progress of all running tasks.
+  Future<Map<String, TaskProgress>> getRunningProgress();
+
   // ── Scheduling ─────────────────────────────────────────────────────────────
 
   /// Schedule a single background task.
-  Future<ScheduleResult> enqueue({
+  Future<TaskHandler> enqueue({
     required String taskId,
     required TaskTrigger trigger,
     required Worker worker,
@@ -73,8 +77,8 @@ abstract interface class IWorkManager {
     String? tag,
   });
 
-  /// Schedule multiple tasks at once.
-  Future<List<ScheduleResult>> enqueueAll(List<EnqueueRequest> requests);
+  /// Schedule multiple tasks in one call.
+  Future<List<TaskHandler>> enqueueAll(List<EnqueueRequest> requests);
 
   /// Begin a task chain starting with [task].
   ///

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.2] - 2026-04-14
+
+### Added
+- **`TaskHandler`**: `enqueue()` now returns a `TaskHandler` instead of a bare `ScheduleResult`. The handler exposes `.scheduleResult`, a per-task `.progress` stream, a per-task `.events` stream, a `.result` future (resolves on completion), `.cancel()`, and `.getStatus()`. No migration needed — the schedule-result value is available at `handler.scheduleResult`.
+- **`enqueueAll()` returns `List<TaskHandler>`**: consistent with the new `enqueue()` return type.
+- **`getRunningProgress()`**: returns a `Map<String, TaskProgress>` of all currently running tasks, useful for re-attaching progress UI after an app restart.
+- **`TaskProgressExtensions`**: convenience getters `networkSpeedHuman` (e.g. `"1.5 MB/s"`) and `timeRemainingHuman` (e.g. `"2m 15s"`) on `TaskProgress`.
+
+### Fixed
+- **Android: BLE disconnect when `DartWorker` runs (issue #6)**: `FlutterEngineManager` created the background engine with `automaticallyRegisterPlugins=true` (the Flutter default), which registered every host-app plugin — including `flutter_reactive_ble` and other Bluetooth/audio/camera plugins — in the background engine. When that engine was later destroyed, those plugins ran their `onDetachedFromEngine()` cleanup against shared Android system services (`BluetoothManager`, etc.), disconnecting any active BLE connections in the foreground app. Fix: pass `automaticallyRegisterPlugins=false` and `waitForRestorationData=false` to the `FlutterEngine` constructor. The background engine only needs the single manually-wired `dev.brewkits/dart_worker_channel` MethodChannel.
+- **`FakeWorkManager.enqueue()` ignored `enqueueResult` / `enqueueResultByTaskId`**: after the `TaskHandler` refactor the stub always returned `ScheduleResult.accepted`, making it impossible to simulate OS-policy rejections in unit tests. Fixed: the stubs are now correctly consulted.
+
+---
+
 ## [1.1.1] - 2026-04-11
 
 ### Added
@@ -17,11 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **KMPWorkManager iOS XCFramework**: Updated simulator slice from `ios-arm64-simulator` to `ios-arm64_x86_64-simulator` to support both Apple Silicon and Intel Simulator targets.
 - **Upgraded to kmpworkmanager 2.3.9**: Fixes `InvalidForegroundServiceTypeException` crash on Android 16 (API 36) when using `isHeavyTask: true`. `KmpHeavyWorker` now specifies `FOREGROUND_SERVICE_TYPE_DATA_SYNC` on API 31+.
-- **Upgraded Core Engine to `kmpworkmanager 2.3.8`**:
+- **Upgraded Core Engine to `kmpworkmanager 2.3.9`**:
     - Removed `enqueuePeriodicWorkDirect` workaround; periodic task scheduling is now correctly handled by the core engine.
     - Resolves `TaskEventBus` drop events (Android), `AlarmManager` cancellation bugs (Android), iOS queue corruption vulnerabilities, and massively improves queue performance.
     - Resolves SSRF URL path bypasses and exact alarm permission bugs on Android 12+.
-- **Refactored Workers**: Updated all built-in and example workers to support the new `WorkerEnvironment` signature required by kmpworkmanager 2.3.8.
+- **Refactored Workers**: Updated all built-in and example workers to support the new `WorkerEnvironment` signature required by kmpworkmanager 2.3.9.
 
 ### Fixed
 - **Android: `FlutterEngineManager` dispose broken under memory pressure** — `engine.destroy()` threw `RuntimeException` when called from `onTrimMemory`, leaving the engine in a broken state (`isInitialized=true`, `methodChannel=null`). Any `DartWorker` task scheduled after this silently failed. Fix: wrap `engine.destroy()` in try-catch so cleanup always runs.
@@ -837,7 +851,7 @@ Minor difference: CryptoWorker uses AES-CBC (Android) vs AES-GCM (iOS), both AES
 
 ### 🙏 **Acknowledgments**
 
-Built on [kmpworkmanager v2.3.8](https://github.com/pablichjenkov/kmpworkmanager) for Kotlin Multiplatform.
+Built on [kmpworkmanager v2.3.9](https://github.com/pablichjenkov/kmpworkmanager) for Kotlin Multiplatform.
 
 ---
 
@@ -851,7 +865,7 @@ Built on [kmpworkmanager v2.3.8](https://github.com/pablichjenkov/kmpworkmanager
 
 ---
 
-**Latest Version:** 1.1.1
+**Latest Version:** 1.1.2
 **Status:**  Production Ready - Stable release for all production apps
-**KMP Parity:** 100%  (kmpworkmanager v2.3.8)
+**KMP Parity:** 100%  (kmpworkmanager v2.3.9)
 **Platforms:** Android  | iOS 

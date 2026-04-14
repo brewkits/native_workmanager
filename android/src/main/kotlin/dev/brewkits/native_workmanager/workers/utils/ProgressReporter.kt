@@ -10,20 +10,22 @@ import kotlinx.coroutines.flow.asSharedFlow
  *
  * Allows workers to report progress updates that will be emitted to Dart
  * via the progress EventChannel.
- *
- * Usage from worker:
- * ```kotlin
- * ProgressReporter.reportProgress(
- *     taskId = "my-task",
- *     progress = 50,
- *     message = "Processing file 5 of 10",
- *     currentStep = 5,
- *     totalSteps = 10
- * )
- * ```
  */
 object ProgressReporter {
     private const val TAG = "ProgressReporter"
+
+    private var context: android.content.Context? = null
+    private var taskStore: dev.brewkits.native_workmanager.store.TaskStore? = null
+
+    // Configuration for automatic notifications (populated by plugin)
+    val taskNotifTitles = java.util.concurrent.ConcurrentHashMap<String, String>()
+    val taskFilenames = java.util.concurrent.ConcurrentHashMap<String, String>()
+    val taskAllowPause = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+
+    internal fun initialize(context: android.content.Context, taskStore: dev.brewkits.native_workmanager.store.TaskStore) {
+        this.context = context.applicationContext
+        this.taskStore = taskStore
+    }
 
     data class ProgressUpdate(
         val taskId: String,
@@ -36,9 +38,6 @@ object ProgressReporter {
         val networkSpeed: Double? = null,   // bytes per second
         val timeRemainingMs: Long? = null   // milliseconds
     ) {
-        /**
-         * Convert to map for Flutter EventChannel.
-         */
         fun toMap(): Map<String, Any?> = buildMap {
             put("taskId", taskId)
             put("progress", progress)
@@ -50,50 +49,38 @@ object ProgressReporter {
             if (networkSpeed != null) put("networkSpeed", networkSpeed)
             if (timeRemainingMs != null) put("timeRemainingMs", timeRemainingMs)
         }
+
+        fun toJson(): String {
+            val obj = org.json.JSONObject()
+            obj.put("taskId", taskId)
+            obj.put("progress", progress)
+            obj.put("message", message)
+            obj.put("currentStep", currentStep)
+            obj.put("totalSteps", totalSteps)
+            obj.put("bytesDownloaded", bytesDownloaded)
+            obj.put("totalBytes", totalBytes)
+            obj.put("networkSpeed", networkSpeed)
+            obj.put("timeRemainingMs", timeRemainingMs)
+            return obj.toString()
+        }
     }
 
-    /**
-     * Progress update buffer capacity.
-     *
-     * Rationale:
-     * - Average file operation = 100 progress updates
-     * - Buffer allows ~1 second burst (64 updates)
-     * - DROP_OLDEST strategy ensures latest progress always visible
-     */
     private const val PROGRESS_BUFFER_CAPACITY = 64
+    private val lastEmittedUpdates = java.util.concurrent.ConcurrentHashMap<String, ProgressUpdate>()
+    private val lastPersistedProgress = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
-    /**
-     * Last emitted progress value per task.
-     *
-     * Guards against time-travel progress: URLSession / OkHttp callbacks can
-     * fire in rapid bursts, and even 1% steps can flood the Flutter bridge
-     * when downloading large files with small chunks.  By skipping updates
-     * that are < 1% away from the last emitted value (except the final 100%)
-     * we cut Flutter-bridge traffic by an order of magnitude on typical
-     * large-file downloads without losing any meaningful UI resolution.
-     */
-    private val lastEmittedProgress = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    fun getRunningProgress(): Map<String, Map<String, Any?>> {
+        return lastEmittedUpdates.mapValues { it.value.toMap() }
+    }
 
     private val _progressFlow = MutableSharedFlow<ProgressUpdate>(
-        replay = 0,
+        replay = 1,
         extraBufferCapacity = PROGRESS_BUFFER_CAPACITY,
-        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST  // FIX #2
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
     )
 
-    /**
-     * Flow of progress updates. Plugin should collect this and forward to Dart.
-     */
     val progressFlow: SharedFlow<ProgressUpdate> = _progressFlow.asSharedFlow()
 
-    /**
-     * Report progress update (suspend version for coroutine contexts).
-     *
-     * @param taskId Task identifier
-     * @param progress Progress percentage (0-100)
-     * @param message Optional status message
-     * @param currentStep Optional current step number
-     * @param totalSteps Optional total steps count
-     */
     suspend fun reportProgress(
         taskId: String,
         progress: Int,
@@ -101,45 +88,15 @@ object ProgressReporter {
         currentStep: Int? = null,
         totalSteps: Int? = null
     ) {
-        val clampedProgress = progress.coerceIn(0, 100)
-
-        // Skip if the change is less than 1% (unless it is the final 100% sentinel).
-        // Prevents flooding the Flutter bridge on fast-chunk downloads/uploads.
-        val last = lastEmittedProgress[taskId]
-        if (last != null && clampedProgress != 100 && kotlin.math.abs(clampedProgress - last) < 1) {
-            return
-        }
-        lastEmittedProgress[taskId] = clampedProgress
-
-        val update = ProgressUpdate(
+        reportProgressNonBlocking(
             taskId = taskId,
-            progress = clampedProgress,
+            progress = progress,
             message = message,
             currentStep = currentStep,
             totalSteps = totalSteps
         )
-
-        try {
-            _progressFlow.emit(update)
-            Log.d(TAG, "Progress: $taskId - $clampedProgress%${message?.let { " - $it" } ?: ""}")
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to emit progress: ${e.message}")
-        }
     }
 
-    /**
-     * Report progress update (non-blocking version for non-coroutine contexts).
-     *
-     * ✅ FIX #1: Use this from OkHttp callbacks to avoid blocking I/O threads.
-     * This method uses tryEmit which never blocks the calling thread.
-     *
-     * @param taskId Task identifier
-     * @param progress Progress percentage (0-100)
-     * @param message Optional status message
-     * @param currentStep Optional current step number
-     * @param totalSteps Optional total steps count
-     * @return true if progress was emitted, false if buffer is full
-     */
     fun reportProgressNonBlocking(
         taskId: String,
         progress: Int,
@@ -153,12 +110,11 @@ object ProgressReporter {
     ): Boolean {
         val clampedProgress = progress.coerceIn(0, 100)
 
-        // Same 1% filter as the suspend variant.
-        val last = lastEmittedProgress[taskId]
-        if (last != null && clampedProgress != 100 && kotlin.math.abs(clampedProgress - last) < 1) {
+        // 1 % throttle for emitting to Dart
+        val lastUpdate = lastEmittedUpdates[taskId]
+        if (lastUpdate != null && clampedProgress != 100 && kotlin.math.abs(clampedProgress - lastUpdate.progress) < 1) {
             return false
         }
-        lastEmittedProgress[taskId] = clampedProgress
 
         val update = ProgressUpdate(
             taskId = taskId,
@@ -172,12 +128,34 @@ object ProgressReporter {
             timeRemainingMs = timeRemainingMs
         )
 
+        lastEmittedUpdates[taskId] = update
+
+        // 1. Automatic Notifications
+        context?.let { ctx ->
+            taskNotifTitles[taskId]?.let { title ->
+                dev.brewkits.native_workmanager.notification.DownloadNotificationManager.showProgress(
+                    context = ctx,
+                    taskId = taskId,
+                    title = title,
+                    progress = clampedProgress,
+                    message = message,
+                    filename = taskFilenames[taskId],
+                    allowPause = taskAllowPause[taskId] ?: true
+                )
+            }
+        }
+
+        // 2. Persistent Progress (5% throttle)
+        val lastPersisted = lastPersistedProgress[taskId]
+        if (lastPersisted == null || clampedProgress == 100 || kotlin.math.abs(clampedProgress - lastPersisted) >= 5) {
+            lastPersistedProgress[taskId] = clampedProgress
+            taskStore?.updateProgress(taskId, update.toJson())
+        }
+
         return try {
             val emitted = _progressFlow.tryEmit(update)
             if (emitted) {
                 Log.d(TAG, "Progress: $taskId - $clampedProgress%${message?.let { " - $it" } ?: ""}")
-            } else {
-                Log.v(TAG, "Progress buffer full, dropped update for $taskId")
             }
             emitted
         } catch (e: Exception) {
@@ -186,9 +164,6 @@ object ProgressReporter {
         }
     }
 
-    /**
-     * Report progress with step information.
-     */
     suspend fun reportStep(
         taskId: String,
         currentStep: Int,
@@ -208,5 +183,13 @@ object ProgressReporter {
             currentStep = currentStep,
             totalSteps = totalSteps
         )
+    }
+
+    fun clearTask(taskId: String) {
+        lastEmittedUpdates.remove(taskId)
+        lastPersistedProgress.remove(taskId)
+        taskNotifTitles.remove(taskId)
+        taskFilenames.remove(taskId)
+        taskAllowPause.remove(taskId)
     }
 }

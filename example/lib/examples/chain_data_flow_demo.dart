@@ -6,7 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 /// Comprehensive demo of iOS chain data flow feature.
 ///
-/// Demonstrates that iOS chains now pass data between steps (v1.1.1+),
+/// Demonstrates that iOS chains now pass data between steps (v1.1.2+),
 /// achieving full parity with Android WorkManager.
 ///
 /// **Test Scenarios:**
@@ -310,7 +310,7 @@ class _ChainDataFlowDemoState extends State<ChainDataFlowDemo> {
                         Icon(Icons.link, color: Colors.green.shade700),
                         const SizedBox(width: 8),
                         const Text(
-                          'iOS Chain Data Flow (v1.1.1)',
+                          'iOS Chain Data Flow (v1.1.2)',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,

@@ -209,455 +209,444 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
         _searchQuery.isNotEmpty || _selectedCategory != _DemoCategory.all;
 
     return Column(
-        children: [
-          _buildSearchBar(),
-          _buildFilterChips(),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                if (Platform.isIOS) ...[
-                  _buildIosBanner(),
-                  const SizedBox(height: 16),
-                ],
-                if (_isAnyTaskRunning) ...[
-                  _buildRunningIndicator(),
-                  const SizedBox(height: 16),
-                ],
-                if (isFiltering)
-                  ..._buildFilteredList()
-                else ...[
-                  _buildHeroBanner(),
-                  const SizedBox(height: 16),
-                  _buildFileSystemCard(),
-                  const SizedBox(height: 16),
+      children: [
+        _buildSearchBar(),
+        _buildFilterChips(),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              if (Platform.isIOS) ...[
+                _buildIosBanner(),
+                const SizedBox(height: 16),
+              ],
+              if (_isAnyTaskRunning) ...[
+                _buildRunningIndicator(),
+                const SizedBox(height: 16),
+              ],
+              if (isFiltering)
+                ..._buildFilteredList()
+              else ...[
+                _buildHeroBanner(),
+                const SizedBox(height: 16),
+                _buildFileSystemCard(),
+                const SizedBox(height: 16),
+                _buildSection(
+                  title: 'Basic Tasks',
+                  icon: Icons.play_arrow,
+                  children: [
+                    _buildDemoCard(
+                      title: 'Quick Sync',
+                      description: 'OneTime task with no constraints',
+                      icon: Icons.sync,
+                      onTap: () => _runTask('Quick Sync', _demoQuickSync),
+                    ),
+                    _buildDemoCard(
+                      title: 'File Upload',
+                      description: 'OneTime with network required',
+                      icon: Icons.upload,
+                      onTap: () => _runTask('File Upload', _demoFileUpload),
+                    ),
+                    _buildDemoCard(
+                      title: 'Database Operation',
+                      description: 'Batch inserts with progress',
+                      icon: Icons.storage,
+                      onTap: () =>
+                          _runTask('Database Operation', _demoDatabaseOp),
+                    ),
+                  ],
+                ),
+                _buildSection(
+                  title: 'Periodic Tasks',
+                  icon: Icons.loop,
+                  children: [
+                    _buildDemoCard(
+                      title: 'Hourly Sync',
+                      description:
+                          'Repeats every hour with network constraints',
+                      icon: Icons.schedule,
+                      onTap: () => _runTask('Hourly Sync', _demoHourlySync),
+                    ),
+                    _buildDemoCard(
+                      title: 'Daily Cleanup',
+                      description: 'Runs every 24 hours while charging',
+                      icon: Icons.cleaning_services,
+                      onTap: () => _runTask('Daily Cleanup', _demoDailyCleanup),
+                    ),
+                    _buildDemoCard(
+                      title: 'Location Sync',
+                      description: 'Periodic 15min location upload',
+                      icon: Icons.location_on,
+                      onTap: () => _runTask('Location Sync', _demoLocationSync),
+                    ),
+                  ],
+                ),
+                _buildSection(
+                  title: 'Task Chains',
+                  icon: Icons.link,
+                  children: [
+                    _buildDemoCard(
+                      title:
+                          'Sequential: Download \u2192 Process \u2192 Upload',
+                      description: 'Three tasks in sequence',
+                      icon: Icons.arrow_forward,
+                      onTap: () =>
+                          _runTask('Sequential Chain', _demoSequentialChain),
+                    ),
+                    _buildDemoCard(
+                      title: 'Parallel: Process 3 Images \u2192 Upload',
+                      description: 'Parallel processing then upload',
+                      icon: Icons.dynamic_feed,
+                      onTap: () =>
+                          _runTask('Parallel Chain', _demoParallelChain),
+                    ),
+                    _buildDemoCard(
+                      title:
+                          'Mixed: Fetch \u2192 [Process \u2225 Analyze \u2225 Compress] \u2192 Upload',
+                      description: 'Sequential + parallel combination',
+                      icon: Icons.account_tree,
+                      onTap: () => _runTask('Mixed Chain', _demoMixedChain),
+                    ),
+                    _buildDemoCard(
+                      title: 'Long Chain: 5 Sequential Steps',
+                      description: 'Extended workflow demonstration',
+                      icon: Icons.linear_scale,
+                      onTap: () => _runTask('Long Chain', _demoLongChain),
+                    ),
+                  ],
+                ),
+                _buildSection(
+                  title: 'Constraint Demos',
+                  icon: Icons.security,
+                  children: [
+                    _buildDemoCard(
+                      title: 'Network Required',
+                      description: 'Only runs when network available',
+                      icon: Icons.wifi,
+                      onTap: () =>
+                          _runTask('Network Required', _demoNetworkRequired),
+                    ),
+                    _buildDemoCard(
+                      title: 'Unmetered Network (WiFi Only)',
+                      description: 'Only runs on WiFi/unmetered',
+                      icon: Icons.wifi_tethering,
+                      onTap: () => _runTask('WiFi Only', _demoWiFiOnly),
+                    ),
+                    _buildDemoCard(
+                      title: 'Charging Required',
+                      description: 'Runs only while device is charging',
+                      icon: Icons.battery_charging_full,
+                      onTap: () =>
+                          _runTask('Charging Required', _demoChargingRequired),
+                    ),
+                    _buildDemoCard(
+                      title: 'Battery Not Low',
+                      description: 'Defers when battery is low',
+                      icon: Icons.battery_full,
+                      onTap: () =>
+                          _runTask('Battery Not Low', _demoBatteryNotLow),
+                    ),
+                    _buildDemoCard(
+                      title: 'Storage Not Low',
+                      description: 'Waits for sufficient storage',
+                      icon: Icons.sd_storage,
+                      onTap: () =>
+                          _runTask('Storage Not Low', _demoStorageNotLow),
+                    ),
+                    _buildDemoCard(
+                      title: 'Device Idle (Android)',
+                      description: 'Runs when device is idle',
+                      icon: Icons.bedtime,
+                      onTap: () => _runTask('Device Idle', _demoDeviceIdle),
+                    ),
+                  ],
+                ),
+                _buildSection(
+                  title: 'Built-in Workers',
+                  icon: Icons.construction,
+                  children: [
+                    _buildDemoCard(
+                      title: 'HTTP Download',
+                      description: 'Download file with progress tracking',
+                      icon: Icons.download,
+                      onTap: () => _runTask('HTTP Download', _demoHttpDownload),
+                    ),
+                    _buildDemoCard(
+                      title: 'HTTP Upload',
+                      description: 'Upload file with multipart form',
+                      icon: Icons.cloud_upload,
+                      onTap: () => _runTask('HTTP Upload', _demoHttpUpload),
+                    ),
+                    _buildDemoCard(
+                      title: 'File Compression',
+                      description: 'Compress files to ZIP archive',
+                      icon: Icons.compress,
+                      onTap: () =>
+                          _runTask('File Compression', _demoFileCompression),
+                    ),
+                    _buildDemoCard(
+                      title: 'HTTP Sync',
+                      description: 'Sync data with retry logic',
+                      icon: Icons.sync_alt,
+                      onTap: () => _runTask('HTTP Sync', _demoHttpSync),
+                    ),
+                    _buildDemoCard(
+                      title: 'File Decompression',
+                      description:
+                          'Extract ZIP archive with security validation',
+                      icon: Icons.folder_zip,
+                      onTap: () => _runTask(
+                        'File Decompression',
+                        _demoFileDecompression,
+                      ),
+                    ),
+                    _buildDemoCard(
+                      title: 'Image Processing',
+                      description: 'Resize and compress image (10x faster)',
+                      icon: Icons.image,
+                      onTap: () =>
+                          _runTask('Image Processing', _demoImageProcess),
+                    ),
+                    _buildDemoCard(
+                      title: 'Crypto Hash',
+                      description: 'SHA-256 hash file for integrity check',
+                      icon: Icons.fingerprint,
+                      onTap: () => _runTask('Crypto Hash', _demoCryptoHash),
+                    ),
+                    _buildDemoCard(
+                      title: 'Crypto Encrypt',
+                      description: 'AES-256-GCM — password via secure vault',
+                      icon: Icons.lock,
+                      onTap: () =>
+                          _runTask('Crypto Encrypt', _demoCryptoEncrypt),
+                    ),
+                    _buildDemoCard(
+                      title: 'Crypto Decrypt',
+                      description: 'Decrypt AES-256-GCM encrypted file',
+                      icon: Icons.lock_open,
+                      onTap: () =>
+                          _runTask('Crypto Decrypt', _demoCryptoDecrypt),
+                    ),
+                    _buildDemoCard(
+                      title: 'File System',
+                      description: 'Copy, move, delete files natively',
+                      icon: Icons.folder,
+                      onTap: () => _runTask('File System', _demoFileSystem),
+                    ),
+                    _buildDemoCard(
+                      title: 'Complete Native Chain',
+                      description:
+                          'Download \u2192 Extract \u2192 Process \u2192 Upload (all native!)',
+                      icon: Icons.all_inclusive,
+                      onTap: () =>
+                          _runTask('Complete Chain', _demoCompleteNativeChain),
+                    ),
+                  ],
+                ),
+                if (Platform.isIOS)
                   _buildSection(
-                    title: 'Basic Tasks',
-                    icon: Icons.play_arrow,
+                    title: 'iOS Background Session (v2.3.0+)',
+                    icon: Icons.cloud_download,
                     children: [
-                      _buildDemoCard(
-                        title: 'Quick Sync',
-                        description: 'OneTime task with no constraints',
-                        icon: Icons.sync,
-                        onTap: () => _runTask('Quick Sync', _demoQuickSync),
-                      ),
-                      _buildDemoCard(
-                        title: 'File Upload',
-                        description: 'OneTime with network required',
-                        icon: Icons.upload,
-                        onTap: () => _runTask('File Upload', _demoFileUpload),
-                      ),
-                      _buildDemoCard(
-                        title: 'Database Operation',
-                        description: 'Batch inserts with progress',
-                        icon: Icons.storage,
-                        onTap: () =>
-                            _runTask('Database Operation', _demoDatabaseOp),
-                      ),
-                    ],
-                  ),
-                  _buildSection(
-                    title: 'Periodic Tasks',
-                    icon: Icons.loop,
-                    children: [
-                      _buildDemoCard(
-                        title: 'Hourly Sync',
-                        description:
-                            'Repeats every hour with network constraints',
-                        icon: Icons.schedule,
-                        onTap: () => _runTask('Hourly Sync', _demoHourlySync),
-                      ),
-                      _buildDemoCard(
-                        title: 'Daily Cleanup',
-                        description: 'Runs every 24 hours while charging',
-                        icon: Icons.cleaning_services,
-                        onTap: () =>
-                            _runTask('Daily Cleanup', _demoDailyCleanup),
-                      ),
-                      _buildDemoCard(
-                        title: 'Location Sync',
-                        description: 'Periodic 15min location upload',
-                        icon: Icons.location_on,
-                        onTap: () =>
-                            _runTask('Location Sync', _demoLocationSync),
-                      ),
-                    ],
-                  ),
-                  _buildSection(
-                    title: 'Task Chains',
-                    icon: Icons.link,
-                    children: [
-                      _buildDemoCard(
-                        title:
-                            'Sequential: Download \u2192 Process \u2192 Upload',
-                        description: 'Three tasks in sequence',
-                        icon: Icons.arrow_forward,
-                        onTap: () =>
-                            _runTask('Sequential Chain', _demoSequentialChain),
-                      ),
-                      _buildDemoCard(
-                        title: 'Parallel: Process 3 Images \u2192 Upload',
-                        description: 'Parallel processing then upload',
-                        icon: Icons.dynamic_feed,
-                        onTap: () =>
-                            _runTask('Parallel Chain', _demoParallelChain),
-                      ),
-                      _buildDemoCard(
-                        title:
-                            'Mixed: Fetch \u2192 [Process \u2225 Analyze \u2225 Compress] \u2192 Upload',
-                        description: 'Sequential + parallel combination',
-                        icon: Icons.account_tree,
-                        onTap: () => _runTask('Mixed Chain', _demoMixedChain),
-                      ),
-                      _buildDemoCard(
-                        title: 'Long Chain: 5 Sequential Steps',
-                        description: 'Extended workflow demonstration',
-                        icon: Icons.linear_scale,
-                        onTap: () => _runTask('Long Chain', _demoLongChain),
-                      ),
-                    ],
-                  ),
-                  _buildSection(
-                    title: 'Constraint Demos',
-                    icon: Icons.security,
-                    children: [
-                      _buildDemoCard(
-                        title: 'Network Required',
-                        description: 'Only runs when network available',
-                        icon: Icons.wifi,
-                        onTap: () =>
-                            _runTask('Network Required', _demoNetworkRequired),
-                      ),
-                      _buildDemoCard(
-                        title: 'Unmetered Network (WiFi Only)',
-                        description: 'Only runs on WiFi/unmetered',
-                        icon: Icons.wifi_tethering,
-                        onTap: () => _runTask('WiFi Only', _demoWiFiOnly),
-                      ),
-                      _buildDemoCard(
-                        title: 'Charging Required',
-                        description: 'Runs only while device is charging',
-                        icon: Icons.battery_charging_full,
-                        onTap: () => _runTask(
-                          'Charging Required',
-                          _demoChargingRequired,
-                        ),
-                      ),
-                      _buildDemoCard(
-                        title: 'Battery Not Low',
-                        description: 'Defers when battery is low',
-                        icon: Icons.battery_full,
-                        onTap: () =>
-                            _runTask('Battery Not Low', _demoBatteryNotLow),
-                      ),
-                      _buildDemoCard(
-                        title: 'Storage Not Low',
-                        description: 'Waits for sufficient storage',
-                        icon: Icons.sd_storage,
-                        onTap: () =>
-                            _runTask('Storage Not Low', _demoStorageNotLow),
-                      ),
-                      _buildDemoCard(
-                        title: 'Device Idle (Android)',
-                        description: 'Runs when device is idle',
-                        icon: Icons.bedtime,
-                        onTap: () => _runTask('Device Idle', _demoDeviceIdle),
-                      ),
-                    ],
-                  ),
-                  _buildSection(
-                    title: 'Built-in Workers',
-                    icon: Icons.construction,
-                    children: [
-                      _buildDemoCard(
-                        title: 'HTTP Download',
-                        description: 'Download file with progress tracking',
-                        icon: Icons.download,
-                        onTap: () =>
-                            _runTask('HTTP Download', _demoHttpDownload),
-                      ),
-                      _buildDemoCard(
-                        title: 'HTTP Upload',
-                        description: 'Upload file with multipart form',
-                        icon: Icons.cloud_upload,
-                        onTap: () => _runTask('HTTP Upload', _demoHttpUpload),
-                      ),
-                      _buildDemoCard(
-                        title: 'File Compression',
-                        description: 'Compress files to ZIP archive',
-                        icon: Icons.compress,
-                        onTap: () =>
-                            _runTask('File Compression', _demoFileCompression),
-                      ),
-                      _buildDemoCard(
-                        title: 'HTTP Sync',
-                        description: 'Sync data with retry logic',
-                        icon: Icons.sync_alt,
-                        onTap: () => _runTask('HTTP Sync', _demoHttpSync),
-                      ),
-                      _buildDemoCard(
-                        title: 'File Decompression',
-                        description:
-                            'Extract ZIP archive with security validation',
-                        icon: Icons.folder_zip,
-                        onTap: () => _runTask(
-                          'File Decompression',
-                          _demoFileDecompression,
-                        ),
-                      ),
-                      _buildDemoCard(
-                        title: 'Image Processing',
-                        description: 'Resize and compress image (10x faster)',
-                        icon: Icons.image,
-                        onTap: () =>
-                            _runTask('Image Processing', _demoImageProcess),
-                      ),
-                      _buildDemoCard(
-                        title: 'Crypto Hash',
-                        description: 'SHA-256 hash file for integrity check',
-                        icon: Icons.fingerprint,
-                        onTap: () => _runTask('Crypto Hash', _demoCryptoHash),
-                      ),
-                      _buildDemoCard(
-                        title: 'Crypto Encrypt',
-                        description: 'AES-256-GCM — password via secure vault',
-                        icon: Icons.lock,
-                        onTap: () =>
-                            _runTask('Crypto Encrypt', _demoCryptoEncrypt),
-                      ),
-                      _buildDemoCard(
-                        title: 'Crypto Decrypt',
-                        description: 'Decrypt AES-256-GCM encrypted file',
-                        icon: Icons.lock_open,
-                        onTap: () =>
-                            _runTask('Crypto Decrypt', _demoCryptoDecrypt),
-                      ),
-                      _buildDemoCard(
-                        title: 'File System',
-                        description: 'Copy, move, delete files natively',
-                        icon: Icons.folder,
-                        onTap: () => _runTask('File System', _demoFileSystem),
-                      ),
-                      _buildDemoCard(
-                        title: 'Complete Native Chain',
-                        description:
-                            'Download \u2192 Extract \u2192 Process \u2192 Upload (all native!)',
-                        icon: Icons.all_inclusive,
-                        onTap: () => _runTask(
-                          'Complete Chain',
-                          _demoCompleteNativeChain,
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (Platform.isIOS)
-                    _buildSection(
-                      title: 'iOS Background Session (v2.3.0+)',
-                      icon: Icons.cloud_download,
-                      children: [
-                        Card(
-                          color: Colors.blue.shade50,
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.info_outline,
-                                  color: Colors.blue.shade900,
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    'Background sessions survive app termination and have no time limits. '
-                                    'Perfect for large files (>10MB) on unreliable networks.',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.blue.shade900,
-                                    ),
+                      Card(
+                        color: Colors.blue.shade50,
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.info_outline,
+                                color: Colors.blue.shade900,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Background sessions survive app termination and have no time limits. '
+                                  'Perfect for large files (>10MB) on unreliable networks.',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.blue.shade900,
                                   ),
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        _buildDemoCard(
-                          title: 'Large File Download',
-                          description:
-                              'Download 10MB file that survives app termination',
-                          icon: Icons.download_for_offline,
-                          onTap: () => _runTask(
-                            'Background Download',
-                            _demoBackgroundDownload,
-                          ),
-                        ),
-                        _buildDemoCard(
-                          title: 'Large File Upload',
-                          description:
-                              'Upload large file with background session',
-                          icon: Icons.upload_file,
-                          onTap: () => _runTask(
-                            'Background Upload',
-                            _demoBackgroundUpload,
-                          ),
-                        ),
-                      ],
-                    ),
-                  _buildSection(
-                    title: 'Real-World Scenarios',
-                    icon: Icons.business,
-                    children: [
-                      _buildDemoCard(
-                        title: 'Photo Backup Workflow',
-                        description:
-                            'Compress \u2192 Upload \u2192 Cleanup on WiFi',
-                        icon: Icons.photo_library,
-                        onTap: () => _runTask('Photo Backup', _demoPhotoBackup),
                       ),
+                      const SizedBox(height: 8),
                       _buildDemoCard(
-                        title: 'Data Sync Pipeline',
+                        title: 'Large File Download',
                         description:
-                            'Download \u2192 Process \u2192 Save \u2192 Notify',
-                        icon: Icons.cloud_sync,
-                        onTap: () => _runTask('Data Sync', _demoDataSync),
-                      ),
-                      _buildDemoCard(
-                        title: 'Offline-First Upload Queue',
-                        description: 'Queue uploads, retry on network',
-                        icon: Icons.cloud_queue,
-                        onTap: () => _runTask('Upload Queue', _demoUploadQueue),
-                      ),
-                    ],
-                  ),
-                  _buildSection(
-                    title: 'New v1.1 Features',
-                    icon: Icons.new_releases,
-                    children: [
-                      _buildParallelDownloadCard(),
-                      _buildDemoCard(
-                        title: 'skipExisting \u2013 Skip if File Exists',
-                        description:
-                            'Enqueue download; file already exists \u2192 task returns skipped=true instantly',
-                        icon: Icons.skip_next,
-                        onTap: () =>
-                            _runTask('skipExisting', _demoSkipExisting),
-                      ),
-                      _buildDemoCard(
-                        title: 'pauseByTag / resumeByTag',
-                        description:
-                            'Enqueue 2 tasks with tag "v11-group", pause group, then resume',
-                        icon: Icons.pause_circle_outline,
-                        onTap: () =>
-                            _runTask('Group Control', _demoGroupControl),
-                      ),
-                      _buildDemoCard(
-                        title: 'pauseAll / resumeAll',
-                        description:
-                            'Pause every running task, then immediately resume all',
-                        icon: Icons.pause_presentation,
+                            'Download 10MB file that survives app termination',
+                        icon: Icons.download_for_offline,
                         onTap: () => _runTask(
-                          'pauseAll + resumeAll',
-                          _demoPauseResumeAll,
+                          'Background Download',
+                          _demoBackgroundDownload,
                         ),
                       ),
                       _buildDemoCard(
-                        title: 'enqueueAll \u2013 Batch Enqueue',
+                        title: 'Large File Upload',
                         description:
-                            'Schedule 3 HTTP tasks in one call, no await waterfall',
-                        icon: Icons.playlist_add,
-                        onTap: () => _runTask('enqueueAll', _demoEnqueueAll),
-                      ),
-                      _buildDemoCard(
-                        title: 'getTasksByStatus',
-                        description:
-                            'Query all tasks, group by status, show summary snackbar',
-                        icon: Icons.filter_list,
-                        onTap: _demoGetTasksByStatus,
-                      ),
-                    ],
-                  ),
-                  _buildSection(
-                    title: 'Advanced API',
-                    icon: Icons.science,
-                    children: [
-                      _buildDemoCard(
-                        title: 'TaskGraph (DAG) \u2014 Fan-out + Fan-in',
-                        description:
-                            'Two parallel downloads feed one merge step; cycle detection included',
-                        icon: Icons.account_tree,
-                        onTap: () => _runTask('TaskGraph', _demoTaskGraph),
-                      ),
-                      _buildDemoCard(
-                        title: 'ObservabilityConfig \u2014 Lifecycle Hooks',
-                        description:
-                            'Configure onTaskComplete / onTaskFail callbacks; shows snackbar from hook',
-                        icon: Icons.visibility,
-                        onTap: () =>
-                            _runTask('Observability', _demoObservability),
-                      ),
-                      _buildDemoCard(
-                        title: 'OfflineQueue \u2014 FIFO with Retry',
-                        description:
-                            'Queue 3 uploads via OfflineQueue class with exponential backoff',
-                        icon: Icons.queue,
-                        onTap: () =>
-                            _runTask('OfflineQueue', _demoOfflineQueueClass),
-                      ),
-                      _buildDemoCard(
-                        title: 'Request Signing (HMAC-SHA256)',
-                        description:
-                            'HttpDownloadWorker.withSigning() \u2014 adds X-Signature header',
-                        icon: Icons.lock,
-                        onTap: () =>
-                            _runTask('Request Signing', _demoRequestSigning),
-                      ),
-                      _buildDemoCard(
-                        title: 'Bandwidth Limit (500\u00a0KB/s)',
-                        description:
-                            'Download throttled to 500\u00a0KB/s via withBandwidthLimit()',
-                        icon: Icons.speed,
-                        onTap: () =>
-                            _runTask('Bandwidth Limit', _demoBandwidthLimit),
-                      ),
-                      _buildDemoCard(
-                        title: 'Parallel Upload (3 files, max 2 concurrent)',
-                        description:
-                            'ParallelHttpUploadWorker: each file gets its own request with retry',
+                            'Upload large file with background session',
                         icon: Icons.upload_file,
-                        onTap: () =>
-                            _runTask('Parallel Upload', _demoParallelUpload),
-                      ),
-                      _buildDemoCard(
-                        title: 'Multi-File Upload (single request)',
-                        description:
-                            'MultiUploadWorker: 2 files in one multipart/form-data request',
-                        icon: Icons.folder_zip,
-                        onTap: () => _runTask('Multi Upload', _demoMultiUpload),
-                      ),
-                      _buildDemoCard(
-                        title: 'NET Fixes — Validation & Safety Demos',
-                        description:
-                            'NET-009/016/018/028: JSON body validation, multipart size guard, '
-                            'runtime constructor checks, per-attempt timeout docs',
-                        icon: Icons.security,
-                        onTap: () => _runTask('NET Fixes', _demoNetFixes),
-                      ),
-                      _buildDemoCard(
-                        title: 'MEDIA Fixes — Safety & Robustness Demos',
-                        description:
-                            'MEDIA-001..015: BitmapRegionDecoder leak, div-by-zero in PDF, '
-                            'atomic image write, partial output cleanup, crop validation',
-                        icon: Icons.image_search,
-                        onTap: () => _runTask('MEDIA Fixes', _demoMediaFixes),
+                        onTap: () => _runTask(
+                          'Background Upload',
+                          _demoBackgroundUpload,
+                        ),
                       ),
                     ],
                   ),
-                ],
-                const SizedBox(height: 32),
+                _buildSection(
+                  title: 'Real-World Scenarios',
+                  icon: Icons.business,
+                  children: [
+                    _buildDemoCard(
+                      title: 'Photo Backup Workflow',
+                      description:
+                          'Compress \u2192 Upload \u2192 Cleanup on WiFi',
+                      icon: Icons.photo_library,
+                      onTap: () => _runTask('Photo Backup', _demoPhotoBackup),
+                    ),
+                    _buildDemoCard(
+                      title: 'Data Sync Pipeline',
+                      description:
+                          'Download \u2192 Process \u2192 Save \u2192 Notify',
+                      icon: Icons.cloud_sync,
+                      onTap: () => _runTask('Data Sync', _demoDataSync),
+                    ),
+                    _buildDemoCard(
+                      title: 'Offline-First Upload Queue',
+                      description: 'Queue uploads, retry on network',
+                      icon: Icons.cloud_queue,
+                      onTap: () => _runTask('Upload Queue', _demoUploadQueue),
+                    ),
+                  ],
+                ),
+                _buildSection(
+                  title: 'New v1.1 Features',
+                  icon: Icons.new_releases,
+                  children: [
+                    _buildParallelDownloadCard(),
+                    _buildDemoCard(
+                      title: 'skipExisting \u2013 Skip if File Exists',
+                      description:
+                          'Enqueue download; file already exists \u2192 task returns skipped=true instantly',
+                      icon: Icons.skip_next,
+                      onTap: () => _runTask('skipExisting', _demoSkipExisting),
+                    ),
+                    _buildDemoCard(
+                      title: 'pauseByTag / resumeByTag',
+                      description:
+                          'Enqueue 2 tasks with tag "v11-group", pause group, then resume',
+                      icon: Icons.pause_circle_outline,
+                      onTap: () => _runTask('Group Control', _demoGroupControl),
+                    ),
+                    _buildDemoCard(
+                      title: 'pauseAll / resumeAll',
+                      description:
+                          'Pause every running task, then immediately resume all',
+                      icon: Icons.pause_presentation,
+                      onTap: () =>
+                          _runTask('pauseAll + resumeAll', _demoPauseResumeAll),
+                    ),
+                    _buildDemoCard(
+                      title: 'enqueueAll \u2013 Batch Enqueue',
+                      description:
+                          'Schedule 3 HTTP tasks in one call, no await waterfall',
+                      icon: Icons.playlist_add,
+                      onTap: () => _runTask('enqueueAll', _demoEnqueueAll),
+                    ),
+                    _buildDemoCard(
+                      title: 'getTasksByStatus',
+                      description:
+                          'Query all tasks, group by status, show summary snackbar',
+                      icon: Icons.filter_list,
+                      onTap: _demoGetTasksByStatus,
+                    ),
+                  ],
+                ),
+                _buildSection(
+                  title: 'Advanced API',
+                  icon: Icons.science,
+                  children: [
+                    _buildDemoCard(
+                      title: 'TaskGraph (DAG) \u2014 Fan-out + Fan-in',
+                      description:
+                          'Two parallel downloads feed one merge step; cycle detection included',
+                      icon: Icons.account_tree,
+                      onTap: () => _runTask('TaskGraph', _demoTaskGraph),
+                    ),
+                    _buildDemoCard(
+                      title: 'ObservabilityConfig \u2014 Lifecycle Hooks',
+                      description:
+                          'Configure onTaskComplete / onTaskFail callbacks; shows snackbar from hook',
+                      icon: Icons.visibility,
+                      onTap: () =>
+                          _runTask('Observability', _demoObservability),
+                    ),
+                    _buildDemoCard(
+                      title: 'OfflineQueue \u2014 FIFO with Retry',
+                      description:
+                          'Queue 3 uploads via OfflineQueue class with exponential backoff',
+                      icon: Icons.queue,
+                      onTap: () =>
+                          _runTask('OfflineQueue', _demoOfflineQueueClass),
+                    ),
+                    _buildDemoCard(
+                      title: 'Request Signing (HMAC-SHA256)',
+                      description:
+                          'HttpDownloadWorker.withSigning() \u2014 adds X-Signature header',
+                      icon: Icons.lock,
+                      onTap: () =>
+                          _runTask('Request Signing', _demoRequestSigning),
+                    ),
+                    _buildDemoCard(
+                      title: 'Bandwidth Limit (500\u00a0KB/s)',
+                      description:
+                          'Download throttled to 500\u00a0KB/s via withBandwidthLimit()',
+                      icon: Icons.speed,
+                      onTap: () =>
+                          _runTask('Bandwidth Limit', _demoBandwidthLimit),
+                    ),
+                    _buildDemoCard(
+                      title: 'Parallel Upload (3 files, max 2 concurrent)',
+                      description:
+                          'ParallelHttpUploadWorker: each file gets its own request with retry',
+                      icon: Icons.upload_file,
+                      onTap: () =>
+                          _runTask('Parallel Upload', _demoParallelUpload),
+                    ),
+                    _buildDemoCard(
+                      title: 'Multi-File Upload (single request)',
+                      description:
+                          'MultiUploadWorker: 2 files in one multipart/form-data request',
+                      icon: Icons.folder_zip,
+                      onTap: () => _runTask('Multi Upload', _demoMultiUpload),
+                    ),
+                    _buildDemoCard(
+                      title: 'NET Fixes — Validation & Safety Demos',
+                      description:
+                          'NET-009/016/018/028: JSON body validation, multipart size guard, '
+                          'runtime constructor checks, per-attempt timeout docs',
+                      icon: Icons.security,
+                      onTap: () => _runTask('NET Fixes', _demoNetFixes),
+                    ),
+                    _buildDemoCard(
+                      title: 'MEDIA Fixes — Safety & Robustness Demos',
+                      description:
+                          'MEDIA-001..015: BitmapRegionDecoder leak, div-by-zero in PDF, '
+                          'atomic image write, partial output cleanup, crop validation',
+                      icon: Icons.image_search,
+                      onTap: () => _runTask('MEDIA Fixes', _demoMediaFixes),
+                    ),
+                  ],
+                ),
               ],
-            ),
+              const SizedBox(height: 32),
+            ],
           ),
-        ],
+        ),
+      ],
     );
   }
 
@@ -706,7 +695,7 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
                     ),
                   ),
                   Text(
-                    'v1.1.1 · 40+ ready-to-run examples',
+                    'v1.1.2 · 40+ ready-to-run examples',
                     style: TextStyle(
                       color: Colors.white.withAlpha(200),
                       fontSize: 12,
@@ -2131,7 +2120,9 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
           ),
         )
         .enqueue();
-    _showSnackbar('🖼️ Image Processing scheduled (download → resize to 1080p)');
+    _showSnackbar(
+      '🖼️ Image Processing scheduled (download → resize to 1080p)',
+    );
   }
 
   Future<void> _demoCryptoHash() async {
@@ -2636,7 +2627,8 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
       ),
     ]);
 
-    final accepted = results.where((r) => r == ScheduleResult.accepted).length;
+    final accepted =
+        results.where((r) => r.scheduleResult == ScheduleResult.accepted).length;
     _showSnackbar('📋 enqueueAll: $accepted/3 tasks accepted');
   }
 

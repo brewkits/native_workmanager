@@ -24,8 +24,12 @@ void main() {
       final completer = Completer<TaskEvent?>();
       late StreamSubscription<TaskEvent> sub;
       sub = NativeWorkManager.events.listen((event) {
-        print('WaitEvent: received event for ${event.taskId}, success=${event.success}, hasResultData=${event.resultData != null}, isStarted=${event.isStarted}');
-        if (event.taskId == taskId && !completer.isCompleted && !event.isStarted) {
+        print(
+          'WaitEvent: received event for ${event.taskId}, success=${event.success}, hasResultData=${event.resultData != null}, isStarted=${event.isStarted}',
+        );
+        if (event.taskId == taskId &&
+            !completer.isCompleted &&
+            !event.isStarted) {
           completer.complete(event);
           sub.cancel();
         }
@@ -44,7 +48,9 @@ void main() {
           return TaskEvent(
             taskId: taskId,
             success: record.status == 'success',
-            message: record.status == 'failed' ? 'Task failed in background' : null,
+            message: record.status == 'failed'
+                ? 'Task failed in background'
+                : null,
             resultData: record.resultData,
             timestamp: record.updatedAt,
           );
@@ -75,7 +81,9 @@ void main() {
           tokenRefresh: TokenRefreshConfig(
             url: 'https://httpbin.org/post', // Mock refresh endpoint
             method: 'POST',
-            body: {'access_token': 'fresh_token_from_httpbin'}, // Put token in body so it's echoed
+            body: {
+              'access_token': 'fresh_token_from_httpbin',
+            }, // Put token in body so it's echoed
             responseKey:
                 'json.access_token', // Path to echoed token in httpbin /post response
             tokenHeaderName: 'Authorization',
