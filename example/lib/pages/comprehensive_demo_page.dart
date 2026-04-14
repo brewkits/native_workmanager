@@ -566,7 +566,11 @@ class _MediaWorkersTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _buildHeader(context, 'Media Workers', 'Image processing and PDF operations'),
+        _buildHeader(
+          context,
+          'Media Workers',
+          'Image processing and PDF operations',
+        ),
 
         // iOS 30-second warning for heavy tasks
         if (Platform.isIOS) ...[
@@ -692,16 +696,18 @@ NativeWorker.imageProcess(
                     constraints: const Constraints(requiresNetwork: true),
                   ),
                 )
-                .then(TaskRequest(
-                  id: 'comprehensive-image-resize',
-                  worker: NativeWorker.imageProcess(
-                    inputPath: inputPath,
-                    outputPath: outputPath,
-                    maxWidth: 1920,
-                    maxHeight: 1080,
-                    maintainAspectRatio: true,
+                .then(
+                  TaskRequest(
+                    id: 'comprehensive-image-resize',
+                    worker: NativeWorker.imageProcess(
+                      inputPath: inputPath,
+                      outputPath: outputPath,
+                      maxWidth: 1920,
+                      maxHeight: 1080,
+                      maintainAspectRatio: true,
+                    ),
                   ),
-                ))
+                )
                 .enqueue();
             onResult('🖼️ Image Resize scheduled (download → resize 1080p)');
           },
@@ -733,17 +739,21 @@ NativeWorker.imageProcess(
                     constraints: const Constraints(requiresNetwork: true),
                   ),
                 )
-                .then(TaskRequest(
-                  id: 'comprehensive-image-compress',
-                  worker: NativeWorker.imageProcess(
-                    inputPath: inputPath,
-                    outputPath: outputPath,
-                    quality: 80,
-                    outputFormat: ImageFormat.jpeg,
+                .then(
+                  TaskRequest(
+                    id: 'comprehensive-image-compress',
+                    worker: NativeWorker.imageProcess(
+                      inputPath: inputPath,
+                      outputPath: outputPath,
+                      quality: 80,
+                      outputFormat: ImageFormat.jpeg,
+                    ),
                   ),
-                ))
+                )
                 .enqueue();
-            onResult('📐 Image Compression scheduled (download → compress 80%)');
+            onResult(
+              '📐 Image Compression scheduled (download → compress 80%)',
+            );
           },
         ),
 
@@ -772,15 +782,17 @@ NativeWorker.imageProcess(
                     constraints: const Constraints(requiresNetwork: true),
                   ),
                 )
-                .then(TaskRequest(
-                  id: 'comprehensive-image-convert',
-                  worker: NativeWorker.imageProcess(
-                    inputPath: inputPath,
-                    outputPath: outputPath,
-                    outputFormat: ImageFormat.webp,
-                    quality: 85,
+                .then(
+                  TaskRequest(
+                    id: 'comprehensive-image-convert',
+                    worker: NativeWorker.imageProcess(
+                      inputPath: inputPath,
+                      outputPath: outputPath,
+                      outputFormat: ImageFormat.webp,
+                      quality: 85,
+                    ),
                   ),
-                ))
+                )
                 .enqueue();
             onResult('🔄 Format Conversion scheduled (download PNG → WebP)');
           },
@@ -812,17 +824,19 @@ NativeWorker.imageProcess(
                     constraints: const Constraints(requiresNetwork: true),
                   ),
                 )
-                .then(TaskRequest(
-                  id: 'comprehensive-image-thumbnail',
-                  worker: NativeWorker.imageProcess(
-                    inputPath: inputPath,
-                    outputPath: outputPath,
-                    maxWidth: 200,
-                    maxHeight: 200,
-                    quality: 70,
-                    maintainAspectRatio: true,
+                .then(
+                  TaskRequest(
+                    id: 'comprehensive-image-thumbnail',
+                    worker: NativeWorker.imageProcess(
+                      inputPath: inputPath,
+                      outputPath: outputPath,
+                      maxWidth: 200,
+                      maxHeight: 200,
+                      quality: 70,
+                      maintainAspectRatio: true,
+                    ),
                   ),
-                ))
+                )
                 .enqueue();
             onResult('🖼️ Thumbnail Generation scheduled (download → 200x200)');
           },
@@ -1600,7 +1614,10 @@ class _WebSocketTab extends StatelessWidget {
                     child: Text(
                       'WebSocketWorker is Android only. On iOS the task '
                       'will return a failure result immediately.',
-                      style: TextStyle(fontSize: 11, color: Colors.blue.shade900),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.blue.shade900,
+                      ),
                     ),
                   ),
                 ],

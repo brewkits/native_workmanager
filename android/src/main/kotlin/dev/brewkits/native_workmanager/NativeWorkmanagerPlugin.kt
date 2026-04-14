@@ -54,7 +54,7 @@ import okhttp3.OkHttpClient
 /**
  * Native WorkManager Flutter Plugin for Android.
  *
- * Uses kmpworkmanager v2.3.8 from Maven Central as the core engine.
+ * Uses kmpworkmanager v2.3.9 from Maven Central as the core engine.
  * This ensures compatibility with Pro/Enterprise versions.
  */
 class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
@@ -181,6 +181,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
         offlineQueueStore = dev.brewkits.native_workmanager.store.OfflineQueueStore(context)
         middlewareStore = dev.brewkits.native_workmanager.store.MiddlewareStore.getInstance(context)
         DownloadNotificationManager.createChannel(context)
+        ProgressReporter.initialize(context, taskStore)
 
         // Resume any incomplete chains that were in-progress when the app was killed.
         // WorkManager will re-execute the individual workers; this restores Dart-visible
@@ -237,7 +238,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
             scheduler = NativeTaskScheduler(context)
 
             isSchedulerInitialized = true
-            NativeLogger.d("✅ Scheduler initialized with kmpworkmanager v2.3.8 from Maven Central")
+            NativeLogger.d("✅ Scheduler initialized with kmpworkmanager v2.3.9 from Maven Central")
         } catch (e: Exception) {
             NativeLogger.e("❌ Failed to initialize scheduler", e)
         }
@@ -273,6 +274,9 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
             "registerMiddleware" -> handleRegisterMiddleware(call, result)
             "getMetrics" -> handleGetMetrics(result)
             "syncOfflineQueue" -> handleSyncOfflineQueue(result)
+            "getRunningProgress" -> {
+                result.success(dev.brewkits.native_workmanager.workers.utils.ProgressReporter.getRunningProgress())
+            }
             else -> result.notImplemented()
         }
     }

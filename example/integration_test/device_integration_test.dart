@@ -1,6 +1,6 @@
 // ignore_for_file: avoid_print
 // ============================================================
-// Native WorkManager v1.1.1 – DEVICE INTEGRATION TESTS
+// Native WorkManager v1.1.2 – DEVICE INTEGRATION TESTS
 // ============================================================
 //
 // Run on a real device or emulator (NOT unit/mock tests):
@@ -2122,9 +2122,7 @@ void main() {
       await NativeWorkManager.enqueue(
         taskId: id,
         trigger: const TaskTrigger.oneTime(),
-        worker: HttpRequestWorker(
-          url: 'https://httpbin.org/status/404',
-        ),
+        worker: HttpRequestWorker(url: 'https://httpbin.org/status/404'),
         constraints: const Constraints(requiresNetwork: true),
       );
 
@@ -2134,7 +2132,9 @@ void main() {
       expect(event, isNotNull, reason: 'Must receive event even for 404');
     });
 
-    testWidgets('DartWorker returning false emits failure event', (tester) async {
+    testWidgets('DartWorker returning false emits failure event', (
+      tester,
+    ) async {
       final id = _id('dart_fail');
       final future = _waitEvent(id, timeout: const Duration(seconds: 30));
 
@@ -2153,7 +2153,9 @@ void main() {
       );
     });
 
-    testWidgets('cancel then re-enqueue same taskId – second run succeeds', (tester) async {
+    testWidgets('cancel then re-enqueue same taskId – second run succeeds', (
+      tester,
+    ) async {
       final id = _id('cancel_reenqueue');
 
       // First enqueue – will be cancelled immediately.
@@ -2209,11 +2211,7 @@ void main() {
       await Future<void>.delayed(const Duration(seconds: 3));
       await sub.cancel();
 
-      expect(
-        fired,
-        0,
-        reason: 'cancelAll must stop all enqueued tasks',
-      );
+      expect(fired, 0, reason: 'cancelAll must stop all enqueued tasks');
     });
   });
 
@@ -2222,7 +2220,9 @@ void main() {
   // Enqueue → verify pending → let complete → verify completed
   // ════════════════════════════════════════════════════════════
   group('Task status lifecycle', () {
-    testWidgets('getTaskStatus transitions: pending → (running) → completed', (tester) async {
+    testWidgets('getTaskStatus transitions: pending → (running) → completed', (
+      tester,
+    ) async {
       final id = _id('status_lifecycle');
       final eventFuture = _waitEvent(id, timeout: const Duration(seconds: 45));
 
@@ -2293,7 +2293,9 @@ void main() {
   // are deferred to a valid window on Android).
   // ════════════════════════════════════════════════════════════
   group('Trigger type acceptance', () {
-    testWidgets('windowed trigger – accepted and eventually executes', (tester) async {
+    testWidgets('windowed trigger – accepted and eventually executes', (
+      tester,
+    ) async {
       final id = _id('windowed_trigger');
 
       final result = await NativeWorkManager.enqueue(
@@ -2329,8 +2331,12 @@ void main() {
 
       expect(
         result,
-        anyOf(equals(ScheduleResult.accepted), equals(ScheduleResult.rejectedOsPolicy)),
-        reason: 'Exact trigger accepted, or rejected on Android 12+ without SCHEDULE_EXACT_ALARM permission',
+        anyOf(
+          equals(ScheduleResult.accepted),
+          equals(ScheduleResult.rejectedOsPolicy),
+        ),
+        reason:
+            'Exact trigger accepted, or rejected on Android 12+ without SCHEDULE_EXACT_ALARM permission',
       );
 
       await NativeWorkManager.cancel(taskId: id);
@@ -2343,7 +2349,9 @@ void main() {
   // all emit events independently.
   // ════════════════════════════════════════════════════════════
   group('Concurrent tasks', () {
-    testWidgets('3 simultaneous tasks – all complete successfully', (tester) async {
+    testWidgets('3 simultaneous tasks – all complete successfully', (
+      tester,
+    ) async {
       final ids = List.generate(3, (i) => _id('concurrent_$i'));
       final futures = ids
           .map((id) => _waitEvent(id, timeout: const Duration(seconds: 60)))
@@ -2362,52 +2370,64 @@ void main() {
 
       final events = await Future.wait(futures);
       for (var i = 0; i < ids.length; i++) {
-        expect(events[i], isNotNull,
-            reason: 'Task ${ids[i]} must emit an event');
-        expect(events[i]!.success, isTrue,
-            reason: 'Task ${ids[i]} must succeed');
+        expect(
+          events[i],
+          isNotNull,
+          reason: 'Task ${ids[i]} must emit an event',
+        );
+        expect(
+          events[i]!.success,
+          isTrue,
+          reason: 'Task ${ids[i]} must succeed',
+        );
       }
     });
 
-    testWidgets('5 tasks with different tags – each tag resolves independently', (tester) async {
-      final tag1 = 'concurrent_tag1_${DateTime.now().millisecondsSinceEpoch}';
-      final tag2 = 'concurrent_tag2_${DateTime.now().millisecondsSinceEpoch}';
+    testWidgets(
+      '5 tasks with different tags – each tag resolves independently',
+      (tester) async {
+        final tag1 = 'concurrent_tag1_${DateTime.now().millisecondsSinceEpoch}';
+        final tag2 = 'concurrent_tag2_${DateTime.now().millisecondsSinceEpoch}';
 
-      final idGroup1 = List.generate(2, (i) => _id('ctag1_$i'));
-      final idGroup2 = List.generate(3, (i) => _id('ctag2_$i'));
+        final idGroup1 = List.generate(2, (i) => _id('ctag1_$i'));
+        final idGroup2 = List.generate(3, (i) => _id('ctag2_$i'));
 
-      for (final id in idGroup1) {
-        await NativeWorkManager.enqueue(
-          taskId: id,
-          trigger: const TaskTrigger.oneTime(Duration(seconds: 60)),
-          worker: DartWorker(callbackId: 'dit_pass'),
-          tag: tag1,
+        for (final id in idGroup1) {
+          await NativeWorkManager.enqueue(
+            taskId: id,
+            trigger: const TaskTrigger.oneTime(Duration(seconds: 60)),
+            worker: DartWorker(callbackId: 'dit_pass'),
+            tag: tag1,
+          );
+        }
+        for (final id in idGroup2) {
+          await NativeWorkManager.enqueue(
+            taskId: id,
+            trigger: const TaskTrigger.oneTime(Duration(seconds: 60)),
+            worker: DartWorker(callbackId: 'dit_pass'),
+            tag: tag2,
+          );
+        }
+
+        final byTag1 = await NativeWorkManager.getTasksByTag(tag: tag1);
+        final byTag2 = await NativeWorkManager.getTasksByTag(tag: tag2);
+
+        expect(byTag1.length, 2, reason: 'tag1 must have 2 tasks');
+        expect(byTag2.length, 3, reason: 'tag2 must have 3 tasks');
+
+        // Groups must be disjoint.
+        final set1 = byTag1.toSet();
+        final set2 = byTag2.toSet();
+        expect(
+          set1.intersection(set2),
+          isEmpty,
+          reason: 'Tag groups must not overlap',
         );
-      }
-      for (final id in idGroup2) {
-        await NativeWorkManager.enqueue(
-          taskId: id,
-          trigger: const TaskTrigger.oneTime(Duration(seconds: 60)),
-          worker: DartWorker(callbackId: 'dit_pass'),
-          tag: tag2,
-        );
-      }
 
-      final byTag1 = await NativeWorkManager.getTasksByTag(tag: tag1);
-      final byTag2 = await NativeWorkManager.getTasksByTag(tag: tag2);
-
-      expect(byTag1.length, 2, reason: 'tag1 must have 2 tasks');
-      expect(byTag2.length, 3, reason: 'tag2 must have 3 tasks');
-
-      // Groups must be disjoint.
-      final set1 = byTag1.toSet();
-      final set2 = byTag2.toSet();
-      expect(set1.intersection(set2), isEmpty,
-          reason: 'Tag groups must not overlap');
-
-      await NativeWorkManager.cancelByTag(tag: tag1);
-      await NativeWorkManager.cancelByTag(tag: tag2);
-    });
+        await NativeWorkManager.cancelByTag(tag: tag1);
+        await NativeWorkManager.cancelByTag(tag: tag2);
+      },
+    );
   });
 
   // ════════════════════════════════════════════════════════════
@@ -2415,7 +2435,9 @@ void main() {
   // Validates parallel first-steps and chain with data passing.
   // ════════════════════════════════════════════════════════════
   group('Chain data flow', () {
-    testWidgets('chain with parallel first steps – both run before step 2', (tester) async {
+    testWidgets('chain with parallel first steps – both run before step 2', (
+      tester,
+    ) async {
       // Two tasks in step 1 running in parallel, then one in step 2.
       final idA = _id('chain_par_a');
       final idB = _id('chain_par_b');
@@ -2434,15 +2456,30 @@ void main() {
         }
       });
 
-      final result = await NativeWorkManager.beginWithAll([
-        TaskRequest(id: idA, worker: DartWorker(callbackId: 'chain_a')),
-        TaskRequest(id: idB, worker: DartWorker(callbackId: 'chain_b')),
-      ])
-          .then(TaskRequest(id: idC, worker: DartWorker(callbackId: 'chain_c')))
-          .enqueue();
+      final result =
+          await NativeWorkManager.beginWithAll([
+                TaskRequest(
+                  id: idA,
+                  worker: DartWorker(callbackId: 'chain_a'),
+                ),
+                TaskRequest(
+                  id: idB,
+                  worker: DartWorker(callbackId: 'chain_b'),
+                ),
+              ])
+              .then(
+                TaskRequest(
+                  id: idC,
+                  worker: DartWorker(callbackId: 'chain_c'),
+                ),
+              )
+              .enqueue();
 
-      expect(result, ScheduleResult.accepted,
-          reason: 'Parallel-first-step chain must be accepted');
+      expect(
+        result,
+        ScheduleResult.accepted,
+        reason: 'Parallel-first-step chain must be accepted',
+      );
 
       try {
         await allDone.future.timeout(const Duration(seconds: 90));
@@ -2451,10 +2488,16 @@ void main() {
       }
       await sub.cancel();
 
-      expect(completedIds, contains(idA),
-          reason: 'First-step task A must complete');
-      expect(completedIds, contains(idB),
-          reason: 'First-step task B must complete');
+      expect(
+        completedIds,
+        contains(idA),
+        reason: 'First-step task A must complete',
+      );
+      expect(
+        completedIds,
+        contains(idB),
+        reason: 'First-step task B must complete',
+      );
     });
   });
 }

@@ -150,6 +150,14 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
     throw UnimplementedError('getServerFilename() has not been implemented.');
   }
 
+  /// Get the current progress of all running tasks.
+  ///
+  /// Returns a map of task IDs to their latest progress update.
+  /// Useful for "re-attaching" to progress streams when the app restarts.
+  Future<Map<String, dynamic>> getRunningProgress() {
+    throw UnimplementedError('getRunningProgress() has not been implemented.');
+  }
+
   /// Open a file with the OS default viewer/handler.
   ///
   /// On Android, uses `Intent.ACTION_VIEW` via `FileProvider`.

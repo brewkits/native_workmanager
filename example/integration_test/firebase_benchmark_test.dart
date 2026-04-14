@@ -122,8 +122,7 @@ void main() {
   // ── 1. Task Startup Latency ──────────────────────────────────────────────
 
   group('1. Task Startup Latency', () {
-    testWidgets('hash worker — enqueue → completion latency',
-        (tester) async {
+    testWidgets('hash worker — enqueue → completion latency', (tester) async {
       final tmpDir = Directory.systemTemp.createTempSync('bm_hash_');
       final file = File('${tmpDir.path}/data.bin')
         ..writeAsBytesSync(List.generate(1024, (i) => i % 256));
@@ -148,11 +147,16 @@ void main() {
       });
 
       expect(elapsed, isNot(-1), reason: 'Task timed out');
-      expect(elapsed, lessThan(5000), reason: 'Hash task should complete in < 5s');
+      expect(
+        elapsed,
+        lessThan(5000),
+        reason: 'Hash task should complete in < 5s',
+      );
     });
 
-    testWidgets('file-write worker — enqueue → completion latency',
-        (tester) async {
+    testWidgets('file-write worker — enqueue → completion latency', (
+      tester,
+    ) async {
       final tmpDir = Directory.systemTemp.createTempSync('bm_fwrite_');
       final srcFile = File('${tmpDir.path}/src.txt')
         ..writeAsStringSync('native_workmanager benchmark data ' * 100);
@@ -196,18 +200,14 @@ void main() {
       const count = 10;
       final ids = List.generate(count, (i) => _id('tput$i'));
 
-      final elapsed = await _measureBatchMs(
-        ids,
-        () async {
-          for (final id in ids) {
-            await NativeWorkManager.enqueue(
-              taskId: id,
-              worker: NativeWorker.hashFile(filePath: file.path),
-            );
-          }
-        },
-        timeout: const Duration(seconds: 90),
-      );
+      final elapsed = await _measureBatchMs(ids, () async {
+        for (final id in ids) {
+          await NativeWorkManager.enqueue(
+            taskId: id,
+            worker: NativeWorker.hashFile(filePath: file.path),
+          );
+        }
+      }, timeout: const Duration(seconds: 90));
 
       tmpDir.deleteSync(recursive: true);
 
@@ -235,17 +235,14 @@ void main() {
       const count = 5;
       final ids = List.generate(count, (i) => _id('tp5_$i'));
 
-      final elapsed = await _measureBatchMs(
-        ids,
-        () async {
-          for (final id in ids) {
-            await NativeWorkManager.enqueue(
-              taskId: id,
-              worker: NativeWorker.hashFile(filePath: file.path),
-            );
-          }
-        },
-      );
+      final elapsed = await _measureBatchMs(ids, () async {
+        for (final id in ids) {
+          await NativeWorkManager.enqueue(
+            taskId: id,
+            worker: NativeWorker.hashFile(filePath: file.path),
+          );
+        }
+      });
 
       tmpDir.deleteSync(recursive: true);
 
@@ -281,7 +278,9 @@ void main() {
 
       late StreamSubscription<TaskEvent> sub;
       sub = NativeWorkManager.events.listen((event) {
-        if (event.taskId == chainId && !event.isStarted && !completer.isCompleted) {
+        if (event.taskId == chainId &&
+            !event.isStarted &&
+            !completer.isCompleted) {
           sw.stop();
           completer.complete(sw.elapsedMilliseconds);
           sub.cancel();
@@ -290,21 +289,34 @@ void main() {
 
       sw.start();
       await NativeWorkManager.beginWith(
-        TaskRequest(
-          id: '$chainId-1',
-          worker: NativeWorker.fileCopy(sourcePath: f1.path, destinationPath: f2),
-        ),
-      )
-      .then(TaskRequest(
-        id: '$chainId-2',
-        worker: NativeWorker.fileCopy(sourcePath: f2, destinationPath: f3),
-      ))
-      .then(TaskRequest(
-        id: '$chainId-3',
-        worker: NativeWorker.fileCopy(sourcePath: f3, destinationPath: f4),
-      ))
-      .named(chainId)
-      .enqueue();
+            TaskRequest(
+              id: '$chainId-1',
+              worker: NativeWorker.fileCopy(
+                sourcePath: f1.path,
+                destinationPath: f2,
+              ),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: '$chainId-2',
+              worker: NativeWorker.fileCopy(
+                sourcePath: f2,
+                destinationPath: f3,
+              ),
+            ),
+          )
+          .then(
+            TaskRequest(
+              id: '$chainId-3',
+              worker: NativeWorker.fileCopy(
+                sourcePath: f3,
+                destinationPath: f4,
+              ),
+            ),
+          )
+          .named(chainId)
+          .enqueue();
 
       Future.delayed(const Duration(seconds: 60), () {
         if (!completer.isCompleted) {

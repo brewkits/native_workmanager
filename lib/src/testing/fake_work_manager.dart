@@ -5,6 +5,7 @@ import '../enqueue_request.dart';
 import '../events.dart';
 import '../task_chain.dart';
 import '../task_graph.dart';
+import '../task_handler.dart';
 import '../task_trigger.dart';
 import '../worker.dart';
 import 'i_work_manager.dart';
@@ -114,7 +115,10 @@ class FakeWorkManager implements IWorkManager {
   @override
   Stream<TaskProgress> get progress => _progressController.stream;
 
-  // ── Recorded calls ─────────────────────────────────────────────────────────
+  @override
+  Future<Map<String, TaskProgress>> getRunningProgress() async => {};
+
+  // ── Scheduling ─────────────────────────────────────────────────────────────
 
   /// All [enqueue] / [enqueueAll] calls in order.
   final List<EnqueueCall> enqueued = [];
@@ -170,9 +174,8 @@ class FakeWorkManager implements IWorkManager {
   Future<ScheduleResult> Function(TaskChainBuilder)? _savedEnqueueCallback;
 
   // ── IWorkManager ───────────────────────────────────────────────────────────
-
   @override
-  Future<ScheduleResult> enqueue({
+  Future<TaskHandler> enqueue({
     required String taskId,
     required TaskTrigger trigger,
     required Worker worker,
@@ -180,19 +183,24 @@ class FakeWorkManager implements IWorkManager {
     ExistingTaskPolicy existingPolicy = ExistingTaskPolicy.replace,
     String? tag,
   }) async {
-    enqueued.add(EnqueueCall(
+    enqueued.add(
+      EnqueueCall(
+        taskId: taskId,
+        trigger: trigger,
+        worker: worker,
+        constraints: constraints,
+        existingPolicy: existingPolicy,
+        tag: tag,
+      ),
+    );
+    return TaskHandler(
       taskId: taskId,
-      trigger: trigger,
-      worker: worker,
-      constraints: constraints,
-      existingPolicy: existingPolicy,
-      tag: tag,
-    ));
-    return enqueueResultByTaskId[taskId] ?? enqueueResult;
+      scheduleResult: enqueueResultByTaskId[taskId] ?? enqueueResult,
+    );
   }
 
   @override
-  Future<List<ScheduleResult>> enqueueAll(List<EnqueueRequest> requests) async {
+  Future<List<TaskHandler>> enqueueAll(List<EnqueueRequest> requests) async {
     return [
       for (final r in requests)
         await enqueue(

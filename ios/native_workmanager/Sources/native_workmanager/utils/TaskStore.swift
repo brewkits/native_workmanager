@@ -32,7 +32,8 @@ class TaskStore {
             result_data TEXT,
             error_message TEXT,
             created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
+            updated_at INTEGER NOT NULL,
+            last_progress_json TEXT
         );
         """
         sqlite.execute(sql: tasksSql)
@@ -122,6 +123,12 @@ class TaskStore {
         WHERE task_id = ?;
         """
         sqlite.execute(sql: sql, params: [status, resultData ?? NSNull(), errorMessage ?? NSNull(), now, taskId])
+    }
+
+    func updateProgress(taskId: String, progressJson: String) {
+        let now = Int(Date().timeIntervalSince1970)
+        let sql = "UPDATE tasks SET last_progress_json = ?, updated_at = ? WHERE task_id = ?;"
+        sqlite.execute(sql: sql, params: [progressJson, now, taskId])
     }
 
     func task(taskId: String) -> TaskRecord? {

@@ -328,6 +328,14 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   }
 
   @override
+  Future<Map<String, dynamic>> getRunningProgress() async {
+    final result = await methodChannel
+        .invokeMethod<Map<Object?, Object?>>('getRunningProgress');
+    if (result == null) return {};
+    return result.map((key, value) => MapEntry(key.toString(), value));
+  }
+
+  @override
   Future<void> openFile(String path, {String? mimeType}) async {
     await methodChannel.invokeMethod<void>('openFile', {
       'filePath': path,

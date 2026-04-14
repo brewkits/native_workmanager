@@ -20,7 +20,9 @@ void main() {
       final completer = Completer<TaskEvent?>();
       late StreamSubscription<TaskEvent> sub;
       sub = NativeWorkManager.events.listen((event) {
-        if (event.taskId == taskId && !completer.isCompleted && !event.isStarted) {
+        if (event.taskId == taskId &&
+            !completer.isCompleted &&
+            !event.isStarted) {
           completer.complete(event);
           sub.cancel();
         }
@@ -39,7 +41,9 @@ void main() {
           return TaskEvent(
             taskId: taskId,
             success: record.status == 'success',
-            message: record.status == 'failed' ? 'Task failed in background' : null,
+            message: record.status == 'failed'
+                ? 'Task failed in background'
+                : null,
             resultData: record.resultData,
             timestamp: record.updatedAt,
           );
@@ -48,36 +52,35 @@ void main() {
       }
     }
 
-    testWidgets(
-      'should refresh token on 401 for HttpSyncWorker',
-      (tester) async {
-        final taskId = 'sync_refresh_${DateTime.now().millisecondsSinceEpoch}';
-        final future = waitEvent(taskId);
+    testWidgets('should refresh token on 401 for HttpSyncWorker', (
+      tester,
+    ) async {
+      final taskId = 'sync_refresh_${DateTime.now().millisecondsSinceEpoch}';
+      final future = waitEvent(taskId);
 
-        await NativeWorkManager.enqueue(
-          taskId: taskId,
-          worker: NativeWorker.httpSync(
-            url: 'https://httpbin.org/bearer',
-            method: HttpMethod.get,
-            tokenRefresh: TokenRefreshConfig(
-              url: 'https://httpbin.org/post',
-              method: 'POST',
-              body: {'access_token': 'sync_fresh_token'},
-              responseKey: 'json.access_token',
-            ),
+      await NativeWorkManager.enqueue(
+        taskId: taskId,
+        worker: NativeWorker.httpSync(
+          url: 'https://httpbin.org/bearer',
+          method: HttpMethod.get,
+          tokenRefresh: TokenRefreshConfig(
+            url: 'https://httpbin.org/post',
+            method: 'POST',
+            body: {'access_token': 'sync_fresh_token'},
+            responseKey: 'json.access_token',
           ),
-          constraints: const Constraints(requiresNetwork: true),
-        );
+        ),
+        constraints: const Constraints(requiresNetwork: true),
+      );
 
-        final event = await future;
+      final event = await future;
 
-        expect(event, isNotNull, reason: 'Sync task should complete');
-        expect(
-          event!.success,
-          isTrue,
-          reason: 'Sync task should succeed after refresh: ${event.message}',
-        );
-      },
-    );
+      expect(event, isNotNull, reason: 'Sync task should complete');
+      expect(
+        event!.success,
+        isTrue,
+        reason: 'Sync task should succeed after refresh: ${event.message}',
+      );
+    });
   });
 }

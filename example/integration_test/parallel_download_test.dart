@@ -55,16 +55,6 @@ void main() {
 
       final future = waitEvent(taskId);
 
-      // We use a known large file from GitHub or a reliable CDN for testing parallel download.
-      // 5MB is enough to test 4 chunks (~1.25MB each).
-      const downloadUrl =
-          'https://raw.githubusercontent.com/flutter/flutter/master/bin/cache/pkg/sky_engine/lib/ui/window.dart'; // Just a sample, better to use a real large file
-      // Actually, let's use a 5MB random data file if possible, or a known stable large URL.
-      // For this test, let's use a reliable 1MB file from httpbin.
-      const reliableUrl =
-          'https://httpbin.org/image/png'; // ~8KB, too small for parallel but good for logic.
-
-      // Let's use a real large file for true parallel test
       const largeFileUrl =
           'https://github.com/brewkits/native_workmanager/raw/main/benchmark/assets/test_5mb.zip';
 

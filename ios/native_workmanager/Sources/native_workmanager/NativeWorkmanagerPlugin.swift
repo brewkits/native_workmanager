@@ -101,6 +101,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         case "setMaxConcurrentPerHost": result(nil)  // no-op on iOS
         case "getMetrics":             result([:])   // stub
         case "syncOfflineQueue":        result(false) // stub
+        case "getRunningProgress":      result(ProgressReporter.shared.getRunningProgress())
         case "openFile":                handleOpenFile(call: call, result: result)
         default: handleExtensionMethods(call: call, result: result)
         }

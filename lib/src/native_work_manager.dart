@@ -16,7 +16,9 @@ import 'remote_trigger.dart';
 import 'middleware.dart';
 import 'task_chain.dart';
 import 'task_graph.dart';
+import 'task_handler.dart';
 import 'task_trigger.dart';
+
 import 'worker.dart';
 
 /// Main entry point for scheduling native background tasks.
@@ -590,17 +592,19 @@ class NativeWorkManager {
   ///
   /// ## Returns
   ///
-  /// A [ScheduleResult] indicating whether the task was accepted by the OS.
+  /// A [TaskHandler] which allows tracking progress and completion of this specific task,
+  /// and contains the [ScheduleResult] from the OS.
   ///
   /// ## See Also
   ///
+  /// - [TaskHandler] - Controller for tracking task progress and result
   /// - [cancel] - Cancel a specific task
   /// - [cancelByTag] - Cancel all tasks with a tag
   /// - [cancelAll] - Cancel all scheduled tasks
   /// - [NativeWorkManager.getTaskStatus] - Check task status
   /// - [TaskTrigger] - Available trigger types
   /// - [Constraints] - Available constraints
-  static Future<ScheduleResult> enqueue({
+  static Future<TaskHandler> enqueue({
     required String taskId,
     TaskTrigger trigger = const TaskTrigger.oneTime(),
     required Worker worker,
@@ -614,7 +618,7 @@ class NativeWorkManager {
     if (taskId.isEmpty) {
       throw ArgumentError(
         'taskId cannot be empty. '
-        'Use a unique identifier like "sync-\${DateTime.now().millisecondsSinceEpoch}"',
+        'Use a unique identifier like "sync-${DateTime.now().millisecondsSinceEpoch}"',
       );
     }
 
@@ -687,13 +691,18 @@ class NativeWorkManager {
       );
     }
 
-    return NativeWorkManagerPlatform.instance.enqueue(
+    final scheduleResult = await NativeWorkManagerPlatform.instance.enqueue(
       taskId: taskId,
       trigger: trigger,
       worker: workerToEnqueue,
       constraints: finalConstraints,
       existingPolicy: existingPolicy,
       tag: tag,
+    );
+
+    return TaskHandler(
+      taskId: taskId,
+      scheduleResult: scheduleResult,
     );
   }
 
@@ -1192,6 +1201,19 @@ class NativeWorkManager {
     );
   }
 
+  /// Get the current progress of all running tasks.
+  ///
+  /// Useful for restoring UI state when the app restarts, allowing you to
+  /// "re-attach" to tasks that are still executing in the background.
+  ///
+  /// Returns a map of task IDs to their most recent [TaskProgress] update.
+  static Future<Map<String, TaskProgress>> getRunningProgress() async {
+    _checkInitialized();
+    final raw = await NativeWorkManagerPlatform.instance.getRunningProgress();
+    return raw.map((k, v) =>
+        MapEntry(k, TaskProgress.fromMap(Map<String, dynamic>.from(v))));
+  }
+
   /// Open a file with the system default application.
   ///
   /// Launches the OS file viewer for the given [path]. Useful after a download
@@ -1302,16 +1324,16 @@ class NativeWorkManager {
   ///     tag: 'batch-download',
   ///   ),
   /// ]);
-  /// final accepted = results.where((r) => r == ScheduleResult.accepted).length;
-  /// print('$accepted / ${results.length} tasks accepted');
+  ///   final accepted = results.where((r) => r.scheduleResult == ScheduleResult.accepted).length;
+  ///   print('$accepted / ${results.length} tasks accepted');
   /// ```
-  static Future<List<ScheduleResult>> enqueueAll(
+  static Future<List<TaskHandler>> enqueueAll(
     List<EnqueueRequest> requests,
   ) async {
     _checkInitialized();
     return Future.wait(
       requests.map(
-        (r) => NativeWorkManagerPlatform.instance.enqueue(
+        (r) => enqueue(
           taskId: r.taskId,
           trigger: r.trigger,
           worker: r.worker,

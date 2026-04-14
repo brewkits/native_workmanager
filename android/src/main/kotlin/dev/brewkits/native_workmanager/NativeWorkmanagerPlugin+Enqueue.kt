@@ -280,6 +280,11 @@ internal fun NativeWorkmanagerPlugin.handleEnqueue(call: MethodCall, result: Res
                 val filename = url?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
                     ?: (workerConfig["savePath"] as? String)?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
                 if (filename != null) taskFilenames[taskId] = filename
+
+                // Also populate ProgressReporter for automatic native-side updates
+                dev.brewkits.native_workmanager.workers.utils.ProgressReporter.taskNotifTitles[taskId] = title
+                dev.brewkits.native_workmanager.workers.utils.ProgressReporter.taskAllowPause[taskId] = taskAllowPause[taskId] ?: true
+                if (filename != null) dev.brewkits.native_workmanager.workers.utils.ProgressReporter.taskFilenames[taskId] = filename
             }
 
             // Parse trigger from method call arguments
@@ -438,6 +443,7 @@ internal fun NativeWorkmanagerPlugin.handleCancel(call: MethodCall, result: Resu
             taskNotifTitles.remove(taskId)?.let { DownloadNotificationManager.dismiss(context, taskId) }
             taskAllowPause.remove(taskId)
             taskFilenames.remove(taskId)
+            dev.brewkits.native_workmanager.workers.utils.ProgressReporter.clearTask(taskId)
             result.success(null)
         } catch (e: Exception) {
             result.error("CANCEL_ERROR", e.message, null)
@@ -470,6 +476,9 @@ internal fun NativeWorkmanagerPlugin.handleCancelAll(result: Result) {
             taskStatuses.clear()
             taskAllowPause.clear()
             taskFilenames.clear()
+            // Clear ProgressReporter for all tasks
+            val allTaskIds = withContext(Dispatchers.IO) { taskStore.getAllTasks().map { it.taskId } }
+            allTaskIds.forEach { dev.brewkits.native_workmanager.workers.utils.ProgressReporter.clearTask(it) }
             result.success(null)
         } catch (e: Exception) {
             result.error("CANCEL_ERROR", e.message, null)
@@ -507,6 +516,7 @@ internal fun NativeWorkmanagerPlugin.handleCancelByTag(call: MethodCall, result:
                 taskNotifTitles.remove(taskId)?.let { DownloadNotificationManager.dismiss(context, taskId) }
                 taskAllowPause.remove(taskId)
                 taskFilenames.remove(taskId)
+                dev.brewkits.native_workmanager.workers.utils.ProgressReporter.clearTask(taskId)
             }
 
             result.success(null)

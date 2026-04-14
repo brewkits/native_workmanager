@@ -1,18 +1,15 @@
 import 'dart:io';
-import 'dart:typed_data'; // Added for Uint8List
-import 'package:path_provider/path_provider.dart'; // Added for getTemporaryDirectory
-
 import 'package:flutter/material.dart';
 import 'package:workmanager/workmanager.dart' hide Constraints, BackoffPolicy;
 import 'package:native_workmanager/native_workmanager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'advanced_metrics_overlay.dart';
 import 'pages/manual_benchmark_page.dart';
 import 'pages/production_impact_page_improved.dart';
 import 'pages/demo_scenarios_page.dart';
 import 'pages/comprehensive_demo_page.dart';
 import 'pages/performance_page.dart';
 import 'pages/case_study_page.dart';
+import 'pages/progress_tracking_demo_page.dart';
 import 'examples/chain_resilience_test.dart';
 import 'examples/chain_data_flow_demo.dart';
 import 'screens/bug_fix_demo_screen.dart';
@@ -257,6 +254,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
     'Production Impact',
     'User Case Studies',
     'Bug Fixes',
+    'Progress Tracker',
     'Core API',
     'Transfer',
     'Reliability',
@@ -301,7 +299,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
       });
     });
 
-    _addLog('🚀 NativeWorkManager v1.1.1 — High-Performance Background Engine');
+    _addLog('🚀 NativeWorkManager v1.1.2 — High-Performance Background Engine');
   }
 
   String _formatTime(DateTime dt) {
@@ -470,10 +468,11 @@ class _DemoHomePageState extends State<DemoHomePage> {
                           const ProductionImpactPageImproved(), // 4
                           const CaseStudyPage(), // 5
                           const BugFixDemoScreen(), // 6
-                          _buildModernGridTab(), // 7
+                          const ProgressTrackingDemoPage(), // 7
+                          _buildModernGridTab(), // 8
                           const Center(
                             child: Text('Transfer Page Content'),
-                          ), // 8
+                          ), // 9
                           const Center(
                             child: Text('Reliability Page Content'),
                           ), // 9
@@ -586,6 +585,10 @@ class _DemoHomePageState extends State<DemoHomePage> {
           const NavigationDrawerDestination(
             icon: Icon(Icons.bug_report_outlined),
             label: Text('Bug Regression'),
+          ),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.track_changes),
+            label: Text('Progress Tracker'),
           ),
           const NavigationDrawerDestination(
             icon: Icon(Icons.api_outlined),
@@ -835,8 +838,10 @@ class _DemoHomePageState extends State<DemoHomePage> {
           if (_logExpanded)
             Expanded(
               child: ListView.builder(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 4,
+                ),
                 itemCount: _logs.length,
                 itemBuilder: (context, index) {
                   return Padding(

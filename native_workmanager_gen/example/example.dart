@@ -58,5 +58,7 @@ library;
 // );
 
 Future<void> main() async {
-  print('native_workmanager_gen — run build_runner to generate type-safe worker IDs.');
+  print(
+    'native_workmanager_gen — run build_runner to generate type-safe worker IDs.',
+  );
 }
