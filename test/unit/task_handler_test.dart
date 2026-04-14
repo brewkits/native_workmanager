@@ -157,7 +157,8 @@ void main() {
       ]);
 
       expect(results[0].scheduleResult, equals(ScheduleResult.accepted));
-      expect(results[1].scheduleResult, equals(ScheduleResult.rejectedOsPolicy));
+      expect(
+          results[1].scheduleResult, equals(ScheduleResult.rejectedOsPolicy));
     });
 
     test('dispose() resets enqueueResult to accepted', () async {
@@ -192,7 +193,8 @@ void main() {
   // overlap window. The tests below verify that this flag round-trips correctly
   // to the map that the native side deserialises.
 
-  group('Issue #6 – DartWorker autoDispose (engine lifecycle / BLE safety)', () {
+  group('Issue #6 – DartWorker autoDispose (engine lifecycle / BLE safety)',
+      () {
     test('autoDispose defaults to false', () {
       final worker = DartWorker(callbackId: 'cb');
       final map = worker.toMap();

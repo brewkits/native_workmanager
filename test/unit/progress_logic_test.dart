@@ -110,13 +110,9 @@ void main() {
 
     test('TaskProgressExtensions formats time remaining', () {
       const seconds = TaskProgress(
-          taskId: 't',
-          progress: 0,
-          timeRemaining: Duration(seconds: 45));
+          taskId: 't', progress: 0, timeRemaining: Duration(seconds: 45));
       const minutes = TaskProgress(
-          taskId: 't',
-          progress: 0,
-          timeRemaining: Duration(seconds: 65));
+          taskId: 't', progress: 0, timeRemaining: Duration(seconds: 65));
       const hours = TaskProgress(
           taskId: 't',
           progress: 0,
