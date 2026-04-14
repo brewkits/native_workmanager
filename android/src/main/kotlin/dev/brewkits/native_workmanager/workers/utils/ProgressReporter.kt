@@ -74,7 +74,7 @@ object ProgressReporter {
     }
 
     private val _progressFlow = MutableSharedFlow<ProgressUpdate>(
-        replay = 1,
+        replay = 0,
         extraBufferCapacity = PROGRESS_BUFFER_CAPACITY,
         onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
     )
