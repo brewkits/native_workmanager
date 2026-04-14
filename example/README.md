@@ -1,6 +1,6 @@
 # Native WorkManager Example App
 
-Comprehensive demonstration of all Native WorkManager features including v1.1.1 additions.
+Comprehensive demonstration of all Native WorkManager features including v1.1.2 additions.
 
 ## Overview
 
