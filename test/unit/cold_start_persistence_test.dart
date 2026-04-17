@@ -60,7 +60,8 @@ void main() {
 
     test('unregistered worker is not available', () {
       NativeWorkManager.registerDartWorker('workerA', _workerA);
-      expect(NativeWorkManager.isDartWorkerRegistered('unknownWorker'), isFalse);
+      expect(
+          NativeWorkManager.isDartWorkerRegistered('unknownWorker'), isFalse);
     });
 
     test('multiple workers registered simultaneously', () {
@@ -116,7 +117,8 @@ void main() {
       expect(worker.callbackId, 'workerA');
     });
 
-    test('FakeWorkManager returns accepted by default for DartWorker', () async {
+    test('FakeWorkManager returns accepted by default for DartWorker',
+        () async {
       final handler = await wm.enqueue(
         taskId: 'dart_task_2',
         worker: DartWorker(callbackId: 'workerA'),
@@ -126,7 +128,8 @@ void main() {
       expect(handler.scheduleResult, ScheduleResult.accepted);
     });
 
-    test('registered DartWorker callback is callable and returns true', () async {
+    test('registered DartWorker callback is callable and returns true',
+        () async {
       // handler.result requires NativeWorkManager.events (needs full init — integration only).
       // Unit test: call the callback function directly via its registration.
       expect(NativeWorkManager.isDartWorkerRegistered('workerA'), isTrue);
