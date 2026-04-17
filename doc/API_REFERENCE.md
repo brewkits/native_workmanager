@@ -1,6 +1,6 @@
 # API Reference
 
-> Complete API documentation for native_workmanager v1.1.2
+> Complete API documentation for native_workmanager v1.2.0
 
 ## Core Classes
 

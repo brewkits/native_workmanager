@@ -5,6 +5,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import dev.brewkits.kmpworkmanager.background.data.KmpWorker
 import dev.brewkits.native_workmanager.store.OfflineQueueStore
+import dev.brewkits.native_workmanager.utils.CommandProcessor.scheduleOfflineQueueProcessor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject

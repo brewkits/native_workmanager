@@ -1,7 +1,7 @@
 package dev.brewkits.native_workmanager.engine
 
 import android.content.Context
-import android.util.Log
+import dev.brewkits.native_workmanager.NativeLogger
 import io.flutter.FlutterInjector
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.dart.DartExecutor
@@ -42,7 +42,6 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 object FlutterEngineManager {
 
-    private const val TAG = "FlutterEngineManager"
     private const val CHANNEL_NAME = "dev.brewkits/dart_worker_channel"
     private const val ENGINE_IDLE_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
 
@@ -67,7 +66,7 @@ object FlutterEngineManager {
      */
     fun setCallbackHandle(handle: Long) {
         callbackHandle = handle
-        Log.d(TAG, "Callback handle set: $handle")
+        NativeLogger.d("Callback handle set: $handle")
     }
 
     // Reference counter (AtomicInteger) to prevent disposal while tasks are running.
@@ -86,7 +85,7 @@ object FlutterEngineManager {
         disposeImmediately: Boolean = false
     ): Boolean = withContext(Dispatchers.Main) {
         try {
-            Log.d(TAG, "Executing Dart callback with handle: $callbackHandle")
+            NativeLogger.d("Executing Dart callback with handle: $callbackHandle")
 
             ensureEngineInitialized(context)
             activeTaskCount.incrementAndGet()
@@ -127,7 +126,7 @@ object FlutterEngineManager {
 
             result
         } catch (e: Exception) {
-            Log.e(TAG, "Error executing Dart callback", e)
+            NativeLogger.e("Error executing Dart callback", e)
             // Error occurred — likely a timeout or crash. Dispose immediately if no other tasks
             // are running to ensure a clean slate and free RAM from a potentially hung Isolate.
             if (activeTaskCount.get() <= 0) {
@@ -155,7 +154,7 @@ object FlutterEngineManager {
                 return
             }
 
-            Log.d(TAG, "Initializing Flutter engine...")
+            NativeLogger.d("Initializing Flutter engine...")
 
             val handle = callbackHandle ?: run {
                 throw IllegalStateException(
@@ -164,13 +163,29 @@ object FlutterEngineManager {
                 )
             }
 
-            // Get callback information
+            // COLD-START FIX: Ensure FlutterLoader (and libflutter.so) is initialized
+            // BEFORE calling FlutterCallbackInformation.lookupCallbackInformation().
+            //
+            // lookupCallbackInformation() calls FlutterJNI.nativeLookupCallbackInformation()
+            // which requires libflutter.so to be loaded. When WorkManager restarts a killed
+            // process there is no Activity or FlutterEngine to trigger this — the loader
+            // must be initialized manually or the call throws UnsatisfiedLinkError.
+            val flutterLoader = FlutterInjector.instance().flutterLoader()
+            if (!flutterLoader.initialized()) {
+                withContext(Dispatchers.Main) {
+                    flutterLoader.startInitialization(context.applicationContext)
+                    flutterLoader.ensureInitializationComplete(context.applicationContext, null)
+                }
+                NativeLogger.d("FlutterLoader initialized (cold process start)")
+            }
+
+            // Now safe to call: libflutter.so is loaded.
             val callbackInfo = FlutterCallbackInformation.lookupCallbackInformation(handle)
             if (callbackInfo == null) {
                 throw IllegalStateException("Failed to lookup callback information for handle: $handle")
             }
 
-            Log.d(TAG, "Callback info: ${callbackInfo.callbackName}")
+            NativeLogger.d("Callback info: ${callbackInfo.callbackName}")
 
             // Create a headless engine WITHOUT auto-registering plugins.
             //
@@ -189,7 +204,6 @@ object FlutterEngineManager {
             // is required or desired.
             //
             // waitForRestorationData=false: background workers have no restoration state.
-            val flutterLoader = FlutterInjector.instance().flutterLoader()
             val flutterEngine = FlutterEngine(
                 /* context                   */ context.applicationContext,
                 /* flutterLoader             */ flutterLoader,
@@ -223,7 +237,7 @@ object FlutterEngineManager {
                 channel.setMethodCallHandler { call, result ->
                     when (call.method) {
                         "dartReady" -> {
-                            Log.d(TAG, "Dart side ready")
+                            NativeLogger.d("Dart side ready")
                             readyDeferred.complete(Unit)
                             result.success(null)
                         }
@@ -249,7 +263,7 @@ object FlutterEngineManager {
                 withTimeout(10_000L) {
                     readyDeferred.await()
                 }
-                Log.d(TAG, "Dart ready signal received")
+                NativeLogger.d("Dart ready signal received")
 
                 // Store references only after successful initialization
                 engine = flutterEngine
@@ -257,7 +271,7 @@ object FlutterEngineManager {
                 lastUsedTimestamp = System.currentTimeMillis()
                 isInitialized.set(true)
 
-                Log.d(TAG, "Flutter engine initialized successfully")
+                NativeLogger.d("Flutter engine initialized successfully")
             } catch (e: Exception) {
                 // DART-007: Ensure engine is destroyed on any failure path to prevent memory leak.
                 withContext(Dispatchers.Main) {
@@ -288,7 +302,7 @@ object FlutterEngineManager {
             // Check if engine is still idle
             val idleTime = System.currentTimeMillis() - lastUsedTimestamp
             if (idleTime >= ENGINE_IDLE_TIMEOUT_MS) {
-                Log.d(TAG, "Auto-disposing engine after ${idleTime}ms idle")
+                NativeLogger.d("Auto-disposing engine after ${idleTime}ms idle")
                 disposalScope.launch { dispose() }
             }
         }
@@ -306,7 +320,7 @@ object FlutterEngineManager {
      */
     suspend fun dispose() {
         initializationMutex.withLock {
-            Log.d(TAG, "Disposing Flutter engine")
+            NativeLogger.d("Disposing Flutter engine")
 
             methodChannel?.setMethodCallHandler(null)
             methodChannel = null
@@ -316,7 +330,7 @@ object FlutterEngineManager {
                     engine?.destroy()
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error destroying engine (expected if already detached)", e)
+                NativeLogger.e("Error destroying engine (expected if already detached)", e)
             }
             engine = null
 
@@ -326,7 +340,7 @@ object FlutterEngineManager {
             disposalJob?.cancel()
             disposalJob = null
 
-            Log.d(TAG, "Flutter engine disposed")
+            NativeLogger.d("Flutter engine disposed")
         }
     }
 

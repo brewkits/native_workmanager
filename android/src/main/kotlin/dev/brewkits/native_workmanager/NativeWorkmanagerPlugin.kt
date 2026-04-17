@@ -1,39 +1,19 @@
 package dev.brewkits.native_workmanager
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
-import androidx.core.app.NotificationCompat
-import androidx.work.Data
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequest
-import androidx.work.PeriodicWorkRequest
-import androidx.work.WorkInfo
-import androidx.work.WorkManager
-import dev.brewkits.kmpworkmanager.background.data.KmpHeavyWorker
-import dev.brewkits.kmpworkmanager.background.data.KmpWorker
-import dev.brewkits.kmpworkmanager.background.domain.*
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.TimeUnit
-import dev.brewkits.native_workmanager.engine.FlutterEngineManager
-import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
-import dev.brewkits.native_workmanager.workers.utils.ProgressReporter
-import dev.brewkits.native_workmanager.workers.HttpDownloadWorker
-import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
-import dev.brewkits.kmpworkmanager.KmpWorkManagerConfig
+import android.util.Log
+import androidx.work.*
 import dev.brewkits.kmpworkmanager.KmpWorkManager
-import dev.brewkits.native_workmanager.AppContextHolder
+import dev.brewkits.kmpworkmanager.KmpWorkManagerConfig
+import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
+import dev.brewkits.kmpworkmanager.background.domain.BackgroundTaskScheduler
+import dev.brewkits.native_workmanager.engine.FlutterEngineManager
 import dev.brewkits.native_workmanager.notification.DownloadNotificationManager
+import dev.brewkits.native_workmanager.store.DatabaseHelper
 import dev.brewkits.native_workmanager.store.TaskStore
 import dev.brewkits.native_workmanager.workers.utils.HostConcurrencyManager
-import dev.brewkits.native_workmanager.workers.DbCleanupWorker
-import android.content.Intent
-import android.webkit.MimeTypeMap
-import androidx.core.content.FileProvider
-import android.util.Log
+import dev.brewkits.native_workmanager.workers.utils.ProgressReporter
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -41,21 +21,14 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.takeWhile
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Native WorkManager Flutter Plugin for Android.
  *
  * Uses kmpworkmanager v2.3.9 from Maven Central as the core engine.
- * This ensures compatibility with Pro/Enterprise versions.
  */
 class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
     android.content.ComponentCallbacks2 {
@@ -63,67 +36,36 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
     internal lateinit var methodChannel: MethodChannel
     internal lateinit var eventChannel: EventChannel
     internal lateinit var progressChannel: EventChannel
+    internal lateinit var systemErrorChannel: EventChannel
     internal lateinit var context: Context
 
     internal var eventSink: EventChannel.EventSink? = null
     internal var progressSink: EventChannel.EventSink? = null
-    // Main scope: UI updates, event/progress emission, result callbacks to Flutter.
+    internal var systemErrorSink: EventChannel.EventSink? = null
     internal val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-    // IO scope: SQLite reads/writes, file I/O. Separate from Main to avoid blocking UI thread.
     internal val ioScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    // Track subscription jobs so old ones are cancelled on re-subscribe
     internal var eventJob: Job? = null
     internal var progressJob: Job? = null
 
-    // BackgroundTaskScheduler — initialized directly (no DI framework required).
     internal lateinit var scheduler: BackgroundTaskScheduler
 
-    // TaskEventBus is an object singleton, accessed directly (not via Koin)
-    // Tag storage: taskId -> tag mapping (ConcurrentHashMap for thread safety across coroutines)
     internal val taskTags = ConcurrentHashMap<String, String>()
-
-    // Task status tracking: taskId -> status string (ConcurrentHashMap for thread safety)
     internal val taskStatuses = ConcurrentHashMap<String, String>()
-
-    // Debug mode flag
     internal var debugMode = false
-
-    // Task start times for debug mode (ConcurrentHashMap for thread safety)
     internal val taskStartTimes = ConcurrentHashMap<String, Long>()
-
-    // Per-task signal: completed by subscribeToTaskEvents when TaskEventBus fires.
-    // observeWorkCompletion awaits this instead of using delay(500L), so the WorkManager
-    // fallback path resolves immediately when TaskEventBus fires and only blocks up to
-    // 2 seconds if it doesn't (e.g. edge cases where the bus is silent).
     internal val taskBusSignals = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
 
-    // Persistent SQLite task store (initialized in onAttachedToEngine)
     internal lateinit var taskStore: TaskStore
-
-    // Persistent SQLite chain state store (initialized in onAttachedToEngine)
     internal lateinit var chainStore: dev.brewkits.native_workmanager.store.ChainStore
-
-    // Persistent SQLite remote trigger store (initialized in onAttachedToEngine)
     internal lateinit var remoteTriggerStore: dev.brewkits.native_workmanager.store.RemoteTriggerStore
-
-    // Persistent SQLite offline queue store (initialized in onAttachedToEngine)
     internal lateinit var offlineQueueStore: dev.brewkits.native_workmanager.store.OfflineQueueStore
-
-    // Persistent SQLite middleware store (initialized in onAttachedToEngine)
     internal lateinit var middlewareStore: dev.brewkits.native_workmanager.store.MiddlewareStore
 
-    // Mutex to prevent race conditions during Flutter engine disposal and initialization.
-    // Fixed H2: Protects FlutterEngineManager.dispose() and boot() calls.
     private val engineMutex = kotlinx.coroutines.sync.Mutex()
 
-    // Notification title per taskId for download notification feature
     internal val taskNotifTitles = ConcurrentHashMap<String, String>()
-
-    // allowPause flag per taskId (for suppressing Pause button in notifications)
     internal val taskAllowPause = ConcurrentHashMap<String, Boolean>()
-
-    // Filename per taskId (extracted from URL for notification template substitution)
     internal val taskFilenames = ConcurrentHashMap<String, String>()
 
     companion object {
@@ -131,24 +73,26 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
         private const val METHOD_CHANNEL = "dev.brewkits/native_workmanager"
         private const val EVENT_CHANNEL = "dev.brewkits/native_workmanager/events"
         private const val PROGRESS_CHANNEL = "dev.brewkits/native_workmanager/progress"
+        private const val SYSTEM_ERROR_CHANNEL = "dev.brewkits/native_workmanager/system_errors"
+        internal const val SHARED_PREFS_NAME = "dev.brewkits.native_workmanager"
+        internal const val CALLBACK_HANDLE_KEY = "callback_handle"
+        internal const val LAST_CLEANUP_KEY = "last_cleanup_timestamp"
+        internal const val CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000L // 24 hours
+
         internal const val DEBUG_NOTIFICATION_CHANNEL_ID = "native_workmanager_debug"
-        private const val DEBUG_NOTIFICATION_CHANNEL_NAME = "Background Task Debug"
-        /** Auto-dismiss timeout for debug task-completion notifications (ms). */
         internal const val DEBUG_NOTIFICATION_TIMEOUT_MS = 5_000L
-        /** Default concurrent-task limit (mirrors iOS NWMDefaults.maxConcurrentTasks). */
-        private const val DEFAULT_MAX_CONCURRENT_TASKS = 4
+        internal const val DEFAULT_MAX_CONCURRENT_TASKS = 4
         private var isSchedulerInitialized = false
+        
+        // SEC-001: Global instance for system error reporting from static context
+        private var sharedPluginInstance: NativeWorkmanagerPlugin? = null
+
         internal val TERMINAL_STATES = setOf(
             WorkInfo.State.SUCCEEDED,
             WorkInfo.State.FAILED,
             WorkInfo.State.CANCELLED
         )
 
-        /**
-         * L-5: Shared OkHttpClient for lightweight plugin-level requests (e.g. HEAD for
-         * getServerFilename). Creating a new client per call wastes connection-pool and
-         * thread-pool resources. Workers manage their own clients independently.
-         */
         internal val sharedHttpClient: OkHttpClient by lazy {
             OkHttpClient.Builder()
                 .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
@@ -156,24 +100,51 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
                 .followRedirects(true)
                 .build()
         }
+
+        fun emitSystemError(context: Context, code: String, message: String) {
+            NativeLogger.e("🚨 SYSTEM ERROR [$code]: $message")
+            sharedPluginInstance?.systemErrorSink?.success(mapOf(
+                "code" to code,
+                "message" to message,
+                "timestamp" to System.currentTimeMillis()
+            ))
+        }
     }
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
         AppContextHolder.appContext = context
-
-        // Register for system memory callbacks (onTrimMemory / onLowMemory).
-        // Unregistered in onDetachedFromEngine to prevent leaks.
         context.registerComponentCallbacks(this)
+        sharedPluginInstance = this
 
-        // Initialize persistent task store, chain store, and download notification channel
         taskStore = TaskStore(context)
-        
-        // Recover "zombie" tasks stuck in 'running' state after app crash or reboot.
-        // Reset to 'failed' so they can be retried, and clean up completed tasks older than 7 days.
+        val prefs = context.getSharedPreferences(SHARED_PREFS_NAME, Context.MODE_PRIVATE)
+
+        // Throttled cleanup & State restoration
         ioScope.launch {
-            taskStore.recoverZombieTasks()
-            taskStore.deleteCompleted(olderThanMs = 604_800_000L)
+            try {
+                val now = System.currentTimeMillis()
+                val lastCleanup = prefs.getLong(LAST_CLEANUP_KEY, 0L)
+                
+                if (now - lastCleanup > CLEANUP_INTERVAL_MS) {
+                    taskStore.recoverZombieTasks()
+                    taskStore.deleteCompleted(olderThanMs = 604_800_000L)
+                    prefs.edit().putLong(LAST_CLEANUP_KEY, now).apply()
+                    NativeLogger.d("🧹 Throttled cleanup performed")
+                }
+
+                val allRecords = taskStore.getAllTasks()
+                allRecords.forEach { record ->
+                    taskStatuses[record.taskId] = record.status
+                    record.tag?.let { taskTags[record.taskId] = it }
+                }
+                NativeLogger.d("🔋 Restored ${allRecords.size} task(s) from store")
+            } catch (e: Exception) {
+                NativeLogger.e("Failed to restore task state or perform cleanup", e)
+                if (e is android.database.sqlite.SQLiteFullException) {
+                    emitSystemError(context, "DISK_FULL", "Cannot perform startup cleanup: Disk full")
+                }
+            }
         }
 
         chainStore = dev.brewkits.native_workmanager.store.ChainStore(context)
@@ -183,13 +154,13 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
         DownloadNotificationManager.createChannel(context)
         ProgressReporter.initialize(context, taskStore)
 
-        // Resume any incomplete chains that were in-progress when the app was killed.
-        // WorkManager will re-execute the individual workers; this restores Dart-visible
-        // chain metadata and re-attaches step observers.
         ioScope.launch { resumePendingChains() }
-
-        // Initialize scheduler with kmpworkmanager
         initializeScheduler(context)
+
+        val savedHandle = prefs.getLong(CALLBACK_HANDLE_KEY, -1L)
+        if (savedHandle != -1L) {
+            FlutterEngineManager.setCallbackHandle(savedHandle)
+        }
 
         methodChannel = MethodChannel(binding.binaryMessenger, METHOD_CHANNEL)
         methodChannel.setMethodCallHandler(this)
@@ -201,8 +172,6 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
                 subscribeToTaskEvents()
             }
             override fun onCancel(arguments: Any?) {
-                // Cancel the collection job on unsubscribe; without this, each subscribe/unsubscribe
-                // cycle leaves an orphaned coroutine collecting from TaskEventBus.
                 eventJob?.cancel()
                 eventSink = null
             }
@@ -215,256 +184,74 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
                 subscribeToProgressUpdates()
             }
             override fun onCancel(arguments: Any?) {
-                // Cancel the progress collection job on unsubscribe.
                 progressJob?.cancel()
                 progressSink = null
+            }
+        })
+
+        systemErrorChannel = EventChannel(binding.binaryMessenger, SYSTEM_ERROR_CHANNEL)
+        systemErrorChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                systemErrorSink = events
+            }
+            override fun onCancel(arguments: Any?) {
+                systemErrorSink = null
             }
         })
     }
 
     private fun initializeScheduler(context: Context) {
         if (isSchedulerInitialized) return
-
         try {
             val workerFactory = SimpleAndroidWorkerFactory(context)
-            val config = KmpWorkManagerConfig()
-
-            KmpWorkManager.initialize(
-                context = context,
-                workerFactory = workerFactory,
-                config = config
-            )
-
+            KmpWorkManager.initialize(context, workerFactory, KmpWorkManagerConfig())
             scheduler = NativeTaskScheduler(context)
-
             isSchedulerInitialized = true
-            NativeLogger.d("✅ Scheduler initialized with kmpworkmanager v2.3.9 from Maven Central")
         } catch (e: Exception) {
             NativeLogger.e("❌ Failed to initialize scheduler", e)
         }
     }
 
-
     override fun onMethodCall(call: MethodCall, result: Result) {
-        when (call.method) {
-            "initialize" -> handleInitialize(call, result)
-            "enqueue" -> handleEnqueue(call, result)
-            "cancel" -> handleCancel(call, result)
-            "cancelAll" -> handleCancelAll(result)
-            "cancelByTag" -> handleCancelByTag(call, result)
-            "getTasksByTag" -> handleGetTasksByTag(call, result)
-            "getAllTags" -> handleGetAllTags(result)
-            "enqueueChain" -> handleEnqueueChain(call, result)
-            "getTaskStatus" -> handleGetTaskStatus(call, result)
-            "getTaskRecord" -> handleGetTaskRecord(call, result)
-            "cancel" -> handleCancel(call, result)
-
-            "resume" -> handleResume(call, result)
-            "allTasks" -> handleAllTasks(result)
-            "getServerFilename" -> handleGetServerFilename(call, result)
-            "openFile" -> handleOpenFile(call, result)
-            "setMaxConcurrentPerHost" -> {
-                val max = call.argument<Int>("max") ?: 2
-                HostConcurrencyManager.maxConcurrentPerHost = max
-                result.success(null)
-            }
-            "registerRemoteTrigger" -> handleRegisterRemoteTrigger(call, result)
-            "enqueueGraph" -> handleEnqueueGraph(call, result)
-            "offlineQueueEnqueue" -> handleOfflineQueueEnqueue(call, result)
-            "registerMiddleware" -> handleRegisterMiddleware(call, result)
-            "getMetrics" -> handleGetMetrics(result)
-            "syncOfflineQueue" -> handleSyncOfflineQueue(result)
-            "getRunningProgress" -> {
-                result.success(dev.brewkits.native_workmanager.workers.utils.ProgressReporter.getRunningProgress())
-            }
-            else -> result.notImplemented()
-        }
-    }
-
-    private fun handleSyncOfflineQueue(result: Result) {
         try {
-            scheduleOfflineQueueProcessor(context)
-            result.success(true)
+            when (call.method) {
+                "initialize" -> handleInitialize(call, result)
+                "enqueue" -> handleEnqueue(call, result)
+                "cancel" -> handleCancel(call, result)
+                "cancelAll" -> handleCancelAll(result)
+                "cancelByTag" -> handleCancelByTag(call, result)
+                "getTasksByTag" -> handleGetTasksByTag(call, result)
+                "getAllTags" -> handleGetAllTags(result)
+                "enqueueChain" -> handleEnqueueChain(call, result)
+                "getTaskStatus" -> handleGetTaskStatus(call, result)
+                "getTaskRecord" -> handleGetTaskRecord(call, result)
+                "pause" -> handlePause(call, result)
+                "resume" -> handleResume(call, result)
+                "allTasks" -> handleAllTasks(result)
+                "getServerFilename" -> handleGetServerFilename(call, result)
+                "openFile" -> handleOpenFile(call, result)
+                "setMaxConcurrentPerHost" -> {
+                    val max = call.argument<Int>("max") ?: 2
+                    HostConcurrencyManager.maxConcurrentPerHost = max
+                    result.success(null)
+                }
+                "registerRemoteTrigger" -> handleRegisterRemoteTrigger(call, result)
+                "enqueueGraph" -> handleEnqueueGraph(call, result)
+                "offlineQueueEnqueue" -> handleOfflineQueueEnqueue(call, result)
+                "registerMiddleware" -> handleRegisterMiddleware(call, result)
+                "getMetrics" -> handleGetMetrics(result)
+                "syncOfflineQueue" -> handleSyncOfflineQueue(result)
+                "getRunningProgress" -> {
+                    result.success(ProgressReporter.getRunningProgress())
+                }
+                else -> result.notImplemented()
+            }
+        } catch (e: android.database.sqlite.SQLiteFullException) {
+            NativeLogger.e("❌ Disk full during method call: ${call.method}")
+            emitSystemError(context, "DISK_FULL", "Database operation failed: Disk full")
+            result.error("DISK_FULL", "Operation failed because the device is out of storage", null)
         } catch (e: Exception) {
-            result.error("SYNC_ERROR", e.message, null)
-        }
-    }
-
-    private fun handleGetMetrics(result: Result) {
-        ioScope.launch {
-            try {
-                // Fetch metrics from SQLite stores
-                val activeTasks = taskStore.getActiveTaskCount()
-                val offlineQueueSize = offlineQueueStore.getQueueSize()
-                val failedTasks = taskStore.getFailedTaskCount()
-                val completedTasks = taskStore.getCompletedTaskCount()
-                
-                // Fetch active chains for DAG visualization
-                val activeChains = chainStore.getPendingChains()
-                val dagNodes = mutableListOf<Map<String, Any?>>()
-                
-                activeChains.forEach { chain ->
-                    val steps = chainStore.getStepsForChain(chain.chainId)
-                    steps.forEach { step ->
-                        dagNodes.add(mapOf(
-                            "id" to step.taskId,
-                            "label" to step.taskId.take(8),
-                            "status" to step.status,
-                            "chainId" to chain.chainId,
-                            "stepIndex" to step.stepIndex
-                        ))
-                    }
-                }
-                
-                val metrics = mapOf(
-                    "activeTasks" to activeTasks,
-                    "offlineQueueSize" to offlineQueueSize,
-                    "failedTasks" to failedTasks,
-                    "completedTasks" to completedTasks,
-                    "dagNodes" to dagNodes
-                )
-                
-                withContext(Dispatchers.Main) {
-                    result.success(metrics)
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    result.error("METRICS_ERROR", e.message, null)
-                }
-            }
-        }
-    }
-
-    private fun handleInitialize(call: MethodCall, result: Result) {
-        try {
-            // Forward callback dispatcher handle so DartCallbackWorker can boot a Flutter engine
-            val callbackHandle = call.argument<Long>("callbackHandle")
-            if (callbackHandle != null) {
-                FlutterEngineManager.setCallbackHandle(callbackHandle)
-            }
-
-            // Extract debug mode flag and wire up the centralised logger.
-            debugMode = call.argument<Boolean>("debugMode") ?: false
-            NativeLogger.enabled = debugMode && isDebugBuild()
-
-            if (NativeLogger.enabled) {
-                NativeLogger.d("✅ Debug mode enabled - notifications will show for all task events")
-                createDebugNotificationChannel()
-            }
-
-            // maxConcurrentTasks: Android WorkManager manages its own thread pool
-            // (default ≈ min(CPU-1, 4) workers).  We accept the param so the Dart
-            // API is symmetric with iOS, but no additional limiting is applied here.
-            val maxConcurrentTasks = call.argument<Int>("maxConcurrentTasks") ?: DEFAULT_MAX_CONCURRENT_TASKS
-            NativeLogger.d("maxConcurrentTasks=$maxConcurrentTasks (WorkManager thread-pool managed)")
-
-            // HTTPS enforcement — propagate flag to SecurityValidator so all workers honour it.
-            val enforceHttps = call.argument<Boolean>("enforceHttps") ?: false
-            dev.brewkits.native_workmanager.workers.utils.SecurityValidator.enforceHttps = enforceHttps
-            NativeLogger.d("enforceHttps=$enforceHttps")
-
-            // SSRF protection — block requests to private/loopback IP literals.
-            val blockPrivateIPs = call.argument<Boolean>("blockPrivateIPs") ?: false
-            dev.brewkits.native_workmanager.workers.utils.SecurityValidator.blockPrivateIPs = blockPrivateIPs
-            NativeLogger.d("blockPrivateIPs=$blockPrivateIPs")
-
-            // Auto-cleanup: prune terminal-state records older than N days (prevents unbounded growth).
-            val cleanupAfterDays = call.argument<Int>("cleanupAfterDays") ?: 30
-            if (cleanupAfterDays > 0) {
-                ioScope.launch {
-                    val thresholdMs = cleanupAfterDays.toLong() * 24 * 60 * 60 * 1000L
-                    taskStore.deleteCompleted(olderThanMs = thresholdMs)
-                    NativeLogger.d("Auto-cleanup: pruned task records older than ${cleanupAfterDays}d")
-                }
-            }
-
-            // Register weekly periodic DB cleanup via WorkManager (KEEP policy so re-init is idempotent).
-            scheduleWeeklyDbCleanup()
-
-            result.success(null)
-        } catch (e: Exception) {
-            NativeLogger.e("Initialize error", e)
-            result.error("INITIALIZE_ERROR", e.message, null)
-        }
-    }
-
-    /**
-     * Enqueue a weekly WorkManager periodic job that prunes old SQLite task records.
-     *
-     * Uses [ExistingPeriodicWorkPolicy.KEEP] so that calling [initialize] multiple times
-     * (e.g. hot-restart) does not reset the 7-day interval clock.
-     * The job runs without network or charging constraints — it's pure local I/O.
-     */
-    private fun scheduleWeeklyDbCleanup() {
-        val dataBuilder = Data.Builder()
-            .putString("workerClassName", "DbCleanupWorker")
-        val request = PeriodicWorkRequest.Builder(
-            KmpWorker::class.java,
-            7L, TimeUnit.DAYS
-        )
-            .setInputData(dataBuilder.build())
-            .addTag("__native_wm_internal__")
-            .addTag("DbCleanupWorker")
-            .build()
-
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            DbCleanupWorker.TASK_ID,
-            ExistingPeriodicWorkPolicy.KEEP,
-            request
-        )
-        NativeLogger.d("📅 Weekly DB cleanup scheduled (KEEP policy)")
-    }
-
-    internal fun isDebugBuild(): Boolean {
-        return try {
-            (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    private fun createDebugNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                DEBUG_NOTIFICATION_CHANNEL_ID,
-                DEBUG_NOTIFICATION_CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_DEFAULT
-            ).apply {
-                description = "Shows debug notifications for background task events"
-                setShowBadge(false)
-            }
-
-            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
-        }
-    }
-
-    /** Recursively serialise a Flutter method-channel map to a JSON string.
-     *  org.json.JSONObject(map) fails on nested LinkedHashMap / null values
-     *  that Flutter's codec produces, so we build the tree manually. */
-    internal fun toJson(value: Any?): String = buildJsonValue(value, 0)
-
-    private fun buildJsonValue(value: Any?, depth: Int): String {
-        // Guard against pathologically deep structures (e.g. circular-like graphs
-        // via toString() or accidental self-referencing data).  Depth > 10 is
-        // almost certainly a bug in the caller, not a legitimate payload.
-        if (depth > 10) return "\"[MAX_DEPTH]\""
-        return when (value) {
-            null -> "null"
-            is Boolean -> value.toString()
-            is Number -> value.toString()
-            is String -> org.json.JSONObject.quote(value)
-            is Map<*, *> -> {
-                val entries = value.entries.joinToString(",") { (k, v) ->
-                    org.json.JSONObject.quote(k.toString()) + ":" + buildJsonValue(v, depth + 1)
-                }
-                "{$entries}"
-            }
-            is List<*> -> {
-                val items = value.joinToString(",") { buildJsonValue(it, depth + 1) }
-                "[$items]"
-            }
-            else -> org.json.JSONObject.quote(value.toString())
+            result.error("PLUGIN_ERROR", e.message, null)
         }
     }
 
@@ -473,72 +260,42 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
         methodChannel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
         progressChannel.setStreamHandler(null)
-        eventSink = null
-        progressSink = null
-        // Cancel all pending bus-signal deferreds so their await() calls unblock.
+        systemErrorChannel.setStreamHandler(null)
+        eventJob?.cancel()
+        progressJob?.cancel()
         taskBusSignals.values.forEach { it.cancel() }
         taskBusSignals.clear()
         scope.cancel()
         ioScope.cancel()
-        // FIX H2: Reset flag so next attach (e.g. hot restart) re-initializes the scheduler.
         isSchedulerInitialized = false
+        sharedPluginInstance = null
     }
 
-    // ── ComponentCallbacks2 — low-memory response ─────────────────────────────
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {}
 
-    /**
-     * Dispose the Flutter background engine when the OS signals memory pressure.
-     *
-     * The engine consumes ~30-50 MB of RAM. Releasing it under memory pressure
-     * prevents the process from being killed by the OOM killer. The engine is
-     * re-created lazily the next time a DartWorker task is executed.
-     *
-     * Level thresholds (ascending severity):
-     * - TRIM_MEMORY_RUNNING_CRITICAL (15): system about to kill background processes
-     * - TRIM_MEMORY_UI_HIDDEN (20): UI no longer visible (good time to free caches)
-     * - TRIM_MEMORY_BACKGROUND (40): process in LRU cache — dispose now
-     * - TRIM_MEMORY_MODERATE (60): deeper in LRU — dispose now
-     * - TRIM_MEMORY_COMPLETE (80): about to be killed — dispose now
-     */
-    override fun onTrimMemory(level: Int) {
-        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
-            // Guard: skip if scope is already cancelling (e.g. called twice in rapid succession).
-            if (!ioScope.isActive) return
-            ioScope.launch {
-                // MEM-003: FlutterEngineManager.dispose() is internally thread-safe with its own mutex.
-                // We avoid taking engineMutex here to prevent potential deadlock if the manager
-                // is currently waiting on the plugin for a different operation.
-                if (FlutterEngineManager.isEngineAlive()) {
-                    Log.d(TAG, "onTrimMemory(level=$level) — disposing Flutter engine to free RAM")
-                    try {
-                        FlutterEngineManager.dispose()
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        // Engine disposal was superseded by a concurrent dispose — not an error.
-                        throw e
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to dispose engine during onTrimMemory", e)
-                    }
-                }
+    override fun onLowMemory() {
+        NativeLogger.w("⚠️ System Low Memory signal received")
+        ioScope.launch {
+            engineMutex.withLock {
+                FlutterEngineManager.dispose()
             }
         }
     }
 
-    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
-        // No-op — required by ComponentCallbacks2 interface.
-    }
-
-    override fun onLowMemory() {
-        // onLowMemory is the older API (< API 14). Dispose engine here as well.
-        if (!ioScope.isActive) return
-        ioScope.launch {
-            if (FlutterEngineManager.isEngineAlive()) {
-                Log.d(TAG, "onLowMemory() — disposing Flutter engine to free RAM")
-                try {
-                    FlutterEngineManager.dispose()
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to dispose engine during onLowMemory", e)
+    override fun onTrimMemory(level: Int) {
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+            level >= android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
+            NativeLogger.w("⚠️ Trimming memory (level: $level)")
+            if (ioScope.isActive) {
+                ioScope.launch {
+                    engineMutex.withLock {
+                        try {
+                            FlutterEngineManager.dispose()
+                        } catch (e: Exception) {
+                            if (e is CancellationException) throw e
+                            Log.e(TAG, "Failed to dispose engine during onTrimMemory", e)
+                        }
+                    }
                 }
             }
         }

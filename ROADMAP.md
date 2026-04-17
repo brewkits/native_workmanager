@@ -22,7 +22,7 @@ Our mission is to provide the most robust, efficient, and secure background exec
 - [ ] **Offline Queue Pattern:** Built-in pattern for queuing tasks while offline with automatic file/database-backed retry.
 - [ ] **Middleware / Decorator API:** Intercept task execution for custom logging, analytics, or global headers.
 
-[Read the detailed Phase 2 Architectural Proposals →](doc/PHASE_2_PROPOSALS.md)
+[Phase 2 Architectural Proposals available in internal documentation]
 
 ---
 

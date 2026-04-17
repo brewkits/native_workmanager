@@ -1092,9 +1092,15 @@ class TaskProgress {
         totalSteps: (map['totalSteps'] as num?)?.toInt(),
         bytesDownloaded: (map['bytesDownloaded'] as num?)?.toInt(),
         totalBytes: (map['totalBytes'] as num?)?.toInt(),
-        networkSpeed: (map['networkSpeed'] as num?)?.toDouble(),
-        timeRemaining: map['timeRemainingMs'] != null
-            ? Duration(milliseconds: (map['timeRemainingMs'] as num).toInt())
+        networkSpeed: (map['networkSpeed'] as num? ??
+                map['networkSpeedBytesPerSecond'] as num?)
+            ?.toDouble(),
+        timeRemaining: (map['timeRemainingMs'] != null ||
+                map['timeRemainingSeconds'] != null)
+            ? Duration(
+                milliseconds: (map['timeRemainingMs'] as num? ??
+                        (map['timeRemainingSeconds'] as num? ?? 0) * 1000)
+                    .toInt())
             : null,
       );
 
@@ -1130,4 +1136,36 @@ class TaskProgress {
       'step: $currentStep/$totalSteps, '
       'bytes: $bytesDownloaded/$totalBytes, '
       'speed: ${networkSpeed != null ? "${(networkSpeed! / 1024).toStringAsFixed(1)} KB/s" : "n/a"})';
+}
+
+/// Represents a critical system-level error on the native side.
+///
+/// These errors are usually fatal to a task or a queue (e.g., Disk Full).
+@immutable
+class SystemError {
+  const SystemError({
+    required this.code,
+    required this.message,
+    required this.timestamp,
+  });
+
+  /// Unique error code (e.g. 'DISK_FULL').
+  final String code;
+
+  /// Human-readable error description.
+  final String message;
+
+  /// When the error occurred.
+  final DateTime timestamp;
+
+  factory SystemError.fromMap(Map<String, dynamic> map) => SystemError(
+        code: map['code'] as String? ?? 'UNKNOWN',
+        message: map['message'] as String? ?? 'An unexpected native error occurred',
+        timestamp: map['timestamp'] != null
+            ? DateTime.fromMillisecondsSinceEpoch((map['timestamp'] as num).toInt())
+            : DateTime.now(),
+      );
+
+  @override
+  String toString() => 'SystemError(code: $code, message: $message)';
 }

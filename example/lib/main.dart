@@ -10,6 +10,7 @@ import 'pages/comprehensive_demo_page.dart';
 import 'pages/performance_page.dart';
 import 'pages/case_study_page.dart';
 import 'pages/progress_tracking_demo_page.dart';
+import 'pages/cold_start_demo_page.dart';
 import 'examples/chain_resilience_test.dart';
 import 'examples/chain_data_flow_demo.dart';
 import 'screens/bug_fix_demo_screen.dart';
@@ -110,6 +111,7 @@ void main() async {
       'stress_worker': stressWorkerCallback,
       'media_processor': mediaProcessorCallback,
       'large_payload': largePayloadWorkerCallback,
+      'coldStartWorker': _coldStartWorkerCallbackMain,
     },
   );
 
@@ -162,6 +164,14 @@ Future<bool> stressWorkerCallback(Map<String, dynamic>? input) async {
 @pragma('vm:entry-point')
 Future<bool> mediaProcessorCallback(Map<String, dynamic>? input) async {
   debugPrint('[MediaProcessor] input=$input');
+  return true;
+}
+
+@pragma('vm:entry-point')
+Future<bool> _coldStartWorkerCallbackMain(Map<String, dynamic>? input) async {
+  debugPrint('[ColdStartWorker] executing, input=$input');
+  await Future.delayed(const Duration(milliseconds: 50));
+  debugPrint('[ColdStartWorker] completed successfully');
   return true;
 }
 
@@ -264,6 +274,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
     'Extensibility',
     'Resilience',
     'Data Flow',
+    'Cold-Start Persistence',
   ];
 
   @override
@@ -299,7 +310,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
       });
     });
 
-    _addLog('🚀 NativeWorkManager v1.1.2 — High-Performance Background Engine');
+    _addLog('🚀 NativeWorkManager v1.2.0 — High-Performance Background Engine');
   }
 
   String _formatTime(DateTime dt) {
@@ -490,6 +501,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
                           ), // 13
                           const ChainResilienceTest(), // 14
                           const ChainDataFlowDemo(), // 15
+                          const ColdStartDemoPage(), // 16
                         ],
                       ),
                     ),
@@ -625,6 +637,22 @@ class _DemoHomePageState extends State<DemoHomePage> {
           const NavigationDrawerDestination(
             icon: Icon(Icons.device_hub_outlined),
             label: Text('Data Flow'),
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(28, 16, 16, 10),
+            child: Text(
+              'RELIABILITY',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.2,
+                color: Colors.grey,
+              ),
+            ),
+          ),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.power_settings_new_outlined),
+            label: Text('Cold-Start Persistence'),
           ),
         ],
       ),

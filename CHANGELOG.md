@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] - 2026-04-17
+
+### Added
+- **Android cold-start `DartWorker` persistence**: `DartWorker` tasks now execute reliably after app kill. The `callbackHandle` is persisted to `SharedPreferences` (Android) and `UserDefaults` (iOS) during `initialize()` and automatically restored when WorkManager restarts the process. Requires host app to implement `Configuration.Provider` — see `doc/ANDROID_SETUP.md`.
+- **Advanced Remote Trigger**: Support for direct commands in push payloads (`native_wm` key). Execute tasks, chains (`enqueue_chain`), graphs, and offline queues without waking Flutter. Both Android and iOS support executing task chains completely in the background.
+- **HMAC Security**: Robust HMAC SHA-256 signature verification for remote triggers (supporting nested objects) to prevent unauthorized task execution.
+- **Real-time Observability**: DevTools extension now supports real-time event streaming via `developer.postEvent`.
+- **Global Middleware API**: Global interceptors for task configuration (Headers, RemoteConfig, Logging).
+- **Code Generation Enhancements**: `native_workmanager_gen` now generates type-safe enqueue wrappers and automatic worker registries from `@WorkerCallback` annotations.
+- **Task Graphs (DAG)**: Support for complex non-linear task dependencies on Android.
+
 ## [1.1.2] - 2026-04-14
 
 ### Added
@@ -865,7 +876,7 @@ Built on [kmpworkmanager v2.3.9](https://github.com/pablichjenkov/kmpworkmanager
 
 ---
 
-**Latest Version:** 1.1.2
+**Latest Version:** 1.2.0
 **Status:**  Production Ready - Stable release for all production apps
 **KMP Parity:** 100%  (kmpworkmanager v2.3.9)
 **Platforms:** Android  | iOS 

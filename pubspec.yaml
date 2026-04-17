@@ -1,6 +1,6 @@
 name: native_workmanager
 description: "Background task scheduling for Flutter — 25+ native workers (HTTP, image, crypto, file), task chains, zero Flutter Engine overhead."
-version: 1.1.2
+version: 1.2.0
 homepage: https://github.com/brewkits/native_workmanager
 repository: https://github.com/brewkits/native_workmanager
 issue_tracker: https://github.com/brewkits/native_workmanager/issues

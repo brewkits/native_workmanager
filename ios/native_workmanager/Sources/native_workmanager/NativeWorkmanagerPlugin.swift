@@ -7,13 +7,18 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     var methodChannel: FlutterMethodChannel?
     var eventChannel: FlutterEventChannel?
     var progressChannel: FlutterEventChannel?
+    var systemErrorChannel: FlutterEventChannel?
 
     var eventSink: FlutterEventSink?
     var progressSink: FlutterEventSink?
+    var systemErrorSink: FlutterEventSink?
 
     static let methodChannelName = "dev.brewkits/native_workmanager"
     static let eventChannelName = "dev.brewkits/native_workmanager/events"
     static let progressChannelName = "dev.brewkits/native_workmanager/progress"
+    static let systemErrorChannelName = "dev.brewkits/native_workmanager/system_errors"
+
+    private static var shared: NativeWorkmanagerPlugin?
 
     let workerQueue = DispatchQueue(label: "dev.brewkits.native_workmanager.worker", qos: .utility)
 
@@ -27,11 +32,8 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     var activeTasks: [String: Task<Void, Never>] = [:]
     var workers: [String: IosWorker] = [:]
 
-    lazy var chainStateManager: ChainStateManager = {
-        let sqlite = SQLiteStore(name: "native_workmanager_chains")
-        let store = ChainStore(sqlite: sqlite)
-        return ChainStateManager(chainStore: store)
-    }()
+    @available(iOS 13.0, *)
+    var chainStateManager: ChainStateManager { ChainStateManager.shared }
 
     @available(iOS 13.0, *)
     var taskStore: TaskStore? { TaskStore.shared }
@@ -45,6 +47,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = NativeWorkmanagerPlugin()
+        shared = instance
         let messenger = registrar.messenger()
         
         instance.methodChannel = FlutterMethodChannel(name: methodChannelName, binaryMessenger: messenger)
@@ -55,6 +58,9 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
         instance.progressChannel = FlutterEventChannel(name: progressChannelName, binaryMessenger: messenger)
         instance.progressChannel?.setStreamHandler(ProgressStreamHandler(plugin: instance))
+        
+        instance.systemErrorChannel = FlutterEventChannel(name: systemErrorChannelName, binaryMessenger: messenger)
+        instance.systemErrorChannel?.setStreamHandler(SystemErrorStreamHandler(plugin: instance))
 
         KMPBridge.shared.initialize()
 
@@ -81,8 +87,18 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         }
     }
 
+    public static func emitSystemError(code: String, message: String) {
+        NativeLogger.e("🚨 SYSTEM ERROR [\(code)]: \(message)")
+        DispatchQueue.main.async {
+            shared?.systemErrorSink?([
+                "code": code,
+                "message": message,
+                "timestamp": Int64(Date().timeIntervalSince1970 * 1000)
+            ])
+        }
+    }
+
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        NSLog("[NativeWorkManager] handle: \(call.method)")
         switch call.method {
         case "initialize":              handleInitialize(call: call, result: result)
         case "enqueue":                 handleEnqueue(call: call, result: result)
@@ -126,7 +142,6 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     }
 
     private func handleEnqueue(call: FlutterMethodCall, result: @escaping FlutterResult) {
-        NSLog("[NativeWorkManager] handleEnqueue called")
         guard let args = call.arguments as? [String: Any],
               let taskId = args["taskId"] as? String,
               let workerClassName = args["workerClassName"] as? String else {
@@ -150,8 +165,6 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         let triggerMap = args["trigger"] as? [String: Any]
         let initialDelayMs = (triggerMap?["initialDelayMs"] as? Int) ?? 0
 
-        // Create the Swift Task first so cancel() can find it in activeTasks
-        // immediately after result("ACCEPTED") returns to Dart.
         let task = Task { [weak self] in
             guard let self else { return }
             if initialDelayMs > 0 {
@@ -184,10 +197,6 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                 task.cancel()
             }
             activeTasks.removeAll()
-            // Also notify workers directly if possible
-            for (_, worker) in workers {
-                // Future: add stop() method to IosWorker if needed
-            }
         }
         NativeLogger.w("⚠️ OS Expiration: Stopped all active workers")
     }
@@ -205,11 +214,6 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         
         workerQueue.async {
             let record = self.taskStore?.task(taskId: taskId)
-            if let r = record {
-                NSLog("[NativeWorkManager] handleGetTaskRecord: found task \(taskId), status \(r.status), hasResultData=\(r.resultData != nil)")
-            } else {
-                NSLog("[NativeWorkManager] handleGetTaskRecord: task \(taskId) not found")
-            }
             DispatchQueue.main.async { result(record?.toFlutterMap()) }
         }
     }
@@ -246,5 +250,18 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         case "registerMiddleware": handleRegisterMiddleware(call: call, result: result)
         default: result(FlutterMethodNotImplemented)
         }
+    }
+}
+
+class SystemErrorStreamHandler: NSObject, FlutterStreamHandler {
+    private weak var plugin: NativeWorkmanagerPlugin?
+    init(plugin: NativeWorkmanagerPlugin) { self.plugin = plugin }
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        plugin?.systemErrorSink = events
+        return nil
+    }
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        plugin?.systemErrorSink = nil
+        return nil
     }
 }

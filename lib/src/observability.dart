@@ -131,6 +131,18 @@ class ObservabilityDispatcher {
 
   /// Called by [NativeWorkManager] internals when a progress update arrives.
   void dispatchProgress(TaskProgress progress) {
+    // Phase 2: Post real-time event to DevTools for streaming observability.
+    // This allows the DevTools extension to update progress bars without polling.
+    if (kDebugMode || kProfileMode) {
+      developer.postEvent('native_workmanager.progress', {
+        'taskId': progress.taskId,
+        'progress': progress.progress,
+        'message': progress.message,
+        'speed': progress.networkSpeed,
+        'timeRemaining': progress.timeRemaining?.inSeconds,
+      });
+    }
+
     if (_config.onProgress != null) {
       _safeCall(() => _config.onProgress!(progress), 'onProgress');
     }
@@ -141,6 +153,19 @@ class ObservabilityDispatcher {
   /// Handles both lifecycle events ([TaskEvent.isStarted]) and completion
   /// events (success / failure).
   void dispatchEvent(TaskEvent event) {
+    // Phase 2: Post real-time status change to DevTools.
+    if (kDebugMode || kProfileMode) {
+      developer.postEvent('native_workmanager.event', {
+        'taskId': event.taskId,
+        'success': event.success,
+        'isStarted': event.isStarted,
+        'workerType': event.workerType,
+        'message': event.message,
+        'timestamp': event.timestamp.toIso8601String(),
+        'resultData': event.resultData,
+      });
+    }
+
     if (event.isStarted) {
       if (_config.onTaskStart != null) {
         _safeCall(

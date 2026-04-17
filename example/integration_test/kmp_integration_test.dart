@@ -49,7 +49,7 @@ void main() {
         ),
       );
 
-      expect(result, ScheduleResult.accepted);
+      expect(result.scheduleResult, ScheduleResult.accepted);
       developer.log(
         '✅ KMP Integration Test: Task enqueued successfully via kmpworkmanager',
       );
@@ -80,7 +80,7 @@ void main() {
         ),
       );
 
-      expect(result, ScheduleResult.accepted);
+      expect(result.scheduleResult, ScheduleResult.accepted);
       developer.log(
         '✅ KMP Integration Test: Native HTTP worker enqueued (zero Flutter overhead)',
       );
