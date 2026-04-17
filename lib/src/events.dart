@@ -1160,9 +1160,11 @@ class SystemError {
 
   factory SystemError.fromMap(Map<String, dynamic> map) => SystemError(
         code: map['code'] as String? ?? 'UNKNOWN',
-        message: map['message'] as String? ?? 'An unexpected native error occurred',
+        message:
+            map['message'] as String? ?? 'An unexpected native error occurred',
         timestamp: map['timestamp'] != null
-            ? DateTime.fromMillisecondsSinceEpoch((map['timestamp'] as num).toInt())
+            ? DateTime.fromMillisecondsSinceEpoch(
+                (map['timestamp'] as num).toInt())
             : DateTime.now(),
       );
 
