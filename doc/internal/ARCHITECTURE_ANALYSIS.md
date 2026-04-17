@@ -24,7 +24,7 @@
 
 | Attribute | Value |
 |-----------|---------|
-| Current Version | v1.1.2 |
+| Current Version | v1.2.0 |
 | Platforms | Android (API 26+), iOS (14.0+) |
 | Engine Core | kmpworkmanager 2.3.9 (KMP, Maven Central) |
 | Dart SDK | >=3.6.0 <4.0.0 |
@@ -92,6 +92,7 @@ Designed for: business logic, database writes, state management.
 - Reuses the engine when the app is in the foreground (overhead ≈ 0).
 - Cold-start takes 1–2 seconds (acceptable as it's used less frequently).
 - Declared via `@pragma('vm:entry-point')` top-level functions.
+- **Persistence (v1.1.3+)**: The Dart callback handle is persisted to `SharedPreferences`/`UserDefaults` during initialization. This ensures that even after an app process termination, background workers can successfully restore the handle and boot the Flutter engine without requiring a new `initialize()` call from the UI.
 
 ### 2.3 Evaluated Design Patterns
 
@@ -671,7 +672,7 @@ All proposed improvements are **additive** — no rewrites required.
 | **Security** | 8/10 | Canonical path hardening, needs iOS SQLite |
 | **Feature Coverage** | 8/10 | 11 workers, missing remote trigger + DAG |
 | **Developer Experience** | 8.5/10 | Type-safe, fluent API, well-documented |
-| **Production Readiness** | 8/10 | v1.1.2 stable, iOS persistence gap |
+| **Production Readiness** | 9/10 | v1.2.0 stable with HMAC & Persistence |
 | **Competitive Position** | 7.5/10 | Technically superior, needs traction |
 | **Growth Potential** | 9/10 | Clear roadmap, solid foundation |
 | **Overall** | **8.3/10** | |

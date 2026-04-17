@@ -150,7 +150,18 @@ class WorkerCallbackGenerator extends Generator {
         );
       }
 
-      workers.add(_WorkerEntry(id: id, functionName: element.displayName));
+      workers.add(
+        _WorkerEntry(
+          id: id,
+          functionName: element.displayName,
+          inputTypeName: annotation.read('inputType').isNull
+              ? null
+              : annotation
+                    .read('inputType')
+                    .typeValue
+                    .getDisplayString(withNullability: false),
+        ),
+      );
     }
 
     if (workers.isEmpty) return '';
@@ -177,6 +188,34 @@ class WorkerCallbackGenerator extends Generator {
       ..writeln('}')
       ..writeln();
 
+    // ── Type-safe Wrappers ────────────────────────────────────────────────
+    for (final w in workers) {
+      if (w.inputTypeName != null) {
+        final wrapperName = 'enqueue${_capitalize(w.functionName)}';
+        buf
+          ..writeln('/// Type-safe enqueue wrapper for `${w.functionName}`.')
+          ..writeln('Future<TaskHandler> $wrapperName(')
+          ..writeln('  ${w.inputTypeName} input, {')
+          ..writeln('  String? taskId,')
+          ..writeln('  String? tag,')
+          ..writeln('  TaskTrigger trigger = const TaskTrigger.oneTime(),')
+          ..writeln('  Constraints constraints = const Constraints(),')
+          ..writeln('}) => NativeWorkManager.enqueue(')
+          ..writeln('  taskId: taskId,')
+          ..writeln('  tag: tag,')
+          ..writeln('  trigger: trigger,')
+          ..writeln('  constraints: constraints,')
+          ..writeln('  worker: DartWorker(')
+          ..writeln("    callbackId: '${w.id}',")
+          ..writeln(
+            '    input: input is Map<String, dynamic> ? input : (input as dynamic).toMap(),',
+          )
+          ..writeln('  ),')
+          ..writeln(');')
+          ..writeln();
+      }
+    }
+
     // ── generatedWorkerRegistry map ───────────────────────────────────────
     buf
       ..writeln(
@@ -195,12 +234,30 @@ class WorkerCallbackGenerator extends Generator {
       );
 
     for (final w in workers) {
-      buf.writeln("  '${w.id}': ${w.functionName},");
+      buf.writeln(
+        "  '${w.id}': (input) => ${w.functionName}(input == null ? null : ${w.inputTypeName == null || w.inputTypeName == 'Map<String, dynamic>' ? 'input' : '(_decode${w.inputTypeName}(input))'}),",
+      );
     }
     buf.writeln('};');
 
+    // ── Decode Helpers ──────────────────────────────────────────────────
+    for (final w in workers) {
+      if (w.inputTypeName != null &&
+          w.inputTypeName != 'Map<String, dynamic>') {
+        buf
+          ..writeln(
+            '${w.inputTypeName} _decode${w.inputTypeName}(Map<String, dynamic> input) {',
+          )
+          ..writeln('  return ${w.inputTypeName}.fromMap(input);')
+          ..writeln('}');
+      }
+    }
+
     return buf.toString();
   }
+
+  static String _capitalize(String s) =>
+      s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 
   /// Converts snake_case / kebab-case to lowerCamelCase.
   ///
@@ -220,7 +277,12 @@ class WorkerCallbackGenerator extends Generator {
 }
 
 class _WorkerEntry {
-  const _WorkerEntry({required this.id, required this.functionName});
+  const _WorkerEntry({
+    required this.id,
+    required this.functionName,
+    this.inputTypeName,
+  });
   final String id;
   final String functionName;
+  final String? inputTypeName;
 }

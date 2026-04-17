@@ -2,6 +2,7 @@ package dev.brewkits.native_workmanager
 
 import android.content.Context
 import dev.brewkits.native_workmanager.store.MiddlewareStore
+import dev.brewkits.native_workmanager.utils.MappingUtils.toJson
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 import kotlinx.coroutines.Dispatchers
@@ -37,8 +38,9 @@ internal fun NativeWorkmanagerPlugin.handleRegisterMiddleware(call: MethodCall, 
  * Applies registered middleware to a worker configuration.
  *
  * This can be called from any worker before execution.
+ * Internal top-level function so it can be imported from utils sub-packages.
  */
-fun NativeWorkmanagerPlugin.Companion.applyMiddleware(context: Context, workerClassName: String, configJson: String): String {
+internal fun applyMiddleware(context: Context, workerClassName: String, configJson: String): String {
     try {
         val store = MiddlewareStore.getInstance(context)
         val middlewares = store.getAll()
@@ -69,6 +71,13 @@ fun NativeWorkmanagerPlugin.Companion.applyMiddleware(context: Context, workerCl
         return configJson
     }
 }
+
+/** Companion wrapper for callers that use [NativeWorkmanagerPlugin.applyMiddleware]. */
+fun NativeWorkmanagerPlugin.Companion.applyMiddleware(
+    context: Context,
+    workerClassName: String,
+    configJson: String,
+): String = applyMiddleware(context, workerClassName, configJson)
 
 private fun applyRemoteConfigMiddleware(
     workerConfig: JSONObject,

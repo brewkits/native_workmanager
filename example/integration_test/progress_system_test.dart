@@ -12,21 +12,23 @@ void main() {
       await NativeWorkManager.initialize();
     });
 
-    testWidgets('Full Progress Cycle: Enqueue -> Progress -> Recovery', (tester) async {
+    testWidgets('Full Progress Cycle: Enqueue -> Progress -> Recovery', (
+      tester,
+    ) async {
       const taskId = 'int-test-progress';
       print('Starting test for task: $taskId');
-      
+
       // Get an absolute path for the download
       final tempDir = await getTemporaryDirectory();
       final savePath = '${tempDir.path}/int_test.bin';
-      
+
       // Cleanup if exists
       final file = File(savePath);
       if (file.existsSync()) {
         print('Deleting existing file at $savePath');
         await file.delete();
       }
-      
+
       // 1. Enqueue a real download task (using a 5MB file for more progress updates)
       print('Enqueuing task...');
       final handler = await NativeWorkManager.enqueue(
@@ -52,7 +54,9 @@ void main() {
       // We use a longer timeout and check if the task finished
       try {
         await handler.result.timeout(const Duration(minutes: 3));
-        print('Task completed. Total progress updates: ${progressUpdates.length}');
+        print(
+          'Task completed. Total progress updates: ${progressUpdates.length}',
+        );
       } catch (e) {
         print('Error waiting for result: $e');
         rethrow;
@@ -60,18 +64,24 @@ void main() {
 
       await sub.cancel();
 
-      // We expect at least the 100% completion event if it's very fast, 
+      // We expect at least the 100% completion event if it's very fast,
       // but usually multiple updates for 5MB.
-      expect(progressUpdates, isNotEmpty, reason: 'Should have received at least one progress update');
+      expect(
+        progressUpdates,
+        isNotEmpty,
+        reason: 'Should have received at least one progress update',
+      );
 
-      // 4. Test Recovery (getRunningProgress) - might be empty now since it finished, 
+      // 4. Test Recovery (getRunningProgress) - might be empty now since it finished,
       // but let's check if we can call it without crash.
       final runningTasks = await NativeWorkManager.getRunningProgress();
       print('Running tasks after completion: ${runningTasks.keys}');
-      
+
       // 5. Verify file exists
       expect(file.existsSync(), true);
-      print('File downloaded successfully to $savePath (${file.lengthSync()} bytes)');
+      print(
+        'File downloaded successfully to $savePath (${file.lengthSync()} bytes)',
+      );
     });
   });
 }

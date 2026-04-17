@@ -1,6 +1,6 @@
 # Documentation
 
-native_workmanager v1.1.2 documentation index.
+native_workmanager v1.2.0 documentation index.
 
 ## Getting Started
 
@@ -57,12 +57,11 @@ native_workmanager v1.1.2 documentation index.
 | [integrations/hive.md](integrations/hive.md) | Hive database background operations |
 | [integrations/sentry.md](integrations/sentry.md) | Error tracking for background tasks |
 
-## Internal / Analysis
+## Technical Analysis
 
 | File | Description |
 |------|-------------|
 | [BUG_FIX_VERIFICATION.md](BUG_FIX_VERIFICATION.md) | WorkManager 2.10.0+ bug root cause & verification (v1.0.4) |
-| [SPM_ANALYSIS.md](SPM_ANALYSIS.md) | Swift Package Manager compatibility analysis |
 
 ## Quick Navigation
 
@@ -71,4 +70,4 @@ native_workmanager v1.1.2 documentation index.
 - **[../CONTRIBUTING.md](../CONTRIBUTING.md)** — Contributing guidelines
 - **[../example/](../example/)** — Working example app
 
-Last updated: 2026-04-14 (v1.1.2)
+Last updated: 2026-04-16 (v1.2.0)

@@ -7,6 +7,7 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import dev.brewkits.native_workmanager.engine.TaskEventBus
 import dev.brewkits.native_workmanager.notification.DownloadNotificationManager
+import dev.brewkits.native_workmanager.utils.MappingUtils.toJson
 import dev.brewkits.native_workmanager.workers.utils.ProgressReporter
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect

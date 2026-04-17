@@ -59,7 +59,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  native_workmanager: ^1.0.3
+  native_workmanager: ^1.2.1
 ```
 
 Run:
@@ -67,19 +67,155 @@ Run:
 flutter pub get
 ```
 
-### 2. No Additional Android Configuration Needed!
+### 2. Basic Setup (Native Workers Only)
 
-Unlike some Flutter plugins, `native_workmanager` **does NOT require**:
-- ❌ Custom Application class
-- ❌ AndroidManifest.xml modifications
-- ❌ Gradle plugin additions
-- ❌ ProGuard rules (unless heavily obfuscating)
+For **native workers** (HTTP, file, crypto, image, PDF, etc.) no extra Android configuration is
+needed. The plugin automatically:
 
-The plugin automatically:
-- ✅ Initializes Koin dependency injection
-- ✅ Registers all native workers
-- ✅ Configures WorkManager
+- ✅ Registers all built-in native workers
+- ✅ Initializes WorkManager with the plugin's `WorkerFactory`
 - ✅ Sets up notification channels (for debug mode)
+
+---
+
+### 3. Required: Killed-App Support for Dart Workers
+
+> **This section only applies if you use `DartWorker`.** Native-worker-only apps can skip it.
+
+When Android kills your app (low memory, user swipe) and WorkManager fires a scheduled
+`DartWorker`, the process restarts **without Flutter**. Two things must happen for the task
+to succeed:
+
+| Requirement | Who handles it |
+|---|---|
+| Restore `callbackHandle` so `FlutterEngineManager` can boot Dart | **Plugin** — persisted automatically to SharedPreferences during `initialize()` |
+| Provide `KmpWorkerFactory` so WorkManager can create `KmpWorker` | **Host app** — must implement `Configuration.Provider` on the `Application` class |
+
+The second requirement cannot be automated by the plugin: Android's `Configuration.Provider`
+interface must be on the host app's `Application` class.
+
+#### Step 1 — Create (or update) your `Application` class
+
+```kotlin
+// android/app/src/main/kotlin/com/example/myapp/MyApplication.kt
+package com.example.myapp
+
+import android.content.Context
+import androidx.work.Configuration
+import androidx.work.DelegatingWorkerFactory
+import dev.brewkits.kmpworkmanager.background.KmpWorkerFactory
+import dev.brewkits.native_workmanager.SimpleAndroidWorkerFactory
+import dev.brewkits.native_workmanager.engine.FlutterEngineManager
+import io.flutter.app.FlutterApplication
+
+class MyApplication : FlutterApplication(), Configuration.Provider {
+
+    override fun onCreate() {
+        super.onCreate()
+
+        // Restore callbackHandle that the plugin persisted during Dart-side initialize().
+        // SharedPreferences name and key mirror the plugin's internal constants.
+        val handle = getSharedPreferences(
+            "dev.brewkits.native_workmanager", Context.MODE_PRIVATE
+        ).getLong("callback_handle", -1L)
+
+        if (handle != -1L) {
+            FlutterEngineManager.setCallbackHandle(handle)
+        }
+    }
+
+    // WorkManager calls this when the process is restarted after being killed,
+    // before any Flutter engine or plugin is loaded.
+    // It is NOT called during a normal app launch (plugin already initialized WorkManager first).
+    override fun getWorkManagerConfiguration(): Configuration {
+        val factory = DelegatingWorkerFactory().apply {
+            addFactory(KmpWorkerFactory(SimpleAndroidWorkerFactory(this@MyApplication)))
+        }
+        return Configuration.Builder()
+            .setWorkerFactory(factory)
+            .build()
+    }
+}
+```
+
+If you also register custom native workers, pass your user factory to `SimpleAndroidWorkerFactory`:
+
+```kotlin
+addFactory(KmpWorkerFactory(SimpleAndroidWorkerFactory(this, myUserFactory)))
+```
+
+#### Step 2 — Register the Application class in `AndroidManifest.xml`
+
+```xml
+<application
+    android:name=".MyApplication"
+    ...>
+```
+
+#### Step 3 — Disable WorkManager's default auto-initializer
+
+WorkManager ships a `ContentProvider`-based initializer that runs before `Application.onCreate()`
+and initializes WorkManager with the **default** (no custom factory) configuration. If it fires
+first, your `Configuration.Provider` is ignored and `KmpWorker` creation fails.
+
+Remove it in `android/app/src/main/AndroidManifest.xml`:
+
+```xml
+<provider
+    android:name="androidx.startup.InitializationProvider"
+    android:authorities="${applicationId}.androidx-startup"
+    android:exported="false"
+    tools:node="merge">
+    <!-- Remove the default WorkManager initializer so Configuration.Provider is used instead -->
+    <meta-data
+        android:name="androidx.work.WorkManagerInitializer"
+        android:value="androidx.startup"
+        tools:node="remove" />
+</provider>
+```
+
+Add the `tools` namespace to the `<manifest>` tag if not already present:
+```xml
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+```
+
+#### How the two startup paths interact
+
+```
+Normal launch:
+  Application.onCreate() → restore callbackHandle only
+  Flutter plugin onAttachedToEngine() → KmpWorkManager.initialize() → WorkManager initialized ✅
+  Configuration.Provider.getWorkManagerConfiguration() → NOT called (already initialized)
+
+Killed-app restart (WorkManager fires a task):
+  Application.onCreate() → restore callbackHandle ✅
+  WorkManager not yet initialized → calls getWorkManagerConfiguration() ✅
+  KmpWorkerFactory creates KmpWorker → DartCallbackWorker runs
+  FlutterEngineManager uses restored callbackHandle to boot Dart engine ✅
+```
+
+#### Battery optimisation (OS constraint)
+
+On most Android devices users must **exempt your app from battery optimisation** for WorkManager
+to run tasks reliably after the app is killed. This is an OS constraint, not a plugin limitation.
+
+Prompt the user from your settings screen:
+```dart
+import 'package:flutter/services.dart';
+
+// Android-only — check and request battery optimisation exemption
+const _channel = MethodChannel('your_app/battery');
+await _channel.invokeMethod('requestIgnoreBatteryOptimizations');
+```
+
+On the Kotlin side:
+```kotlin
+val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+    data = Uri.parse("package:${packageName}")
+}
+startActivity(intent)
+```
 
 ---
 
@@ -112,11 +248,17 @@ void main() async {
       'processData': _processDataCallback,
       'syncDatabase': _syncDatabaseCallback,
     },
+    // Security options
+    enforceHttps: true,
+    blockPrivateIPs: true,
+    // Maintenance
+    cleanupAfterDays: 30,
   );
 
   runApp(MyApp());
 }
 
+// Must be top-level or static — NOT a closure or instance method
 @pragma('vm:entry-point')
 Future<bool> _processDataCallback(Map<String, dynamic>? input) async {
   // Your Dart logic here
@@ -132,239 +274,74 @@ Future<bool> _syncDatabaseCallback(Map<String, dynamic>? input) async {
 
 ---
 
-## Verification
-
-### 1. Check Build Configuration
-
-Run the following to verify your setup:
-
-```bash
-# Clean build
-flutter clean
-
-# Verify dependencies
-flutter pub get
-
-# Build Android app
-flutter build apk --debug
-```
-
-### 2. Check Logcat
-
-After scheduling a task, check Android Logcat for initialization logs:
-
-```bash
-adb logcat -s NativeWorkmanagerPlugin
-```
-
-**Expected output:**
-```
-✅ Koin initialized with kmpworkmanager v2.3.3 from Maven Central
-✅ Task scheduled: your-task-id
-[NativeWorkManager] Task started: your-task-id
-[NativeWorkManager] Task completed: your-task-id (success)
-```
-
-### 3. Force Run Task (Debug Only)
-
-To test immediately without waiting:
-
-```bash
-# List all scheduled jobs
-adb shell dumpsys jobscheduler | grep -A 20 "your.package.name"
-
-# Force run next job
-adb shell cmd jobscheduler run -f your.package.name 1
-```
-
----
-
-## Troubleshooting
-
-### Error: "KmpWorkManager not initialized"
-
-**Cause:** `NativeWorkManager.initialize()` was not called or failed.
-
-**Solution:**
-1. Ensure `initialize()` is called in `main()` before `runApp()`
-2. Check that it completes (use `await`)
-3. Check Logcat for initialization errors
-
-```dart
-// ❌ Wrong - missing await
-void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  NativeWorkManager.initialize();  // Not awaited!
-  runApp(MyApp());
-}
-
-// ✅ Correct
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await NativeWorkManager.initialize();  // Awaited!
-  runApp(MyApp());
-}
-```
-
----
-
-### Error: "Unresolved reference: kmpworkmanager"
-
-**Cause:** Build cache corruption or dependency resolution issue.
-
-**Solution:**
-```bash
-# Clean everything
-flutter clean
-cd android
-./gradlew clean
-cd ..
-
-# Remove build folders
-rm -rf android/build
-rm -rf android/app/build
-
-# Rebuild
-flutter pub get
-flutter build apk --debug
-```
-
----
-
-### Error: "Minimum SDK version is X but should be 26"
-
-**Cause:** Your app's `minSdk` is below 26.
-
-**Solution:**
-Edit `android/app/build.gradle`:
-```gradle
-defaultConfig {
-    minSdk 26  // Change from lower version to 26
-}
-```
-
-**Impact:** This drops support for Android 7.1 and below (released 2016).
-
-**Market share (2024):** Android 8.0+ covers >95% of devices.
-
----
-
-### Error: "WorkManager initialization failed"
-
-**Cause:** Conflicting WorkManager versions or initialization.
-
-**Solution:**
-1. Check for custom WorkManager initialization in your Android code
-2. Remove any manual WorkManager initialization - the plugin handles it
-3. Ensure no other plugins are initializing WorkManager
-
----
-
-### Tasks Not Running in Background
-
-**Possible causes:**
-1. **Battery optimization:** Android may throttle background work
-2. **Doze mode:** Tasks deferred during deep sleep
-3. **App standby:** Inactive apps have restricted background access
-
-**Solutions:**
-
-**1. Add Constraints**
-```dart
-await NativeWorkManager.enqueue(
-  taskId: 'my-task',
-  trigger: TaskTrigger.periodic(Duration(hours: 1)),
-  worker: NativeWorker.httpSync(url: 'https://api.example.com/sync'),
-  constraints: Constraints(
-    requiresNetworkType: NetworkType.connected,
-    requiresBatteryNotLow: true,
-  ),
-);
-```
-
-**2. Test Without Battery Optimization**
-```bash
-# Disable battery optimization for your app (testing only)
-adb shell dumpsys deviceidle whitelist +your.package.name
-```
-
-**3. Check Battery Optimization Settings**
-- Settings → Apps → Your App → Battery → Unrestricted
-
----
-
-### High Memory Usage
-
-**Cause:** Using Dart workers instead of native workers.
-
-**Solution:**
-```dart
-// ❌ Dart worker - 50 MB RAM
-DartWorker(callbackId: 'httpRequest')
-
-// ✅ Native worker - 5 MB RAM
-NativeWorker.httpRequest(url: '...')
-```
-
-Use native workers for I/O tasks, Dart workers only for complex logic.
-
----
-
-## Advanced Configuration
-
-### Custom Native Workers
+## Custom Native Workers
 
 If you need to register custom native workers:
 
-**1. Create worker class:**
+**1. Create your worker:**
 ```kotlin
-// android/app/src/main/kotlin/com/example/yourapp/workers/CustomWorker.kt
+// android/app/src/main/kotlin/com/example/yourapp/workers/AnalyticsFlushWorker.kt
 package com.example.yourapp.workers
 
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerResult
 
-class CustomWorker : AndroidWorker {
+class AnalyticsFlushWorker : AndroidWorker {
     override suspend fun doWork(inputJson: String?): AndroidWorkerResult {
-        // Your custom logic here
-        return AndroidWorkerResult.success(outputJson = """{"status":"done"}""")
+        // flush analytics
+        return AndroidWorkerResult.success()
     }
 }
 ```
 
-**2. Register in MainActivity:**
+**2. Register the factory — two patterns depending on your setup:**
+
+*Without killed-app support (no custom Application):*
 ```kotlin
-// android/app/src/main/kotlin/com/example/yourapp/MainActivity.kt
-package com.example.yourapp
-
-import dev.brewkits.native_workmanager.SimpleAndroidWorkerFactory
-import dev.brewkits.kmpworkmanager.background.domain.AndroidWorkerFactory
-import io.flutter.embedding.android.FlutterActivity
-
-class MainActivity: FlutterActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-
-        // Register custom workers BEFORE Flutter engine starts
-        SimpleAndroidWorkerFactory.setUserFactory(object : AndroidWorkerFactory {
-            override fun createWorker(workerClassName: String): AndroidWorker? {
-                return when (workerClassName) {
-                    "CustomWorker" -> CustomWorker()
-                    else -> null
-                }
-            }
-        })
+// In MainActivity.kt, before super.onCreate()
+SimpleAndroidWorkerFactory.setUserFactory { workerClassName ->
+    when (workerClassName) {
+        "AnalyticsFlushWorker" -> AnalyticsFlushWorker()
+        else -> null
     }
+}
+```
+
+*With killed-app support (custom Application from §3):*
+
+Pass the factory in `getWorkManagerConfiguration()` and also set it at launch:
+```kotlin
+// MyApplication.kt
+private val userFactory = AndroidWorkerFactory { workerClassName ->
+    when (workerClassName) {
+        "AnalyticsFlushWorker" -> AnalyticsFlushWorker()
+        else -> null
+    }
+}
+
+override fun onCreate() {
+    super.onCreate()
+    // ... restore callbackHandle ...
+    // Make the factory available before Flutter loads
+    SimpleAndroidWorkerFactory.setUserFactory(userFactory)
+}
+
+override fun getWorkManagerConfiguration(): Configuration {
+    val factory = DelegatingWorkerFactory().apply {
+        addFactory(KmpWorkerFactory(SimpleAndroidWorkerFactory(this@MyApplication, userFactory)))
+    }
+    return Configuration.Builder().setWorkerFactory(factory).build()
 }
 ```
 
 **3. Use in Dart:**
 ```dart
 await NativeWorkManager.enqueue(
-  taskId: 'custom-task',
+  taskId: 'flush-analytics',
   trigger: TaskTrigger.oneTime(),
-  worker: CustomWorker(
-    input: {'key': 'value'},
+  worker: NativeWorker.custom(
+    workerClassName: 'AnalyticsFlushWorker',
+    input: {'batchSize': 100},
   ),
 );
 ```
@@ -373,133 +350,191 @@ await NativeWorkManager.enqueue(
 
 ---
 
+## Verification
+
+### Check Logcat
+
+After scheduling a task, check Android Logcat:
+
+```bash
+adb logcat -s NativeWorkmanagerPlugin,FlutterEngineManager,DartCallbackWorker
+```
+
+**Expected on first launch:**
+```
+NativeWorkmanagerPlugin: ✅ Scheduler initialized with kmpworkmanager
+NativeWorkmanagerPlugin: callbackHandle persisted for cold-start: 12345678
+```
+
+**Expected on killed-app restart:**
+```
+MyApplication: Restored callbackHandle from prefs: 12345678
+FlutterEngineManager: Initializing Flutter engine... (cold process start)
+FlutterEngineManager: Dart ready signal received
+```
+
+### Force-Run a Task (Debug)
+
+```bash
+# List scheduled jobs
+adb shell dumpsys jobscheduler | grep -A 20 "your.package.name"
+
+# Force-run the next pending job
+adb shell cmd jobscheduler run -f your.package.name 1
+```
+
+---
+
+## Troubleshooting
+
+### DartWorker fails after app kill
+
+**Symptoms:** Native workers run fine; `DartWorker` silently fails after process death.
+
+**Checklist:**
+1. Did you add the custom `Application` class? (§3, Step 1)
+2. Is the Application class registered in `AndroidManifest.xml`? (§3, Step 2)
+3. Did you remove the default WorkManager initializer? (§3, Step 3)
+4. Is battery optimisation disabled for your app during testing?
+5. Check Logcat for `getWorkManagerConfiguration() called` — if missing, Step 3 is incomplete.
+
+---
+
+### Error: "KmpWorkManager not initialized"
+
+**Cause:** `NativeWorkManager.initialize()` was not called or failed.
+
+**Solution:**
+```dart
+// ❌ Wrong — missing await
+void main() {
+  NativeWorkManager.initialize();  // Not awaited!
+  runApp(MyApp());
+}
+
+// ✅ Correct
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await NativeWorkManager.initialize();
+  runApp(MyApp());
+}
+```
+
+---
+
+### Error: "Unresolved reference: kmpworkmanager"
+
+```bash
+flutter clean
+cd android && ./gradlew clean && cd ..
+flutter pub get
+flutter build apk --debug
+```
+
+---
+
+### Error: "Minimum SDK version is X but should be 26"
+
+Edit `android/app/build.gradle`:
+```gradle
+defaultConfig {
+    minSdk 26
+}
+```
+
+---
+
+### Error: "WorkManager already initialized" / crash on hot-restart
+
+This was a known v1.0.7 bug (H-2). Fixed by resetting `isSchedulerInitialized = false` in
+`onDetachedFromEngine`. Ensure you are on v1.0.7 or later.
+
+---
+
+### Tasks not running in background
+
+1. **Battery optimisation** — request exemption (see §3 above)
+2. **Doze mode** — use `Constraints(requiresNetwork: true)` to let WorkManager reschedule
+3. **App standby** — use periodic intervals ≥ 15 minutes
+4. **Simulate Doze mode:**
+   ```bash
+   adb shell dumpsys battery unplug
+   adb shell dumpsys deviceidle force-idle
+   ```
+
+---
+
+### High memory usage
+
+Use native workers for I/O — they don't spin up a Flutter engine:
+
+```dart
+// ❌ Dart worker — ~50 MB RAM, 1–2 s cold start
+DartWorker(callbackId: 'httpRequest')
+
+// ✅ Native worker — ~2–5 MB RAM, <50 ms cold start
+NativeWorker.httpRequest(url: '...')
+```
+
+---
+
 ## ProGuard / R8 Configuration
 
-If you're using code obfuscation, add these rules to `android/app/proguard-rules.pro`:
-
 ```proguard
-# Keep native_workmanager classes
+# native_workmanager
 -keep class dev.brewkits.native_workmanager.** { *; }
 -keep class dev.brewkits.kmpworkmanager.** { *; }
 
-# Keep worker classes
+# Keep WorkManager worker classes
+-keep class * extends androidx.work.Worker { *; }
+-keep class * extends androidx.work.ListenableWorker { *; }
 -keep class * implements dev.brewkits.kmpworkmanager.background.domain.AndroidWorker { *; }
 
-# Keep Koin
--keep class org.koin.** { *; }
--keep interface org.koin.** { *; }
-
-# Keep WorkManager
+# WorkManager
 -keep class androidx.work.** { *; }
-```
-
----
-
-## Testing
-
-### Unit Testing
-
-No special Android configuration needed for unit tests.
-
-### Integration Testing
-
-For integration tests on real devices:
-
-```bash
-# Run tests on connected device
-flutter test integration_test/app_test.dart
-```
-
-### Debug Mode
-
-Enable debug notifications to see task events:
-
-```dart
-await NativeWorkManager.initialize(
-  debugMode: true,  // Shows notifications for all task events
-);
-```
-
-**Note:** Debug notifications only show on debug builds.
-
----
-
-## Performance Tips
-
-### 1. Use Native Workers for I/O
-```dart
-// ✅ Fast - native worker (5 MB)
-NativeWorker.httpSync(url: '...')
-
-// ❌ Slow - Dart worker (50 MB)
-DartWorker(callbackId: 'httpSync')
-```
-
-### 2. Enable autoDispose for Dart Workers
-```dart
-DartWorker(
-  callbackId: 'processData',
-  autoDispose: true,  // ✅ Releases Flutter Engine after task
-)
-```
-
-### 3. Use Constraints to Reduce Battery Impact
-```dart
-constraints: Constraints(
-  requiresCharging: true,     // Only run when charging
-  requiresDeviceIdle: true,   // Only run when device idle
-)
 ```
 
 ---
 
 ## Production Checklist
 
-Before releasing to production:
-
-- [ ] Verify `minSdk` is 26 or higher
-- [ ] Test on multiple Android versions (8.0, 9.0, 10, 11, 12, 13, 14)
-- [ ] Test with battery optimization enabled
-- [ ] Test in Doze mode (simulate: `adb shell dumpsys battery unplug && adb shell dumpsys deviceidle force-idle`)
-- [ ] Verify tasks run after app force-close
-- [ ] Verify tasks run after device reboot
-- [ ] Test task chains with failures
-- [ ] Monitor memory usage (use Android Profiler)
-- [ ] Check ProGuard/R8 doesn't break workers (if using obfuscation)
-- [ ] Add error handling and retry policies
-- [ ] Set up monitoring/analytics for background tasks
-
-[See full production guide →](PRODUCTION_GUIDE.md)
+- [ ] `minSdk` is 26 or higher
+- [ ] Tested on Android 8, 10, 12, 14+
+- [ ] If using `DartWorker`: custom Application + `Configuration.Provider` in place
+- [ ] If using `DartWorker`: WorkManager default initializer removed from manifest
+- [ ] Battery optimisation exemption UI implemented and tested
+- [ ] Tested: tasks run after app force-close (with battery opt disabled)
+- [ ] Tested: tasks run after device reboot
+- [ ] Tested: task chains with mid-chain failure
+- [ ] Memory profiled (Android Profiler) — no engine leak after `autoDispose`
+- [ ] ProGuard/R8 tested if using obfuscation
+- [ ] `debugMode: false` (or omitted) in release builds
 
 ---
 
-## Platform-Specific Behavior
+## Platform-Specific Behaviour
 
 ### Doze Mode (Android 6.0+)
 
-Tasks may be deferred during Doze mode. To ensure execution:
-
-```dart
-// For critical tasks
-constraints: Constraints(
-  requiresNetworkType: NetworkType.connected,
-)
-
-// For non-critical tasks
-constraints: Constraints(
-  requiresDeviceIdle: false,  // Run even when active
-)
-```
+Tasks can be deferred during Doze. WorkManager handles rescheduling automatically. For
+time-sensitive work use `Constraints(requiresCharging: false)` and accept eventual execution.
 
 ### App Standby (Android 6.0+)
 
-Inactive apps have restricted background access. Tasks will run but may be delayed.
+Inactive apps get background-access buckets (Active → Working set → Frequent → Rare → Restricted).
+Use intervals ≥ 15 minutes and constrained tasks to stay in higher buckets.
 
-**Solution:** Use appropriate trigger intervals (15+ minutes recommended).
+### Exact Alarms (Android 12+)
 
-### Battery Optimization (Android 8.0+)
-
-Background execution limits affect all apps. Native workers help by reducing overhead.
+`TaskTrigger.exact()` requires `SCHEDULE_EXACT_ALARM` permission on Android 12+. WorkManager falls
+back to an inexact trigger if the permission is not granted (`ScheduleResult.rejectedOsPolicy`).
+Check the result:
+```dart
+final handler = await NativeWorkManager.enqueue(...);
+if (handler.scheduleResult == ScheduleResult.rejectedOsPolicy) {
+  // prompt user to grant exact alarm permission
+}
+```
 
 ---
 
@@ -508,83 +543,8 @@ Background execution limits affect all apps. Native workers help by reducing ove
 - [Getting Started Guide](GETTING_STARTED.md)
 - [API Reference](API_REFERENCE.md)
 - [iOS Setup Guide](IOS_SETUP.md)
-- [Production Deployment](PRODUCTION_GUIDE.md)
 - [Custom Native Workers](use-cases/07-custom-native-workers.md)
 
 ---
 
-## Support
-
-**Need help?**
-- 📧 Email: datacenter111@gmail.com
-- 🐛 Issues: [GitHub Issues](https://github.com/brewkits/native_workmanager/issues)
-- 💬 Discussions: [GitHub Discussions](https://github.com/brewkits/native_workmanager/discussions)
-
----
-
-**Last Updated:** April 2026 (v1.1.2)
-, 12, 13, 14)
-- [ ] Test with battery optimization enabled
-- [ ] Test in Doze mode (simulate: `adb shell dumpsys battery unplug && adb shell dumpsys deviceidle force-idle`)
-- [ ] Verify tasks run after app force-close
-- [ ] Verify tasks run after device reboot
-- [ ] Test task chains with failures
-- [ ] Monitor memory usage (use Android Profiler)
-- [ ] Check ProGuard/R8 doesn't break workers (if using obfuscation)
-- [ ] Add error handling and retry policies
-- [ ] Set up monitoring/analytics for background tasks
-
-[See full production guide →](PRODUCTION_GUIDE.md)
-
----
-
-## Platform-Specific Behavior
-
-### Doze Mode (Android 6.0+)
-
-Tasks may be deferred during Doze mode. To ensure execution:
-
-```dart
-// For critical tasks
-constraints: Constraints(
-  requiresNetworkType: NetworkType.connected,
-)
-
-// For non-critical tasks
-constraints: Constraints(
-  requiresDeviceIdle: false,  // Run even when active
-)
-```
-
-### App Standby (Android 6.0+)
-
-Inactive apps have restricted background access. Tasks will run but may be delayed.
-
-**Solution:** Use appropriate trigger intervals (15+ minutes recommended).
-
-### Battery Optimization (Android 8.0+)
-
-Background execution limits affect all apps. Native workers help by reducing overhead.
-
----
-
-## Next Steps
-
-- [Getting Started Guide](GETTING_STARTED.md)
-- [API Reference](API_REFERENCE.md)
-- [iOS Setup Guide](IOS_SETUP.md)
-- [Production Deployment](PRODUCTION_GUIDE.md)
-- [Custom Native Workers](use-cases/07-custom-native-workers.md)
-
----
-
-## Support
-
-**Need help?**
-- 📧 Email: datacenter111@gmail.com
-- 🐛 Issues: [GitHub Issues](https://github.com/brewkits/native_workmanager/issues)
-- 💬 Discussions: [GitHub Discussions](https://github.com/brewkits/native_workmanager/discussions)
-
----
-
-**Last Updated:** April 2026 (v1.1.2)
+**Last Updated:** April 2026 (v1.2.1)

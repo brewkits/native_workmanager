@@ -15,7 +15,7 @@
   <a href="https://github.com/brewkits/native_workmanager/actions"><img src="https://github.com/brewkits/native_workmanager/workflows/ci/badge.svg" alt="CI"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT"></a>
   <img src="https://img.shields.io/badge/Android-8.0%2B-brightgreen.svg" alt="Android 8.0+">
-  <img src="https://img.shields.io/badge/iOS-14.0%2B-lightgrey.svg" alt="iOS 14.0+">
+  <img src="https://img.shields.io/badge/iOS-13.0%2B-lightgrey.svg" alt="iOS 13.0+">
 </p>
 
 ---
@@ -46,7 +46,7 @@ No boilerplate. No native code to write. No `AndroidManifest.xml` changes. Each 
 
 ```yaml
 dependencies:
-  native_workmanager: ^1.1.2
+  native_workmanager: ^1.2.0
 ```
 
 **2. Initialize once in `main()`:**
@@ -93,6 +93,7 @@ The dominant `workmanager` plugin spins up a **full Flutter Engine per backgroun
 | Task chains (A→B→C) | ❌ | ✅ (persist across reboots) |
 | Per-task progress stream | ❌ | ✅ |
 | Survives device reboot | ✅ | ✅ |
+| Remote Trigger (Push) | ❌ | ✅ (FCM/APNs + HMAC Security) |
 | Custom Dart workers | ✅ | ✅ (opt-in via `DartWorker`) |
 
 > **If you only do HTTP syncs and file ops, you probably don't need Dart workers at all.** Use the native workers directly — they're production-hardened and need zero engine overhead.
@@ -205,6 +206,19 @@ await NativeWorkManager.enqueue(
 ```
 
 Dart workers boot a headless Flutter isolate (~50 MB, 1–2 s cold start). The isolate is cached for 5 minutes so back-to-back tasks pay the boot cost only once. For HTTP and file tasks, use native workers instead.
+
+> **Android killed-app support** — When Android kills your app and WorkManager later fires a `DartWorker`, the process restarts without Flutter. The plugin automatically restores the `callbackHandle` from `SharedPreferences`, but your `Application` class must implement `Configuration.Provider` so WorkManager uses the plugin's `WorkerFactory`. One-time setup — see **[Android Setup Guide](doc/ANDROID_SETUP.md)**.
+
+### Code generation for DartWorker
+
+The companion [`native_workmanager_gen`](https://pub.dev/packages/native_workmanager_gen) package generates type-safe callback IDs and a worker registry from `@WorkerCallback` annotations, eliminating string-based registration and magic IDs:
+
+```dart
+@WorkerCallback('health-sync')
+Future<bool> syncHealthData(Map<String, dynamic>? input) async { ... }
+
+// Generated: WorkerCallbacks.healthSync, auto-registered in WorkerRegistry
+```
 
 ---
 
@@ -345,14 +359,15 @@ NativeWorkManager.events.listen((event) {
 
 ## Documentation
 
-| Guide | |
+| Guide | Description |
 |---|---|
 | [Getting Started](doc/GETTING_STARTED.md) | Full setup walkthrough |
 | [API Reference](doc/API_REFERENCE.md) | All public types and methods |
-| [Migration from workmanager](doc/MIGRATION_GUIDE.md) | Switch in under 10 minutes |
+| [Android Setup Guide](doc/ANDROID_SETUP.md) | DartWorker killed-app persistence |
 | [iOS Setup Guide](doc/IOS_SETUP_GUIDE.md) | BGTaskScheduler details |
-| [Architecture](doc/ARCHITECTURE_ANALYSIS.md) | How zero-engine execution works |
+| [Migration from workmanager](doc/MIGRATION_GUIDE.md) | Switch in under 10 minutes |
 | [Security](doc/SECURITY.md) | SSRF, path traversal, data redaction |
+| [native_workmanager_gen](https://pub.dev/packages/native_workmanager_gen) | Code generator for type-safe DartWorker callbacks |
 
 ---
 

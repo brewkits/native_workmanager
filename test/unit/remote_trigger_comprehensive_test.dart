@@ -52,6 +52,15 @@ void main() {
         returnsNormally,
       );
     });
+
+    test('stores secretKey', () {
+      final rule = RemoteTriggerRule(
+        payloadKey: 'action',
+        workerMappings: {},
+        secretKey: 'my_secret_key',
+      );
+      expect(rule.secretKey, 'my_secret_key');
+    });
   });
 
   // ──────────────────────────────────────────────────────────────

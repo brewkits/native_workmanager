@@ -26,6 +26,8 @@ class FlutterEngineManager {
     private var engine: FlutterEngine?
     private var methodChannel: FlutterMethodChannel?
     private var callbackHandle: Int64?
+    
+    private static let callbackHandleKey = "dev.brewkits.native_workmanager.callback_handle"
 
     private let queue = DispatchQueue(label: "dev.brewkits.flutter_engine_manager")
     private var isInitialized = false
@@ -51,7 +53,8 @@ class FlutterEngineManager {
     func setCallbackHandle(_ handle: Int64) {
         queue.sync {
             self.callbackHandle = handle
-            print("FlutterEngineManager: Callback handle registered: \(handle)")
+            UserDefaults.standard.set(handle, forKey: FlutterEngineManager.callbackHandleKey)
+            print("FlutterEngineManager: Callback handle registered and persisted: \(handle)")
         }
     }
 
@@ -68,7 +71,15 @@ class FlutterEngineManager {
     /// DartCallbackWorker tasks cannot execute and should be rejected at enqueue time
     /// rather than accepted and silently failing at runtime.
     var hasCallbackHandle: Bool {
-        queue.sync { callbackHandle != nil }
+        queue.sync {
+            if callbackHandle == nil {
+                let saved = UserDefaults.standard.object(forKey: FlutterEngineManager.callbackHandleKey) as? Int64
+                if let s = saved {
+                    self.callbackHandle = s
+                }
+            }
+            return callbackHandle != nil
+        }
     }
 
     /// Execute a Dart callback in the background isolate.
@@ -170,6 +181,17 @@ class FlutterEngineManager {
         // Fast path: already initialized
         if isInitialized {
             return
+        }
+        
+        // Load saved handle if memory-resident one is nil (e.g. after process relaunch)
+        queue.sync {
+            if self.callbackHandle == nil {
+                let saved = UserDefaults.standard.object(forKey: FlutterEngineManager.callbackHandleKey) as? Int64
+                if let s = saved {
+                    self.callbackHandle = s
+                    print("FlutterEngineManager: Restored callback handle from storage: \(s)")
+                }
+            }
         }
 
         // Slow path: need initialization

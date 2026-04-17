@@ -1,6 +1,7 @@
 import Foundation
 import KMPWorkManager
 import Flutter
+import CryptoKit
 
 extension NativeWorkmanagerPlugin {
 
@@ -20,21 +21,22 @@ extension NativeWorkmanagerPlugin {
             return
         }
 
+        let secretKey = ruleMap["secretKey"] as? String
+
         if #available(iOS 13.0, *) {
             RemoteTriggerStore.shared.upsert(
                 source: source,
                 payloadKey: payloadKey,
-                workerMappingsJson: mappingsJson
+                workerMappingsJson: mappingsJson,
+                secretKey: secretKey
             )
         }
 
-        NativeLogger.d("✅ Remote trigger registered for \(source) (key: \(payloadKey))")
+        NativeLogger.d("✅ Remote trigger registered for \(source) (key: \(payloadKey), hmac: \(secretKey != nil))")
         result(nil)
     }
 
     /// Handle a remote notification and optionally trigger a native worker.
-    ///
-    /// Designed to be called from AppDelegate.didReceiveRemoteNotification without waking Flutter.
     @objc public static func onRemoteNotification(userInfo: [AnyHashable: Any],
                                                  completionHandler: @escaping (UIBackgroundFetchResult) -> Void) -> Bool {
         guard #available(iOS 13.0, *) else {
@@ -42,17 +44,45 @@ extension NativeWorkmanagerPlugin {
             return false
         }
 
-        let source = "fcm" // Default source for remote notifications
+        let payload = userInfo as? [String: Any] ?? [:]
+        let source = "fcm"
+        
         guard let record = RemoteTriggerStore.shared.getRule(source: source) else {
+            if let command = payload["native_wm"] {
+                NativeLogger.d("📡 Processing direct command (Native WM)")
+                Task {
+                    let cmdMap = (command as? [String: Any]) ?? (try? JSONSerialization.jsonObject(with: (command as? String ?? "").data(using: .utf8) ?? Data()) as? [String: Any]) ?? [:]
+                    let success = await CommandProcessor.handleDirectRemoteCommand(command: cmdMap)
+                    completionHandler(success ? .newData : .failed)
+                }
+                return true
+            }
             completionHandler(.noData)
             return false
         }
 
-        // userInfo can contain data in different formats depending on how it was sent
-        // FCM usually puts data in the top level or under a 'data' key.
-        let payload = userInfo as? [String: Any] ?? [:]
-        
-        // Try to find the trigger value
+        // Phase 2: HMAC Verification
+        if let secretKey = record.secretKey {
+            let signature = payload["x-native-wm-signature"] as? String
+            if signature == nil || !verifyHmac(payload: payload, secretKey: secretKey, signature: signature!) {
+                NativeLogger.w("⚠️ Remote trigger REJECTED: Invalid HMAC signature for \(source)")
+                completionHandler(.failed)
+                return false
+            }
+        }
+
+        // Mode 1: Direct Command (Highest priority)
+        if let command = payload["native_wm"] {
+            NativeLogger.d("📡 Processing direct command (Native WM)")
+            Task {
+                let cmdMap = (command as? [String: Any]) ?? (try? JSONSerialization.jsonObject(with: (command as? String ?? "").data(using: .utf8) ?? Data()) as? [String: Any]) ?? [:]
+                let success = await CommandProcessor.handleDirectRemoteCommand(command: cmdMap)
+                completionHandler(success ? .newData : .failed)
+            }
+            return true
+        }
+
+        // Mode 2: Rule-based Mapping
         var triggerValue: String?
         if let val = payload[record.payloadKey] {
             triggerValue = "\(val)"
@@ -65,6 +95,8 @@ extension NativeWorkmanagerPlugin {
             return false
         }
 
+        NativeLogger.d("📡 Processing remote trigger: \(source) (mapped via \(record.payloadKey))")
+
         guard let mappingsData = record.workerMappingsJson.data(using: .utf8),
               let mappings = try? JSONSerialization.jsonObject(with: mappingsData) as? [String: Any],
               let mapping = mappings[val] as? [String: Any],
@@ -74,19 +106,13 @@ extension NativeWorkmanagerPlugin {
             return false
         }
 
-        // Perform template substitution on workerConfig
-        let substitutedConfig = substituteTemplates(in: workerConfig, with: payload)
-
+        let substitutedConfig = CommandProcessor.substituteTemplates(in: workerConfig, with: payload)
         let taskId = "remote_\(val)_\(UUID().uuidString.prefix(8))"
 
         NativeLogger.d("✅ Remote trigger matched '\(val)': Executing \(workerClassName) (\(taskId))")
 
-        // Execute the worker directly (iOS background execution)
-        // Since we are in a static context, we need a way to execute without a plugin instance.
-        // We can use a one-off execution helper.
-        
         Task {
-            let success = await executeWorkerStateless(
+            let success = await CommandProcessor.executeWorkerStateless(
                 taskId: taskId,
                 workerClassName: workerClassName,
                 workerConfig: substitutedConfig
@@ -97,76 +123,36 @@ extension NativeWorkmanagerPlugin {
         return true
     }
 
-    private static func substituteTemplates(in config: [String: Any], with values: [String: Any]) -> [String: Any] {
-        var result = config
-        for (key, value) in config {
-            if let strValue = value as? String {
-                result[key] = substituteString(strValue, with: values)
-            } else if let dictValue = value as? [String: Any] {
-                result[key] = substituteTemplates(in: dictValue, with: values)
-            } else if let arrayValue = value as? [[String: Any]] {
-                result[key] = arrayValue.map { substituteTemplates(in: $0, with: values) }
-            }
-        }
-        return result
-    }
-
-    private static func substituteString(_ template: String, with values: [String: Any]) -> String {
-        var result = template
-        for (key, value) in values {
-            let placeholder = "{{\(key)}}"
-            if result.contains(placeholder) {
-                result = result.replacingOccurrences(of: placeholder, with: "\(value)")
-            }
-        }
-        // Also check inside 'data' if present (FCM pattern)
-        if let data = values["data"] as? [String: Any] {
-            for (key, value) in data {
-                let placeholder = "{{\(key)}}"
-                if result.contains(placeholder) {
-                    result = result.replacingOccurrences(of: placeholder, with: "\(value)")
+    private static func verifyHmac(payload: [String: Any], secretKey: String, signature: String) -> Bool {
+        if #available(iOS 13.0, *) {
+            let filteredKeys = payload.keys.filter { $0 != "x-native-wm-signature" }.sorted()
+            let dataToSign = filteredKeys.map { key in
+                let value = payload[key]
+                let valueStr: String
+                
+                if let dict = value as? [String: Any] {
+                    let data = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys, .fragmentsAllowed])
+                    valueStr = data.flatMap { String(data: $0, encoding: .utf8) } ?? "\(value ?? "null")"
+                } else if let array = value as? [Any] {
+                    let data = try? JSONSerialization.data(withJSONObject: array, options: [.sortedKeys, .fragmentsAllowed])
+                    valueStr = data.flatMap { String(data: $0, encoding: .utf8) } ?? "\(value ?? "null")"
+                } else {
+                    valueStr = "\(value ?? "null")"
                 }
+                return "\(key)=\(valueStr)"
+            }.joined(separator: "|")
+            
+            guard let keyData = secretKey.data(using: .utf8),
+                  let messageData = dataToSign.data(using: .utf8) else {
+                return false
             }
+            
+            let key = SymmetricKey(data: keyData)
+            let authenticationCode = HMAC<SHA256>.authenticationCode(for: messageData, using: key)
+            let computedSignature = authenticationCode.map { String(format: "%02hhx", $0) }.joined()
+            
+            return computedSignature.lowercased() == signature.lowercased()
         }
-        return result
-    }
-
-    private static func executeWorkerStateless(taskId: String,
-                                              workerClassName: String,
-                                              workerConfig: [String: Any]) async -> Bool {
-        if workerClassName.contains("HttpDownloadWorker") {
-            // BackgroundSessionManager handles network waiting and partial-file resume
-            return await withCheckedContinuation { continuation in
-                BackgroundSessionManager.shared.download(
-                    taskId: taskId,
-                    config: workerConfig
-                ) { result in
-                    switch result {
-                    case .success: continuation.resume(returning: true)
-                    case .failure: continuation.resume(returning: false)
-                    }
-                }
-            }
-        }
-
-        // For all other worker types, use IosWorkerFactory directly.
-        // Note: events cannot be emitted (Flutter may not be running), but the work is done.
-        guard let worker = IosWorkerFactory.createWorker(className: workerClassName) else {
-            NativeLogger.w("executeWorkerStateless: unknown worker class '\(workerClassName)'")
-            return false
-        }
-
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: workerConfig),
-              let inputJson = String(data: jsonData, encoding: .utf8) else {
-            return false
-        }
-
-        do {
-            let result = try await worker.doWork(input: inputJson, env: WorkerEnvironment(progressListener: nil, isCancelled: { KotlinBoolean(bool: false) }))
-            return result.success
-        } catch {
-            NativeLogger.e("executeWorkerStateless '\(taskId)': \(error.localizedDescription)")
-            return false
-        }
+        return false
     }
 }

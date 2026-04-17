@@ -14,6 +14,7 @@ import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.*
 import dev.brewkits.native_workmanager.notification.DownloadNotificationManager
 import dev.brewkits.native_workmanager.store.TaskStore.Companion.sanitizeConfig
+import dev.brewkits.native_workmanager.utils.MappingUtils.toJson
 import dev.brewkits.native_workmanager.workers.HttpDownloadWorker
 import dev.brewkits.native_workmanager.workers.utils.HostConcurrencyManager
 import dev.brewkits.native_workmanager.workers.utils.KeystorePasswordVault
@@ -598,50 +599,8 @@ internal fun NativeWorkmanagerPlugin.handleGetTaskRecord(call: MethodCall, resul
     }
 }
 
-internal fun NativeWorkmanagerPlugin.parseConstraints(map: Map<String, Any?>?): Constraints {
-    if (map == null) return Constraints()
-
-    val requiresNetwork = map["requiresNetwork"] as? Boolean ?: false
-    val requiresUnmeteredNetwork = map["requiresUnmeteredNetwork"] as? Boolean ?: false
-    val requiresCharging = map["requiresCharging"] as? Boolean ?: false
-    val allowWhileIdle = map["allowWhileIdle"] as? Boolean ?: false
-    val isHeavyTask = map["isHeavyTask"] as? Boolean ?: false
-    val backoffDelayMs = (map["backoffDelayMs"] as? Number)?.toLong() ?: 30_000L
-
-    val backoffPolicy = when ((map["backoffPolicy"] as? String)?.lowercase()) {
-        "linear" -> BackoffPolicy.LINEAR
-        else -> BackoffPolicy.EXPONENTIAL
-    }
-
-    val systemConstraintNames = map["systemConstraints"] as? List<*> ?: emptyList<Any>()
-    val systemConstraints: MutableSet<SystemConstraint> = systemConstraintNames
-        .filterIsInstance<String>()
-        .mapNotNull { name ->
-            when (name) {
-                "allowLowStorage" -> SystemConstraint.ALLOW_LOW_STORAGE
-                "allowLowBattery" -> SystemConstraint.ALLOW_LOW_BATTERY
-                "requireBatteryNotLow" -> SystemConstraint.REQUIRE_BATTERY_NOT_LOW
-                "deviceIdle" -> SystemConstraint.DEVICE_IDLE
-                else -> null
-            }
-        }.toMutableSet()
-
-    // Merge legacy boolean flags into systemConstraints if not already covered
-    if (map["requiresDeviceIdle"] as? Boolean == true) systemConstraints.add(SystemConstraint.DEVICE_IDLE)
-    if (map["requiresBatteryNotLow"] as? Boolean == true) systemConstraints.add(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)
-    // requiresStorageNotLow has no direct SystemConstraint equivalent — intentionally skipped
-
-    return Constraints(
-        requiresNetwork = requiresNetwork,
-        requiresUnmeteredNetwork = requiresUnmeteredNetwork,
-        requiresCharging = requiresCharging,
-        allowWhileIdle = allowWhileIdle,
-        isHeavyTask = isHeavyTask,
-        backoffPolicy = backoffPolicy,
-        backoffDelayMs = backoffDelayMs,
-        systemConstraints = systemConstraints
-    )
-}
+internal fun NativeWorkmanagerPlugin.parseConstraints(map: Map<String, Any?>?): Constraints =
+    dev.brewkits.native_workmanager.utils.MappingUtils.parseConstraints(map)
 
 /**
  * Schedules a OneTime task directly via WorkManager, bypassing kmpworkmanager.

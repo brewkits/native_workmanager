@@ -695,7 +695,7 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
                     ),
                   ),
                   Text(
-                    'v1.1.2 · 40+ ready-to-run examples',
+                    'v1.2.0 · 40+ ready-to-run examples',
                     style: TextStyle(
                       color: Colors.white.withAlpha(200),
                       fontSize: 12,
@@ -2627,8 +2627,9 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
       ),
     ]);
 
-    final accepted =
-        results.where((r) => r.scheduleResult == ScheduleResult.accepted).length;
+    final accepted = results
+        .where((r) => r.scheduleResult == ScheduleResult.accepted)
+        .length;
     _showSnackbar('📋 enqueueAll: $accepted/3 tasks accepted');
   }
 

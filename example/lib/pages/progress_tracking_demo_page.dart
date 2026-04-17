@@ -137,4 +137,3 @@ class _ProgressTrackingDemoPageState extends State<ProgressTrackingDemoPage> {
     );
   }
 }
-

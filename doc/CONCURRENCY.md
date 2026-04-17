@@ -561,4 +561,4 @@ test('service cancels all on logout', () async {
 
 ---
 
-*Last updated: 2026-04-03 — applies to native_workmanager v1.1.2*
+*Last updated: 2026-04-16 — applies to native_workmanager v1.2.0*

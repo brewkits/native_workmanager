@@ -123,6 +123,11 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
     throw UnimplementedError('progress has not been implemented.');
   }
 
+  /// Stream of system-level errors (e.g. Disk Full).
+  Stream<SystemError> get systemErrors {
+    throw UnimplementedError('systemErrors has not been implemented.');
+  }
+
   /// Pause a running task (best-effort; saves resume data where possible).
   Future<void> pauseTask({required String taskId}) {
     throw UnimplementedError('pauseTask() has not been implemented.');

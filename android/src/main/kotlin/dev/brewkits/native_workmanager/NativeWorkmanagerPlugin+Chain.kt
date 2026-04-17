@@ -26,66 +26,17 @@ internal fun NativeWorkmanagerPlugin.handleEnqueueChain(call: MethodCall, result
             @Suppress("UNCHECKED_CAST")
             val steps = call.argument<List<List<Map<String, Any?>>>>("steps") ?: emptyList()
 
-            if (steps.isEmpty() || steps[0].isEmpty()) {
-                return@launch result.error("CHAIN_ERROR", "Chain must have at least one task", null)
-            }
-
-            val chainId = "${chainName}_${java.util.UUID.randomUUID()}"
-            val workManager = WorkManager.getInstance(context)
-            val allTaskIds = mutableListOf<String>()
-
-            // Build OneTimeWorkRequest for each step tagged with its task ID.
-            val stepWorkRequests: List<List<OneTimeWorkRequest>> = steps.mapIndexed { stepIndex, parallelTasks ->
-                @Suppress("UNCHECKED_CAST")
-                (parallelTasks as List<Map<String, Any?>>).map { taskData ->
-                    val taskId = taskData["id"] as? String ?: java.util.UUID.randomUUID().toString()
-                    allTaskIds.add(taskId)
-                    
-                    val workerClassName = taskData["workerClassName"] as? String ?: ""
-                    @Suppress("UNCHECKED_CAST")
-                    val workerConfig = taskData["workerConfig"] as? Map<String, Any?>
-                    
-                    // Persist each step to ChainStore for resume and Dart visibility.
-                    withContext(Dispatchers.IO) {
-                        chainStore.addChainStep(chainId, stepIndex, taskId, "pending")
-                        
-                        // Also persist to TaskStore so allTasks() surfaces chain nodes
-                        taskStore.upsert(
-                            taskId = taskId,
-                            tag = chainName,
-                            status = "pending",
-                            workerClassName = workerClassName,
-                            workerConfig = if (workerConfig != null) sanitizeConfig(toJson(workerConfig)) else null
-                        )
-                    }
-                    buildChainStepRequest(taskId, taskData)
+            dev.brewkits.native_workmanager.utils.ChainHelper.enqueueChain(
+                context = context,
+                taskStore = taskStore,
+                chainStore = chainStore,
+                chainName = chainName,
+                steps = steps,
+                onObserveTaskId = { taskId ->
+                    taskStatuses[taskId] = "pending"
+                    observeChainStepCompletion(taskId, chainId = null) // We pass null because ChainHelper already handled ChainStore persistence
                 }
-            }
-
-            // Persist chain header BEFORE enqueuing (so resume can find it even if killed immediately).
-            withContext(Dispatchers.IO) {
-                chainStore.upsertChain(
-                    chainId = chainId,
-                    chainName = chainName,
-                    totalSteps = steps.size,
-                    status = "running"
-                )
-            }
-
-            // Enqueue as a WorkManager chain.
-            var continuation = workManager.beginWith(stepWorkRequests[0])
-            for (i in 1 until stepWorkRequests.size) {
-                continuation = continuation.then(stepWorkRequests[i])
-            }
-            continuation.enqueue()
-
-            NativeLogger.d("✅ Chain scheduled: $chainName/$chainId (${steps.size} steps), IDs: $allTaskIds")
-
-            // Observe each chain step by its task-ID tag and emit events on completion.
-            for (taskId in allTaskIds) {
-                taskStatuses[taskId] = "pending"
-                observeChainStepCompletion(taskId, chainId = chainId)
-            }
+            )
 
             result.success("ACCEPTED")
         } catch (e: Exception) {
@@ -119,57 +70,6 @@ internal suspend fun NativeWorkmanagerPlugin.resumePendingChains() {
     } catch (e: Exception) {
         NativeLogger.e("resumePendingChains failed", e)
     }
-}
-
-/**
- * Build a OneTimeWorkRequest for a single chain step.
- * The task ID is added as a WorkManager tag so we can observe by tag later.
- */
-internal fun NativeWorkmanagerPlugin.buildChainStepRequest(taskId: String, taskData: Map<String, Any?>): OneTimeWorkRequest {
-    val workerClassName = taskData["workerClassName"] as? String ?: ""
-    @Suppress("UNCHECKED_CAST")
-    val workerConfig = taskData["workerConfig"] as? Map<String, Any?>
-    // Custom workers (NativeWorker.custom) carry user data under "input" key as a
-    // pre-encoded JSON string. Pass that directly so the custom worker receives its
-    // own fields — matching handleEnqueue and iOS executeWorkerSync behaviour.
-    // Built-in workers receive the full config enriched with __taskId for progress.
-    val inputJson: String? = when {
-        workerConfig == null -> null
-        workerConfig["workerType"] == "custom" -> workerConfig["input"] as? String
-        else -> {
-            val enrichedConfig = workerConfig.toMutableMap()
-            if (taskId.isNotEmpty()) enrichedConfig["__taskId"] = taskId
-            toJson(enrichedConfig)
-        }
-    }
-    @Suppress("UNCHECKED_CAST")
-    val constraintsMap = taskData["constraints"] as? Map<String, Any?>
-    val constraints = parseConstraints(constraintsMap)
-
-    val dataBuilder = Data.Builder().putString("workerClassName", workerClassName)
-    if (inputJson != null) dataBuilder.putString("inputJson", inputJson)
-
-    val networkType = when {
-        constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
-        constraints.requiresNetwork -> NetworkType.CONNECTED
-        else -> NetworkType.NOT_REQUIRED
-    }
-    val wmConstraintsBuilder = androidx.work.Constraints.Builder()
-        .setRequiredNetworkType(networkType)
-        .setRequiresCharging(constraints.requiresCharging)
-    val sysConstraints = constraints.systemConstraints ?: emptySet()
-    if (sysConstraints.contains(SystemConstraint.DEVICE_IDLE)) wmConstraintsBuilder.setRequiresDeviceIdle(true)
-    if (sysConstraints.contains(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)) wmConstraintsBuilder.setRequiresBatteryNotLow(true)
-
-    val workerClass = if (constraints.isHeavyTask) KmpHeavyWorker::class.java else KmpWorker::class.java
-    return OneTimeWorkRequest.Builder(workerClass)
-        .setConstraints(wmConstraintsBuilder.build())
-        .setInputData(dataBuilder.build())
-        .addTag(NativeTaskScheduler.TAG_KMP_TASK)
-        .addTag("worker-$workerClassName")
-        .addTag(taskId)         // Critical: allows observeChainStepCompletion to find this work
-        .addTag(workerClassName)
-        .build()
 }
 
 /**

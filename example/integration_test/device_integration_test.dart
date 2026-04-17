@@ -1,6 +1,6 @@
 // ignore_for_file: avoid_print
 // ============================================================
-// Native WorkManager v1.1.2 – DEVICE INTEGRATION TESTS
+// Native WorkManager v1.2.0 – DEVICE INTEGRATION TESTS
 // ============================================================
 //
 // Run on a real device or emulator (NOT unit/mock tests):
@@ -176,9 +176,7 @@ void main() {
         constraints: const Constraints(requiresNetwork: true),
       );
 
-      expect(
-        result,
-        ScheduleResult.accepted,
+      expect(result.scheduleResult, ScheduleResult.accepted,
         reason: 'oneTime task must be accepted',
       );
 
@@ -199,9 +197,7 @@ void main() {
         constraints: const Constraints(requiresNetwork: true),
       );
 
-      expect(
-        result,
-        ScheduleResult.accepted,
+      expect(result.scheduleResult, ScheduleResult.accepted,
         reason: 'Delayed oneTime must be accepted',
       );
 
@@ -234,9 +230,7 @@ void main() {
         worker: DartWorker(callbackId: 'dit_pass'),
       );
 
-      expect(
-        result,
-        ScheduleResult.accepted,
+      expect(result.scheduleResult, ScheduleResult.accepted,
         reason: 'Periodic task must be accepted',
       );
 
@@ -316,7 +310,7 @@ void main() {
         ),
         existingPolicy: ExistingTaskPolicy.keep,
       );
-      expect(r1, ScheduleResult.accepted);
+      expect(r1.scheduleResult, ScheduleResult.accepted);
 
       // Replace with an immediate DartWorker (no network constraint) so WorkManager
       // runs it immediately on any Android version without battery-deferral delays.
@@ -327,7 +321,7 @@ void main() {
         worker: DartWorker(callbackId: 'dit_pass'),
         existingPolicy: ExistingTaskPolicy.replace,
       );
-      expect(r2, ScheduleResult.accepted, reason: 'REPLACE must be accepted');
+      expect(r2.scheduleResult, ScheduleResult.accepted, reason: 'REPLACE must be accepted');
 
       final event = await future;
       expect(event, isNotNull, reason: 'Replaced task must execute');
@@ -348,7 +342,7 @@ void main() {
         ),
         existingPolicy: ExistingTaskPolicy.keep,
       );
-      expect(r1, ScheduleResult.accepted);
+      expect(r1.scheduleResult, ScheduleResult.accepted);
 
       // Second enqueue with KEEP must also be accepted (library-level).
       final r2 = await NativeWorkManager.enqueue(
@@ -359,9 +353,7 @@ void main() {
         ),
         existingPolicy: ExistingTaskPolicy.keep,
       );
-      expect(
-        r2,
-        ScheduleResult.accepted,
+      expect(r2.scheduleResult, ScheduleResult.accepted,
         reason: 'KEEP must be accepted without error',
       );
 
@@ -391,7 +383,7 @@ void main() {
         constraints: const Constraints(requiresNetwork: true),
       );
 
-      expect(result, ScheduleResult.accepted);
+      expect(result.scheduleResult, ScheduleResult.accepted);
       final event = await future;
       expect(
         event?.success,
@@ -413,9 +405,7 @@ void main() {
           constraints: const Constraints(isHeavyTask: true),
         );
 
-        expect(
-          result,
-          ScheduleResult.accepted,
+        expect(result.scheduleResult, ScheduleResult.accepted,
           reason: 'Heavy task must be accepted',
         );
 
@@ -443,9 +433,7 @@ void main() {
         ),
       );
 
-      expect(
-        result,
-        ScheduleResult.accepted,
+      expect(result.scheduleResult, ScheduleResult.accepted,
         reason: 'Linear backoff constraint must be accepted',
       );
 
@@ -470,7 +458,7 @@ void main() {
         ),
       );
 
-      expect(result, ScheduleResult.accepted);
+      expect(result.scheduleResult, ScheduleResult.accepted);
       final event = await future;
       expect(event?.success, isTrue);
     });
@@ -489,9 +477,7 @@ void main() {
         ),
       );
 
-      expect(
-        result,
-        ScheduleResult.accepted,
+      expect(result.scheduleResult, ScheduleResult.accepted,
         reason: 'SystemConstraint must be accepted',
       );
 
@@ -1306,9 +1292,7 @@ void main() {
           ),
         );
 
-        expect(
-          result,
-          ScheduleResult.accepted,
+        expect(result.scheduleResult, ScheduleResult.accepted,
           reason: 'DartWorker with 8s delay must be accepted',
         );
 
@@ -1367,7 +1351,7 @@ void main() {
           constraints: const Constraints(requiresNetwork: true),
         );
 
-        expect(result, ScheduleResult.accepted);
+        expect(result.scheduleResult, ScheduleResult.accepted);
 
         final event = await future;
         final elapsedMs = DateTime.now().difference(enqueueTime).inMilliseconds;
@@ -1417,9 +1401,7 @@ void main() {
           constraints: const Constraints(requiresNetwork: true),
         );
 
-        expect(
-          result,
-          ScheduleResult.accepted,
+        expect(result.scheduleResult, ScheduleResult.accepted,
           reason: 'DartWorker with requiresNetwork must be accepted',
         );
 
@@ -1462,7 +1444,7 @@ void main() {
           constraints: const Constraints(requiresNetwork: true),
         );
 
-        expect(result, ScheduleResult.accepted);
+        expect(result.scheduleResult, ScheduleResult.accepted);
 
         final event = await future;
         final elapsedMs = DateTime.now().difference(enqueueTime).inMilliseconds;
@@ -1913,14 +1895,10 @@ void main() {
       ]);
 
       expect(results.length, equals(2));
-      expect(
-        results[0],
-        equals(ScheduleResult.accepted),
+      expect(results[0].scheduleResult, equals(ScheduleResult.accepted),
         reason: 'First batch task must be accepted',
       );
-      expect(
-        results[1],
-        equals(ScheduleResult.accepted),
+      expect(results[1].scheduleResult, equals(ScheduleResult.accepted),
         reason: 'Second batch task must be accepted',
       );
 
@@ -2307,9 +2285,7 @@ void main() {
         worker: DartWorker(callbackId: 'dit_pass'),
       );
 
-      expect(
-        result,
-        ScheduleResult.accepted,
+      expect(result.scheduleResult, ScheduleResult.accepted,
         reason: 'Windowed trigger must be accepted',
       );
 
@@ -2330,7 +2306,7 @@ void main() {
       );
 
       expect(
-        result,
+        result.scheduleResult,
         anyOf(
           equals(ScheduleResult.accepted),
           equals(ScheduleResult.rejectedOsPolicy),
@@ -2475,9 +2451,7 @@ void main() {
               )
               .enqueue();
 
-      expect(
-        result,
-        ScheduleResult.accepted,
+      expect(result, ScheduleResult.accepted,
         reason: 'Parallel-first-step chain must be accepted',
       );
 

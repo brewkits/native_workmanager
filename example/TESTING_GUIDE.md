@@ -1,6 +1,6 @@
 # 🧪 Native WorkManager Demo App - Testing Guide
 
-**Version:** 1.1.2
+**Version:** 1.2.0
 **Platforms:** iOS 13+ | Android 8.0+
 **Last Updated:** 2026-01-24
 

@@ -163,7 +163,7 @@ void main() {
           trigger: TaskTrigger.oneTime(),
           worker: DartWorker(callbackId: 'stress_worker'),
         );
-        if (result == ScheduleResult.accepted) successCount++;
+        if (result.scheduleResult == ScheduleResult.accepted) successCount++;
         await Future.delayed(const Duration(milliseconds: 50));
       }
       expect(successCount, equals(iterations));
