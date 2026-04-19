@@ -9,8 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.2.1] - 2026-04-19
 
+### Added
+- **Security Hardening**: All HTTP workers now support **HTTPS Enforcement** and **Private IP Blocking (SSRF Protection)** via `NativeWorkManager.initialize(enforceHttps: true, blockPrivateIPs: true)`.
+- **Path Traversal Protection**: Enhanced file path validation to block null-byte injection and encoded dot-segments (`%2e%2e`) across all native workers.
+- **`WorkManagerLogger` interface**: A type-safe delegate for forwarding background task events to third-party SDKs like Firebase or Sentry without dynamic reflection.
+- **New Test Suite**: Added 100+ new test cases covering input sanitization, security policy enforcement, performance benchmarks for large directory operations, and multi-stage task chains.
+
 ### Fixed
+- **Android: Dart Isolate Timeouts**: Implemented hard timeout handling for background Dart execution. If an isolate hangs, the engine is now force-disposed to prevent 50MB+ RAM leaks.
+- **Android: Task Store Performance**: Added batch deletion for task history cleanup to prevent long SQLite write-locks on high-traffic apps.
 - **Migration Tool**: Moved the `migrate.dart` script to the `bin/` directory and added it to the `executables` section in `pubspec.yaml` to resolve the `Could not find bin/migrate.dart` error when running `dart run native_workmanager:migrate` (#14). Also changed `developer.log` to `print` so the CLI output displays correctly.
+- **Test Infrastructure**: Fixed a bug in `TaskEventTracker` where it incorrectly resolved on "task started" events instead of terminal completion events, leading to flakey stress tests.
 
 ---
 
