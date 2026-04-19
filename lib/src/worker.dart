@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'dart:ui';
+import 'native_work_manager.dart';
 
 // Import all worker implementations
 import 'workers.dart';
@@ -75,6 +76,33 @@ class NativeWorker {
         'Example: "https://api.example.com/endpoint"',
       );
     }
+
+    // SECURITY: Enforce HTTPS if configured
+    if (NativeWorkManager.enforceHttps && uri.scheme == 'http') {
+      throw ArgumentError(
+        'Insecure URL blocked: "$url"\n'
+        'HTTPS is enforced by NativeWorkManager.initialize(enforceHttps: true)',
+      );
+    }
+
+    // SECURITY: Block private IPs if configured
+    if (NativeWorkManager.blockPrivateIPs) {
+      final host = uri.host.toLowerCase();
+      final isPrivate = host == 'localhost' ||
+          host == '127.0.0.1' ||
+          host == '::1' ||
+          host.startsWith('192.168.') ||
+          host.startsWith('10.') ||
+          RegExp(r'^172\.(1[6-9]|2[0-9]|3[0-1])\.').hasMatch(host);
+
+      if (isPrivate) {
+        throw ArgumentError(
+          'Private IP URL blocked: "$url"\n'
+          'Requests to private/loopback IPs are blocked by '
+          'NativeWorkManager.initialize(blockPrivateIPs: true) to prevent SSRF.',
+        );
+      }
+    }
   }
 
   /// Validate file path and throw helpful error if invalid.
@@ -87,11 +115,13 @@ class NativeWorker {
     }
 
     // SECURITY: Prevent path traversal attacks
-    if (path.contains('..')) {
+    final normalized = path.toLowerCase();
+    if (normalized.contains('..') ||
+        normalized.contains('%2e%2e') ||
+        normalized.contains('\x00')) {
       throw ArgumentError(
-        'Path traversal detected in $parameterName: "$path"\n'
-        'Paths containing ".." are not allowed for security reasons.\n'
-        'This prevents attacks like "../../../etc/passwd"',
+        'Path traversal or security violation detected in $parameterName: "$path"\n'
+        'Paths containing "..", "%2e%2e", or null bytes are not allowed.',
       );
     }
 

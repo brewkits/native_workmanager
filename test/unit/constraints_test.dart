@@ -147,6 +147,43 @@ void main() {
     });
   });
 
+  group('Constraints - Edge Cases & Mixed Configurations', () {
+    test('should combine boolean flags and systemConstraints', () {
+      final constraints = Constraints(
+        requiresNetwork: true,
+        systemConstraints: {SystemConstraint.deviceIdle},
+      );
+      expect(constraints.requiresNetwork, isTrue);
+      expect(
+        constraints.systemConstraints,
+        contains(SystemConstraint.deviceIdle),
+      );
+    });
+
+    test('should handle bgTaskType override regardless of isHeavyTask', () {
+      final constraints = Constraints(
+        isHeavyTask: true,
+        bgTaskType: BGTaskType.appRefresh,
+      );
+      expect(constraints.isHeavyTask, isTrue);
+      expect(constraints.bgTaskType, BGTaskType.appRefresh);
+
+      final map = constraints.toMap();
+      expect(map['bgTaskType'], 'appRefresh');
+    });
+
+    test('should allow conflicting network constraints (WiFi vs Any)', () {
+      // requiresUnmeteredNetwork implies WiFi, requiresNetwork is Any.
+      // Setting both is redundant but should be allowed.
+      final constraints = Constraints(
+        requiresNetwork: false,
+        requiresUnmeteredNetwork: true,
+      );
+      expect(constraints.requiresNetwork, isFalse);
+      expect(constraints.requiresUnmeteredNetwork, isTrue);
+    });
+  });
+
   group('Constraints - Use Cases', () {
     test('should create constraints for background sync (network required)',
         () {

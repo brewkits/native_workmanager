@@ -93,6 +93,43 @@ void main() {
       );
     });
 
+    testWidgets(
+      'Chain Resilience – partial chain completion survived across re-initialization',
+      (tester) async {
+        final id = _id('interrupted_chain');
+
+        // We'll create a chain of 2 tasks.
+        await NativeWorkManager.beginWith(
+          TaskRequest(
+            id: '$id-1',
+            worker: const HttpRequestWorker(url: 'https://httpbin.org/get'),
+          ),
+        ).then(
+          TaskRequest(
+            id: '$id-2',
+            worker: const HttpRequestWorker(url: 'https://httpbin.org/get'),
+          ),
+        ).enqueue();
+
+        // Wait for task 1
+        final event1 = await _waitEvent('$id-1');
+        expect(event1?.success, isTrue);
+
+        // Simulate "restart" by re-initializing (this doesn't actually restart 
+        // the native side, but tests that the Dart stream still picks it up)
+        await NativeWorkManager.initialize(dartWorkers: {'sys_pass': _sysPass});
+
+        // Wait for task 2
+        final event2 =
+            await _waitEvent('$id-2', timeout: const Duration(seconds: 90));
+        expect(
+          event2?.success,
+          isTrue,
+          reason: 'Second task of chain should still complete',
+        );
+      },
+    );
+
     testWidgets('rapid enqueue+cancel loop – no crash', (tester) async {
       for (var i = 0; i < 20; i++) {
         final id = _id('rapid_$i');

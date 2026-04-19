@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -111,10 +112,23 @@ object FlutterEngineManager {
                 }
             })
 
+            var timedOut = false
             val result = try {
                 withTimeout(timeoutMs) { resultDeferred.await() }
+            } catch (e: TimeoutCancellationException) {
+                // Dart isolate is hung (infinite loop / deadlock). Force-dispose the engine
+                // immediately regardless of autoDispose or other in-flight tasks — a hung
+                // isolate leaks ~50 MB RAM and burns CPU until the OS kills the process.
+                timedOut = true
+                false
             } finally {
                 activeTaskCount.decrementAndGet()
+            }
+
+            if (timedOut) {
+                NativeLogger.e("DartWorker timed out after ${timeoutMs}ms — force-disposing engine to free hung isolate")
+                try { dispose() } catch (_: Exception) {}
+                return@withContext false
             }
 
             if (disposeImmediately && activeTaskCount.get() <= 0) {
@@ -127,8 +141,6 @@ object FlutterEngineManager {
             result
         } catch (e: Exception) {
             NativeLogger.e("Error executing Dart callback", e)
-            // Error occurred — likely a timeout or crash. Dispose immediately if no other tasks
-            // are running to ensure a clean slate and free RAM from a potentially hung Isolate.
             if (activeTaskCount.get() <= 0) {
                 try { dispose() } catch (_: Exception) {}
             }

@@ -124,6 +124,23 @@ Future<bool> _chainC(Map<String, dynamic>? input) async {
   return true;
 }
 
+@pragma('vm:entry-point')
+Future<bool> _workflowFinalizer(Map<String, dynamic>? input) async {
+  print('[DartWorker] _workflowFinalizer starting...');
+  final downloadPath = input?['downloadPath'] as String?;
+  final encryptedPath = input?['encryptedPath'] as String?;
+
+  if (downloadPath == null || encryptedPath == null) return false;
+
+  final encFile = File(encryptedPath);
+  if (!encFile.existsSync()) return false;
+
+  print(
+    '[DartWorker] _workflowFinalizer: success, encrypted file size: ${encFile.lengthSync()}',
+  );
+  return true;
+}
+
 // ──────────────────────────────────────────────────────────────
 // Main
 // ──────────────────────────────────────────────────────────────
@@ -145,6 +162,7 @@ void main() {
         'chain_a': _chainA,
         'chain_b': _chainB,
         'chain_c': _chainC,
+        'workflow_finalizer': _workflowFinalizer,
       },
     );
 
@@ -2473,5 +2491,59 @@ void main() {
         reason: 'First-step task B must complete',
       );
     });
+
+    testWidgets(
+      'Complex Multi-Stage Workflow (Download -> Encrypt -> Dart Finalizer)',
+      (tester) async {
+        final id = _id('workflow');
+        final downloadPath = '${tmpDir.path}/data.txt';
+        final encryptedPath = '${tmpDir.path}/data.enc';
+
+        // Cleanup (though tmpDir is fresh)
+        if (File(downloadPath).existsSync()) File(downloadPath).deleteSync();
+        if (File(encryptedPath).existsSync()) File(encryptedPath).deleteSync();
+
+        await NativeWorkManager.beginWith(
+          TaskRequest(
+            id: '$id-1',
+            worker: NativeWorker.httpDownload(
+              url: 'https://httpbin.org/range/1024',
+              savePath: downloadPath,
+            ),
+          ),
+        ).then(
+          TaskRequest(
+            id: '$id-2',
+            worker: NativeWorker.cryptoEncrypt(
+              inputPath: downloadPath,
+              outputPath: encryptedPath,
+              password: 'super-secret-password',
+            ),
+          ),
+        ).then(
+          TaskRequest(
+            id: '$id-3',
+            worker: DartWorker(
+              callbackId: 'workflow_finalizer',
+              input: {
+                'downloadPath': downloadPath,
+                'encryptedPath': encryptedPath,
+              },
+            ),
+          ),
+        ).enqueue();
+
+        final event = await _waitEvent(
+          '$id-3',
+          timeout: const Duration(seconds: 120),
+        );
+        expect(
+          event?.success,
+          isTrue,
+          reason: 'Complex workflow should succeed',
+        );
+        expect(File(encryptedPath).existsSync(), isTrue);
+      },
+    );
   });
 }

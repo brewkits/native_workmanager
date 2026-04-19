@@ -71,6 +71,38 @@ void main() {
       developer.log('Create 500×5 workers: ${sw.elapsedMilliseconds}ms');
       expect(sw.elapsedMilliseconds, lessThan(1000));
     });
+
+    test('benchmark: directory listing with 1000 files', () async {
+      final dir = Directory('$testDirPath/large_dir')..createSync();
+      for (int i = 0; i < 1000; i++) {
+        File('${dir.path}/file_$i.txt').writeAsStringSync('data');
+      }
+
+      final sw = Stopwatch()..start();
+      final contents = dir.listSync();
+      sw.stop();
+
+      developer.log('listSync 1000 files: ${sw.elapsedMilliseconds}ms');
+      expect(contents.length, 1000);
+      expect(sw.elapsedMilliseconds, lessThan(200),
+          reason: 'Listing 1000 files should be fast');
+    });
+
+    test('benchmark: recursive directory deletion (1000 files)', () async {
+      final dir = Directory('$testDirPath/delete_dir')..createSync();
+      for (int i = 0; i < 1000; i++) {
+        File('${dir.path}/file_$i.txt').writeAsStringSync('data');
+      }
+
+      final sw = Stopwatch()..start();
+      dir.deleteSync(recursive: true);
+      sw.stop();
+
+      developer.log('deleteSync (recursive) 1000 files: ${sw.elapsedMilliseconds}ms');
+      expect(dir.existsSync(), isFalse);
+      expect(sw.elapsedMilliseconds, lessThan(500),
+          reason: 'Deleting 1000 files should finish in <500ms');
+    });
   });
 
   group('Serialization Benchmarks', () {

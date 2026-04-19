@@ -19,9 +19,9 @@ class TaskEventTracker {
   void start() {
     _sub = NativeWorkManager.events.listen((event) {
       final completer = _completers[event.taskId];
-      if (completer != null && !completer.isCompleted) {
+      if (completer != null && !completer.isCompleted && !event.isStarted) {
         print(
-          '[Tracker] Received event for ${event.taskId} (success: ${event.success})',
+          '[Tracker] Received terminal event for ${event.taskId} (success: ${event.success})',
         );
         completer.complete(event);
       }
@@ -101,9 +101,9 @@ void main() {
 
   group('Stress Tests', () {
     testWidgets(
-      'Massive Enqueue: 20 tasks mixed (Native + Dart)',
+      'Massive Enqueue: 30 tasks mixed (Native + Dart)',
       (tester) async {
-        const taskCount = 20;
+        const taskCount = 30;
         final ids = List.generate(taskCount, (i) => _id('massive_$i'));
 
         print('Enqueuing $taskCount tasks with delays...');
@@ -120,7 +120,7 @@ void main() {
             worker: worker,
           );
 
-          // Small delay to prevent OS scheduler from being overwhelmed
+          // Staggering more to avoid bridge congestion
           await Future.delayed(const Duration(milliseconds: 200));
         }
 
@@ -139,11 +139,11 @@ void main() {
         print('Completed: $completedCount / $taskCount');
         expect(
           completedCount,
-          greaterThanOrEqualTo(15),
-          reason: 'Most tasks should complete with staggered scheduling',
+          greaterThanOrEqualTo(24), // 80%
+          reason: 'At least 80% of tasks should complete with staggered scheduling',
         );
       },
-      timeout: const Timeout(Duration(minutes: 6)),
+      timeout: const Timeout(Duration(minutes: 8)),
     );
 
     testWidgets('Rapid-fire Enqueue/Cancel loop', (tester) async {

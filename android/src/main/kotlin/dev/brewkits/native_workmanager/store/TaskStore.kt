@@ -142,13 +142,18 @@ internal class TaskStore(context: Context) {
         dbHelper.writableDatabase.delete("tasks", "task_id = ?", arrayOf(taskId))
     }
 
-    fun deleteCompleted(olderThanMs: Long = 0L) {
+    fun deleteCompleted(olderThanMs: Long = 0L, batchSize: Int = 1000) {
         val threshold = if (olderThanMs > 0) System.currentTimeMillis() - olderThanMs else Long.MAX_VALUE
-        dbHelper.writableDatabase.delete(
-            "tasks",
-            "status IN ('completed','failed','cancelled') AND updated_at < ?",
-            arrayOf(threshold.toString())
-        )
+        // Batch delete to avoid holding a long write-lock that blocks concurrent upsert calls.
+        // Repeat until fewer rows than batchSize are deleted (i.e. no more rows to clean).
+        do {
+            val deleted = dbHelper.writableDatabase.delete(
+                "tasks",
+                "task_id IN (SELECT task_id FROM tasks WHERE status IN ('completed','failed','cancelled') AND updated_at < ? LIMIT ?)",
+                arrayOf(threshold.toString(), batchSize.toString())
+            )
+            if (deleted < batchSize) break
+        } while (true)
     }
 
     private fun android.database.Cursor.toRecord(): TaskRecord {
