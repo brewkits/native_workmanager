@@ -2,7 +2,6 @@
 
 import 'dart:io';
 
-
 void main(List<String> args) async {
   print('');
   print('╔═══════════════════════════════════════════════════════════╗');
@@ -36,8 +35,7 @@ class MigrationTool {
     final pubspecPath = '$projectPath/pubspec.yaml';
     if (!File(pubspecPath).existsSync()) {
       print('❌ Error: pubspec.yaml not found');
-      print(
-          '   Make sure you\'re running this from your Flutter project root');
+      print('   Make sure you\'re running this from your Flutter project root');
       exit(1);
     }
 

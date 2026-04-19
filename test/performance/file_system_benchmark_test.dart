@@ -98,7 +98,8 @@ void main() {
       dir.deleteSync(recursive: true);
       sw.stop();
 
-      developer.log('deleteSync (recursive) 1000 files: ${sw.elapsedMilliseconds}ms');
+      developer.log(
+          'deleteSync (recursive) 1000 files: ${sw.elapsedMilliseconds}ms');
       expect(dir.existsSync(), isFalse);
       expect(sw.elapsedMilliseconds, lessThan(500),
           reason: 'Deleting 1000 files should finish in <500ms');

@@ -69,12 +69,18 @@ class _ColdStartDemoPageState extends State<ColdStartDemoPage> {
       _log(
         '  Android: SharedPreferences["dev.brewkits.native_workmanager"]["callback_handle"]',
       );
-      _log('  iOS:     UserDefaults["dev.brewkits.native_workmanager.callback_handle"]');
+      _log(
+        '  iOS:     UserDefaults["dev.brewkits.native_workmanager.callback_handle"]',
+      );
       _log(
         '  ✅ After app kill, WorkManager reads this handle to boot Dart engine',
         level: _LogLevel.success,
       );
-      _setResult('handle_persistence', true, 'Handle persisted on initialize()');
+      _setResult(
+        'handle_persistence',
+        true,
+        'Handle persisted on initialize()',
+      );
     } catch (e) {
       _log('  ❌ Failed: $e', level: _LogLevel.error);
       _setResult('handle_persistence', false, e.toString());
@@ -94,7 +100,9 @@ class _ColdStartDemoPageState extends State<ColdStartDemoPage> {
     try {
       final completer = Completer<TaskEvent>();
       final sub = NativeWorkManager.events.listen((event) {
-        if (event.taskId == taskId && !event.isStarted && !completer.isCompleted) {
+        if (event.taskId == taskId &&
+            !event.isStarted &&
+            !completer.isCompleted) {
           completer.complete(event);
         }
       });
@@ -108,7 +116,10 @@ class _ColdStartDemoPageState extends State<ColdStartDemoPage> {
 
       final event = await completer.future.timeout(
         const Duration(seconds: 30),
-        onTimeout: () => throw TimeoutException('DartWorker timed out', const Duration(seconds: 30)),
+        onTimeout: () => throw TimeoutException(
+          'DartWorker timed out',
+          const Duration(seconds: 30),
+        ),
       );
       await sub.cancel();
 
@@ -121,11 +132,7 @@ class _ColdStartDemoPageState extends State<ColdStartDemoPage> {
         _log(
           '  Engine was: ${elapsedMs < 300 ? "warm (cached)" : "cold (fresh boot)"}',
         );
-        _setResult(
-          'dart_worker_warm',
-          true,
-          'Completed in ${elapsedMs}ms',
-        );
+        _setResult('dart_worker_warm', true, 'Completed in ${elapsedMs}ms');
       } else {
         _log('  ❌ DartWorker returned failure', level: _LogLevel.error);
         _setResult('dart_worker_warm', false, event.message ?? 'Task failed');
@@ -145,14 +152,19 @@ class _ColdStartDemoPageState extends State<ColdStartDemoPage> {
   // (cold); the second reuses it (warm). Demonstrates ~5× speedup.
   // ──────────────────────────────────────────────────────────────
   Future<void> _testEngineCaching() async {
-    _log('▶ Test 3: Engine caching (cold vs warm start)', level: _LogLevel.header);
+    _log(
+      '▶ Test 3: Engine caching (cold vs warm start)',
+      level: _LogLevel.header,
+    );
 
     Future<int> runWorker(String label) async {
       final taskId = 'cold_start_cache_${label}_${_taskCounter++}';
       final startMs = DateTime.now().millisecondsSinceEpoch;
       final completer = Completer<TaskEvent>();
       final sub = NativeWorkManager.events.listen((event) {
-        if (event.taskId == taskId && !event.isStarted && !completer.isCompleted) {
+        if (event.taskId == taskId &&
+            !event.isStarted &&
+            !completer.isCompleted) {
           completer.complete(event);
         }
       });
@@ -212,13 +224,19 @@ class _ColdStartDemoPageState extends State<ColdStartDemoPage> {
     if (Platform.isAndroid) {
       _log('  Platform: Android');
       _log('  Plugin handles automatically:');
-      _log('    ✅ callbackHandle persisted to SharedPreferences on initialize()');
+      _log(
+        '    ✅ callbackHandle persisted to SharedPreferences on initialize()',
+      );
       _log('    ✅ FlutterLoader initialized before JNI on cold process start');
-      _log('    ✅ Headless FlutterEngine with automaticallyRegisterPlugins=false');
+      _log(
+        '    ✅ Headless FlutterEngine with automaticallyRegisterPlugins=false',
+      );
       _log('  Host app MUST provide (see doc/ANDROID_SETUP.md §3):');
       _log('    ⚠️  Application class implementing Configuration.Provider');
       _log('    ⚠️  KmpWorkerFactory in getWorkManagerConfiguration()');
-      _log('    ⚠️  WorkManager default auto-initializer removed from manifest');
+      _log(
+        '    ⚠️  WorkManager default auto-initializer removed from manifest',
+      );
       _log('    ⚠️  callbackHandle restored in Application.onCreate()');
       _setResult(
         'platform_setup',
@@ -229,9 +247,13 @@ class _ColdStartDemoPageState extends State<ColdStartDemoPage> {
       _log('  Platform: iOS');
       _log('  Plugin handles automatically:');
       _log('    ✅ callbackHandle persisted to UserDefaults on initialize()');
-      _log('    ✅ Handle restored in FlutterEngineManager.ensureEngineInitialized()');
+      _log(
+        '    ✅ Handle restored in FlutterEngineManager.ensureEngineInitialized()',
+      );
       _log('    ✅ No custom Application class needed on iOS');
-      _log('  Host app must configure Info.plist (run once: dart run native_workmanager:setup_ios):');
+      _log(
+        '  Host app must configure Info.plist (run once: dart run native_workmanager:setup_ios):',
+      );
       _log('    ⚠️  UIBackgroundModes: fetch, processing');
       _log('    ⚠️  BGTaskSchedulerPermittedIdentifiers: app bundle ID');
       _setResult(
@@ -253,8 +275,17 @@ class _ColdStartDemoPageState extends State<ColdStartDemoPage> {
       _logs.clear();
     });
 
-    _log('═══ Cold-Start DartWorker Persistence Tests ═══', level: _LogLevel.header);
-    _log('Platform: ${Platform.isAndroid ? "Android" : Platform.isIOS ? "iOS" : "Unknown"}');
+    _log(
+      '═══ Cold-Start DartWorker Persistence Tests ═══',
+      level: _LogLevel.header,
+    );
+    _log(
+      'Platform: ${Platform.isAndroid
+          ? "Android"
+          : Platform.isIOS
+          ? "iOS"
+          : "Unknown"}',
+    );
     _log('');
 
     await _testHandlePersistence();
@@ -324,9 +355,7 @@ class _ColdStartDemoPageState extends State<ColdStartDemoPage> {
           // Platform requirements card
           Padding(
             padding: const EdgeInsets.all(12),
-            child: _PlatformRequirementsCard(
-              isAndroid: Platform.isAndroid,
-            ),
+            child: _PlatformRequirementsCard(isAndroid: Platform.isAndroid),
           ),
 
           // Test result chips
@@ -364,7 +393,9 @@ class _ColdStartDemoPageState extends State<ColdStartDemoPage> {
               decoration: BoxDecoration(
                 color: cs.surfaceContainerHighest.withValues(alpha: 0.5),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
+                border: Border.all(
+                  color: cs.outlineVariant.withValues(alpha: 0.5),
+                ),
               ),
               child: _logs.isEmpty
                   ? Center(
@@ -456,7 +487,8 @@ class _PlatformRequirementsCard extends StatelessWidget {
             ),
             _RequirementItem(
               done: false,
-              text: 'KmpWorkerFactory in getWorkManagerConfiguration() (host app)',
+              text:
+                  'KmpWorkerFactory in getWorkManagerConfiguration() (host app)',
             ),
             _RequirementItem(
               done: false,
@@ -474,7 +506,8 @@ class _PlatformRequirementsCard extends StatelessWidget {
             ),
             _RequirementItem(
               done: false,
-              text: 'Info.plist: UIBackgroundModes, BGTaskSchedulerPermittedIdentifiers',
+              text:
+                  'Info.plist: UIBackgroundModes, BGTaskSchedulerPermittedIdentifiers',
             ),
           ];
 
@@ -534,7 +567,9 @@ class _RequirementItem extends StatelessWidget {
                 fontSize: 11,
                 color: done
                     ? Theme.of(context).colorScheme.onSurface
-                    : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
+                    : Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.7),
               ),
             ),
           ),

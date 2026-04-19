@@ -151,19 +151,22 @@ void main() {
 
       await NativeWorkManager.enqueue(
         taskId: taskId,
-        worker: DartWorker(
-          callbackId: 'echo',
-          input: {'key': 'hello'},
-        ),
+        worker: DartWorker(callbackId: 'echo', input: {'key': 'hello'}),
         trigger: const TaskTrigger.oneTime(),
       );
 
       final event = await eventFuture;
       expect(event, isNotNull, reason: 'DartWorker timed out after 60s');
-      expect(event!.success, isTrue, reason: 'Echo worker should return true when key is present');
+      expect(
+        event!.success,
+        isTrue,
+        reason: 'Echo worker should return true when key is present',
+      );
     });
 
-    testWidgets('DartWorker with missing input key returns failure', (tester) async {
+    testWidgets('DartWorker with missing input key returns failure', (
+      tester,
+    ) async {
       final taskId = _id('dart_echo_fail');
       final eventFuture = _waitEvent(taskId);
 
@@ -171,14 +174,18 @@ void main() {
         taskId: taskId,
         worker: DartWorker(
           callbackId: 'echo',
-          input: {},   // no 'key' → callback returns false
+          input: {}, // no 'key' → callback returns false
         ),
         trigger: const TaskTrigger.oneTime(),
       );
 
       final event = await eventFuture;
       expect(event, isNotNull, reason: 'DartWorker timed out after 60s');
-      expect(event!.success, isFalse, reason: 'Echo worker should fail when key is missing');
+      expect(
+        event!.success,
+        isFalse,
+        reason: 'Echo worker should fail when key is missing',
+      );
     });
   });
 
@@ -233,8 +240,11 @@ void main() {
           trigger: const TaskTrigger.oneTime(),
         );
         final event = await eventFuture;
-        expect(event?.success, isTrue,
-            reason: 'Handle must be set for DartWorker to succeed');
+        expect(
+          event?.success,
+          isTrue,
+          reason: 'Handle must be set for DartWorker to succeed',
+        );
       },
     );
   });
@@ -249,7 +259,9 @@ void main() {
       );
     });
 
-    testWidgets('second DartWorker executes in ≤ first execution time', (tester) async {
+    testWidgets('second DartWorker executes in ≤ first execution time', (
+      tester,
+    ) async {
       // First task — may be cold start (FlutterEngine boot: 500-1000ms)
       final id1 = _id('cache_cold');
       final t0 = DateTime.now();
@@ -275,7 +287,9 @@ void main() {
       await future2;
       final warmMs = DateTime.now().difference(t1).inMilliseconds;
       print('[Cache Test] Warm start: ${warmMs}ms');
-      print('[Cache Test] Speedup: ${(coldMs / warmMs.clamp(1, coldMs)).toStringAsFixed(1)}×');
+      print(
+        '[Cache Test] Speedup: ${(coldMs / warmMs.clamp(1, coldMs)).toStringAsFixed(1)}×',
+      );
 
       // Warm should be ≤ cold. Allow generous margin for WorkManager scheduling jitter.
       // The key insight is warm should not be dramatically SLOWER than cold.
@@ -283,7 +297,9 @@ void main() {
       // On emulators: both may be similar due to scheduling overhead.
       expect(
         warmMs,
-        lessThanOrEqualTo(coldMs + 5000), // 5s margin for WorkManager scheduling
+        lessThanOrEqualTo(
+          coldMs + 5000,
+        ), // 5s margin for WorkManager scheduling
         reason: 'Warm start should not be dramatically slower than cold start',
       );
     });
@@ -299,9 +315,14 @@ void main() {
       );
     });
 
-    testWidgets('native HTTP worker succeeds independently of DartWorker', (tester) async {
+    testWidgets('native HTTP worker succeeds independently of DartWorker', (
+      tester,
+    ) async {
       final nativeId = _id('native_coexist');
-      final eventFuture = _waitEvent(nativeId, timeout: const Duration(seconds: 30));
+      final eventFuture = _waitEvent(
+        nativeId,
+        timeout: const Duration(seconds: 30),
+      );
 
       await NativeWorkManager.enqueue(
         taskId: nativeId,
@@ -318,12 +339,17 @@ void main() {
       expect(event!.success, isTrue, reason: 'Native HTTP GET should succeed');
     });
 
-    testWidgets('DartWorker and native worker run in same session', (tester) async {
+    testWidgets('DartWorker and native worker run in same session', (
+      tester,
+    ) async {
       final dartId = _id('coexist_dart');
       final nativeId = _id('coexist_native');
 
       final dartFuture = _waitEvent(dartId);
-      final nativeFuture = _waitEvent(nativeId, timeout: const Duration(seconds: 30));
+      final nativeFuture = _waitEvent(
+        nativeId,
+        timeout: const Duration(seconds: 30),
+      );
 
       // Enqueue both
       await NativeWorkManager.enqueue(
@@ -345,7 +371,11 @@ void main() {
       final nativeEvent = await nativeFuture;
 
       expect(dartEvent?.success, isTrue, reason: 'DartWorker should succeed');
-      expect(nativeEvent?.success, isTrue, reason: 'Native worker should succeed');
+      expect(
+        nativeEvent?.success,
+        isTrue,
+        reason: 'Native worker should succeed',
+      );
     });
   });
 
@@ -361,7 +391,9 @@ void main() {
       );
     });
 
-    testWidgets('$workerCount sequential DartWorkers all succeed', (tester) async {
+    testWidgets('$workerCount sequential DartWorkers all succeed', (
+      tester,
+    ) async {
       for (var i = 0; i < workerCount; i++) {
         final taskId = _id('stress_seq_$i');
         final eventFuture = _waitEvent(taskId);
@@ -377,7 +409,9 @@ void main() {
       }
     });
 
-    testWidgets('$workerCount concurrent DartWorkers all succeed', (tester) async {
+    testWidgets('$workerCount concurrent DartWorkers all succeed', (
+      tester,
+    ) async {
       final ids = List.generate(workerCount, (i) => _id('stress_conc_$i'));
       final futures = ids.map((id) => _waitEvent(id)).toList();
 

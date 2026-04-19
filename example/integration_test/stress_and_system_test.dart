@@ -140,7 +140,8 @@ void main() {
         expect(
           completedCount,
           greaterThanOrEqualTo(24), // 80%
-          reason: 'At least 80% of tasks should complete with staggered scheduling',
+          reason:
+              'At least 80% of tasks should complete with staggered scheduling',
         );
       },
       timeout: const Timeout(Duration(minutes: 8)),

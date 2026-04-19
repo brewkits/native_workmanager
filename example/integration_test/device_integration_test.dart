@@ -194,7 +194,9 @@ void main() {
         constraints: const Constraints(requiresNetwork: true),
       );
 
-      expect(result.scheduleResult, ScheduleResult.accepted,
+      expect(
+        result.scheduleResult,
+        ScheduleResult.accepted,
         reason: 'oneTime task must be accepted',
       );
 
@@ -215,7 +217,9 @@ void main() {
         constraints: const Constraints(requiresNetwork: true),
       );
 
-      expect(result.scheduleResult, ScheduleResult.accepted,
+      expect(
+        result.scheduleResult,
+        ScheduleResult.accepted,
         reason: 'Delayed oneTime must be accepted',
       );
 
@@ -248,7 +252,9 @@ void main() {
         worker: DartWorker(callbackId: 'dit_pass'),
       );
 
-      expect(result.scheduleResult, ScheduleResult.accepted,
+      expect(
+        result.scheduleResult,
+        ScheduleResult.accepted,
         reason: 'Periodic task must be accepted',
       );
 
@@ -339,7 +345,11 @@ void main() {
         worker: DartWorker(callbackId: 'dit_pass'),
         existingPolicy: ExistingTaskPolicy.replace,
       );
-      expect(r2.scheduleResult, ScheduleResult.accepted, reason: 'REPLACE must be accepted');
+      expect(
+        r2.scheduleResult,
+        ScheduleResult.accepted,
+        reason: 'REPLACE must be accepted',
+      );
 
       final event = await future;
       expect(event, isNotNull, reason: 'Replaced task must execute');
@@ -371,7 +381,9 @@ void main() {
         ),
         existingPolicy: ExistingTaskPolicy.keep,
       );
-      expect(r2.scheduleResult, ScheduleResult.accepted,
+      expect(
+        r2.scheduleResult,
+        ScheduleResult.accepted,
         reason: 'KEEP must be accepted without error',
       );
 
@@ -423,7 +435,9 @@ void main() {
           constraints: const Constraints(isHeavyTask: true),
         );
 
-        expect(result.scheduleResult, ScheduleResult.accepted,
+        expect(
+          result.scheduleResult,
+          ScheduleResult.accepted,
           reason: 'Heavy task must be accepted',
         );
 
@@ -451,7 +465,9 @@ void main() {
         ),
       );
 
-      expect(result.scheduleResult, ScheduleResult.accepted,
+      expect(
+        result.scheduleResult,
+        ScheduleResult.accepted,
         reason: 'Linear backoff constraint must be accepted',
       );
 
@@ -495,7 +511,9 @@ void main() {
         ),
       );
 
-      expect(result.scheduleResult, ScheduleResult.accepted,
+      expect(
+        result.scheduleResult,
+        ScheduleResult.accepted,
         reason: 'SystemConstraint must be accepted',
       );
 
@@ -1310,7 +1328,9 @@ void main() {
           ),
         );
 
-        expect(result.scheduleResult, ScheduleResult.accepted,
+        expect(
+          result.scheduleResult,
+          ScheduleResult.accepted,
           reason: 'DartWorker with 8s delay must be accepted',
         );
 
@@ -1419,7 +1439,9 @@ void main() {
           constraints: const Constraints(requiresNetwork: true),
         );
 
-        expect(result.scheduleResult, ScheduleResult.accepted,
+        expect(
+          result.scheduleResult,
+          ScheduleResult.accepted,
           reason: 'DartWorker with requiresNetwork must be accepted',
         );
 
@@ -1913,10 +1935,14 @@ void main() {
       ]);
 
       expect(results.length, equals(2));
-      expect(results[0].scheduleResult, equals(ScheduleResult.accepted),
+      expect(
+        results[0].scheduleResult,
+        equals(ScheduleResult.accepted),
         reason: 'First batch task must be accepted',
       );
-      expect(results[1].scheduleResult, equals(ScheduleResult.accepted),
+      expect(
+        results[1].scheduleResult,
+        equals(ScheduleResult.accepted),
         reason: 'Second batch task must be accepted',
       );
 
@@ -2303,7 +2329,9 @@ void main() {
         worker: DartWorker(callbackId: 'dit_pass'),
       );
 
-      expect(result.scheduleResult, ScheduleResult.accepted,
+      expect(
+        result.scheduleResult,
+        ScheduleResult.accepted,
         reason: 'Windowed trigger must be accepted',
       );
 
@@ -2469,7 +2497,9 @@ void main() {
               )
               .enqueue();
 
-      expect(result, ScheduleResult.accepted,
+      expect(
+        result,
+        ScheduleResult.accepted,
         reason: 'Parallel-first-step chain must be accepted',
       );
 
@@ -2504,34 +2534,37 @@ void main() {
         if (File(encryptedPath).existsSync()) File(encryptedPath).deleteSync();
 
         await NativeWorkManager.beginWith(
-          TaskRequest(
-            id: '$id-1',
-            worker: NativeWorker.httpDownload(
-              url: 'https://httpbin.org/range/1024',
-              savePath: downloadPath,
-            ),
-          ),
-        ).then(
-          TaskRequest(
-            id: '$id-2',
-            worker: NativeWorker.cryptoEncrypt(
-              inputPath: downloadPath,
-              outputPath: encryptedPath,
-              password: 'super-secret-password',
-            ),
-          ),
-        ).then(
-          TaskRequest(
-            id: '$id-3',
-            worker: DartWorker(
-              callbackId: 'workflow_finalizer',
-              input: {
-                'downloadPath': downloadPath,
-                'encryptedPath': encryptedPath,
-              },
-            ),
-          ),
-        ).enqueue();
+              TaskRequest(
+                id: '$id-1',
+                worker: NativeWorker.httpDownload(
+                  url: 'https://httpbin.org/range/1024',
+                  savePath: downloadPath,
+                ),
+              ),
+            )
+            .then(
+              TaskRequest(
+                id: '$id-2',
+                worker: NativeWorker.cryptoEncrypt(
+                  inputPath: downloadPath,
+                  outputPath: encryptedPath,
+                  password: 'super-secret-password',
+                ),
+              ),
+            )
+            .then(
+              TaskRequest(
+                id: '$id-3',
+                worker: DartWorker(
+                  callbackId: 'workflow_finalizer',
+                  input: {
+                    'downloadPath': downloadPath,
+                    'encryptedPath': encryptedPath,
+                  },
+                ),
+              ),
+            )
+            .enqueue();
 
         final event = await _waitEvent(
           '$id-3',

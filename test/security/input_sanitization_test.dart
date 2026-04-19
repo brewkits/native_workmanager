@@ -4,7 +4,9 @@ import 'package:native_workmanager/native_workmanager.dart';
 /// Security tests for input sanitization and privacy.
 void main() {
   group('Input Sanitization & Privacy', () {
-    test('DartWorker input preserves data for bridge (redaction happens on native persistence)', () {
+    test(
+        'DartWorker input preserves data for bridge (redaction happens on native persistence)',
+        () {
       final worker = DartWorker(
         callbackId: 'test',
         input: {
@@ -13,9 +15,9 @@ void main() {
           'password': 'password123',
         },
       );
-      
+
       final map = worker.toMap();
-      // Verify that Dart side DOES NOT redact before sending to native, 
+      // Verify that Dart side DOES NOT redact before sending to native,
       // as the native worker needs these values for the immediate execution.
       expect(map['input'], contains('secret-123'));
       expect(map['input'], contains('password123'));
@@ -29,7 +31,7 @@ void main() {
           'X-Api-Key': 'key-456',
         },
       );
-      
+
       final map = worker.toMap();
       expect(map['headers']['Authorization'], 'Bearer my-token');
       expect(map['headers']['X-Api-Key'], 'key-456');
@@ -39,10 +41,18 @@ void main() {
       // This test verifies the logic used on the native side for redaction.
       // If we ever move redaction to Dart, this logic will be the baseline.
       final sensitiveKeys = {
-        "authToken", "authorization", "cookies", "password", "secret",
-        "accessToken", "refreshToken", "apiKey", "token", "bearer"
+        "authToken",
+        "authorization",
+        "cookies",
+        "password",
+        "secret",
+        "accessToken",
+        "refreshToken",
+        "apiKey",
+        "token",
+        "bearer"
       };
-      
+
       Map<String, dynamic> simulateRedact(Map<String, dynamic> input) {
         final result = Map<String, dynamic>.from(input);
         for (final key in result.keys.toList()) {
@@ -54,14 +64,14 @@ void main() {
         }
         return result;
       }
-      
+
       final input = {
         'apiKey': '123',
         'nested': {'password': 'abc'},
         'safe': 'ok',
         'Authorization': 'Bearer xyz'
       };
-      
+
       final redacted = simulateRedact(input);
       expect(redacted['apiKey'], '[REDACTED]');
       expect(redacted['nested']['password'], '[REDACTED]');
