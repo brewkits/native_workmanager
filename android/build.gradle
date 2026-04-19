@@ -1,5 +1,5 @@
 group = "dev.brewkits.native_workmanager"
-version = "1.2.0"
+version = "1.2.1"
 
 apply plugin: "com.android.library"
 apply plugin: "kotlin-android"
