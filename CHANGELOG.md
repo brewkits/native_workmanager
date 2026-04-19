@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.1] - 2026-04-19
+
+### Fixed
+- **Migration Tool**: Moved the `migrate.dart` script to the `bin/` directory and added it to the `executables` section in `pubspec.yaml` to resolve the `Could not find bin/migrate.dart` error when running `dart run native_workmanager:migrate` (#14). Also changed `developer.log` to `print` so the CLI output displays correctly.
+
+---
+
 ## [1.2.0] - 2026-04-17
 
 ### Added
