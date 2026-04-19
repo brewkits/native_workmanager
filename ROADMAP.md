@@ -4,32 +4,39 @@ Our mission is to provide the most robust, efficient, and secure background exec
 
 ---
 
-## ✅ Completed (v1.1.0)
-- **Zero-Flutter-Engine Workers:** 25+ native workers for HTTP, Crypto, File, Image, and more.
-- **Remote Trigger:** Support for FCM (Android) and APNs (iOS) data messages to trigger native workers without waking Flutter.
-- **Task Chaining:** Sequential and parallel task execution with native persistence.
-- **Isolate Caching:** 5-minute warm engine retention for Dart callbacks.
-- **Enterprise Security:** Certificate pinning, HMAC signing, SSRF protection, Zip-bomb protection.
-- **Fluent API:** Builder-style task configuration.
-- **DevTools Extension:** Real-time task and engine monitoring.
+## ✅ Completed (v1.2.x)
+- **Android Cold-Start Persistence:** `DartWorker` execution reliably survives app kills and restores automatically via `SharedPreferences`.
+- **Advanced Remote Trigger (FCM/APNs):** Deep integration allowing backends to enqueue complete Task Chains, Graphs, and Offline Queues via silent push without waking the Flutter Engine.
+- **HMAC Security:** Robust HMAC SHA-256 signature verification for remote triggers.
+- **Task Dependency Graph (DAG):** Support for complex non-linear task dependencies.
+- **Middleware / Decorator API:** Global interceptors for task execution (e.g., custom logging, analytics, dynamic headers).
+- **Code Generation (`native_workmanager_gen`):** Generate type-safe enqueue wrappers and automatic worker registries via `@WorkerCallback` annotations.
+- **Real-Time Observability:** DevTools extension real-time visualizer for tracking task events and engine status.
+- **Automated Migration Tool:** CLI tool to safely migrate legacy `workmanager` projects to `native_workmanager` (`dart run native_workmanager:migrate`).
 
 ---
 
-## 🛠 Phase 2: Power & Flexibility (v2.0.x)
-- [ ] **Advanced Remote Trigger (FCM/APNs):** Deep integration allowing backends to enqueue complete Task Graphs and Offline Queues via silent push without waking the Flutter Engine.
-- [ ] **Observability (DevTools Extension):** Real-time visualizer for Task Graphs (DAG) and Offline Queue inspection directly within Flutter DevTools.
-- [ ] **Task Dependency Graph (DAG):** Support for complex non-linear task dependencies.
-- [ ] **Offline Queue Pattern:** Built-in pattern for queuing tasks while offline with automatic file/database-backed retry.
-- [ ] **Middleware / Decorator API:** Intercept task execution for custom logging, analytics, or global headers.
+## ✅ Completed (v1.1.0)
+- **Zero-Flutter-Engine Workers:** 25+ native workers for HTTP, Crypto, File, Image, and more.
+- **Task Chaining:** Sequential and parallel task execution with native SQLite persistence.
+- **Isolate Caching:** 5-minute warm engine retention for Dart callbacks.
+- **Enterprise Security:** Certificate pinning, SSRF protection, Zip-bomb protection.
+- **Fluent API:** Builder-style task configuration.
+
+---
+
+## 🛠 Phase 2: Patterns & Reliability (v1.3.x - v1.5.x)
+- [ ] **Offline Queue Pattern:** Built-in declarative pattern for queuing tasks while offline with automatic file/database-backed retry.
+- [ ] **native_workmanager_firebase:** Dedicated companion package for seamless, highly optimized Firebase integration (FCM triggers, Analytics, Crashlytics).
+- [ ] **Task Tagging & Batch Operations:** Cancel or query multiple tasks at once via tags.
+- [ ] **Advanced iOS Background Optimization:** Further improvements to memory footprint and BGTaskScheduler integration.
 
 [Phase 2 Architectural Proposals available in internal documentation]
 
 ---
 
-## 🚀 Phase 3: Ecosystem & Scale (v2.5.x+)
-- [ ] **Code Generation:** `native_workmanager_gen` to generate type-safe worker wrappers.
-- [ ] **native_workmanager_firebase:** Dedicated companion package for seamless Firebase integration.
-- [ ] **Cloud Coordination:** Synchronize task status across multiple devices.
+## 🚀 Phase 3: Ecosystem & Scale (v2.0.x+)
+- [ ] **Cloud Coordination:** Synchronize task status and dependency resolution across multiple devices.
 - [ ] **Enterprise Rate Limiting:** Advanced bandwidth and concurrency control for multi-tenant apps.
 - [ ] **Desktop Support:** Expanding the native worker engine to Windows, macOS, and Linux.
 
