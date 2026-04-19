@@ -27,7 +27,7 @@ class TaskProgressBuilder extends StatelessWidget {
 
   /// The builder function that is called every time a new progress update arrives.
   ///
-  /// [progress] is the latest update, or null if no update has arrived yet.
+  /// `progress` is the latest update, or null if no update has arrived yet.
   final Widget Function(BuildContext context, TaskProgress? progress) builder;
 
   /// An optional initial progress value to use before the first update arrives.

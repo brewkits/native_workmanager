@@ -60,7 +60,7 @@ public class IosWorkerFactory {
     ///   - factory: Closure that creates worker instance
     public static func registerWorker(className: String, factory: @escaping () -> IosWorker) {
         userWorkers[className] = factory
-        print("IosWorkerFactory: Registered custom worker '\(className)'")
+        NativeLogger.d("IosWorkerFactory: Registered custom worker '\(className)'")
     }
 
     /// Unregister a custom worker.
@@ -68,7 +68,7 @@ public class IosWorkerFactory {
     /// - Parameter className: The worker class name to unregister
     public static func unregisterWorker(className: String) {
         userWorkers.removeValue(forKey: className)
-        print("IosWorkerFactory: Unregistered custom worker '\(className)'")
+        NativeLogger.d("IosWorkerFactory: Unregistered custom worker '\(className)'")
     }
 
     /// Create a worker instance by class name.
@@ -78,7 +78,7 @@ public class IosWorkerFactory {
     /// - Parameter className: The worker class name (e.g., "HttpRequestWorker")
     /// - Returns: Worker instance, or nil if class not found
     static func createWorker(className: String) -> IosWorker? {
-        NSLog("[NativeWorkManager] IosWorkerFactory: creating worker '\(className)'")
+        NativeLogger.d("IosWorkerFactory: creating worker '\(className)'")
         // Try user-registered worker first
         if let factory = userWorkers[className] {
             return factory()

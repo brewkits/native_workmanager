@@ -1,6 +1,6 @@
 # Documentation
 
-native_workmanager v1.2.0 documentation index.
+native_workmanager v1.2.1 documentation index.
 
 ## Getting Started
 
@@ -70,4 +70,4 @@ native_workmanager v1.2.0 documentation index.
 - **[../CONTRIBUTING.md](../CONTRIBUTING.md)** — Contributing guidelines
 - **[../example/](../example/)** — Working example app
 
-Last updated: 2026-04-16 (v1.2.0)
+Last updated: 2026-04-16 (v1.2.1)

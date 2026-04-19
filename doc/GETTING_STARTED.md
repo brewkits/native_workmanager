@@ -16,7 +16,7 @@
   - Set `minSdk 26` in `android/app/build.gradle`
   - [Full Android setup guide →](ANDROID_SETUP.md)
 
-- **iOS:** iOS 12.0+ required
+- **iOS:** iOS 14.0+ required
   - Background tasks have 30-second execution limit
   - [Full iOS setup guide →](IOS_BACKGROUND_LIMITS.md)
 
@@ -34,7 +34,7 @@ Or manually:
 
 ```yaml
 dependencies:
-  native_workmanager: ^1.0.3
+  native_workmanager: ^1.2.1
 ```
 
 Then run:

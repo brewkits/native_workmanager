@@ -27,7 +27,7 @@ class SQLiteStore {
 
     private func open() {
         if sqlite3_open(dbPath, &db) != SQLITE_OK {
-            print("[NativeWorkmanager] Error opening database at \(dbPath)")
+            NativeLogger.e("SQLiteStore: failed to open database at path")
         } else {
             // Enable WAL mode for better concurrency (one writer, many readers)
             execute(sql: "PRAGMA journal_mode=WAL;")
@@ -46,7 +46,7 @@ class SQLiteStore {
         return queue.sync {
             var statement: OpaquePointer?
             if sqlite3_prepare_v2(db, sql, -1, &statement, nil) != SQLITE_OK {
-                print("[NativeWorkmanager] Error preparing SQL: \(sql)")
+                NativeLogger.e("SQLiteStore: failed to prepare SQL")
                 return false
             }
             
@@ -74,7 +74,7 @@ class SQLiteStore {
             var results: [[String: Any]] = []
             
             if sqlite3_prepare_v2(db, sql, -1, &statement, nil) != SQLITE_OK {
-                print("[NativeWorkmanager] Error preparing query: \(sql)")
+                NativeLogger.e("SQLiteStore: failed to prepare query")
                 return []
             }
             

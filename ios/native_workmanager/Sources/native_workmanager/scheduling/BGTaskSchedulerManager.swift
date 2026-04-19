@@ -111,7 +111,7 @@ class BGTaskSchedulerManager {
             self?.handleAppRefreshTask(task as! BGAppRefreshTask)
         }
 
-        print("BGTaskSchedulerManager: Handlers registered")
+        NativeLogger.d("BGTaskSchedulerManager: Handlers registered")
     }
 
     // MARK: - Scheduling
@@ -167,7 +167,7 @@ class BGTaskSchedulerManager {
             processingRequest.requiresNetworkConnectivity = requiresNetwork
             processingRequest.requiresExternalPower = requiresExternalPower
             request = processingRequest
-            print("BGTaskSchedulerManager: Using BGProcessingTask for heavy task with identifier '\(identifier)'")
+            NativeLogger.d("BGTaskSchedulerManager: Using BGProcessingTask for heavy task with identifier '\(identifier)'")
         } else {
             // Normal task: Use BGAppRefreshTask (30s limit, no network/power constraints).
             // Use the provided identifier — the caller is responsible for registering it
@@ -176,7 +176,7 @@ class BGTaskSchedulerManager {
             // identifier would silently execute under a different BGTask slot, making
             // per-task scheduling impossible.
             request = BGAppRefreshTaskRequest(identifier: identifier)
-            print("BGTaskSchedulerManager: Using BGAppRefreshTask with identifier '\(identifier)'")
+            NativeLogger.d("BGTaskSchedulerManager: Using BGAppRefreshTask with identifier '\(identifier)'")
         }
 
         request.earliestBeginDate = earliestBeginDate
@@ -184,10 +184,10 @@ class BGTaskSchedulerManager {
         // Submit request
         do {
             try BGTaskScheduler.shared.submit(request)
-            print("BGTaskSchedulerManager: Scheduled task '\(taskId)' with identifier '\(identifier)'")
+            NativeLogger.d("BGTaskSchedulerManager: Scheduled task '\(taskId)' with identifier '\(identifier)'")
             return true
         } catch {
-            print("BGTaskSchedulerManager: Failed to schedule task: \(error)")
+            NativeLogger.e("BGTaskSchedulerManager: failed to schedule task")
             return false
         }
     }
@@ -201,7 +201,7 @@ class BGTaskSchedulerManager {
 
         // Note: BGTaskScheduler doesn't support canceling individual tasks
         // We can only cancel all tasks or let them expire
-        print("BGTaskSchedulerManager: Cancelled task '\(taskId)'")
+        NativeLogger.d("BGTaskSchedulerManager: Cancelled task '\(taskId)'")
     }
 
     /// Cancel all scheduled tasks.
@@ -212,19 +212,19 @@ class BGTaskSchedulerManager {
         }
 
         BGTaskScheduler.shared.cancelAllTaskRequests()
-        print("BGTaskSchedulerManager: Cancelled all tasks")
+        NativeLogger.d("BGTaskSchedulerManager: Cancelled all tasks")
     }
 
     // MARK: - Task Execution
 
     /// Handle BGProcessingTask execution.
     private func handleBackgroundTask(_ task: BGProcessingTask) {
-        print("BGTaskSchedulerManager: Processing task started")
+        NativeLogger.d("BGTaskSchedulerManager: Processing task started")
         onTaskStart?()
 
         // Get task info from storage
         guard let taskInfo = loadNextPendingTask() else {
-            print("BGTaskSchedulerManager: No pending tasks")
+            NativeLogger.d("BGTaskSchedulerManager: No pending tasks")
             task.setTaskCompleted(success: true)
             return
         }
@@ -232,7 +232,7 @@ class BGTaskSchedulerManager {
         // Setup expiration handler
         // Use [weak self] to prevent retain cycle and call stop()
         task.expirationHandler = { [weak self] in
-            print("BGTaskSchedulerManager: Task expired")
+            NativeLogger.d("BGTaskSchedulerManager: Task expired")
             self?.activeWorker?.stop()
             self?.onExpiration?()
             self?.onTaskComplete?(taskInfo.taskId, false, "Task expired")
@@ -261,7 +261,7 @@ class BGTaskSchedulerManager {
 
     /// Handle BGAppRefreshTask execution.
     private func handleAppRefreshTask(_ task: BGAppRefreshTask) {
-        print("BGTaskSchedulerManager: App refresh task started")
+        NativeLogger.d("BGTaskSchedulerManager: App refresh task started")
         onTaskStart?()
 
         // Similar to handleBackgroundTask but with stricter time limit (~30s)
@@ -272,7 +272,7 @@ class BGTaskSchedulerManager {
 
         // Use [weak self] to prevent retain cycle and call stop()
         task.expirationHandler = { [weak self] in
-            print("BGTaskSchedulerManager: Refresh task expired")
+            NativeLogger.d("BGTaskSchedulerManager: Refresh task expired")
             self?.activeWorker?.stop()
             self?.onExpiration?()
             self?.onTaskComplete?(taskInfo.taskId, false, "Refresh expired")
@@ -292,7 +292,7 @@ class BGTaskSchedulerManager {
 
     /// Execute a worker with the given task info.
     private func executeWorker(taskInfo: TaskInfo) async -> Bool {
-        print("BGTaskSchedulerManager: Executing worker '\(taskInfo.workerClassName)' for task '\(taskInfo.taskId)' with QoS: \(taskInfo.qos)")
+        NativeLogger.d("BGTaskSchedulerManager: Executing worker '\(taskInfo.workerClassName)' for task '\(taskInfo.taskId)' with QoS: \(taskInfo.qos)")
 
         // Map QoS string to DispatchQoS
         let qos = mapQoS(taskInfo.qos)
@@ -303,7 +303,7 @@ class BGTaskSchedulerManager {
                 Task {
                     // Convert config to JSON string
                     guard let worker = IosWorkerFactory.createWorker(className: taskInfo.workerClassName) else {
-                        print("BGTaskSchedulerManager: Unknown worker class: \(taskInfo.workerClassName)")
+                        NativeLogger.e("BGTaskSchedulerManager: unknown worker class")
                         continuation.resume(returning: false)
                         return
                     }
@@ -326,7 +326,7 @@ class BGTaskSchedulerManager {
                         }
 
                         let result = try await worker.doWork(input: inputForWorker, env: WorkerEnvironment(progressListener: nil, isCancelled: { KotlinBoolean(bool: false) }))
-                        print("BGTaskSchedulerManager: Worker execution \(result.success ? "succeeded" : "failed")")
+                        NativeLogger.d("BGTaskSchedulerManager: Worker execution \(result.success ? "succeeded" : "failed")")
 
                         // Remove from pending tasks on success
                         if result.success {
@@ -338,7 +338,7 @@ class BGTaskSchedulerManager {
 
                         continuation.resume(returning: result.success)
                     } catch {
-                        print("BGTaskSchedulerManager: Worker execution error: \(error)")
+                        NativeLogger.e("BGTaskSchedulerManager: worker execution error")
                         continuation.resume(returning: false)
                     }
                 }
@@ -374,7 +374,7 @@ class BGTaskSchedulerManager {
             let data = try JSONEncoder().encode(pendingTasks)
             try data.write(to: storageURL)
         } catch {
-            print("BGTaskSchedulerManager: Failed to save pending tasks: \(error)")
+            NativeLogger.e("BGTaskSchedulerManager: failed to save pending tasks")
         }
     }
 
@@ -384,9 +384,9 @@ class BGTaskSchedulerManager {
         do {
             let data = try Data(contentsOf: storageURL)
             pendingTasks = try JSONDecoder().decode([String: TaskInfo].self, from: data)
-            print("BGTaskSchedulerManager: Loaded \(pendingTasks.count) pending tasks")
+            NativeLogger.d("BGTaskSchedulerManager: Loaded \(pendingTasks.count) pending tasks")
         } catch {
-            print("BGTaskSchedulerManager: Failed to load pending tasks: \(error)")
+            NativeLogger.e("BGTaskSchedulerManager: failed to load pending tasks")
         }
     }
 
@@ -407,7 +407,7 @@ class BGTaskSchedulerManager {
     /// e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"dev.brewkits.native_workmanager.task"]
     /// ```
     func simulateTaskExecution(identifier: String = defaultTaskIdentifier) {
-        print("BGTaskSchedulerManager: Simulating task execution for '\(identifier)'")
+        NativeLogger.d("BGTaskSchedulerManager: Simulating task execution for '\(identifier)'")
         // This is called via debugger commands
     }
     #endif

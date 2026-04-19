@@ -192,42 +192,29 @@ await myTaskLogic();  // Test this works
 
 ### Q: Can I pass data between tasks in a chain?
 
-**A:** Currently, data passing between tasks is **not directly supported** in v1.1.1.
-
-**Workaround (v1.1.1):**
-Use shared storage:
+**A:** Direct data passing between tasks is not natively supported. Use shared storage as a workaround:
 
 ```dart
 // Task 1: Save result
-await NativeWorkManager.enqueue(
-  taskId: 'task1',
-  worker: DartWorker(callbackId: 'saveData'),
-);
-
-// In callback:
-void saveData() async {
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.setString('task1_result', jsonEncode(result));
-}
-
-// Task 2: Read result
 await NativeWorkManager.beginWith(
   TaskRequest(id: 'task1', worker: DartWorker(callbackId: 'saveData')),
 ).then(
   TaskRequest(id: 'task2', worker: DartWorker(callbackId: 'useData')),
 ).enqueue();
 
-// In callback:
+// In task1 callback:
+void saveData() async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setString('task1_result', jsonEncode(result));
+}
+
+// In task2 callback:
 void useData() async {
   final prefs = await SharedPreferences.getInstance();
   final data = jsonDecode(prefs.getString('task1_result')!);
   // Use data...
 }
 ```
-
-**Coming in v1.1:**
-- Native variable passing between tasks
-- Automatic data serialization
 
 ---
 
