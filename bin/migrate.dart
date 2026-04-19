@@ -1,17 +1,15 @@
 #!/usr/bin/env dart
 
 import 'dart:io';
-import 'dart:developer' as developer;
+
 
 void main(List<String> args) async {
-  developer.log('');
-  developer
-      .log('╔═══════════════════════════════════════════════════════════╗');
-  developer.log('║   native_workmanager Migration Tool                      ║');
-  developer.log('║   workmanager → native_workmanager               ║');
-  developer
-      .log('╚═══════════════════════════════════════════════════════════╝');
-  developer.log('');
+  print('');
+  print('╔═══════════════════════════════════════════════════════════╗');
+  print('║   native_workmanager Migration Tool                      ║');
+  print('║   workmanager → native_workmanager               ║');
+  print('╚═══════════════════════════════════════════════════════════╝');
+  print('');
 
   final dryRun = args.contains('--dry-run');
   final pathIndex = args.indexOf('--path');
@@ -30,30 +28,30 @@ class MigrationTool {
   MigrationTool(this.projectPath, {this.dryRun = false});
 
   Future<void> run() async {
-    developer.log('📁 Project path: $projectPath');
-    developer.log('🔍 Scanning for workmanager usage...');
-    developer.log('');
+    print('📁 Project path: $projectPath');
+    print('🔍 Scanning for workmanager usage...');
+    print('');
 
     // Step 1: Scan pubspec.yaml
     final pubspecPath = '$projectPath/pubspec.yaml';
     if (!File(pubspecPath).existsSync()) {
-      developer.log('❌ Error: pubspec.yaml not found');
-      developer.log(
+      print('❌ Error: pubspec.yaml not found');
+      print(
           '   Make sure you\'re running this from your Flutter project root');
       exit(1);
     }
 
     final hasDependency = await _checkPubspecDependency(pubspecPath);
     if (hasDependency == false) {
-      developer.log('ℹ️  workmanager not found in dependencies');
-      developer.log('   Nothing to migrate!');
+      print('ℹ️  workmanager not found in dependencies');
+      print('   Nothing to migrate!');
       exit(0);
     }
 
     // Step 2: Scan Dart files
     final dartFiles = await _findDartFiles();
-    developer.log('📄 Found ${dartFiles.length} Dart files');
-    developer.log('');
+    print('📄 Found ${dartFiles.length} Dart files');
+    print('');
 
     // Step 3: Analyze usage
     final analysis = await _analyzeFiles(dartFiles);
@@ -63,17 +61,17 @@ class MigrationTool {
 
     // Step 5: Generate migration code
     if (dryRun) {
-      developer.log('');
-      developer.log('🏃 DRY RUN MODE - No files will be modified');
-      developer.log('   Remove --dry-run flag to apply changes');
+      print('');
+      print('🏃 DRY RUN MODE - No files will be modified');
+      print('   Remove --dry-run flag to apply changes');
     } else {
-      developer.log('');
+      print('');
       stdout.write('Generate migration code? (y/n): ');
       final response = stdin.readLineSync();
       if (response?.toLowerCase() == 'y') {
         await _generateMigration(analysis);
       } else {
-        developer.log('Migration cancelled');
+        print('Migration cancelled');
       }
     }
   }
@@ -145,73 +143,70 @@ class MigrationTool {
   }
 
   void _displayReport(MigrationAnalysis analysis) {
-    developer
-        .log('╔═══════════════════════════════════════════════════════════╗');
-    developer
-        .log('║   Migration Analysis Report                              ║');
-    developer
-        .log('╚═══════════════════════════════════════════════════════════╝');
-    developer.log('');
+    print('╔═══════════════════════════════════════════════════════════╗');
+    print('║   Migration Analysis Report                              ║');
+    print('╚═══════════════════════════════════════════════════════════╝');
+    print('');
 
     // Summary
-    developer.log('📊 Summary:');
-    developer.log('   Files with import: ${analysis.filesWithImport.length}');
-    developer.log('   Initialize calls: ${analysis.initializeCalls.length}');
-    developer.log('   One-off tasks: ${analysis.oneOffTasks}');
-    developer.log('   Periodic tasks: ${analysis.periodicTasks}');
-    developer.log('   Callback files: ${analysis.callbackFiles.length}');
-    developer.log('');
+    print('📊 Summary:');
+    print('   Files with import: ${analysis.filesWithImport.length}');
+    print('   Initialize calls: ${analysis.initializeCalls.length}');
+    print('   One-off tasks: ${analysis.oneOffTasks}');
+    print('   Periodic tasks: ${analysis.periodicTasks}');
+    print('   Callback files: ${analysis.callbackFiles.length}');
+    print('');
 
     // Compatibility
     final totalTasks = analysis.oneOffTasks + analysis.periodicTasks;
     final compatibilityPercent = totalTasks > 0 ? 90 : 100;
-    developer.log('✅ Compatibility: $compatibilityPercent%');
-    developer.log('   $totalTasks tasks → Automatic migration possible');
+    print('✅ Compatibility: $compatibilityPercent%');
+    print('   $totalTasks tasks → Automatic migration possible');
     if (analysis.callbackFiles.isNotEmpty) {
-      developer.log(
+      print(
           '   ⚠️  ${analysis.callbackFiles.length} callback(s) → Manual review needed');
     }
-    developer.log('');
+    print('');
 
     // Detailed breakdown
     if (analysis.filesWithImport.isNotEmpty) {
-      developer.log('📄 Files with workmanager import:');
+      print('📄 Files with workmanager import:');
       for (final file in analysis.filesWithImport) {
-        developer.log('   • $file');
+        print('   • $file');
       }
-      developer.log('');
+      print('');
     }
 
     if (analysis.initializeCalls.isNotEmpty) {
-      developer.log('🔧 Files with Workmanager().initialize():');
+      print('🔧 Files with Workmanager().initialize():');
       for (final file in analysis.initializeCalls) {
-        developer.log('   • $file');
+        print('   • $file');
       }
-      developer.log('');
+      print('');
     }
 
     if (analysis.filesWithOneOff.isNotEmpty) {
-      developer.log('⚡ Files with registerOneOffTask():');
+      print('⚡ Files with registerOneOffTask():');
       for (final file in analysis.filesWithOneOff) {
-        developer.log('   • $file');
+        print('   • $file');
       }
-      developer.log('');
+      print('');
     }
 
     if (analysis.filesWithPeriodic.isNotEmpty) {
-      developer.log('🔄 Files with registerPeriodicTask():');
+      print('🔄 Files with registerPeriodicTask():');
       for (final file in analysis.filesWithPeriodic) {
-        developer.log('   • $file');
+        print('   • $file');
       }
-      developer.log('');
+      print('');
     }
 
     if (analysis.callbackFiles.isNotEmpty) {
-      developer.log('⚠️  Callback files (manual review needed):');
+      print('⚠️  Callback files (manual review needed):');
       for (final file in analysis.callbackFiles) {
-        developer.log('   • $file');
+        print('   • $file');
       }
-      developer.log('');
+      print('');
     }
   }
 
@@ -222,9 +217,9 @@ class MigrationTool {
     }
     migrationDir.createSync();
 
-    developer.log('');
-    developer.log('📝 Generating migration files...');
-    developer.log('');
+    print('');
+    print('📝 Generating migration files...');
+    print('');
 
     // Generate new pubspec.yaml
     await _generatePubspec(migrationDir);
@@ -238,23 +233,23 @@ class MigrationTool {
     // Generate checklist
     await _generateChecklist(migrationDir, analysis);
 
-    developer.log('');
-    developer.log('✅ Migration files generated in: migration/');
-    developer.log('');
-    developer.log('📁 Generated files:');
-    developer.log('   • pubspec.yaml.new        - Updated dependencies');
-    developer.log('   • MIGRATION_GUIDE.md      - Step-by-step guide');
-    developer.log('   • CODE_SAMPLES.md         - Before/after examples');
-    developer.log('   • CHECKLIST.md            - Migration checklist');
-    developer.log('');
-    developer.log('📖 Next steps:');
-    developer.log('   1. Review migration/MIGRATION_GUIDE.md');
-    developer.log('   2. Update pubspec.yaml:');
-    developer.log('      cp migration/pubspec.yaml.new pubspec.yaml');
-    developer.log('      flutter pub get');
-    developer.log('   3. Follow migration/CHECKLIST.md');
-    developer.log('   4. Test thoroughly before deploying');
-    developer.log('');
+    print('');
+    print('✅ Migration files generated in: migration/');
+    print('');
+    print('📁 Generated files:');
+    print('   • pubspec.yaml.new        - Updated dependencies');
+    print('   • MIGRATION_GUIDE.md      - Step-by-step guide');
+    print('   • CODE_SAMPLES.md         - Before/after examples');
+    print('   • CHECKLIST.md            - Migration checklist');
+    print('');
+    print('📖 Next steps:');
+    print('   1. Review migration/MIGRATION_GUIDE.md');
+    print('   2. Update pubspec.yaml:');
+    print('      cp migration/pubspec.yaml.new pubspec.yaml');
+    print('      flutter pub get');
+    print('   3. Follow migration/CHECKLIST.md');
+    print('   4. Test thoroughly before deploying');
+    print('');
   }
 
   Future<void> _generatePubspec(Directory dir) async {
@@ -266,7 +261,7 @@ class MigrationTool {
     );
 
     await File('${dir.path}/pubspec.yaml.new').writeAsString(newPubspec);
-    developer.log('   ✅ Generated pubspec.yaml.new');
+    print('   ✅ Generated pubspec.yaml.new');
   }
 
   Future<void> _generateMigrationGuide(
@@ -482,7 +477,7 @@ await NativeWorkManager.enqueue(
 3. **Monitor events:**
 ```dart
 NativeWorkManager.events.listen((event) {
-  developer.log('Task \${event.taskId}: \${event.state}');
+  print('Task \${event.taskId}: \${event.state}');
 });
 ```
 
@@ -539,7 +534,7 @@ flutter run
 """;
 
     await File('${dir.path}/MIGRATION_GUIDE.md').writeAsString(guide);
-    developer.log('   ✅ Generated MIGRATION_GUIDE.md');
+    print('   ✅ Generated MIGRATION_GUIDE.md');
   }
 
   Future<void> _generateCodeSamples(
@@ -693,7 +688,7 @@ await NativeWorkManager.enqueue(
 """;
 
     await File('${dir.path}/CODE_SAMPLES.md').writeAsString(samples);
-    developer.log('   ✅ Generated CODE_SAMPLES.md');
+    print('   ✅ Generated CODE_SAMPLES.md');
   }
 
   Future<void> _generateChecklist(
@@ -817,7 +812,7 @@ If you need to rollback:
 """;
 
     await File('${dir.path}/CHECKLIST.md').writeAsString(checklist);
-    developer.log('   ✅ Generated CHECKLIST.md');
+    print('   ✅ Generated CHECKLIST.md');
   }
 
   String _estimateMigrationTime(MigrationAnalysis analysis) {

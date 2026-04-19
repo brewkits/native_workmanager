@@ -12,20 +12,20 @@ Analyzes your codebase and generates migration code automatically.
 
 ```bash
 # Run from your Flutter project root
-dart run path/to/native_workmanager/tools/migrate.dart
+dart run native_workmanager:migrate
 ```
 
 ### Usage
 
 ```bash
 # Basic usage (current directory)
-dart run tools/migrate.dart
+dart run native_workmanager:migrate
 
 # Dry run (analyze only, don't generate files)
-dart run tools/migrate.dart --dry-run
+dart run native_workmanager:migrate --dry-run
 
 # Specify project path
-dart run tools/migrate.dart --path /path/to/your/project
+dart run native_workmanager:migrate --path /path/to/your/project
 ```
 
 ---
@@ -184,7 +184,7 @@ Interactive checklist with:
 ### Step 1: Analyze
 
 ```bash
-dart run tools/migrate.dart --dry-run
+dart run native_workmanager:migrate --dry-run
 ```
 
 Review the analysis report to understand:
@@ -195,7 +195,7 @@ Review the analysis report to understand:
 ### Step 2: Generate
 
 ```bash
-dart run tools/migrate.dart
+dart run native_workmanager:migrate
 # Answer 'y' when prompted
 ```
 
@@ -367,20 +367,14 @@ flutter doctor
 **Solution:** Run from your Flutter project root:
 ```bash
 cd /path/to/your/flutter/project
-dart run path/to/migrate.dart
+dart run native_workmanager:migrate
 ```
 
 ### Issue: No workmanager found
 
 This is expected if you're not using workmanager. The tool is only for migrating existing projects.
 
-### Issue: Permission denied
 
-**Solution:** Make the script executable:
-```bash
-chmod +x tools/migrate.dart
-./tools/migrate.dart
-```
 
 ---
 
