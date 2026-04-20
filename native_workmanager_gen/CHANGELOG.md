@@ -1,3 +1,13 @@
+## 1.0.4
+
+- Widen `analyzer` constraint from `^12.0.0` to `>=10.0.0 <13.0.0` so that
+  Flutter projects whose SDK pins `meta` to `1.17.0` (e.g. Flutter 3.41.x)
+  can resolve the dependency without conflict — `analyzer 10.x` requires
+  `meta ^1.15.0` which satisfies the pin.
+- Fix deprecation: replace `getDisplayString(withNullability: false)` with
+  `getDisplayString()` (the `withNullability` parameter was deprecated across
+  all supported analyzer versions).
+
 ## 1.0.3
 
 - Require analyzer `>=12.0.0` and Dart SDK `>=3.9.0` to match pub.dev analysis

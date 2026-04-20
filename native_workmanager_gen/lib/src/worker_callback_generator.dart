@@ -159,7 +159,7 @@ class WorkerCallbackGenerator extends Generator {
               : annotation
                     .read('inputType')
                     .typeValue
-                    .getDisplayString(withNullability: false),
+                    .getDisplayString(),
         ),
       );
     }
