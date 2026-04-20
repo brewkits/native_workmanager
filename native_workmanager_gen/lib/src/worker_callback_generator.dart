@@ -156,10 +156,7 @@ class WorkerCallbackGenerator extends Generator {
           functionName: element.displayName,
           inputTypeName: annotation.read('inputType').isNull
               ? null
-              : annotation
-                    .read('inputType')
-                    .typeValue
-                    .getDisplayString(),
+              : annotation.read('inputType').typeValue.getDisplayString(),
         ),
       );
     }
