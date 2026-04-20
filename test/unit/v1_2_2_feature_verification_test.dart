@@ -184,7 +184,8 @@ void main() {
 
     tearDown(_resetNativeWorkManager);
 
-    test('second initialize() call is a no-op (flag kept from first call)', () async {
+    test('second initialize() call is a no-op (flag kept from first call)',
+        () async {
       await NativeWorkManager.initialize(registerPlugins: true);
       expect(NativeWorkManager.registerPluginsEnabled, isTrue);
 
@@ -253,10 +254,13 @@ void main() {
       expect(values.toSet().length, equals(values.length));
     });
 
-    test('FakeWorkManager can simulate rejectedOsPolicy for oversized periodic task', () async {
+    test(
+        'FakeWorkManager can simulate rejectedOsPolicy for oversized periodic task',
+        () async {
       // Simulates the kmpworkmanager 2.4.0 behaviour: a periodic task whose
       // serialised config exceeds 8 KB returns rejectedOsPolicy.
-      final wm = FakeWorkManager()..enqueueResult = ScheduleResult.rejectedOsPolicy;
+      final wm = FakeWorkManager()
+        ..enqueueResult = ScheduleResult.rejectedOsPolicy;
       addTearDown(wm.dispose);
 
       final handler = await wm.enqueue(
@@ -271,7 +275,9 @@ void main() {
       expect(handler.scheduleResult, ScheduleResult.rejectedOsPolicy);
     });
 
-    test('FakeWorkManager.enqueueResultByTaskId overrides per-task for oversized scenario', () async {
+    test(
+        'FakeWorkManager.enqueueResultByTaskId overrides per-task for oversized scenario',
+        () async {
       final wm = FakeWorkManager();
       addTearDown(wm.dispose);
       wm.enqueueResultByTaskId['too-big'] = ScheduleResult.rejectedOsPolicy;
@@ -364,7 +370,8 @@ void main() {
   // §7  iOS DartWorker heavy-task promotion still works alongside registerPlugins
   // ──────────────────────────────────────────────────────────────────────────
 
-  group('DartWorker iOS isHeavyTask promotion – unaffected by registerPlugins', () {
+  group('DartWorker iOS isHeavyTask promotion – unaffected by registerPlugins',
+      () {
     late _CapturingPlatform mock;
 
     setUp(() {
@@ -396,7 +403,8 @@ void main() {
       );
 
       expect(mock.capturedConstraints?.isHeavyTask, isTrue,
-          reason: 'DartWorker must remain heavy on iOS regardless of registerPlugins');
+          reason:
+              'DartWorker must remain heavy on iOS regardless of registerPlugins');
       expect(NativeWorkManager.registerPluginsEnabled, isTrue,
           reason: 'registerPlugins flag should have been set');
     });
@@ -417,7 +425,8 @@ void main() {
 
     tearDown(_resetNativeWorkManager);
 
-    test('initialize() with no registerPlugins param defaults to false', () async {
+    test('initialize() with no registerPlugins param defaults to false',
+        () async {
       await NativeWorkManager.initialize();
       expect(mock.capturedRegisterPlugins, isFalse,
           reason: 'Callers that omit registerPlugins must not be affected');
