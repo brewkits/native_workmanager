@@ -27,6 +27,16 @@ static Future<void> initialize({
 })
 ```
 
+**Parameters:**
+- `dartWorkers` - Optional map of `DartWorkerCallback` for executing Dart code in the background.
+- `debugMode` - Enable verbose logging (defaults to `false`).
+- `maxConcurrentTasks` - Maximum number of background tasks running simultaneously (defaults to 4).
+- `diskSpaceBufferMB` - Required free disk space before I/O tasks run (defaults to 20MB).
+- `cleanupAfterDays` - Days to keep completed task records in SQLite (defaults to 30, use 0 to disable).
+- `enforceHttps` - When true, all HTTP workers reject plain HTTP URLs (defaults to `false`).
+- `blockPrivateIPs` - When true, HTTP workers reject requests to private IP ranges to prevent SSRF (defaults to `false`).
+- `registerPlugins` - When true, registers all plugins in the background Flutter Engine. Use with caution (defaults to `false`).
+
 **Example:**
 ```dart
 void main() async {
