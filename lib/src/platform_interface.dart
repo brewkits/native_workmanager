@@ -52,7 +52,8 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
   ///
   /// [registerPlugins] - When true, the background Flutter Engine will
   /// automatically register all plugins. Required for using other plugins
-  /// in the background. Defaults to false.
+  /// in the background. Defaults to false. If false, you can still register
+  /// plugins manually on the native side via `NativeWorkmanagerPlugin.setPluginRegistrantCallback`.
   Future<void> initialize({
     int? callbackHandle,
     bool debugMode = false,

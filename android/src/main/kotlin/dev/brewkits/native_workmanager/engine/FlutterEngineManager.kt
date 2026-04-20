@@ -2,6 +2,7 @@ package dev.brewkits.native_workmanager.engine
 
 import android.content.Context
 import dev.brewkits.native_workmanager.NativeLogger
+import dev.brewkits.native_workmanager.NativeWorkmanagerPlugin
 import io.flutter.FlutterInjector
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.dart.DartExecutor
@@ -229,6 +230,9 @@ object FlutterEngineManager {
                 /* automaticallyRegisterPlugins */ registerPlugins,
                 /* waitForRestorationData    */ false
             )
+
+            // Allow custom plugin registration if provided
+            NativeWorkmanagerPlugin.pluginRegistrantCallback?.registerWith(flutterEngine)
 
             // Destroy the engine on any init failure so we don't leak
             // ~30-50MB of RAM per failed attempt (invalid callback handle, 10s timeout, etc.).

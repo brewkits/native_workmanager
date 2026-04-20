@@ -1,6 +1,6 @@
 import UIKit
 
-extension UIApplication {
+public extension UIApplication {
     /// Returns the root view controller of the currently active window, compatible
     /// with both the legacy UIApplicationDelegate window and the modern UIWindowScene
     /// API introduced in iOS 13 (required for Flutter 3.38+ scene-based apps).

@@ -69,6 +69,19 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
     internal val taskFilenames = ConcurrentHashMap<String, String>()
 
     companion object {
+        interface PluginRegistrantCallback {
+            fun registerWith(engine: io.flutter.embedding.engine.FlutterEngine)
+        }
+
+        @JvmStatic
+        var pluginRegistrantCallback: PluginRegistrantCallback? = null
+            private set
+
+        @JvmStatic
+        fun setPluginRegistrantCallback(callback: PluginRegistrantCallback) {
+            pluginRegistrantCallback = callback
+        }
+
         private const val TAG = "NativeWorkmanagerPlugin"
         private const val METHOD_CHANNEL = "dev.brewkits/native_workmanager"
         private const val EVENT_CHANNEL = "dev.brewkits/native_workmanager/events"

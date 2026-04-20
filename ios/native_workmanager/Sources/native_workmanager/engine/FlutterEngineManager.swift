@@ -277,6 +277,12 @@ class FlutterEngineManager {
             }
         }
 
+        // Allow custom plugin registration if provided
+        if let callback = NativeWorkmanagerPlugin.pluginRegistrantCallback {
+            callback(engine)
+            NativeLogger.d("🔌 FlutterEngineManager: Registered plugins via custom callback")
+        }
+
         // Setup method channel
         let channel = FlutterMethodChannel(
             name: "dev.brewkits/dart_worker_channel",

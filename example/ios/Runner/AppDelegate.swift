@@ -18,10 +18,13 @@ import native_workmanager  // For IosWorkerFactory and BackgroundSessionManager
 
     GeneratedPluginRegistrant.register(with: self)
 
-    // Setup metrics channel
-    // Use activeRootViewController (UIWindowScene-safe) instead of window?.rootViewController
-    // which returns nil in scene-based apps (Flutter 3.38+ / iOS 13+ UIScene lifecycle).
-    guard let controller = UIApplication.shared.activeRootViewController as? FlutterViewController else {
+    // Setup metrics channel.
+    // At didFinishLaunchingWithOptions time, UIWindowScenes are not yet foregroundActive,
+    // so activeRootViewController (scene-traversal) returns nil. Use self.window directly
+    // which is already populated by GeneratedPluginRegistrant.register(with: self) above.
+    guard let controller = (self.window?.rootViewController
+                              ?? UIApplication.shared.activeRootViewController)
+                              as? FlutterViewController else {
       NSLog("AppDelegate: Failed to get FlutterViewController")
       return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }

@@ -239,6 +239,17 @@ class NativeWorkManager {
     _registerPlugins = false;
   }
 
+  /// Internal testing only - resets initialized state so initialize() can be
+  /// called again with different parameters in the same test process.
+  @visibleForTesting
+  static void resetInitializedState() {
+    _initialized = false;
+    _initCompleter = null;
+    _enforceHttps = false;
+    _blockPrivateIPs = false;
+    _registerPlugins = false;
+  }
+
   // Completer used to make concurrent initialize() calls wait on the first one
   // rather than racing past the _initialized flag check.
   static Completer<void>? _initCompleter;
@@ -363,6 +374,9 @@ class NativeWorkManager {
     /// WARNING: Enabling this may increase RAM usage (~10-20MB) and may cause
     /// side-effects if other plugins perform cleanup when the background
     /// engine is destroyed (e.g. disconnecting Bluetooth or stopping audio).
+    ///
+    /// ALTERNATIVE: If you leave this false, you can still register specific
+    /// plugins natively via `NativeWorkmanagerPlugin.setPluginRegistrantCallback`.
     ///
     /// Default: false (Zero-Engine I/O principle).
     bool registerPlugins = false,

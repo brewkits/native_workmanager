@@ -429,6 +429,18 @@ await NativeWorkManager.initialize(
 ```
 By default, the background engine does **not** register plugins to save RAM and avoid side-effects (like disconnecting Bluetooth).
 
+**Selective Plugin Registration (Alternative)**
+If you want to keep `registerPlugins: false` to avoid side-effects but still need a specific plugin, use the native callback in `MainApplication.kt`:
+
+```kotlin
+NativeWorkmanagerPlugin.setPluginRegistrantCallback(object : NativeWorkmanagerPlugin.Companion.PluginRegistrantCallback {
+    override fun registerWith(engine: io.flutter.embedding.engine.FlutterEngine) {
+        // Use the new embedding API to add specific plugins
+        engine.plugins.add(com.dexterous.flutterlocalnotifications.FlutterLocalNotificationsPlugin())
+    }
+})
+```
+
 ---
 
 ### Error: "KmpWorkManager not initialized"
