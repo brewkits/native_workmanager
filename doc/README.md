@@ -1,6 +1,6 @@
 # Documentation
 
-native_workmanager v1.2.1 documentation index.
+native_workmanager v1.2.2 documentation index.
 
 ## Getting Started
 

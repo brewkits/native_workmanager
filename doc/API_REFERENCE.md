@@ -1,6 +1,6 @@
 # API Reference
 
-> Complete API documentation for native_workmanager v1.2.1
+> Complete API documentation for native_workmanager v1.2.2
 
 ## Core Classes
 
@@ -15,7 +15,16 @@ Main entry point for scheduling and managing background tasks.
 Initializes the work manager. Must be called before any other methods.
 
 ```dart
-static Future<void> initialize()
+static Future<void> initialize({
+  Map<String, DartWorkerCallback>? dartWorkers,
+  bool debugMode = false,
+  int maxConcurrentTasks = 4,
+  int diskSpaceBufferMB = 20,
+  int cleanupAfterDays = 30,
+  bool enforceHttps = false,
+  bool blockPrivateIPs = false,
+  bool registerPlugins = false,
+})
 ```
 
 **Example:**

@@ -590,4 +590,4 @@ if (handler.scheduleResult == ScheduleResult.rejectedOsPolicy) {
 
 ---
 
-**Last Updated:** April 2026 (v1.2.1)
+**Last Updated:** April 2026 (v1.2.2)
