@@ -9,7 +9,7 @@ import dev.brewkits.kmpworkmanager.background.data.KmpWorker
 import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.BackoffPolicy
 import dev.brewkits.native_workmanager.NativeLogger
-import dev.brewkits.native_workmanager.applyMiddleware
+import dev.brewkits.native_workmanager.applyMiddlewareInternal
 import dev.brewkits.native_workmanager.store.TaskStore
 import dev.brewkits.native_workmanager.utils.MappingUtils.toJson
 import dev.brewkits.native_workmanager.utils.MappingUtils.parseConstraints
@@ -51,7 +51,7 @@ object GraphHelper {
                 enrichedConfig["__taskId"] = taskId
                 val json = MappingUtils.toJson(enrichedConfig)
                 // Apply middleware
-                applyMiddleware(context, workerClassName, json)
+                applyMiddlewareInternal(context, workerClassName, json)
             } else null
 
             // Persist to store

@@ -26,8 +26,10 @@ class FlutterEngineManager {
     private var engine: FlutterEngine?
     private var methodChannel: FlutterMethodChannel?
     private var callbackHandle: Int64?
+    private var registerPlugins: Bool = false
     
     private static let callbackHandleKey = "dev.brewkits.native_workmanager.callback_handle"
+    private static let registerPluginsKey = "dev.brewkits.native_workmanager.register_plugins"
 
     private let queue = DispatchQueue(label: "dev.brewkits.flutter_engine_manager")
     private var isInitialized = false
@@ -54,7 +56,15 @@ class FlutterEngineManager {
         queue.sync {
             self.callbackHandle = handle
             UserDefaults.standard.set(handle, forKey: FlutterEngineManager.callbackHandleKey)
-            print("FlutterEngineManager: Callback handle registered and persisted: \(handle)")
+            NativeLogger.d("✅ FlutterEngineManager: Callback handle registered and persisted: \(handle)")
+        }
+    }
+
+    /// Set whether to automatically register plugins in the background engine.
+    func setRegisterPlugins(_ enabled: Bool) {
+        queue.sync {
+            self.registerPlugins = enabled
+            UserDefaults.standard.set(enabled, forKey: FlutterEngineManager.registerPluginsKey)
         }
     }
 
@@ -77,6 +87,9 @@ class FlutterEngineManager {
                 if let s = saved {
                     self.callbackHandle = s
                 }
+            }
+            if registerPlugins == false {
+                self.registerPlugins = UserDefaults.standard.bool(forKey: FlutterEngineManager.registerPluginsKey)
             }
             return callbackHandle != nil
         }
@@ -249,6 +262,25 @@ class FlutterEngineManager {
             let error = FlutterEngineError.engineStartFailed
             completeInitialization(error: error)
             return
+        }
+        
+        // Plugin Registration: If enabled, call GeneratedPluginRegistrant.
+        // This is safe because on iOS, the registrant is a class that exists
+        // in the host app and is discoverable at runtime if present.
+        if self.registerPlugins {
+            if let registrant = NSClassFromString("GeneratedPluginRegistrant") as? NSObject.Type {
+                let selector = NSSelectorFromString("registerWithRegistry:")
+                if registrant.responds(to: selector) {
+                    registrant.perform(selector, with: engine)
+                    NativeLogger.d("🔌 FlutterEngineManager: Registered plugins via GeneratedPluginRegistrant")
+                }
+            }
+        }
+
+        // Allow custom plugin registration if provided
+        if let callback = NativeWorkmanagerPlugin.pluginRegistrantCallback {
+            callback(engine)
+            NativeLogger.d("🔌 FlutterEngineManager: Registered plugins via custom callback")
         }
 
         // Setup method channel

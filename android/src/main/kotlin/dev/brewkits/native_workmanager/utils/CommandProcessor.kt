@@ -3,7 +3,7 @@ package dev.brewkits.native_workmanager.utils
 import android.content.Context
 import androidx.work.*
 import dev.brewkits.native_workmanager.NativeLogger
-import dev.brewkits.native_workmanager.applyMiddleware
+import dev.brewkits.native_workmanager.applyMiddlewareInternal
 import dev.brewkits.native_workmanager.OfflineQueueProcessor
 import dev.brewkits.native_workmanager.store.ChainStore
 import dev.brewkits.native_workmanager.store.OfflineQueueStore
@@ -118,7 +118,7 @@ object CommandProcessor {
         workerClassName: String,
         inputJson: String
     ) {
-        val effectiveInputJson = applyMiddleware(context, workerClassName, inputJson)
+        val effectiveInputJson = applyMiddlewareInternal(context, workerClassName, inputJson)
 
         val workerClass = dev.brewkits.kmpworkmanager.background.data.KmpWorker::class.java
         val dataBuilder = Data.Builder()

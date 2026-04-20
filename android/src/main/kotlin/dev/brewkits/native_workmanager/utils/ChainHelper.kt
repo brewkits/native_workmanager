@@ -10,7 +10,7 @@ import dev.brewkits.kmpworkmanager.background.data.KmpWorker
 import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.SystemConstraint
 import dev.brewkits.native_workmanager.NativeLogger
-import dev.brewkits.native_workmanager.applyMiddleware
+import dev.brewkits.native_workmanager.applyMiddlewareInternal
 import dev.brewkits.native_workmanager.store.ChainStore
 import dev.brewkits.native_workmanager.store.TaskStore
 import java.util.*
@@ -99,7 +99,7 @@ object ChainHelper {
                 if (taskId.isNotEmpty()) enrichedConfig["__taskId"] = taskId
                 val json = MappingUtils.toJson(enrichedConfig)
                 // Apply middleware
-                applyMiddleware(context, workerClassName, json)
+                applyMiddlewareInternal(context, workerClassName, json)
             }
         }
         @Suppress("UNCHECKED_CAST")

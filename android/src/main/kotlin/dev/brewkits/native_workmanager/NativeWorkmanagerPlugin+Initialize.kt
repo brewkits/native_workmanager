@@ -37,6 +37,13 @@ private const val DEBUG_NOTIFICATION_CHANNEL_NAME = "Background Task Debug"
 internal fun NativeWorkmanagerPlugin.handleInitialize(call: MethodCall, result: Result) {
     try {
         val callbackHandle = call.argument<Long>("callbackHandle")
+        val registerPlugins = call.argument<Boolean>("registerPlugins") ?: false
+        
+        FlutterEngineManager.registerPlugins = registerPlugins
+
+        val prefs = context.getSharedPreferences(NativeWorkmanagerPlugin.SHARED_PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(NativeWorkmanagerPlugin.REGISTER_PLUGINS_KEY, registerPlugins).apply()
+
         if (callbackHandle != null) {
             FlutterEngineManager.setCallbackHandle(callbackHandle)
 
@@ -44,10 +51,7 @@ internal fun NativeWorkmanagerPlugin.handleInitialize(call: MethodCall, result: 
             // restore the handle when the process is killed and restarted.
             // The host app's Application.onCreate() should read this and call
             // FlutterEngineManager.setCallbackHandle() to re-arm the Dart engine.
-            context.getSharedPreferences(NativeWorkmanagerPlugin.SHARED_PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putLong(NativeWorkmanagerPlugin.CALLBACK_HANDLE_KEY, callbackHandle)
-                .apply()
+            prefs.edit().putLong(NativeWorkmanagerPlugin.CALLBACK_HANDLE_KEY, callbackHandle).apply()
 
             NativeLogger.d("✅ callbackHandle persisted (cold-start support enabled)")
         } else {

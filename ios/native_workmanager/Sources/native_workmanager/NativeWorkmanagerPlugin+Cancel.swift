@@ -223,7 +223,7 @@ extension NativeWorkmanagerPlugin {
         let fileURL = URL(fileURLWithPath: filePath)
         DispatchQueue.main.async { [weak self] in
             self?.docController = UIDocumentInteractionController(url: fileURL)
-            guard let vc = UIApplication.shared.keyWindow?.rootViewController else {
+            guard let vc = UIApplication.shared.activeRootViewController else {
                 result(FlutterError(code: "OPEN_FILE_ERROR",
                                     message: "No root view controller",
                                     details: nil))

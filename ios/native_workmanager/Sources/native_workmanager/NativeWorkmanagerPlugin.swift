@@ -18,6 +18,14 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     static let progressChannelName = "dev.brewkits/native_workmanager/progress"
     static let systemErrorChannelName = "dev.brewkits/native_workmanager/system_errors"
 
+    public typealias PluginRegistrantCallback = (FlutterPluginRegistry) -> Void
+    public static var pluginRegistrantCallback: PluginRegistrantCallback? = nil
+
+    @objc
+    public static func setPluginRegistrantCallback(_ callback: @escaping PluginRegistrantCallback) {
+        pluginRegistrantCallback = callback
+    }
+
     private static var shared: NativeWorkmanagerPlugin?
 
     let workerQueue = DispatchQueue(label: "dev.brewkits.native_workmanager.worker", qos: .utility)
@@ -127,6 +135,9 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         if let args = call.arguments as? [String: Any] {
             if let callbackHandle = args["callbackHandle"] as? Int64 {
                 FlutterEngineManager.shared.setCallbackHandle(callbackHandle)
+            }
+            if let registerPlugins = args["registerPlugins"] as? Bool {
+                FlutterEngineManager.shared.setRegisterPlugins(registerPlugins)
             }
             debugMode = args["debugMode"] as? Bool ?? false
         }

@@ -51,6 +51,21 @@ android {
 
 ---
 
+### 2. Android 14+ (API 34) Compatibility
+
+Starting with Android 14 (API 34), you **must** declare a `foregroundServiceType` for any service that runs in the foreground. The plugin defaults to `dataSync`.
+
+If your background tasks involve operations other than data synchronization (e.g., location tracking, media playback), you must override the service declaration in your app's `android/app/src/main/AndroidManifest.xml`:
+
+```xml
+<service
+    android:name="androidx.work.impl.foreground.SystemForegroundService"
+    android:foregroundServiceType="yourTypeHere"
+    tools:node="replace" />
+```
+
+---
+
 ## Installation
 
 ### 1. Add Dependency
@@ -248,6 +263,8 @@ void main() async {
       'processData': _processDataCallback,
       'syncDatabase': _syncDatabaseCallback,
     },
+    // When using other plugins (like flutter_local_notifications) in the background
+    registerPlugins: true,
     // Security options
     enforceHttps: true,
     blockPrivateIPs: true,
@@ -397,6 +414,32 @@ adb shell cmd jobscheduler run -f your.package.name 1
 3. Did you remove the default WorkManager initializer? (§3, Step 3)
 4. Is battery optimisation disabled for your app during testing?
 5. Check Logcat for `getWorkManagerConfiguration() called` — if missing, Step 3 is incomplete.
+
+### Other plugins (notifications, etc.) not working in DartWorker
+
+**Symptoms:** Your `DartWorker` runs, but other plugins like `flutter_local_notifications` or `shared_preferences` don't seem to work or throw errors.
+
+**Solution:**
+Enable plugin registration during initialization:
+```dart
+await NativeWorkManager.initialize(
+  registerPlugins: true,
+  dartWorkers: { ... },
+);
+```
+By default, the background engine does **not** register plugins to save RAM and avoid side-effects (like disconnecting Bluetooth).
+
+**Selective Plugin Registration (Alternative)**
+If you want to keep `registerPlugins: false` to avoid side-effects but still need a specific plugin, use the native callback in `MainApplication.kt`:
+
+```kotlin
+NativeWorkmanagerPlugin.setPluginRegistrantCallback(object : NativeWorkmanagerPlugin.Companion.PluginRegistrantCallback {
+    override fun registerWith(engine: io.flutter.embedding.engine.FlutterEngine) {
+        // Use the new embedding API to add specific plugins
+        engine.plugins.add(com.dexterous.flutterlocalnotifications.FlutterLocalNotificationsPlugin())
+    }
+})
+```
 
 ---
 

@@ -7,9 +7,13 @@ import 'platform_interface.dart';
 /// Register the DevTools service extensions for native_workmanager.
 /// This allows the DevTools Extension to request real-time task metrics,
 /// queue sizes, and DAG states without needing continuous polling.
+bool _devToolsExtensionsRegistered = false;
+
 @pragma('vm:entry-point')
 void registerDevToolsExtensions() {
   if (!kDebugMode && !kProfileMode) return;
+  if (_devToolsExtensionsRegistered) return;
+  _devToolsExtensionsRegistered = true;
 
   developer.registerExtension('ext.native_workmanager.getMetrics',
       (method, parameters) async {
