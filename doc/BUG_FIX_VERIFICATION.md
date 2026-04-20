@@ -151,7 +151,7 @@ Expected behavior on Android with WorkManager 2.10.1+:
 ```yaml
 # pubspec.yaml
 dependencies:
-  native_workmanager: ^1.2.1  # was ^1.2.1
+  native_workmanager: ^1.2.2  # was ^1.2.1
 ```
 
 Then:
