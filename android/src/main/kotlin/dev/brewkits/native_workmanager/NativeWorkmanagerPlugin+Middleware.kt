@@ -40,7 +40,7 @@ internal fun NativeWorkmanagerPlugin.handleRegisterMiddleware(call: MethodCall, 
  * This can be called from any worker before execution.
  * Internal top-level function so it can be imported from utils sub-packages.
  */
-internal fun applyMiddleware(context: Context, workerClassName: String, configJson: String): String {
+internal fun applyMiddlewareInternal(context: Context, workerClassName: String, configJson: String): String {
     try {
         val store = MiddlewareStore.getInstance(context)
         val middlewares = store.getAll()
@@ -77,7 +77,7 @@ fun NativeWorkmanagerPlugin.Companion.applyMiddleware(
     context: Context,
     workerClassName: String,
     configJson: String,
-): String = applyMiddleware(context, workerClassName, configJson)
+): String = applyMiddlewareInternal(context, workerClassName, configJson)
 
 private fun applyRemoteConfigMiddleware(
     workerConfig: JSONObject,
