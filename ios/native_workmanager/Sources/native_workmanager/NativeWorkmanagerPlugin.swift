@@ -128,6 +128,9 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             if let callbackHandle = args["callbackHandle"] as? Int64 {
                 FlutterEngineManager.shared.setCallbackHandle(callbackHandle)
             }
+            if let registerPlugins = args["registerPlugins"] as? Bool {
+                FlutterEngineManager.shared.setRegisterPlugins(registerPlugins)
+            }
             debugMode = args["debugMode"] as? Bool ?? false
         }
         if #available(iOS 13.0, *) {

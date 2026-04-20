@@ -54,6 +54,10 @@ object FlutterEngineManager {
 
     // Callback handle stored during plugin initialization
     private var callbackHandle: Long? = null
+    
+    // Whether to automatically register plugins in the background engine.
+    // @Volatile ensures writes from the main thread are visible to WorkManager background threads.
+    @Volatile var registerPlugins = false
 
     // Coroutine scope for auto-disposal management
     private val disposalScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -222,7 +226,7 @@ object FlutterEngineManager {
                 /* flutterJNI                */ FlutterJNI(),
                 /* platformViewsController   */ io.flutter.plugin.platform.PlatformViewsController(),
                 /* dartVmArgs               */ emptyArray<String>(),
-                /* automaticallyRegisterPlugins */ false,
+                /* automaticallyRegisterPlugins */ registerPlugins,
                 /* waitForRestorationData    */ false
             )
 

@@ -76,6 +76,7 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
         private const val SYSTEM_ERROR_CHANNEL = "dev.brewkits/native_workmanager/system_errors"
         internal const val SHARED_PREFS_NAME = "dev.brewkits.native_workmanager"
         internal const val CALLBACK_HANDLE_KEY = "callback_handle"
+        internal const val REGISTER_PLUGINS_KEY = "register_plugins"
         internal const val LAST_CLEANUP_KEY = "last_cleanup_timestamp"
         internal const val CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000L // 24 hours
 
@@ -161,6 +162,9 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
         if (savedHandle != -1L) {
             FlutterEngineManager.setCallbackHandle(savedHandle)
         }
+        
+        val savedRegisterPlugins = prefs.getBoolean(REGISTER_PLUGINS_KEY, false)
+        FlutterEngineManager.registerPlugins = savedRegisterPlugins
 
         methodChannel = MethodChannel(binding.binaryMessenger, METHOD_CHANNEL)
         methodChannel.setMethodCallHandler(this)

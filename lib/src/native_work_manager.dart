@@ -217,6 +217,7 @@ class NativeWorkManager {
   static bool _initialized = false;
   static bool _enforceHttps = false;
   static bool _blockPrivateIPs = false;
+  static bool _registerPlugins = false;
 
   /// Whether HTTPS is enforced for all background HTTP tasks.
   @internal
@@ -226,11 +227,16 @@ class NativeWorkManager {
   @internal
   static bool get blockPrivateIPs => _blockPrivateIPs;
 
+  /// Whether plugins are registered in the background Flutter Engine.
+  @internal
+  static bool get registerPluginsEnabled => _registerPlugins;
+
   /// Internal testing only - resets security flags.
   @visibleForTesting
   static void resetSecurityFlags() {
     _enforceHttps = false;
     _blockPrivateIPs = false;
+    _registerPlugins = false;
   }
 
   // Completer used to make concurrent initialize() calls wait on the first one
@@ -348,6 +354,18 @@ class NativeWorkManager {
     /// Has no effect on hostnames — only parsed IP literals are checked.
     /// Default: false (backward compatible).
     bool blockPrivateIPs = false,
+
+    /// When true, the background Flutter Engine will automatically register all
+    /// plugins (calls GeneratedPluginRegistrant). This is required if you want
+    /// to use other plugins (like flutter_local_notifications) inside your
+    /// Dart workers.
+    ///
+    /// WARNING: Enabling this may increase RAM usage (~10-20MB) and may cause
+    /// side-effects if other plugins perform cleanup when the background
+    /// engine is destroyed (e.g. disconnecting Bluetooth or stopping audio).
+    ///
+    /// Default: false (Zero-Engine I/O principle).
+    bool registerPlugins = false,
   }) async {
     // If already initializing (concurrent calls), wait on the in-flight future.
     if (_initCompleter != null) return _initCompleter!.future;
@@ -363,6 +381,7 @@ class NativeWorkManager {
         cleanupAfterDays: cleanupAfterDays,
         enforceHttps: enforceHttps,
         blockPrivateIPs: blockPrivateIPs,
+        registerPlugins: registerPlugins,
       );
       _initialized = true;
       _initCompleter!.complete();
@@ -381,9 +400,11 @@ class NativeWorkManager {
     int cleanupAfterDays = 30,
     bool enforceHttps = false,
     bool blockPrivateIPs = false,
+    bool registerPlugins = false,
   }) async {
     _enforceHttps = enforceHttps;
     _blockPrivateIPs = blockPrivateIPs;
+    _registerPlugins = registerPlugins;
 
     // Phase 2: Register DevTools Extension Service
     registerDevToolsExtensions();
@@ -445,6 +466,7 @@ class NativeWorkManager {
       cleanupAfterDays: cleanupAfterDays,
       enforceHttps: enforceHttps,
       blockPrivateIPs: blockPrivateIPs,
+      registerPlugins: registerPlugins,
     );
     // _initialized is set by the caller (initialize()) after this returns.
   }

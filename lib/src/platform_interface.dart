@@ -49,6 +49,10 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
   /// [blockPrivateIPs] - When true, HTTP workers block requests to
   /// private/loopback IP ranges (10.x, 172.16-31.x, 192.168.x, 127.x, ::1)
   /// to prevent SSRF attacks. Defaults to false for backward compatibility.
+  ///
+  /// [registerPlugins] - When true, the background Flutter Engine will
+  /// automatically register all plugins. Required for using other plugins
+  /// in the background. Defaults to false.
   Future<void> initialize({
     int? callbackHandle,
     bool debugMode = false,
@@ -57,6 +61,7 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
     int cleanupAfterDays = 30,
     bool enforceHttps = false,
     bool blockPrivateIPs = false,
+    bool registerPlugins = false,
   }) {
     throw UnimplementedError('initialize() has not been implemented.');
   }

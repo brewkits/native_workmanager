@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.2] - 2026-04-20
+
+### Added
+- **`registerPlugins` parameter** in `NativeWorkManager.initialize()`: opt-in flag to register all Flutter plugins in the background engine, required when using plugins like `flutter_local_notifications` inside `DartWorker` callbacks. Defaults to `false` to preserve the Zero-Engine I/O principle and avoid side-effects (e.g. Bluetooth disconnects). ([#18](https://github.com/brewkits/native_workmanager/issues/18))
+
+### Fixed
+- **iOS: `openFile` always fails on Flutter 3.38+ / scene-based apps** — `UIApplication.shared.keyWindow` returns `nil` in `UIWindowScene` lifecycle. Replaced with a new `activeRootViewController` extension that traverses `connectedScenes` to find the active key window. ([#16](https://github.com/brewkits/native_workmanager/issues/16))
+- **Android: `StackOverflowError` when middleware is registered** — Kotlin companion extension `applyMiddleware` was shadowing the internal package-level function of the same name, causing infinite recursion. Renamed the internal function to `applyMiddlewareInternal` to eliminate the ambiguity. ([#17](https://github.com/brewkits/native_workmanager/issues/17))
+- **`native_workmanager_gen` incompatible with Flutter 3.41.x** — `analyzer >=11.0.0` requires `meta ^1.18.0` which conflicts with the Flutter SDK's `meta 1.17.0` pin. Widened constraint to `>=10.0.0 <13.0.0`; `analyzer 10.x` supports all APIs used by the generator and requires only `meta ^1.15.0`. ([#15](https://github.com/brewkits/native_workmanager/issues/15))
+
+---
+
 ## [1.2.1] - 2026-04-19
 
 ### Added
