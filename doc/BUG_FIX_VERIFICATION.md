@@ -188,4 +188,4 @@ Android will automatically use the correct locale based on device language.
 - Verification: Both Android + iOS builds pass, demo confirms no crashes
 - Bonus fixes: Chain routing bug + notification i18n support
 
-**All users should upgrade to native_workmanager 1.0.4 immediately.**
+**All users should upgrade to the latest stable version (^1.2.2) immediately.**

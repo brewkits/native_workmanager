@@ -11,7 +11,7 @@
 /// Add to `pubspec.yaml`:
 /// ```yaml
 /// dev_dependencies:
-///   native_workmanager_gen: ^1.0.0
+///   native_workmanager_gen: ^1.0.4
 ///   build_runner: ^2.4.0
 /// ```
 ///

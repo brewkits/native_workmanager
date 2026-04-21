@@ -904,7 +904,7 @@ Built on [kmpworkmanager v2.3.9](https://github.com/pablichjenkov/kmpworkmanager
 
 ---
 
-**Latest Version:** 1.2.0
+**Latest Version:** 1.2.2
 **Status:**  Production Ready - Stable release for all production apps
-**KMP Parity:** 100%  (kmpworkmanager v2.3.9)
+**KMP Parity:** 100%  (kmpworkmanager v2.4.0)
 **Platforms:** Android  | iOS 
