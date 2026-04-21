@@ -35,7 +35,9 @@ static Future<void> initialize({
 - `cleanupAfterDays` - Days to keep completed task records in SQLite (defaults to 30, use 0 to disable).
 - `enforceHttps` - When true, all HTTP workers reject plain HTTP URLs (defaults to `false`).
 - `blockPrivateIPs` - When true, HTTP workers reject requests to private IP ranges to prevent SSRF (defaults to `false`).
-- `registerPlugins` - When true, registers all plugins in the background Flutter Engine. Use with caution (defaults to `false`).
+- `registerPlugins` - When true, registers all plugins in the background Flutter Engine. Defaults to `false` to maintain the **Zero-Engine I/O** principle. 
+  - **Caution:** Enabling this increases RAM usage and may cause hardware side-effects (e.g., Bluetooth disconnects).
+  - **Recommendation:** Keep this `false` and use `setPluginRegistrantCallback` on the native side for selective registration.
 
 **Example:**
 ```dart

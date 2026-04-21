@@ -222,6 +222,66 @@ Future<bool> syncHealthData(Map<String, dynamic>? input) async { ... }
 
 ---
 
+## 🔌 Selective Plugin Registration (Recommended)
+
+By default, `native_workmanager` runs with `registerPlugins: false`. This follows our **Zero-Engine I/O** principle to save RAM (~50MB+) and prevent hardware side-effects (like Bluetooth or Audio disconnects when a background task finishes).
+
+If your `DartWorker` needs to use other plugins (e.g., `flutter_local_notifications`, `shared_preferences`), you should register them **selectively** on the native side. This is more efficient and stable than registering all plugins.
+
+#### **1. Android (Kotlin)**
+In your `MainActivity.kt` or `MainApplication.kt`:
+
+```kotlin
+import dev.brewkits.native_workmanager.NativeWorkmanagerPlugin
+import io.flutter.embedding.engine.FlutterEngine
+import com.dexterous.flutterlocalnotifications.FlutterLocalNotificationsPlugin 
+
+class MainActivity: FlutterActivity() {
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        
+        NativeWorkmanagerPlugin.setPluginRegistrantCallback(object : NativeWorkmanagerPlugin.Companion.PluginRegistrantCallback {
+            override fun registerWith(engine: FlutterEngine) {
+                // Register ONLY the plugins you need in background
+                engine.plugins.add(FlutterLocalNotificationsPlugin())
+            }
+        })
+    }
+}
+```
+
+#### **2. iOS (Swift)**
+In your `AppDelegate.swift`:
+
+```swift
+import native_workmanager
+import flutter_local_notifications
+
+@main
+@objc class AppDelegate: FlutterAppDelegate {
+    override func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        GeneratedPluginRegistrant.register(with: self)
+        
+        NativeWorkmanagerPlugin.setPluginRegistrantCallback { registry in
+            // Manual registration for background engine
+            FlutterLocalNotificationsPlugin.register(with: registry.registrar(forPlugin: "FlutterLocalNotificationsPlugin")!)
+        }
+        return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    }
+}
+```
+
+#### **3. Flutter (Dart)**
+Keep `registerPlugins: false` to maintain peak performance:
+
+```dart
+await NativeWorkManager.initialize(
+  registerPlugins: false, // Lean background engine
+);
+```
+
+---
+
 ## Platform Support
 
 | Feature | Android | iOS |

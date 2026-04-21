@@ -128,14 +128,27 @@ await NativeWorkManager.initialize(
 ```
 By default, the background engine does **not** register plugins to save RAM and avoid side-effects.
 
-**Selective Plugin Registration (Alternative)**
-If you want to keep `registerPlugins: false` to avoid side-effects but still need a specific plugin, use the native callback in `AppDelegate.swift`:
+### Selective Plugin Registration (Recommended)
+
+To maintain peak performance and avoid side-effects (like Audio/Bluetooth drops), we recommend keeping `registerPlugins: false` and manually registering only the necessary plugins for your background tasks.
+
+In your `AppDelegate.swift`:
 
 ```swift
-NativeWorkmanagerPlugin.setPluginRegistrantCallback { registry in
-    // e.g. register specifically flutter_local_notifications
-    if let registrar = registry.registrar(forPlugin: "FlutterLocalNotificationsPlugin") {
-        FlutterLocalNotificationsPlugin.register(with: registrar)
+import native_workmanager
+import flutter_local_notifications
+
+@main
+@objc class AppDelegate: FlutterAppDelegate {
+    override func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        GeneratedPluginRegistrant.register(with: self)
+        
+        NativeWorkmanagerPlugin.setPluginRegistrantCallback { registry in
+            // Manually register specific plugins for the background engine
+            FlutterLocalNotificationsPlugin.register(with: registry.registrar(forPlugin: "FlutterLocalNotificationsPlugin")!)
+        }
+        
+        return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
 }
 ```

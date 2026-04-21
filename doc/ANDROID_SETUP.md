@@ -429,16 +429,29 @@ await NativeWorkManager.initialize(
 ```
 By default, the background engine does **not** register plugins to save RAM and avoid side-effects (like disconnecting Bluetooth).
 
-**Selective Plugin Registration (Alternative)**
-If you want to keep `registerPlugins: false` to avoid side-effects but still need a specific plugin, use the native callback in `MainApplication.kt`:
+### Selective Plugin Registration (Recommended)
+
+To maintain peak performance and avoid side-effects (like Bluetooth drops), we recommend keeping `registerPlugins: false` and manually registering only the necessary plugins for your background tasks.
+
+In your `MainActivity.kt` (or `MainApplication.kt`):
 
 ```kotlin
-NativeWorkmanagerPlugin.setPluginRegistrantCallback(object : NativeWorkmanagerPlugin.Companion.PluginRegistrantCallback {
-    override fun registerWith(engine: io.flutter.embedding.engine.FlutterEngine) {
-        // Use the new embedding API to add specific plugins
-        engine.plugins.add(com.dexterous.flutterlocalnotifications.FlutterLocalNotificationsPlugin())
+import dev.brewkits.native_workmanager.NativeWorkmanagerPlugin
+import io.flutter.embedding.engine.FlutterEngine
+import com.dexterous.flutterlocalnotifications.FlutterLocalNotificationsPlugin
+
+class MainActivity: FlutterActivity() {
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        
+        NativeWorkmanagerPlugin.setPluginRegistrantCallback(object : NativeWorkmanagerPlugin.Companion.PluginRegistrantCallback {
+            override fun registerWith(engine: FlutterEngine) {
+                // Register ONLY the plugins needed for your background workers
+                engine.plugins.add(FlutterLocalNotificationsPlugin())
+            }
+        })
     }
-})
+}
 ```
 
 ---
