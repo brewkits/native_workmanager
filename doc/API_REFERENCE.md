@@ -169,12 +169,13 @@ Factory for creating built-in native workers (no Flutter engine overhead).
 Simple HTTP request worker.
 
 ```dart
-static HttpRequestWorker httpRequest({
+static Worker httpRequest({
   required String url,
-  required HttpMethod method,
-  Map<String, String>? headers,
+  HttpMethod method = HttpMethod.get,
+  Map<String, String> headers = const {},
   String? body,
-  int? timeoutMs,
+  Duration timeout = const Duration(seconds: 30),
+  TokenRefreshConfig? tokenRefresh,
 })
 ```
 
@@ -185,12 +186,15 @@ static HttpRequestWorker httpRequest({
 Multipart file upload worker.
 
 ```dart
-static HttpUploadWorker httpUpload({
+static Worker httpUpload({
   required String url,
   required String filePath,
-  String? fileFieldName,
-  Map<String, String>? additionalFields,
-  Map<String, String>? headers,
+  String fileFieldName = 'file',
+  String? fileName,
+  String? mimeType,
+  Map<String, String> headers = const {},
+  Map<String, String> additionalFields = const {},
+  Duration timeout = const Duration(minutes: 5),
   bool useBackgroundSession = false,
 })
 ```
@@ -202,14 +206,23 @@ static HttpUploadWorker httpUpload({
 File download worker with resume support.
 
 ```dart
-static HttpDownloadWorker httpDownload({
+static Worker httpDownload({
   required String url,
   required String savePath,
-  Map<String, String>? headers,
-  bool enableResume = false,
-  bool useBackgroundSession = false,
-  String? checksumAlgorithm,
+  Map<String, String> headers = const {},
+  Duration timeout = const Duration(minutes: 5),
+  bool enableResume = true,
   String? expectedChecksum,
+  String checksumAlgorithm = 'SHA-256',
+  bool useBackgroundSession = false,
+  bool skipExisting = false,
+  bool allowPause = false,
+  Map<String, String>? cookies,
+  String? authToken,
+  String authHeaderTemplate = 'Bearer {accessToken}',
+  DuplicatePolicy onDuplicate = DuplicatePolicy.overwrite,
+  bool moveToPublicDownloads = false,
+  bool saveToGallery = false,
 })
 ```
 
@@ -220,11 +233,13 @@ static HttpDownloadWorker httpDownload({
 Bidirectional sync worker with retry.
 
 ```dart
-static HttpSyncWorker httpSync({
+static Worker httpSync({
   required String url,
-  required HttpMethod method,
+  HttpMethod method = HttpMethod.post,
+  Map<String, String> headers = const {},
   Map<String, dynamic>? requestBody,
-  Map<String, String>? headers,
+  Duration timeout = const Duration(seconds: 60),
+  TokenRefreshConfig? tokenRefresh,
 })
 ```
 
@@ -237,12 +252,12 @@ static HttpSyncWorker httpSync({
 Compress files/directories to ZIP.
 
 ```dart
-static FileCompressionWorker fileCompress({
+static Worker fileCompress({
   required String inputPath,
   required String outputPath,
   CompressionLevel level = CompressionLevel.medium,
+  List<String> excludePatterns = const [],
   bool deleteOriginal = false,
-  List<String>? excludePatterns,
 })
 ```
 
@@ -253,12 +268,11 @@ static FileCompressionWorker fileCompress({
 Extract ZIP archives.
 
 ```dart
-static FileDecompressionWorker fileDecompress({
+static Worker fileDecompress({
   required String zipPath,
   required String targetDir,
-  bool overwrite = false,
   bool deleteAfterExtract = false,
-  String? password,
+  bool overwrite = true,
 })
 ```
 
@@ -269,11 +283,11 @@ static FileDecompressionWorker fileDecompress({
 Copy files or directories.
 
 ```dart
-static FileSystemWorker fileCopy({
+static Worker fileCopy({
   required String sourcePath,
   required String destinationPath,
   bool overwrite = false,
-  bool recursive = false,
+  bool recursive = true,
 })
 ```
 
@@ -284,7 +298,7 @@ static FileSystemWorker fileCopy({
 Move files or directories.
 
 ```dart
-static FileSystemWorker fileMove({
+static Worker fileMove({
   required String sourcePath,
   required String destinationPath,
   bool overwrite = false,
@@ -298,7 +312,7 @@ static FileSystemWorker fileMove({
 Delete files or directories.
 
 ```dart
-static FileSystemWorker fileDelete({
+static Worker fileDelete({
   required String path,
   bool recursive = false,
 })
@@ -311,7 +325,7 @@ static FileSystemWorker fileDelete({
 List files in directory with pattern matching.
 
 ```dart
-static FileSystemWorker fileList({
+static Worker fileList({
   required String path,
   String? pattern,
   bool recursive = false,
@@ -325,7 +339,7 @@ static FileSystemWorker fileList({
 Create directory.
 
 ```dart
-static FileSystemWorker fileMkdir({
+static Worker fileMkdir({
   required String path,
   bool createParents = true,
 })
@@ -340,15 +354,16 @@ static FileSystemWorker fileMkdir({
 Process images (resize, compress, convert).
 
 ```dart
-static ImageProcessWorker imageProcess({
+static Worker imageProcess({
   required String inputPath,
   required String outputPath,
   int? maxWidth,
   int? maxHeight,
+  bool maintainAspectRatio = true,
   int? quality,
   ImageFormat? outputFormat,
-  bool maintainAspectRatio = true,
   ImageCropRect? cropRect,
+  bool deleteOriginal = false,
 })
 ```
 
@@ -361,7 +376,7 @@ static ImageProcessWorker imageProcess({
 Calculate file hash.
 
 ```dart
-static CryptoHashWorker hashFile({
+static Worker hashFile({
   required String filePath,
   HashAlgorithm algorithm = HashAlgorithm.sha256,
 })
@@ -374,7 +389,7 @@ static CryptoHashWorker hashFile({
 Calculate string hash.
 
 ```dart
-static CryptoHashWorker hashString({
+static Worker hashString({
   required String data,
   HashAlgorithm algorithm = HashAlgorithm.sha256,
 })
@@ -387,7 +402,7 @@ static CryptoHashWorker hashString({
 Encrypt file with AES-256-GCM.
 
 ```dart
-static CryptoEncryptWorker cryptoEncrypt({
+static Worker cryptoEncrypt({
   required String inputPath,
   required String outputPath,
   required String password,
@@ -401,7 +416,7 @@ static CryptoEncryptWorker cryptoEncrypt({
 Decrypt AES-256-GCM encrypted file.
 
 ```dart
-static CryptoDecryptWorker cryptoDecrypt({
+static Worker cryptoDecrypt({
   required String inputPath,
   required String outputPath,
   required String password,
@@ -417,23 +432,37 @@ Worker for custom Dart logic (uses Flutter engine).
 ```dart
 DartWorker({
   required String callbackId,
-  Map<String, dynamic>? inputData,
-  bool autoDispose = true,
+  Map<String, dynamic>? input,
+  bool autoDispose = false,
+  int? timeoutMs,
 })
 ```
 
 **Parameters:**
 - `callbackId` - Identifier for registered callback function
-- `inputData` - Optional data passed to callback
-- `autoDispose` - Whether to dispose Flutter engine after execution
+- `input` - Optional data passed to callback
+- `autoDispose` - Whether to dispose Flutter engine after execution (default: `false`)
+- `timeoutMs` - Optional execution timeout in milliseconds
 
 **Example:**
 ```dart
-// Register callback (in main.dart)
-NativeWorkManager.registerCallback('processData', () async {
+// Register callback (in main.dart during initialize)
+@WorkerCallback('processData')
+Future<bool> myProcessData(String? inputData) async {
   // Your Dart logic here
   print('Processing data...');
-});
+  return true;
+}
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await NativeWorkManager.initialize(
+    dartWorkers: {
+      'processData': myProcessData,
+    }
+  );
+  runApp(MyApp());
+}
 
 // Schedule task
 await NativeWorkManager.enqueue(
@@ -712,5 +741,5 @@ NativeWorker.httpDownload(
 
 ---
 
-**Version:** 1.1.2
-**Last Updated:** April 2026
+**Version:** 1.2.2
+**Last Updated:** 2026-04-20
