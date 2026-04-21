@@ -13,6 +13,8 @@ Our mission is to provide the most robust, efficient, and secure background exec
 - **Code Generation (`native_workmanager_gen`):** Generate type-safe enqueue wrappers and automatic worker registries via `@WorkerCallback` annotations.
 - **Real-Time Observability:** DevTools extension real-time visualizer for tracking task events and engine status.
 - **Automated Migration Tool:** CLI tool to safely migrate legacy `workmanager` projects to `native_workmanager` (`dart run native_workmanager:migrate`).
+- **Selective Plugin Registration (v1.2.2):** Explicit opt-in flag `registerPlugins` and native callbacks (`setPluginRegistrantCallback`) to control background engine footprint.
+- **iOS 18 / Flutter 3.38+ Compatibility (v1.2.2):** Safe window traversal and `UISceneDelegate` support.
 
 ---
 

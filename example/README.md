@@ -615,11 +615,11 @@ All examples shown in the UI tabs are fully functional and can be copied directl
 ## Support
 
 For issues, questions, or feedback:
-- GitHub Issues: [Create an issue](https://github.com/yourusername/native_workmanager/issues)
-- Discussions: [Join discussion](https://github.com/yourusername/native_workmanager/discussions)
+- GitHub Issues: [Create an issue](https://github.com/brewkits/native_workmanager/issues)
+- Discussions: [Join discussion](https://github.com/brewkits/native_workmanager/discussions)
 
 ---
 
-**Last Updated:** 2026-01-24
-**Version:** 0.7.0
-**Platform Compatibility:** Android 8.0+, iOS 13+
+**Last Updated:** 2026-04-20
+**Version:** 1.2.2
+**Platform Compatibility:** Android 8.0+, iOS 14+

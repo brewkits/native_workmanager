@@ -1,4 +1,4 @@
-## 1.0.4
+## 1.0.4 - 2026-04-20
 
 - Widen `analyzer` constraint from `^12.0.0` to `>=10.0.0 <13.0.0` so that
   Flutter projects whose SDK pins `meta` to `1.17.0` (e.g. Flutter 3.41.x)

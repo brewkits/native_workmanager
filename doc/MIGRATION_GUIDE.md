@@ -66,6 +66,7 @@ These APIs work with minimal or no changes:
 | Task tags | Not yet supported | Use individual `cancel()` calls (v1.1 will add tagging) |
 | Input data (Map) | `worker.input` or `DartWorker.input` | Restructure data passing |
 | Callback dispatcher (switch/case) | Callback ID map | Refactor to map-based registration |
+| Plugin registration | `registerPlugins` parameter | Set `registerPlugins: true` if using other plugins in background |
 
 ### ❌ Not Supported
 
@@ -192,12 +193,12 @@ import 'package:native_workmanager/native_workmanager.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await NativeWorkManager.initialize(
+    registerPlugins: true, // Required if your callbacks use other plugins
     dartWorkers: {
       'syncTask': _syncDataCallback,
       'uploadTask': _uploadFilesCallback,
     },
-  );
-  runApp(MyApp());
+  );  runApp(MyApp());
 }
 
 @pragma('vm:entry-point')

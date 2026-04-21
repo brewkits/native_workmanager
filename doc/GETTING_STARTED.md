@@ -75,6 +75,7 @@ void main() async {
 
   // Initialize with Dart worker callbacks
   await NativeWorkManager.initialize(
+    registerPlugins: true, // Optional: registers all plugins in background
     dartWorkers: {
       'processData': _processDataCallback,
       'syncDatabase': _syncDatabaseCallback,
