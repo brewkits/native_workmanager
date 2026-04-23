@@ -147,6 +147,37 @@ void main() {
       timeout: const Timeout(Duration(minutes: 8)),
     );
 
+    testWidgets('Rapid fire enqueue 50 tasks (Zero Delay)', (tester) async {
+      const count = 50;
+      final futures = <Future<TaskHandler>>[];
+
+      print('[Stress] Starting rapid fire enqueue of $count tasks...');
+      final stopwatch = Stopwatch()..start();
+
+      for (var i = 0; i < count; i++) {
+        futures.add(
+          NativeWorkManager.enqueue(
+            taskId: _id('rapid_$i'),
+            trigger: TaskTrigger.oneTime(),
+            worker: DartWorker(callbackId: 'stress_worker'),
+          ),
+        );
+      }
+
+      final results = await Future.wait(futures);
+      stopwatch.stop();
+
+      final acceptedCount =
+          results.where((r) => r.scheduleResult == ScheduleResult.accepted).length;
+
+      print(
+        '[Stress] Enqueued $count tasks in ${stopwatch.elapsedMilliseconds}ms '
+        '($acceptedCount accepted)',
+      );
+
+      expect(acceptedCount, count, reason: 'All tasks should be accepted');
+    });
+
     testWidgets('Rapid-fire Enqueue/Cancel loop', (tester) async {
       const iterations = 10;
       int successCount = 0;

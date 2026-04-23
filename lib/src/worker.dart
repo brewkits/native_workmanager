@@ -60,6 +60,7 @@ class NativeWorker {
 
   /// Validate URL format and throw helpful error if invalid.
   static void _validateUrl(String url) {
+    _validateInput(url, 'URL');
     if (url.isEmpty) {
       throw ArgumentError(
         'URL cannot be empty.\n'
@@ -105,35 +106,51 @@ class NativeWorker {
     }
   }
 
+  /// Check input for malicious patterns (Null bytes, injection chars).
+  static void _validateInput(String? value, String label) {
+    if (value == null) return;
+
+    if (value.contains('\u0000')) {
+      throw ArgumentError(
+          '$label contains null bytes which is not allowed for security reasons.');
+    }
+  }
+
+  /// Validate file path for path traversal or injection.
+  static void _validatePath(String path, String label) {
+    _validateInput(path, label);
+    
+    // SECURITY: Prevent path traversal attacks
+    final normalized = path.toLowerCase();
+    if (normalized.contains('..') || normalized.contains('%2e%2e')) {
+      throw ArgumentError(
+          '$label cannot contain ".." or encoded dot-segments (path traversal attempt blocked).');
+    }
+    
+    if (path.contains(';') || path.contains('|') || path.contains('&')) {
+      throw ArgumentError('$label contains illegal shell injection characters.');
+    }
+
+    // SECURITY: Require absolute paths (relative paths can be manipulated)
+    // EXCEPTION: Allow placeholders in the format {{taskId.key}} for task chains
+    if (!path.startsWith('/') && !path.startsWith('{{') && !path.startsWith(r'C:\') && !path.startsWith(r'\\')) {
+      throw ArgumentError(
+        'Relative path not allowed in $label: "$path"\n'
+        'Use absolute paths like "/path/to/file.jpg"\n'
+        'Relative paths are blocked to prevent path traversal attacks',
+      );
+    }
+  }
+
   /// Validate file path and throw helpful error if invalid.
   static void _validateFilePath(String path, String parameterName) {
     if (path.isEmpty) {
       throw ArgumentError(
         '$parameterName cannot be empty.\n'
-        'Provide a valid file path like "/path/to/file.jpg"',
+        'Provide an absolute file path like "/data/user/0/app/files/data.db"',
       );
     }
-
-    // SECURITY: Prevent path traversal attacks
-    final normalized = path.toLowerCase();
-    if (normalized.contains('..') ||
-        normalized.contains('%2e%2e') ||
-        normalized.contains('\x00')) {
-      throw ArgumentError(
-        'Path traversal or security violation detected in $parameterName: "$path"\n'
-        'Paths containing "..", "%2e%2e", or null bytes are not allowed.',
-      );
-    }
-
-    // SECURITY: Require absolute paths (relative paths can be manipulated)
-    // EXCEPTION: Allow placeholders in the format {{taskId.key}} for task chains
-    if (!path.startsWith('/') && !path.startsWith('{{')) {
-      throw ArgumentError(
-        'Relative path not allowed in $parameterName: "$path"\n'
-        'Use absolute paths like "/path/to/file.jpg"\n'
-        'Relative paths are blocked to prevent path traversal attacks',
-      );
-    }
+    _validatePath(path, parameterName);
   }
 
   // ── HTTP workers ────────────────────────────────────────────────────────────
@@ -398,7 +415,7 @@ class NativeWorker {
       );
 
   /// Delete file or directory worker.
-  /// See [_buildFileDelete] (in native_worker_file.dart) for full documentation.
+  /// See [_buildFileDelete] (in native_workmanager_file.dart) for full documentation.
   static Worker fileDelete({required String path, bool recursive = false}) =>
       _buildFileDelete(path: path, recursive: recursive);
 

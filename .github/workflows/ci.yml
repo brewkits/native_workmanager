@@ -79,6 +79,12 @@ jobs:
       - name: Run plugin unit tests with coverage
         run: flutter test test/unit/ --coverage --reporter=expanded
 
+      - name: Run security tests
+        run: flutter test test/security/ --reporter=expanded
+
+      - name: Run performance tests (non-device)
+        run: flutter test test/performance/scheduling_performance_test.dart --reporter=expanded
+
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         with:
