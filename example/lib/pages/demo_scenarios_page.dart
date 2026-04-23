@@ -268,6 +268,14 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
                       onTap: () => _runTask('Hourly Sync', _demoHourlySync),
                     ),
                     _buildDemoCard(
+                      title: 'Delayed Hourly Sync',
+                      description:
+                          'Repeats every hour, but waits 1 hour before first run',
+                      icon: Icons.hourglass_empty,
+                      onTap: () =>
+                          _runTask('Delayed Sync', _demoDelayedHourlySync),
+                    ),
+                    _buildDemoCard(
                       title: 'Daily Cleanup',
                       description: 'Runs every 24 hours while charging',
                       icon: Icons.cleaning_services,
@@ -1651,6 +1659,18 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
       ),
     );
     _showSnackbar('🔄 Hourly Sync scheduled (1h interval, WiFi only)');
+  }
+
+  Future<void> _demoDelayedHourlySync() async {
+    await NativeWorkManager.enqueue(
+      taskId: 'demo-delayed-sync',
+      trigger: TaskTrigger.periodic(
+        const Duration(hours: 1),
+        initialDelay: const Duration(hours: 1),
+      ),
+      worker: DartWorker(callbackId: 'customTask'),
+    );
+    _showSnackbar('⏳ Delayed Sync scheduled (1h interval, 1h initial delay)');
   }
 
   Future<void> _demoDailyCleanup() async {

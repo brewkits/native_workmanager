@@ -712,7 +712,7 @@ internal fun NativeWorkmanagerPlugin.enqueueOneTimeWorkDirect(
  * Direct enqueue for PeriodicWorkRequest to support setInitialDelay (Issue #21).
  * Bypasses kmpworkmanager scheduler while maintaining compatibility with KmpWorker dispatch.
  */
-private fun enqueuePeriodicWorkDirect(
+internal fun NativeWorkmanagerPlugin.enqueuePeriodicWorkDirect(
     taskId: String,
     workerClassName: String,
     inputJson: String?,
@@ -723,19 +723,19 @@ private fun enqueuePeriodicWorkDirect(
     delayMs: Long,
     policy: ExistingPolicy
 ) {
-    val context = (plugin as? NativeWorkmanagerPlugin)?.context ?: return
-
-    val inputData = Data.Builder()
+    val inputDataBuilder = Data.Builder()
         .putString("workerClassName", workerClassName)
-        .putString("inputJson", inputJson)
-        .build()
+        
+    // Apply middleware to inputJson before enqueuing
+    val effectiveInputJson = if (inputJson != null) {
+        NativeWorkmanagerPlugin.applyMiddleware(context, workerClassName, inputJson)
+    } else inputJson
+    
+    if (effectiveInputJson != null) inputDataBuilder.putString("inputJson", effectiveInputJson)
+    val inputData = inputDataBuilder.build()
 
     // Map KmpWorker class
-    val workerClass = if (constraints.isHeavyTask) {
-        dev.brewkits.native_workmanager.workers.KmpHeavyWorker::class.java
-    } else {
-        dev.brewkits.native_workmanager.workers.KmpWorker::class.java
-    }
+    val workerClass = if (constraints.isHeavyTask) KmpHeavyWorker::class.java else KmpWorker::class.java
 
     val requestBuilder = if (flexMs != null) {
         PeriodicWorkRequest.Builder(workerClass, intervalMs, TimeUnit.MILLISECONDS, flexMs, TimeUnit.MILLISECONDS)
@@ -744,6 +744,10 @@ private fun enqueuePeriodicWorkDirect(
     }
 
     requestBuilder.setInputData(inputData)
+    requestBuilder.addTag(NativeTaskScheduler.TAG_KMP_TASK)
+    requestBuilder.addTag("worker-$workerClassName")
+    requestBuilder.addTag(taskId)
+    requestBuilder.addTag(workerClassName)
     if (tag != null) requestBuilder.addTag(tag)
     
     // THE FIX: Apply initial delay
@@ -752,21 +756,21 @@ private fun enqueuePeriodicWorkDirect(
     }
 
     // Map Constraints
-    val wmConstraints = androidx.work.Constraints.Builder().apply {
-        val networkType = when (constraints.networkType) {
-            NetworkType.CONNECTED -> androidx.work.NetworkType.CONNECTED
-            NetworkType.UNMETERED -> androidx.work.NetworkType.UNMETERED
-            NetworkType.NOT_ROAMING -> androidx.work.NetworkType.NOT_ROAMING
-            NetworkType.METERED -> androidx.work.NetworkType.METERED
-            else -> androidx.work.NetworkType.NOT_REQUIRED
-        }
-        setRequiredNetworkType(networkType)
-        setRequiresCharging(constraints.requiresCharging)
-        setRequiresDeviceIdle(constraints.requiresDeviceIdle)
-        setRequiresBatteryNotLow(constraints.requiresBatteryNotLow)
-        setRequiresStorageNotLow(constraints.requiresStorageNotLow)
-    }.build()
-    requestBuilder.setConstraints(wmConstraints)
+    val networkType = when {
+        constraints.requiresUnmeteredNetwork -> androidx.work.NetworkType.UNMETERED
+        constraints.requiresNetwork -> androidx.work.NetworkType.CONNECTED
+        else -> androidx.work.NetworkType.NOT_REQUIRED
+    }
+    
+    val wmConstraintsBuilder = androidx.work.Constraints.Builder()
+        .setRequiredNetworkType(networkType)
+        .setRequiresCharging(constraints.requiresCharging)
+    
+    val sysConstraints = constraints.systemConstraints ?: emptySet()
+    if (sysConstraints.contains(SystemConstraint.DEVICE_IDLE)) wmConstraintsBuilder.setRequiresDeviceIdle(true)
+    if (sysConstraints.contains(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)) wmConstraintsBuilder.setRequiresBatteryNotLow(true)
+    
+    requestBuilder.setConstraints(wmConstraintsBuilder.build())
 
     // Map Backoff
     val wmBackoffPolicy = when (constraints.backoffPolicy) {
@@ -777,7 +781,7 @@ private fun enqueuePeriodicWorkDirect(
 
     val workPolicy = when (policy) {
         ExistingPolicy.REPLACE -> ExistingPeriodicWorkPolicy.UPDATE
-        else -> ExistingPeriodicWorkPolicy.KEEP_IF_ESTABLISHED
+        else -> ExistingPeriodicWorkPolicy.KEEP
     }
     
     val request = requestBuilder.build()
