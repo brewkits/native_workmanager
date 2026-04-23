@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.2.2] - 2026-04-20
+## [1.2.3] - 2024-04-23
+
+### Added
+- **Feature: Support `initialDelay` for periodic tasks** ([#21](https://github.com/brewkits/native_workmanager/issues/21))
+  - Allows delaying the first execution of a periodic task.
+  - On Android, uses native `PeriodicWorkRequest.setInitialDelay()`.
+  - Added `initialDelay` parameter to `TaskTrigger.periodic()`.
+
+### Fixed
+- **Android: Periodic tasks bypass `kmpworkmanager` to support initial delay.**
+  - This ensures full compatibility with WorkManager 2.10+ and allows using features not yet exposed in the core KMP engine.
+
 
 ### Added
 - **`registerPlugins` parameter** in `NativeWorkManager.initialize()`: opt-in flag to register all Flutter plugins in the background engine, required when using plugins like `flutter_local_notifications` inside `DartWorker` callbacks. Defaults to `false` to preserve the Zero-Engine I/O principle and avoid side-effects (e.g. Bluetooth disconnects). Also added `NativeWorkmanagerPlugin.setPluginRegistrantCallback` on Android and iOS to allow selective plugin registration when `registerPlugins` is false. ([#18](https://github.com/brewkits/native_workmanager/issues/18))
@@ -890,7 +901,7 @@ Minor difference: CryptoWorker uses AES-CBC (Android) vs AES-GCM (iOS), both AES
 
 ### 🙏 **Acknowledgments**
 
-Built on [kmpworkmanager v2.3.9](https://github.com/pablichjenkov/kmpworkmanager) for Kotlin Multiplatform.
+Built on [kmpworkmanager v2.4.0](https://github.com/pablichjenkov/kmpworkmanager) for Kotlin Multiplatform.
 
 ---
 
@@ -904,7 +915,7 @@ Built on [kmpworkmanager v2.3.9](https://github.com/pablichjenkov/kmpworkmanager
 
 ---
 
-**Latest Version:** 1.2.2
+**Latest Version:** 1.2.3
 **Status:**  Production Ready - Stable release for all production apps
 **KMP Parity:** 100%  (kmpworkmanager v2.4.0)
 **Platforms:** Android  | iOS 

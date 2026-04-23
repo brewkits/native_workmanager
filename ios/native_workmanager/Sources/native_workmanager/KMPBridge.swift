@@ -36,7 +36,7 @@ public class KMPBridge {
         )
 
         isInitialized = true
-        NativeLogger.d("KMPBridge: Initialized with NativeTaskScheduler from kmpworkmanager v2.3.9")
+        NativeLogger.d("KMPBridge: Initialized with NativeTaskScheduler from kmpworkmanager v2.4.0")
     }
 
     public func reinitialize(diskSpaceBufferMB: Int) {

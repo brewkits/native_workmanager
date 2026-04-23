@@ -87,14 +87,67 @@ void main() {
         expect(map['flexMs'], isNull);
       });
 
+      test('creates with initial delay', () {
+        const interval = Duration(hours: 1);
+        const delay = Duration(minutes: 15);
+        const trigger = TaskTrigger.periodic(interval, initialDelay: delay);
+
+        final periodicTrigger = trigger as PeriodicTrigger;
+        expect(periodicTrigger.interval, interval);
+        expect(periodicTrigger.initialDelay, delay);
+      });
+
+      test('toMap() produces correct JSON with initial delay', () {
+        const trigger = TaskTrigger.periodic(
+          Duration(hours: 1),
+          flexInterval: Duration(minutes: 15),
+          initialDelay: Duration(minutes: 30),
+        );
+        final map = trigger.toMap();
+
+        expect(map['type'], 'periodic');
+        expect(map['intervalMs'], 60 * 60 * 1000); // 1 hour
+        expect(map['flexMs'], 15 * 60 * 1000); // 15 minutes
+        expect(map['initialDelayMs'], 30 * 60 * 1000); // 30 minutes
+      });
+
+      test('toMap() handles zero initial delay', () {
+        const trigger = TaskTrigger.periodic(
+          Duration(hours: 1),
+          initialDelay: Duration.zero,
+        );
+        final map = trigger.toMap();
+
+        expect(map['type'], 'periodic');
+        expect(map['initialDelayMs'], 0);
+      });
+
+      test('toMap() handles null initial delay', () {
+        const trigger = TaskTrigger.periodic(Duration(hours: 1));
+        final map = trigger.toMap();
+
+        expect(map['type'], 'periodic');
+        expect(map['initialDelayMs'], isNull);
+      });
+
+      test('toString() includes initial delay', () {
+        const trigger = TaskTrigger.periodic(
+          Duration(hours: 1),
+          initialDelay: Duration(minutes: 5),
+        );
+        expect(trigger.toString(), contains('initialDelay: 0:05:00'));
+      });
+
       test('equality works correctly', () {
         const trigger1 = TaskTrigger.periodic(
           Duration(hours: 1),
           flexInterval: Duration(minutes: 15),
+          initialDelay: Duration(minutes: 10),
         );
         const trigger2 = TaskTrigger.periodic(
           Duration(hours: 1),
           flexInterval: Duration(minutes: 15),
+          initialDelay: Duration(minutes: 10),
         );
         const trigger3 = TaskTrigger.periodic(Duration(hours: 1));
 

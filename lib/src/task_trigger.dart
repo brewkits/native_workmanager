@@ -122,6 +122,20 @@ sealed class TaskTrigger {
   /// );
   /// ```
   ///
+  /// ## Periodic Task with Initial Delay
+  ///
+  /// ```dart
+  /// // Run every hour, but wait for the first hour before starting
+  /// await NativeWorkManager.enqueue(
+  ///   taskId: 'delayed-periodic-sync',
+  ///   trigger: TaskTrigger.periodic(
+  ///     Duration(hours: 1),
+  ///     initialDelay: Duration(hours: 1),
+  ///   ),
+  ///   worker: NativeWorker.httpSync(url: 'https://api.example.com/sync'),
+  /// );
+  /// ```
+  ///
   /// ## Parameters
   ///
   /// **[interval]** - Time between executions.
@@ -135,12 +149,18 @@ sealed class TaskTrigger {
   /// - Improves battery life by batching work
   /// - Ignored on iOS
   ///
+  /// **[initialDelay]** *(optional)* - Delay before the very first execution.
+  /// - On Android, the task will only run after this delay has passed.
+  /// - Useful for scheduling tasks that shouldn't run immediately upon registration.
+  /// - Ignored on iOS (BGTaskScheduler manages its own opportunistic scheduling).
+  ///
   /// ## Platform Behavior
   ///
   /// **Android:**
   /// - Uses WorkManager PeriodicWorkRequest
   /// - Minimum interval: 15 minutes (OS limitation)
   /// - Flex interval helps Android optimize battery usage
+  /// - Initial delay allows delaying the first run (WorkManager 2.1+)
   /// - May defer execution if device is in Doze mode
   /// - Timing is approximate, not exact
   ///
@@ -171,6 +191,7 @@ sealed class TaskTrigger {
   /// ❌ **Don't** rely on precise scheduling on iOS
   /// ❌ **Don't** schedule too many periodic tasks (battery drain)
   /// ✅ **Do** use flexInterval on Android for better battery life
+  /// ✅ **Do** use initialDelay if the first run shouldn't happen immediately
   /// ✅ **Do** combine with network constraints for data sync
   /// ✅ **Do** handle cases where task doesn't run on time
   ///
@@ -190,6 +211,7 @@ sealed class TaskTrigger {
   const factory TaskTrigger.periodic(
     Duration interval, {
     Duration? flexInterval,
+    Duration? initialDelay,
   }) = PeriodicTrigger;
 
   /// Execute at an exact time (alarm-style).
@@ -570,7 +592,11 @@ class OneTimeTrigger extends TaskTrigger {
 
 /// Execute periodically at a fixed interval.
 class PeriodicTrigger extends TaskTrigger {
-  const PeriodicTrigger(this.interval, {this.flexInterval});
+  const PeriodicTrigger(
+    this.interval, {
+    this.flexInterval,
+    this.initialDelay,
+  });
 
   /// Interval between executions.
   final Duration interval;
@@ -578,11 +604,15 @@ class PeriodicTrigger extends TaskTrigger {
   /// Flex time window for execution.
   final Duration? flexInterval;
 
+  /// Initial delay before first execution.
+  final Duration? initialDelay;
+
   @override
   Map<String, dynamic> toMap() => {
         'type': 'periodic',
         'intervalMs': interval.inMilliseconds,
         'flexMs': flexInterval?.inMilliseconds,
+        'initialDelayMs': initialDelay?.inMilliseconds,
       };
 
   @override
@@ -590,13 +620,15 @@ class PeriodicTrigger extends TaskTrigger {
       identical(this, other) ||
       other is PeriodicTrigger &&
           interval == other.interval &&
-          flexInterval == other.flexInterval;
+          flexInterval == other.flexInterval &&
+          initialDelay == other.initialDelay;
 
   @override
-  int get hashCode => Object.hash(interval, flexInterval);
+  int get hashCode => Object.hash(interval, flexInterval, initialDelay);
 
   @override
-  String toString() => 'TaskTrigger.periodic($interval, flex: $flexInterval)';
+  String toString() =>
+      'TaskTrigger.periodic($interval, flex: $flexInterval, initialDelay: $initialDelay)';
 }
 
 /// Execute at an exact time.
