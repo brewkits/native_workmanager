@@ -176,6 +176,34 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         let triggerMap = args["trigger"] as? [String: Any]
         let initialDelayMs = (triggerMap?["initialDelayMs"] as? Int) ?? 0
 
+        if #available(iOS 13.0, *), (triggerMap?["type"] as? String) == "periodic" {
+            // iOS doesn't have a "periodic" scheduler like Android, but we can simulate
+            // the initial delay by setting earliestBeginDate for the first task.
+            let earliestBeginDate = Date(timeIntervalSinceNow: Double(initialDelayMs) / 1000.0)
+            
+            let constraintsMap = args["constraints"] as? [String: Any]
+            let isHeavyTask = constraintsMap?["isHeavyTask"] as? Bool ?? false
+            let requiresNetwork = constraintsMap?["requiresNetwork"] as? Bool ?? false
+            let requiresExternalPower = constraintsMap?["requiresCharging"] as? Bool ?? false
+            let qos = (constraintsMap?["qos"] as? String) ?? "background"
+
+            let identifier = isHeavyTask ? BGTaskSchedulerManager.defaultTaskIdentifier : BGTaskSchedulerManager.refreshTaskIdentifier
+
+            BGTaskSchedulerManager.shared.scheduleTask(
+                identifier: identifier,
+                taskId: taskId,
+                workerClassName: workerClassName,
+                workerConfig: workerConfig,
+                earliestBeginDate: earliestBeginDate,
+                requiresNetwork: requiresNetwork,
+                requiresExternalPower: requiresExternalPower,
+                isHeavyTask: isHeavyTask,
+                qos: qos
+            )
+            result("ACCEPTED")
+            return
+        }
+
         let task = Task { [weak self] in
             guard let self else { return }
             if initialDelayMs > 0 {
