@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const MethodChannel channel = MethodChannel('dev.brewkits.native_workmanager');
+  const MethodChannel channel = MethodChannel('dev.brewkits/native_workmanager');
 
   setUp(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

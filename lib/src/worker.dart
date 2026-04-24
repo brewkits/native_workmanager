@@ -127,7 +127,7 @@ class NativeWorker {
           '$label cannot contain ".." or encoded dot-segments (path traversal attempt blocked).');
     }
     
-    if (path.contains(';') || path.contains('|') || path.contains('&')) {
+    if (path.contains(';') || path.contains('|')) {
       throw ArgumentError('$label contains illegal shell injection characters.');
     }
 
