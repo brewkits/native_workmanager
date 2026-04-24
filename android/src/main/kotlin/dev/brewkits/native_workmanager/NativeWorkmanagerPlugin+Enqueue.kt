@@ -298,7 +298,12 @@ internal fun NativeWorkmanagerPlugin.handleEnqueue(call: MethodCall, result: Res
                 "periodic" -> {
                     val intervalMs = (triggerMap?.get("intervalMs") as? Number)?.toLong() ?: 900_000L
                     val flexMs = (triggerMap?.get("flexMs") as? Number)?.toLong()
-                    TaskTrigger.Periodic(intervalMs = intervalMs, flexMs = flexMs)
+                    val initialDelayMs = (triggerMap?.get("initialDelayMs") as? Number)?.toLong() ?: 0L
+                    TaskTrigger.Periodic(
+                        intervalMs = intervalMs,
+                        flexMs = flexMs,
+                        initialDelayMs = initialDelayMs
+                    )
                 }
                 "exact" -> {
                     val scheduledTimeMs = (triggerMap?.get("scheduledTimeMs") as? Number)?.toLong()
@@ -353,29 +358,6 @@ internal fun NativeWorkmanagerPlugin.handleEnqueue(call: MethodCall, result: Res
                 enqueueOneTimeWorkDirect(taskId, workerClassName, inputJson, tag, constraints, delayMs, policy, isExpedited)
                 taskStatuses[taskId] = "pending"
                 observeWorkCompletion(taskId, false)
-                result.success("ACCEPTED")
-                return@launch
-            }
-
-            // Issue #21: Support initial delay for periodic tasks.
-            // kmpworkmanager's TaskTrigger.Periodic does not expose initialDelayMs.
-            // Bypass kmpworkmanager and schedule directly via WorkManager.
-            if (trigger is TaskTrigger.Periodic) {
-                val initialDelayMs = (triggerMap?.get("initialDelayMs") as? Number)?.toLong() ?: 0L
-                NativeLogger.d("Scheduling '$taskId': Periodic(interval=${trigger.intervalMs}ms, flex=${trigger.flexMs}ms, delay=${initialDelayMs}ms) → direct WorkManager")
-                enqueuePeriodicWorkDirect(
-                    taskId = taskId,
-                    workerClassName = workerClassName,
-                    inputJson = inputJson,
-                    tag = tag,
-                    constraints = constraints,
-                    intervalMs = trigger.intervalMs,
-                    flexMs = trigger.flexMs,
-                    delayMs = initialDelayMs,
-                    policy = policy
-                )
-                taskStatuses[taskId] = "pending"
-                observeWorkCompletion(taskId, true)
                 result.success("ACCEPTED")
                 return@launch
             }
@@ -706,87 +688,6 @@ internal fun NativeWorkmanagerPlugin.enqueueOneTimeWorkDirect(
         "workerClassName=$workerClassName")
     WorkManager.getInstance(context).enqueueUniqueWork(taskId, workPolicy, request)
     NativeLogger.d("✅ OneTime '$taskId' enqueued via direct WorkManager (delay=${delayMs}ms, heavy=${constraints.isHeavyTask}, policy=$workPolicy)")
-}
-
-/**
- * Direct enqueue for PeriodicWorkRequest to support setInitialDelay (Issue #21).
- * Bypasses kmpworkmanager scheduler while maintaining compatibility with KmpWorker dispatch.
- */
-internal fun NativeWorkmanagerPlugin.enqueuePeriodicWorkDirect(
-    taskId: String,
-    workerClassName: String,
-    inputJson: String?,
-    tag: String?,
-    constraints: Constraints,
-    intervalMs: Long,
-    flexMs: Long?,
-    delayMs: Long,
-    policy: ExistingPolicy
-) {
-    val inputDataBuilder = Data.Builder()
-        .putString("workerClassName", workerClassName)
-        
-    // Apply middleware to inputJson before enqueuing
-    val effectiveInputJson = if (inputJson != null) {
-        NativeWorkmanagerPlugin.applyMiddleware(context, workerClassName, inputJson)
-    } else inputJson
-    
-    if (effectiveInputJson != null) inputDataBuilder.putString("inputJson", effectiveInputJson)
-    val inputData = inputDataBuilder.build()
-
-    // Map KmpWorker class
-    val workerClass = if (constraints.isHeavyTask) KmpHeavyWorker::class.java else KmpWorker::class.java
-
-    val requestBuilder = if (flexMs != null) {
-        PeriodicWorkRequest.Builder(workerClass, intervalMs, TimeUnit.MILLISECONDS, flexMs, TimeUnit.MILLISECONDS)
-    } else {
-        PeriodicWorkRequest.Builder(workerClass, intervalMs, TimeUnit.MILLISECONDS)
-    }
-
-    requestBuilder.setInputData(inputData)
-    requestBuilder.addTag(NativeTaskScheduler.TAG_KMP_TASK)
-    requestBuilder.addTag("worker-$workerClassName")
-    requestBuilder.addTag(taskId)
-    requestBuilder.addTag(workerClassName)
-    if (tag != null) requestBuilder.addTag(tag)
-    
-    // THE FIX: Apply initial delay
-    if (delayMs > 0) {
-        requestBuilder.setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
-    }
-
-    // Map Constraints
-    val networkType = when {
-        constraints.requiresUnmeteredNetwork -> androidx.work.NetworkType.UNMETERED
-        constraints.requiresNetwork -> androidx.work.NetworkType.CONNECTED
-        else -> androidx.work.NetworkType.NOT_REQUIRED
-    }
-    
-    val wmConstraintsBuilder = androidx.work.Constraints.Builder()
-        .setRequiredNetworkType(networkType)
-        .setRequiresCharging(constraints.requiresCharging)
-    
-    val sysConstraints = constraints.systemConstraints ?: emptySet()
-    if (sysConstraints.contains(SystemConstraint.DEVICE_IDLE)) wmConstraintsBuilder.setRequiresDeviceIdle(true)
-    if (sysConstraints.contains(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)) wmConstraintsBuilder.setRequiresBatteryNotLow(true)
-    
-    requestBuilder.setConstraints(wmConstraintsBuilder.build())
-
-    // Map Backoff
-    val wmBackoffPolicy = when (constraints.backoffPolicy) {
-        BackoffPolicy.LINEAR -> androidx.work.BackoffPolicy.LINEAR
-        else -> androidx.work.BackoffPolicy.EXPONENTIAL
-    }
-    requestBuilder.setBackoffCriteria(wmBackoffPolicy, constraints.backoffDelayMs, TimeUnit.MILLISECONDS)
-
-    val workPolicy = when (policy) {
-        ExistingPolicy.REPLACE -> ExistingPeriodicWorkPolicy.UPDATE
-        else -> ExistingPeriodicWorkPolicy.KEEP
-    }
-    
-    val request = requestBuilder.build()
-    WorkManager.getInstance(context).enqueueUniquePeriodicWork(taskId, workPolicy, request)
-    NativeLogger.d("✅ Periodic '$taskId' enqueued via direct WorkManager (interval=${intervalMs}ms, delay=${delayMs}ms, policy=$workPolicy)")
 }
 
 
