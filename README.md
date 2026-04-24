@@ -364,11 +364,16 @@ await NativeWorkManager
 await NativeWorkManager.enqueue(
   taskId: 'hourly-sync',
   worker: NativeWorker.httpSync(url: 'https://api.example.com/sync'),
-  trigger: TaskTrigger.periodic(const Duration(hours: 1)),
+  trigger: TaskTrigger.periodic(
+    const Duration(hours: 1),
+    initialDelay: const Duration(minutes: 30), // Delay first run by 30m
+  ),
   constraints: const Constraints(requiresNetwork: true),
   existingPolicy: ExistingTaskPolicy.keep,
 );
 ```
+
+> **New in v1.2.3**: `initialDelay` support for periodic tasks ensures your background work doesn't start immediately upon registration, saving resources when the app is first launched.
 </details>
 
 <details>

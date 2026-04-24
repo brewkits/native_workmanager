@@ -502,15 +502,28 @@ TaskTrigger.oneTime(Duration(seconds: 30))  // Run after 30 seconds
 Execute task repeatedly at fixed interval.
 
 ```dart
-static TaskTrigger periodic(Duration interval)
+static TaskTrigger periodic(
+  Duration interval, {
+  Duration? flexInterval,
+  Duration? initialDelay,
+})
 ```
+
+**Parameters:**
+- `interval`: Time between executions (minimum 15 minutes).
+- `flexInterval`: (Android only) Flex window for OS optimization.
+- `initialDelay`: (New in v1.2.3) Delay before the very first execution.
 
 **Example:**
 ```dart
-TaskTrigger.periodic(Duration(hours: 1))  // Run every hour
+// Run every hour, but wait 30 mins before first run
+TaskTrigger.periodic(
+  Duration(hours: 1),
+  initialDelay: Duration(minutes: 30),
+)
 ```
 
-**Note:** Minimum interval is 15 minutes on both iOS and Android.
+**Note:** Minimum interval is 15 minutes on both iOS and Android. `initialDelay` ensures the task doesn't run immediately upon registration.
 
 ---
 
