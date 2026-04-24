@@ -7,14 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.2.3] - 2024-04-24
+## [1.2.3] - 2026-04-24
 
 ### Added
-- **Feature: Support `initialDelay` for periodic tasks** ([#21](https://github.com/brewkits/native_workmanager/issues/21))
+- **Feature: Support `initialDelay` and `runImmediately` for periodic tasks** ([#21](https://github.com/brewkits/native_workmanager/issues/21))
   - Allows delaying the first execution of a periodic task.
+  - Added `runImmediately` flag to skip the first execution.
   - On Android, uses native `PeriodicWorkRequest.setInitialDelay()`.
   - On iOS, maps `initialDelay` to `earliestBeginDate` for optimized scheduling.
-  - Added `initialDelay` parameter to `TaskTrigger.periodic()`.
+  - Added parameters to `TaskTrigger.periodic()`.
 - **Security: Advanced Input Validation**
   - All native workers now perform strict validation to block **Null Byte Injection**, **Path Traversal** (`..`, `%2e%2e`), and **Shell Injection** characters in URLs and file paths.
 - **Enterprise-Grade Testing**:
@@ -24,14 +25,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Improved CI/CD**: Integrated automated Security, Performance, and Stress testing into the GitHub Actions pipeline.
 
 ### Fixed
-- **Android: Periodic tasks bypass `kmpworkmanager` to support initial delay.**
-  - Ensures full compatibility with WorkManager 2.10+ and allows using native features not yet exposed in the KMP engine.
-- **Upgraded Core Engine to `kmpworkmanager 2.4.1`**: Optimized background task scheduling and fixed edge-case crashes on Android 15.
+- **Android: Upgraded to `kmpworkmanager 2.4.1`**
+  - Switched to native `setInitialDelay` instead of manual bypass logic.
+  - Fixed edge-case crashes on Android 15.
+- **iOS: Improved Periodic Task Lifecycle**
+  - Fixed regression where periodic tasks were not tracked in `activeTasks`, preventing cancellation.
 - **Android: Fixed broken `expedited` flag logic** in direct enqueue path.
 
 ---
 
-## [1.2.2] - 2024-04-22
+## [1.2.2] - 2026-04-22
 
 ### Added
 - **`registerPlugins` parameter** in `NativeWorkManager.initialize()`: opt-in flag to register all Flutter plugins in the background engine, required when using plugins like `flutter_local_notifications` inside `DartWorker` callbacks. Defaults to `false` to preserve the Zero-Engine I/O principle and avoid side-effects (e.g. Bluetooth disconnects). Also added `NativeWorkmanagerPlugin.setPluginRegistrantCallback` on Android and iOS to allow selective plugin registration when `registerPlugins` is false. ([#18](https://github.com/brewkits/native_workmanager/issues/18))

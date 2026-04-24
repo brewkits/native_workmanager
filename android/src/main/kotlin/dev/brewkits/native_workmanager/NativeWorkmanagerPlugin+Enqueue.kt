@@ -299,10 +299,12 @@ internal fun NativeWorkmanagerPlugin.handleEnqueue(call: MethodCall, result: Res
                     val intervalMs = (triggerMap?.get("intervalMs") as? Number)?.toLong() ?: 900_000L
                     val flexMs = (triggerMap?.get("flexMs") as? Number)?.toLong()
                     val initialDelayMs = (triggerMap?.get("initialDelayMs") as? Number)?.toLong() ?: 0L
+                    val runImmediately = triggerMap?.get("runImmediately") as? Boolean ?: true
                     TaskTrigger.Periodic(
                         intervalMs = intervalMs,
                         flexMs = flexMs,
-                        initialDelayMs = initialDelayMs
+                        initialDelayMs = initialDelayMs,
+                        runImmediately = runImmediately
                     )
                 }
                 "exact" -> {
@@ -632,13 +634,28 @@ internal fun NativeWorkmanagerPlugin.enqueueOneTimeWorkDirect(
     val workerClass = if (constraints.isHeavyTask) KmpHeavyWorker::class.java else KmpWorker::class.java
 
     val dataBuilder = Data.Builder().putString("workerClassName", workerClassName)
-    
+
     // Apply middleware to inputJson before enqueuing (Phase 2)
     val effectiveInputJson = if (inputJson != null) {
         NativeWorkmanagerPlugin.applyMiddleware(context, workerClassName, inputJson)
     } else inputJson
-    
-    if (effectiveInputJson != null) dataBuilder.putString("inputJson", effectiveInputJson)
+
+    if (effectiveInputJson != null) {
+        // WorkManager hard-limits Data payloads to 10 240 bytes (10 KB).
+        // If the config exceeds that, spill it to a temp file and pass only the path.
+        // The worker reads the file and deletes it after use.
+        val payloadBytes = effectiveInputJson.toByteArray(Charsets.UTF_8)
+        if (payloadBytes.size > 10 * 1024) {
+            val spillFile = java.io.File(context.cacheDir, "wm_spill_${taskId}.json")
+            spillFile.writeText(effectiveInputJson, Charsets.UTF_8)
+            // Use the same key as kmpworkmanager (NativeTaskScheduler.KEY_INPUT_JSON_FILE)
+            // so BaseKmpWorker.resolveInputJson() picks it up without any changes.
+            dataBuilder.putString("inputJsonFile", spillFile.absolutePath)
+            NativeLogger.d("inputJson for '$taskId' exceeds 10 KB — spilled to ${spillFile.name}")
+        } else {
+            dataBuilder.putString("inputJson", effectiveInputJson)
+        }
+    }
 
     val networkType = when {
         constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED

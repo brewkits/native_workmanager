@@ -31,16 +31,15 @@ class OfflineQueueProcessor(
 
             for (entry in entries) {
                 try {
-                    // Try to enqueue each entry as a regular native work request
-                    // We use enqueueOneTimeWorkDirect (copied logic or call helper)
                     enqueueEntry(applicationContext, entry)
-                    
-                    // If successfully enqueued to WorkManager, remove from offline queue
                     store.deleteEntry(entry.id)
                     NativeLogger.d("✅ OfflineQueueProcessor: Task ${entry.taskId} moved to WorkManager")
                 } catch (e: Exception) {
-                    NativeLogger.e("❌ OfflineQueueProcessor: Failed to move task ${entry.taskId}", e)
-                    // Keep in queue for next run
+                    // Enqueue failures (bad format, oversized payload) are not transient —
+                    // retrying the same entry indefinitely would cause an infinite loop that
+                    // drains the battery. Discard and move on.
+                    NativeLogger.e("❌ OfflineQueueProcessor: Discarding unrecoverable entry ${entry.taskId}", e)
+                    store.deleteEntry(entry.id)
                 }
             }
 
@@ -66,7 +65,14 @@ class OfflineQueueProcessor(
             .putString("workerClassName", entry.workerClassName)
         
         if (entry.workerConfig != null) {
-            dataBuilder.putString("inputJson", entry.workerConfig)
+            val payloadBytes = entry.workerConfig.toByteArray(Charsets.UTF_8)
+            if (payloadBytes.size > 10 * 1024) {
+                val spillFile = java.io.File(context.cacheDir, "wm_spill_${entry.taskId}.json")
+                spillFile.writeText(entry.workerConfig, Charsets.UTF_8)
+                dataBuilder.putString("inputJsonFile", spillFile.absolutePath)
+            } else {
+                dataBuilder.putString("inputJson", entry.workerConfig)
+            }
         }
 
         // Parse retry policy to apply constraints

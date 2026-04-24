@@ -130,12 +130,41 @@ void main() {
         expect(map['initialDelayMs'], isNull);
       });
 
-      test('toString() includes initial delay', () {
+      test('creates with runImmediately false', () {
+        const interval = Duration(hours: 1);
+        const trigger = TaskTrigger.periodic(interval, runImmediately: false);
+
+        final periodicTrigger = trigger as PeriodicTrigger;
+        expect(periodicTrigger.interval, interval);
+        expect(periodicTrigger.runImmediately, false);
+      });
+
+      test('toMap() produces correct JSON with runImmediately', () {
+        const trigger = TaskTrigger.periodic(
+          Duration(hours: 1),
+          runImmediately: false,
+        );
+        final map = trigger.toMap();
+
+        expect(map['type'], 'periodic');
+        expect(map['runImmediately'], false);
+      });
+
+      test('toMap() defaults runImmediately to true', () {
+        const trigger = TaskTrigger.periodic(Duration(hours: 1));
+        final map = trigger.toMap();
+
+        expect(map['runImmediately'], true);
+      });
+
+      test('toString() includes initial delay and runImmediately', () {
         const trigger = TaskTrigger.periodic(
           Duration(hours: 1),
           initialDelay: Duration(minutes: 5),
+          runImmediately: false,
         );
         expect(trigger.toString(), contains('initialDelay: 0:05:00'));
+        expect(trigger.toString(), contains('runImmediately: false'));
       });
 
       test('equality works correctly', () {
@@ -143,16 +172,86 @@ void main() {
           Duration(hours: 1),
           flexInterval: Duration(minutes: 15),
           initialDelay: Duration(minutes: 10),
+          runImmediately: false,
         );
         const trigger2 = TaskTrigger.periodic(
           Duration(hours: 1),
           flexInterval: Duration(minutes: 15),
           initialDelay: Duration(minutes: 10),
+          runImmediately: false,
         );
         const trigger3 = TaskTrigger.periodic(Duration(hours: 1));
 
         expect(trigger1, equals(trigger2));
         expect(trigger1, isNot(equals(trigger3)));
+      });
+    });
+
+    group('PeriodicTrigger Android OS validations', () {
+      test('toMap() throws ArgumentError when interval < 15 minutes', () {
+        final trigger = TaskTrigger.periodic(const Duration(minutes: 1));
+        expect(() => trigger.toMap(), throwsArgumentError);
+      });
+
+      test('toMap() throws ArgumentError when interval == 14 minutes', () {
+        final trigger = TaskTrigger.periodic(const Duration(minutes: 14));
+        expect(() => trigger.toMap(), throwsArgumentError);
+      });
+
+      test('toMap() does NOT throw when interval == 15 minutes', () {
+        final trigger = TaskTrigger.periodic(const Duration(minutes: 15));
+        expect(() => trigger.toMap(), returnsNormally);
+      });
+
+      test('toMap() throws ArgumentError when flexInterval < 5 minutes', () {
+        final trigger = TaskTrigger.periodic(
+          const Duration(hours: 1),
+          flexInterval: const Duration(minutes: 4),
+        );
+        expect(() => trigger.toMap(), throwsArgumentError);
+      });
+
+      test('toMap() throws ArgumentError when flexInterval == 4 minutes', () {
+        final trigger = TaskTrigger.periodic(
+          const Duration(hours: 1),
+          flexInterval: const Duration(minutes: 4, seconds: 59),
+        );
+        expect(() => trigger.toMap(), throwsArgumentError);
+      });
+
+      test('toMap() does NOT throw when flexInterval == 5 minutes', () {
+        final trigger = TaskTrigger.periodic(
+          const Duration(hours: 1),
+          flexInterval: const Duration(minutes: 5),
+        );
+        expect(() => trigger.toMap(), returnsNormally);
+      });
+
+      test('ArgumentError message mentions 15 minutes for interval', () {
+        final trigger = TaskTrigger.periodic(const Duration(minutes: 5));
+        expect(
+          () => trigger.toMap(),
+          throwsA(isA<ArgumentError>().having(
+            (e) => e.message,
+            'message',
+            contains('15 minutes'),
+          )),
+        );
+      });
+
+      test('ArgumentError message mentions 5 minutes for flexInterval', () {
+        final trigger = TaskTrigger.periodic(
+          const Duration(hours: 1),
+          flexInterval: const Duration(minutes: 1),
+        );
+        expect(
+          () => trigger.toMap(),
+          throwsA(isA<ArgumentError>().having(
+            (e) => e.message,
+            'message',
+            contains('5 minutes'),
+          )),
+        );
       });
     });
 

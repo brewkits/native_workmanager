@@ -59,9 +59,17 @@ class BGTaskSchedulerManager {
     /// Used to trigger resumePendingChains/Graphs in the main plugin.
     var onTaskStart: (() -> Void)?
 
+    /// Callback for task execution. If provided, overrides internal simple execution.
+    /// This allows the main plugin to apply middleware and observability.
+    var taskExecutor: ((TaskInfo) async -> Any)?
+
     /// Callback when a background task expires before completing.
     /// Used to call stopAllWorkers() in the main plugin.
     var onExpiration: (() -> Void)?
+
+    /// Fired when a Task begins executing so the plugin can track it in activeTasks
+    /// for cooperative cancellation via NativeWorkManager.cancel(taskId).
+    var onTaskRunning: ((String, Task<Void, Never>) -> Void)?
 
     /// Stores the currently running worker to handle stop/expiration.
     private var activeWorker: IosWorker?
@@ -69,6 +77,9 @@ class BGTaskSchedulerManager {
     /// Stores pending tasks (taskId -> task info)
     private var pendingTasks: [String: TaskInfo] = [:]
     private let queue = DispatchQueue(label: "dev.brewkits.bgtask_manager")
+
+    /// Guards a single disk-load on first access (cold-start BGTask invocation).
+    private var pendingTasksLoaded = false
 
     // MARK: - Task Info
 
@@ -193,15 +204,18 @@ class BGTaskSchedulerManager {
     }
 
     /// Cancel a scheduled task.
+    ///
+    /// - Note: `BGTaskScheduler` has no API to cancel individual task requests by identifier —
+    ///   only `cancelAllTaskRequests()` exists at the OS level. Removing the task from
+    ///   `pendingTasks` here is sufficient: if the OS still fires the BGTask, the execution
+    ///   handler will find no pending entry and return early without running the worker.
+    ///   Callers should be aware that one additional OS-level fire may occur after this call.
     func cancelTask(taskId: String) {
         queue.sync {
             pendingTasks.removeValue(forKey: taskId)
             savePendingTasks()
         }
-
-        // Note: BGTaskScheduler doesn't support canceling individual tasks
-        // We can only cancel all tasks or let them expire
-        NativeLogger.d("BGTaskSchedulerManager: Cancelled task '\(taskId)'")
+        NativeLogger.d("BGTaskSchedulerManager: Cancelled task '\(taskId)' (OS-level request may still fire once)")
     }
 
     /// Cancel all scheduled tasks.
@@ -217,148 +231,130 @@ class BGTaskSchedulerManager {
 
     // MARK: - Task Execution
 
+    /// Ensures `bgTask.setTaskCompleted` is called exactly once per BGTask instance.
+    ///
+    /// The singleton-level flag approach breaks when iOS fires two BGTasks concurrently:
+    /// Task A resets the flag, Task B could see Task A's flag state. Per-instance guard
+    /// binds completion lifetime to the BGTask itself.
+    private final class TaskCompletionGuard {
+        private var fired = false
+        private let lock = NSLock()
+        func completeOnce(task: BGTask, success: Bool) {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !fired else { return }
+            fired = true
+            task.setTaskCompleted(success: success)
+        }
+    }
+
     /// Handle BGProcessingTask execution.
     private func handleBackgroundTask(_ task: BGProcessingTask) {
         NativeLogger.d("BGTaskSchedulerManager: Processing task started")
+        let completionGuard = TaskCompletionGuard()
         onTaskStart?()
 
-        // Get task info from storage
-        guard let taskInfo = loadNextPendingTask() else {
+        guard let taskInfo = popNextPendingTask() else {
             NativeLogger.d("BGTaskSchedulerManager: No pending tasks")
-            task.setTaskCompleted(success: true)
+            completionGuard.completeOnce(task: task, success: true)
             return
         }
 
-        // Setup expiration handler
-        // Use [weak self] to prevent retain cycle and call stop()
         task.expirationHandler = { [weak self] in
             NativeLogger.d("BGTaskSchedulerManager: Task expired")
             self?.activeWorker?.stop()
             self?.onExpiration?()
             self?.onTaskComplete?(taskInfo.taskId, false, "Task expired")
-            task.setTaskCompleted(success: false)
+            completionGuard.completeOnce(task: task, success: false)
         }
 
-        // Execute worker
-        Task { [weak self] in
+        let runningTask = Task(priority: .background) { [weak self] in
             guard let self = self else { return }
-            let success = await self.executeWorker(taskInfo: taskInfo)
-
-            // Mark task complete
-            task.setTaskCompleted(success: success)
-
-            // Notify completion
-            self.onTaskComplete?(
-                taskInfo.taskId,
-                success,
-                success ? nil : "Worker execution failed"
-            )
-            
-            // Clean up reference
+            let success = await self.runExecutor(taskInfo: taskInfo)
+            completionGuard.completeOnce(task: task, success: success)
             self.activeWorker = nil
         }
+        onTaskRunning?(taskInfo.taskId, runningTask)
     }
 
     /// Handle BGAppRefreshTask execution.
     private func handleAppRefreshTask(_ task: BGAppRefreshTask) {
         NativeLogger.d("BGTaskSchedulerManager: App refresh task started")
+        let completionGuard = TaskCompletionGuard()
         onTaskStart?()
 
-        // Similar to handleBackgroundTask but with stricter time limit (~30s)
-        guard let taskInfo = loadNextPendingTask() else {
-            task.setTaskCompleted(success: true)
+        guard let taskInfo = popNextPendingTask() else {
+            completionGuard.completeOnce(task: task, success: true)
             return
         }
 
-        // Use [weak self] to prevent retain cycle and call stop()
         task.expirationHandler = { [weak self] in
             NativeLogger.d("BGTaskSchedulerManager: Refresh task expired")
             self?.activeWorker?.stop()
             self?.onExpiration?()
             self?.onTaskComplete?(taskInfo.taskId, false, "Refresh expired")
-            task.setTaskCompleted(success: false)
+            completionGuard.completeOnce(task: task, success: false)
         }
 
-        Task { [weak self] in
+        let runningTask = Task(priority: .background) { [weak self] in
             guard let self = self else { return }
-            let success = await self.executeWorker(taskInfo: taskInfo)
-            task.setTaskCompleted(success: success)
-            self.onTaskComplete?(taskInfo.taskId, success, nil)
-            
-            // Clean up reference
+            let success = await self.runExecutor(taskInfo: taskInfo)
+            completionGuard.completeOnce(task: task, success: success)
             self.activeWorker = nil
+        }
+        onTaskRunning?(taskInfo.taskId, runningTask)
+    }
+
+    /// Shared execution path for both BGProcessingTask and BGAppRefreshTask.
+    private func runExecutor(taskInfo: TaskInfo) async -> Bool {
+        if let executor = taskExecutor {
+            let result = await executor(taskInfo)
+            if let workerResult = result as? WorkerResult { return workerResult.success }
+            if let boolResult = result as? Bool { return boolResult }
+            return true
+        } else {
+            let success = await executeWorker(taskInfo: taskInfo)
+            onTaskComplete?(taskInfo.taskId, success, success ? nil : "Worker execution failed")
+            return success
         }
     }
 
     /// Execute a worker with the given task info.
+    ///
+    /// Uses native Swift Concurrency throughout — no DispatchQueue wrapping needed.
+    /// Task(priority:) in the caller already sets the execution context; wrapping in
+    /// DispatchQueue.global().async { Task { } } would create an orphaned child Task that
+    /// doesn't inherit cancellation from its parent, wasting a thread in the process.
     private func executeWorker(taskInfo: TaskInfo) async -> Bool {
-        NativeLogger.d("BGTaskSchedulerManager: Executing worker '\(taskInfo.workerClassName)' for task '\(taskInfo.taskId)' with QoS: \(taskInfo.qos)")
+        NativeLogger.d("BGTaskSchedulerManager: Executing worker '\(taskInfo.workerClassName)' for task '\(taskInfo.taskId)'")
 
-        // Map QoS string to DispatchQoS
-        let qos = mapQoS(taskInfo.qos)
-
-        // Execute worker with specified QoS
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: qos).async {
-                Task {
-                    // Convert config to JSON string
-                    guard let worker = IosWorkerFactory.createWorker(className: taskInfo.workerClassName) else {
-                        NativeLogger.e("BGTaskSchedulerManager: unknown worker class")
-                        continuation.resume(returning: false)
-                        return
-                    }
-                    
-                    self.activeWorker = worker
-
-                    do {
-                        // Custom workers (via NativeWorker.custom) store user data under the
-                        // "input" key as a pre-encoded JSON string. Pass that directly to
-                        // doWork() so the worker can parse it without knowing the outer
-                        // workerConfig structure — matching Android's doWork(input:) behavior.
-                        // Built-in workers have no "input" key, so they receive the full config.
-                        let inputForWorker: String?
-                        if let inputAnyCodable = taskInfo.workerConfig["input"],
-                           let inputString = inputAnyCodable.value as? String {
-                            inputForWorker = inputString
-                        } else {
-                            let configData = try JSONEncoder().encode(taskInfo.workerConfig)
-                            inputForWorker = String(data: configData, encoding: .utf8)
-                        }
-
-                        let result = try await worker.doWork(input: inputForWorker, env: WorkerEnvironment(progressListener: nil, isCancelled: { KotlinBoolean(bool: false) }))
-                        NativeLogger.d("BGTaskSchedulerManager: Worker execution \(result.success ? "succeeded" : "failed")")
-
-                        // Remove from pending tasks on success
-                        if result.success {
-                            self.queue.sync {
-                                self.pendingTasks.removeValue(forKey: taskInfo.taskId)
-                                self.savePendingTasks()
-                            }
-                        }
-
-                        continuation.resume(returning: result.success)
-                    } catch {
-                        NativeLogger.e("BGTaskSchedulerManager: worker execution error")
-                        continuation.resume(returning: false)
-                    }
-                }
-            }
+        guard let worker = IosWorkerFactory.createWorker(className: taskInfo.workerClassName) else {
+            NativeLogger.e("BGTaskSchedulerManager: unknown worker class '\(taskInfo.workerClassName)'")
+            return false
         }
-    }
+        activeWorker = worker
 
-    /// Map QoS string to DispatchQoS.QoSClass
-    private func mapQoS(_ qosString: String) -> DispatchQoS.QoSClass {
-        switch qosString.lowercased() {
-        case "utility":
-            return .utility
-        case "background":
-            return .background
-        case "userinitiated":
-            return .userInitiated
-        case "userinteractive":
-            return .userInteractive
-        default:
-            return .background
+        do {
+            // Custom workers (via NativeWorker.custom) store user data under the "input" key
+            // as a pre-encoded JSON string. Built-in workers receive the full config.
+            let inputForWorker: String?
+            if let inputAnyCodable = taskInfo.workerConfig["input"],
+               let inputString = inputAnyCodable.value as? String {
+                inputForWorker = inputString
+            } else {
+                let configData = try JSONEncoder().encode(taskInfo.workerConfig)
+                inputForWorker = String(data: configData, encoding: .utf8)
+            }
+
+            let result = try await worker.doWork(
+                input: inputForWorker,
+                env: WorkerEnvironment(progressListener: nil, isCancelled: { KotlinBoolean(bool: false) })
+            )
+            NativeLogger.d("BGTaskSchedulerManager: Worker \(result.success ? "succeeded" : "failed")")
+            return result.success
+        } catch {
+            NativeLogger.e("BGTaskSchedulerManager: worker execution error — \(error)")
+            return false
         }
     }
 
@@ -390,10 +386,22 @@ class BGTaskSchedulerManager {
         }
     }
 
-    private func loadNextPendingTask() -> TaskInfo? {
+    /// Atomically pops the next pending task.
+    ///
+    /// On cold-start BGTask invocations `pendingTasks` is empty (no prior `scheduleTask` call
+    /// in this process). Load from disk once, then pop — guarantees no two concurrent
+    /// BGTask handlers can dequeue the same task, preventing duplicate execution and
+    /// starvation of other queued tasks.
+    private func popNextPendingTask() -> TaskInfo? {
         return queue.sync {
-            loadPendingTasks()
-            return pendingTasks.values.first
+            if !pendingTasksLoaded {
+                loadPendingTasks()
+                pendingTasksLoaded = true
+            }
+            guard let key = pendingTasks.keys.first else { return nil }
+            let taskInfo = pendingTasks.removeValue(forKey: key)
+            if taskInfo != nil { savePendingTasks() }
+            return taskInfo
         }
     }
 

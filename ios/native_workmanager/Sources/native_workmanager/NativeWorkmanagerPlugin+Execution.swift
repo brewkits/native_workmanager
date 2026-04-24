@@ -202,7 +202,7 @@ extension NativeWorkmanagerPlugin {
                 try? await chainStateManager.markChainFailed(chainId: chainId)
                 stateQueue.async(flags: .barrier) {
                     self.activeTasks.removeValue(forKey: chainCancelId)
-                    self.taskStates[chainCancelId] = "cancelled"
+                    self.taskStates[chainCancelId] = .cancelled
                 }
                 emitTaskEvent(taskId: chainCancelId, success: false, message: "Chain cancelled")
                 return
@@ -213,7 +213,7 @@ extension NativeWorkmanagerPlugin {
                 try? await chainStateManager.markChainFailed(chainId: chainId)
                 stateQueue.async(flags: .barrier) {
                     self.activeTasks.removeValue(forKey: chainCancelId)
-                    self.taskStates[chainCancelId] = "failed"
+                    self.taskStates[chainCancelId] = .failed
                 }
                 emitTaskEvent(taskId: chainCancelId, success: false, message: "Invalid format")
                 return
@@ -296,7 +296,7 @@ extension NativeWorkmanagerPlugin {
                 try? await chainStateManager.markChainFailed(chainId: chainId)
                 stateQueue.async(flags: .barrier) {
                     self.activeTasks.removeValue(forKey: chainCancelId)
-                    self.taskStates[chainCancelId] = "failed"
+                    self.taskStates[chainCancelId] = .failed
                 }
                 emitTaskEvent(taskId: chainCancelId, success: false, message: "Chain failed at step \(stepIndex + 1)")
                 return
@@ -311,7 +311,7 @@ extension NativeWorkmanagerPlugin {
         try? await chainStateManager.markChainCompleted(chainId: chainId)
         stateQueue.async(flags: .barrier) {
             self.activeTasks.removeValue(forKey: chainCancelId)
-            self.taskStates[chainCancelId] = "completed"
+            self.taskStates[chainCancelId] = .completed
         }
         emitTaskEvent(taskId: chainCancelId, success: true, message: "Chain completed")
     }

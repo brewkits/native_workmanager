@@ -9,12 +9,12 @@ extension NativeWorkmanagerPlugin {
     // MARK: - cancelAll
 
     func handleCancelAll(result: @escaping FlutterResult) {
-        // Cancel every tracked Swift Task.
         stateQueue.sync(flags: .barrier) {
             activeTasks.values.forEach { $0.cancel() }
             activeTasks.removeAll()
             taskStates.removeAll()
             taskTags.removeAll()
+            workers.values.forEach { $0.stop() }
         }
 
         if #available(iOS 13.0, *) {
@@ -44,8 +44,9 @@ extension NativeWorkmanagerPlugin {
             for taskId in taskIdsToCancel {
                 activeTasks[taskId]?.cancel()
                 activeTasks.removeValue(forKey: taskId)
-                taskStates[taskId] = "cancelled"
+                taskStates[taskId] = .cancelled
                 taskTags.removeValue(forKey: taskId)
+                workers[taskId]?.stop()
             }
         }
 
@@ -59,11 +60,13 @@ extension NativeWorkmanagerPlugin {
             for taskId in allIds {
                 BackgroundSessionManager.shared.cancel(taskId: taskId)
                 taskStore?.updateStatus(taskId: taskId, status: "cancelled")
+                BGTaskSchedulerManager.shared.cancelTask(taskId: taskId)
                 stateQueue.async(flags: .barrier) {
                     self.activeTasks[taskId]?.cancel()
                     self.activeTasks.removeValue(forKey: taskId)
-                    self.taskStates[taskId] = "cancelled"
+                    self.taskStates[taskId] = .cancelled
                     self.taskTags.removeValue(forKey: taskId)
+                    self.workers[taskId]?.stop()
                 }
             }
         }
@@ -124,13 +127,13 @@ extension NativeWorkmanagerPlugin {
             // Try pausing a background URL-session download.
             BackgroundSessionManager.shared.pause(taskId: taskId) { [weak self] paused in
                 self?.stateQueue.async(flags: .barrier) {
-                    self?.taskStates[taskId] = "paused"
+                    self?.taskStates[taskId] = .paused
                 }
                 self?.taskStore?.updateStatus(taskId: taskId, status: "paused")
                 result(nil)
             }
         } else {
-            stateQueue.async(flags: .barrier) { self.taskStates[taskId] = "paused" }
+            stateQueue.async(flags: .barrier) { self.taskStates[taskId] = .paused }
             result(nil)
         }
     }
@@ -158,7 +161,7 @@ extension NativeWorkmanagerPlugin {
                 workerConfig = parsed
             }
             taskStore?.updateStatus(taskId: taskId, status: "pending")
-            stateQueue.async(flags: .barrier) { self.taskStates[taskId] = "pending" }
+            stateQueue.async(flags: .barrier) { self.taskStates[taskId] = .pending }
             Task { [weak self] in
                 await self?.executeWorkerSync(
                     taskId: taskId,
@@ -168,7 +171,7 @@ extension NativeWorkmanagerPlugin {
                 )
             }
         } else {
-            stateQueue.async(flags: .barrier) { self.taskStates[taskId] = "pending" }
+            stateQueue.async(flags: .barrier) { self.taskStates[taskId] = .pending }
         }
         result(nil)
     }

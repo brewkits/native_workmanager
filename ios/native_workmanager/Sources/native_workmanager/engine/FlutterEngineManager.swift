@@ -367,32 +367,59 @@ class FlutterEngineManager {
         }
     }
 
+    /// Serialises Dart callback invocations so the main-thread MethodChannel is
+    /// never hit by concurrent callers (e.g. a chain with N DartCallbackWorker steps
+    /// all trying to invokeMethod at the same time).
+    private let callbackQueue = AsyncQueue()
+
     /// Invoke Dart callback via method channel.
+    ///
+    /// Calls are serialised through `callbackQueue` — only one `invokeMethod` is
+    /// in-flight on the main thread at a time, preventing UI jank from concurrent
+    /// chains with multiple DartCallbackWorker steps.
     private func invokeCallback(callbackHandle: Int64, input: String?) async throws -> Bool {
         guard let channel = methodChannel else {
             throw FlutterEngineError.engineNotInitialized
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.main.async {
-                // Pass callbackHandle (not callbackId) — the background isolate resolves the handle
-                let args: [String: Any?] = [
-                    "callbackHandle": callbackHandle,
-                    "input": input
-                ]
-
-                channel.invokeMethod("executeCallback", arguments: args) { result in
-                    if let error = result as? FlutterError {
-                        print("FlutterEngineManager: Callback error: \(error.message ?? "unknown")")
-                        continuation.resume(returning: false)
-                    } else if let success = result as? Bool {
-                        continuation.resume(returning: success)
-                    } else {
-                        // Default to true if result is nil (backward compatibility)
-                        continuation.resume(returning: true)
+        return try await callbackQueue.enqueue {
+            try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.main.async {
+                    let args: [String: Any?] = [
+                        "callbackHandle": callbackHandle,
+                        "input": input
+                    ]
+                    channel.invokeMethod("executeCallback", arguments: args) { result in
+                        if let error = result as? FlutterError {
+                            print("FlutterEngineManager: Callback error: \(error.message ?? "unknown")")
+                            continuation.resume(returning: false)
+                        } else if let success = result as? Bool {
+                            continuation.resume(returning: success)
+                        } else {
+                            continuation.resume(returning: true)
+                        }
                     }
                 }
             }
+        }
+    }
+
+    /// Serial async queue — enforces one-at-a-time execution of async closures.
+    private actor AsyncQueue {
+        private var running = false
+        private var pending: [CheckedContinuation<Void, Never>] = []
+
+        func enqueue<T>(_ work: () async throws -> T) async rethrows -> T {
+            // Wait until no other task is running.
+            if running {
+                await withCheckedContinuation { pending.append($0) }
+            }
+            running = true
+            defer {
+                running = !pending.isEmpty
+                pending.first.map { pending.removeFirst(); $0.resume() }
+            }
+            return try await work()
         }
     }
 
