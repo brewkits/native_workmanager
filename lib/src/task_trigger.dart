@@ -641,9 +641,9 @@ class PeriodicTrigger extends TaskTrigger {
         interval,
         'interval',
         'Periodic interval must be at least 15 minutes on Android. '
-        'Received ${interval.inMinutes} min. '
-        'Android WorkManager silently clamps values below 15 min, masking bugs. '
-        'Use Duration(minutes: 15) or longer.',
+            'Received ${interval.inMinutes} min. '
+            'Android WorkManager silently clamps values below 15 min, masking bugs. '
+            'Use Duration(minutes: 15) or longer.',
       );
     }
     final flex = flexInterval;
@@ -652,8 +652,8 @@ class PeriodicTrigger extends TaskTrigger {
         flex,
         'flexInterval',
         'flexInterval must be at least 5 minutes on Android. '
-        'Received ${flex.inMinutes} min. '
-        'WorkManager rejects values below 5 min with IllegalArgumentException at runtime.',
+            'Received ${flex.inMinutes} min. '
+            'WorkManager rejects values below 5 min with IllegalArgumentException at runtime.',
       );
     }
     assert(

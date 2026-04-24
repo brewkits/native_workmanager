@@ -5,7 +5,8 @@ import 'package:flutter/services.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const MethodChannel channel = MethodChannel('dev.brewkits/native_workmanager');
+  const MethodChannel channel =
+      MethodChannel('dev.brewkits/native_workmanager');
 
   final Map<String, String?> taskStore = {};
 
@@ -45,7 +46,7 @@ void main() {
     await NativeWorkManager.initialize();
 
     const taskId = 'lifecycle-test-1';
-    
+
     // 1. Enqueue
     final enqueueResult = await NativeWorkManager.enqueue(
       taskId: taskId,

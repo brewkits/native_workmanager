@@ -4,7 +4,7 @@ import 'package:native_workmanager/native_workmanager.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await NativeWorkManager.initialize();
-  
+
   print('--- VERIFICATION START ---');
   final result = await NativeWorkManager.enqueue(
     taskId: 'verification-delayed-sync',

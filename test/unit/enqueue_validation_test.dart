@@ -5,7 +5,8 @@ import 'package:flutter/services.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const MethodChannel channel = MethodChannel('dev.brewkits/native_workmanager');
+  const MethodChannel channel =
+      MethodChannel('dev.brewkits/native_workmanager');
 
   setUp(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -24,7 +25,7 @@ void main() {
   group('NativeWorkManager.enqueue validation', () {
     test('should throw ArgumentError for periodic interval < 15m', () async {
       await NativeWorkManager.initialize();
-      
+
       expect(
         () => NativeWorkManager.enqueue(
           taskId: 'test',
@@ -37,7 +38,7 @@ void main() {
 
     test('should throw ArgumentError for negative initialDelay', () async {
       await NativeWorkManager.initialize();
-      
+
       expect(
         () => NativeWorkManager.enqueue(
           taskId: 'test',
@@ -53,7 +54,7 @@ void main() {
 
     test('should allow zero initialDelay', () async {
       await NativeWorkManager.initialize();
-      
+
       final result = await NativeWorkManager.enqueue(
         taskId: 'test',
         trigger: TaskTrigger.periodic(
@@ -62,13 +63,13 @@ void main() {
         ),
         worker: NativeWorker.httpRequest(url: 'https://example.com'),
       );
-      
+
       expect(result.scheduleResult, ScheduleResult.accepted);
     });
 
     test('should allow positive initialDelay', () async {
       await NativeWorkManager.initialize();
-      
+
       final result = await NativeWorkManager.enqueue(
         taskId: 'test',
         trigger: TaskTrigger.periodic(
@@ -77,7 +78,7 @@ void main() {
         ),
         worker: NativeWorker.httpRequest(url: 'https://example.com'),
       );
-      
+
       expect(result.scheduleResult, ScheduleResult.accepted);
     });
   });

@@ -167,8 +167,9 @@ void main() {
       final results = await Future.wait(futures);
       stopwatch.stop();
 
-      final acceptedCount =
-          results.where((r) => r.scheduleResult == ScheduleResult.accepted).length;
+      final acceptedCount = results
+          .where((r) => r.scheduleResult == ScheduleResult.accepted)
+          .length;
 
       print(
         '[Stress] Enqueued $count tasks in ${stopwatch.elapsedMilliseconds}ms '

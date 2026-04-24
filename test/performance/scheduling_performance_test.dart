@@ -5,7 +5,8 @@ import 'package:flutter/services.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const MethodChannel channel = MethodChannel('dev.brewkits/native_workmanager');
+  const MethodChannel channel =
+      MethodChannel('dev.brewkits/native_workmanager');
 
   setUp(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -38,7 +39,7 @@ void main() {
     stopwatch.stop();
     final avgMs = stopwatch.elapsedMilliseconds / count;
     print('Average scheduling time: ${avgMs.toStringAsFixed(3)}ms per task');
-    
+
     // Threshold check (heuristic)
     expect(avgMs, lessThan(5.0), reason: 'Scheduling overhead should be low');
   });

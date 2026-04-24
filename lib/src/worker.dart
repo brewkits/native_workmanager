@@ -119,21 +119,25 @@ class NativeWorker {
   /// Validate file path for path traversal or injection.
   static void _validatePath(String path, String label) {
     _validateInput(path, label);
-    
+
     // SECURITY: Prevent path traversal attacks
     final normalized = path.toLowerCase();
     if (normalized.contains('..') || normalized.contains('%2e%2e')) {
       throw ArgumentError(
           '$label cannot contain ".." or encoded dot-segments (path traversal attempt blocked).');
     }
-    
+
     if (path.contains(';') || path.contains('|')) {
-      throw ArgumentError('$label contains illegal shell injection characters.');
+      throw ArgumentError(
+          '$label contains illegal shell injection characters.');
     }
 
     // SECURITY: Require absolute paths (relative paths can be manipulated)
     // EXCEPTION: Allow placeholders in the format {{taskId.key}} for task chains
-    if (!path.startsWith('/') && !path.startsWith('{{') && !path.startsWith(r'C:\') && !path.startsWith(r'\\')) {
+    if (!path.startsWith('/') &&
+        !path.startsWith('{{') &&
+        !path.startsWith(r'C:\') &&
+        !path.startsWith(r'\\')) {
       throw ArgumentError(
         'Relative path not allowed in $label: "$path"\n'
         'Use absolute paths like "/path/to/file.jpg"\n'

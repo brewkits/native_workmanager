@@ -6,10 +6,11 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('Malicious Payload Protection', () {
-    test('Should handle extremely large input payloads (DoS protection)', () async {
+    test('Should handle extremely large input payloads (DoS protection)',
+        () async {
       // 1MB of data in worker config
       final largeData = 'A' * (1024 * 1024);
-      
+
       final worker = NativeWorker.httpRequest(
         url: 'https://example.com',
         body: largeData,
@@ -22,9 +23,10 @@ void main() {
       expect(map['body'], equals(largeData));
     });
 
-    test('Should handle null bytes in strings (Injection protection)', () async {
+    test('Should handle null bytes in strings (Injection protection)',
+        () async {
       const maliciousUrl = 'https://example.com/\u0000/attack';
-      
+
       // The library should ideally sanitize or reject this
       expect(
         () => NativeWorker.httpRequest(url: maliciousUrl),
@@ -35,7 +37,7 @@ void main() {
 
     test('Should handle shell injection characters in file paths', () async {
       const maliciousPath = '/data/user/0/app/files/; rm -rf /';
-      
+
       expect(
         () => NativeWorker.fileDelete(path: maliciousPath),
         throwsArgumentError,

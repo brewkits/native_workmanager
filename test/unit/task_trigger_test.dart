@@ -693,7 +693,8 @@ void main() {
         expect(map['type'], 'periodic');
         expect(map['intervalMs'], const Duration(hours: 1).inMilliseconds);
         expect(map['flexMs'], const Duration(minutes: 15).inMilliseconds);
-        expect(map['initialDelayMs'], const Duration(minutes: 30).inMilliseconds);
+        expect(
+            map['initialDelayMs'], const Duration(minutes: 30).inMilliseconds);
       });
 
       test('should round-trip exact trigger', () {

@@ -522,7 +522,8 @@ void main() {
       final trigger = TaskTrigger.periodic(const Duration(minutes: 15));
       final map = trigger.toMap();
       expect(map['type'], equals('periodic'));
-      expect(map['intervalMs'], equals(const Duration(minutes: 15).inMilliseconds));
+      expect(map['intervalMs'],
+          equals(const Duration(minutes: 15).inMilliseconds));
     });
 
     test('contentUri trigger serializes valid URI scheme', () {
