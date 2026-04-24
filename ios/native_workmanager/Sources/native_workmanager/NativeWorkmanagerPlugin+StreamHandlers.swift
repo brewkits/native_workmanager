@@ -98,7 +98,7 @@ extension NativeWorkmanagerPlugin: UNUserNotificationCenterDelegate {
             stateQueue.async(flags: .barrier) {
                 self.activeTasks[taskId]?.cancel()
                 self.activeTasks.removeValue(forKey: taskId)
-                self.taskStates[taskId] = "paused"
+                self.taskStates[taskId] = .paused
             }
             taskStore?.updateStatus(taskId: taskId, status: "paused")
             DownloadNotificationManager.dismiss(taskId: taskId)
@@ -112,7 +112,7 @@ extension NativeWorkmanagerPlugin: UNUserNotificationCenterDelegate {
             stateQueue.async(flags: .barrier) {
                 self.activeTasks[taskId]?.cancel()
                 self.activeTasks.removeValue(forKey: taskId)
-                self.taskStates[taskId] = "cancelled"
+                self.taskStates[taskId] = .cancelled
                 self.taskNotifTitles.removeValue(forKey: taskId)
                 self.taskAllowPause.removeValue(forKey: taskId)
             }

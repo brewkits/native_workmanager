@@ -2,6 +2,18 @@ import Flutter
 import UIKit
 import UserNotifications
 
+/// Type-safe task lifecycle states — replaces stringly-typed [String: String] map.
+/// `rawValue` is the canonical string forwarded to Flutter and persisted to SQLite.
+enum TaskState: String {
+    case pending    = "pending"
+    case running    = "running"
+    case paused     = "paused"
+    case cancelled  = "cancelled"
+    case completed  = "completed"
+    case failed     = "failed"
+    case success    = "success"
+}
+
 public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
     var methodChannel: FlutterMethodChannel?
@@ -32,7 +44,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
     // Tag storage for fast lookup
     var taskTags: [String: String] = [:]
-    var taskStates: [String: String] = [:]
+    var taskStates: [String: TaskState] = [:]
     let stateQueue = DispatchQueue(label: "dev.brewkits.native_workmanager.state", attributes: .concurrent)
 
     var debugMode = false
@@ -74,6 +86,15 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
         if #available(iOS 13.0, *) {
             BGTaskSchedulerManager.shared.registerHandlers()
+            BGTaskSchedulerManager.shared.taskExecutor = { [weak instance] taskInfo in
+                guard let instance = instance else { return false }
+                return await instance.executeWorkerSync(
+                    taskId: taskInfo.taskId,
+                    workerClassName: taskInfo.workerClassName,
+                    workerConfig: taskInfo.workerConfig.mapValues { $0.value },
+                    qos: taskInfo.qos
+                )
+            }
             BGTaskSchedulerManager.shared.onTaskComplete = { [weak instance] taskId, success, message in
                 instance?.emitTaskEvent(taskId: taskId, success: success, message: message)
             }
@@ -82,6 +103,13 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             }
             BGTaskSchedulerManager.shared.onExpiration = { [weak instance] in
                 instance?.stopAllWorkers()
+            }
+            BGTaskSchedulerManager.shared.onTaskRunning = { [weak instance] taskId, runningTask in
+                // Track OS-triggered running tasks so NativeWorkManager.cancel(taskId) can
+                // cancel the Swift Task via cooperative cancellation.
+                instance?.stateQueue.sync(flags: .barrier) {
+                    instance?.activeTasks[taskId] = runningTask
+                }
             }
             BackgroundSessionManager.shared.richProgressDelegate = { [weak instance] _, dict in
                 instance?.emitRichProgress(dict)
@@ -162,19 +190,78 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
         let tag = args["tag"] as? String
         stateQueue.sync(flags: .barrier) {
-            self.taskStates[taskId] = "pending"
+            self.taskStates[taskId] = .pending
             if let t = tag { self.taskTags[taskId] = t }
         }
 
         if #available(iOS 13.0, *) {
             let configRaw = args["workerConfig"] as? [String: Any]
-            let configJson = configRaw.flatMap { try? JSONSerialization.data(withJSONObject: $0) }.flatMap { String(data: $0, encoding: .utf8) }
+            // Sanitize before persisting to SQLite — plaintext secrets must never reach disk.
+            // 1. CryptoWorker: move password into Keychain, replace with a vault key that the
+            //    worker resolves at runtime (mirrors Android's KeystorePasswordVault pattern).
+            // 2. All workers: redact authToken / apiKey / Authorization headers etc.
+            var configForStorage = configRaw
+            if var config = configRaw {
+                if workerClassName.contains("CryptoWorker"),
+                   let password = config["password"] as? String, !password.isEmpty {
+                    let vaultKey = KeystorePasswordVault.shared.store(password)
+                    config.removeValue(forKey: "password")
+                    config["passwordKey"] = vaultKey
+                }
+                configForStorage = TaskStore.sanitizeConfig(config) ?? config
+            }
+            let configJson = configForStorage
+                .flatMap { try? JSONSerialization.data(withJSONObject: $0) }
+                .flatMap { String(data: $0, encoding: .utf8) }
             taskStore?.upsert(taskId: taskId, tag: tag, status: "pending", workerClassName: workerClassName, workerConfig: configJson)
         }
 
         let workerConfig = args["workerConfig"] as? [String: Any] ?? [:]
         let triggerMap = args["trigger"] as? [String: Any]
         let initialDelayMs = (triggerMap?["initialDelayMs"] as? Int) ?? 0
+        let runImmediately = (triggerMap?["runImmediately"] as? Bool) ?? true
+        let intervalMs = (triggerMap?["intervalMs"] as? Int) ?? 0
+
+        if #available(iOS 13.0, *), (triggerMap?["type"] as? String) == "periodic" {
+            // iOS doesn't have a "periodic" scheduler like Android, but we can simulate
+            // the initial delay and runImmediately: false by setting earliestBeginDate.
+            var effectiveDelayMs = Double(initialDelayMs)
+            if !runImmediately && effectiveDelayMs == 0 {
+                effectiveDelayMs = Double(intervalMs)
+            }
+            let earliestBeginDate = Date(timeIntervalSinceNow: effectiveDelayMs / 1000.0)
+            
+            let constraintsMap = args["constraints"] as? [String: Any]
+            let isHeavyTask = constraintsMap?["isHeavyTask"] as? Bool ?? false
+            let requiresNetwork = constraintsMap?["requiresNetwork"] as? Bool ?? false
+            let requiresExternalPower = constraintsMap?["requiresCharging"] as? Bool ?? false
+            let qos = (constraintsMap?["qos"] as? String) ?? "background"
+
+            let identifier = isHeavyTask ? BGTaskSchedulerManager.defaultTaskIdentifier : BGTaskSchedulerManager.refreshTaskIdentifier
+
+            BGTaskSchedulerManager.shared.scheduleTask(
+                identifier: identifier,
+                taskId: taskId,
+                workerClassName: workerClassName,
+                workerConfig: workerConfig,
+                earliestBeginDate: earliestBeginDate,
+                requiresNetwork: requiresNetwork,
+                requiresExternalPower: requiresExternalPower,
+                isHeavyTask: isHeavyTask,
+                qos: qos
+            )
+
+            // Track periodic tasks in activeTasks so cancel() works.
+            // The Task body is intentionally empty — it completes immediately.
+            // Its presence in the dict is the only requirement: handleCancel reads
+            // activeTasks to decide whether to call BGTaskSchedulerManager.cancelTask().
+            stateQueue.sync(flags: .barrier) {
+                self.activeTasks[taskId] = Task { }
+            }
+
+            result("ACCEPTED")
+            return
+        }
 
         let task = Task { [weak self] in
             guard let self else { return }
@@ -214,7 +301,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
     private func handleGetTaskStatus(call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any], let taskId = args["taskId"] as? String else { return }
-        result(stateQueue.sync { taskStates[taskId] })
+        result(stateQueue.sync { taskStates[taskId]?.rawValue })
     }
 
     private func handleGetTaskRecord(call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -243,11 +330,13 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         stateQueue.async(flags: .barrier) {
             self.activeTasks[taskId]?.cancel()
             self.activeTasks.removeValue(forKey: taskId)
-            self.taskStates[taskId] = "cancelled"
+            self.taskStates[taskId] = .cancelled
+            self.workers[taskId]?.stop()
         }
         if #available(iOS 13.0, *) {
             cleanupTempFiles(forTaskId: taskId)
             taskStore?.updateStatus(taskId: taskId, status: "cancelled")
+            BGTaskSchedulerManager.shared.cancelTask(taskId: taskId)
         }
         result(nil)
     }

@@ -477,61 +477,58 @@ void main() {
       },
     );
 
-    testWidgets(
-      'initialize(registerPlugins: true) — Dart flag is true',
-      (tester) async {
-        await NativeWorkManager.initialize(
-          dartWorkers: {'dummy': _dummyCallback},
-          registerPlugins: true,
-        );
-        expect(NativeWorkManager.registerPluginsEnabled, isTrue);
-      },
-    );
+    testWidgets('initialize(registerPlugins: true) — Dart flag is true', (
+      tester,
+    ) async {
+      await NativeWorkManager.initialize(
+        dartWorkers: {'dummy': _dummyCallback},
+        registerPlugins: true,
+      );
+      expect(NativeWorkManager.registerPluginsEnabled, isTrue);
+    });
 
-    testWidgets(
-      'DartWorker succeeds with registerPlugins=false',
-      (tester) async {
-        await NativeWorkManager.initialize(
-          dartWorkers: {'dummy': _dummyCallback},
-          registerPlugins: false,
-        );
+    testWidgets('DartWorker succeeds with registerPlugins=false', (
+      tester,
+    ) async {
+      await NativeWorkManager.initialize(
+        dartWorkers: {'dummy': _dummyCallback},
+        registerPlugins: false,
+      );
 
-        final taskId = _id('rp_false_dart');
-        final eventFuture = _waitEvent(taskId);
+      final taskId = _id('rp_false_dart');
+      final eventFuture = _waitEvent(taskId);
 
-        await NativeWorkManager.enqueue(
-          taskId: taskId,
-          worker: DartWorker(callbackId: 'dummy'),
-          trigger: const TaskTrigger.oneTime(),
-        );
+      await NativeWorkManager.enqueue(
+        taskId: taskId,
+        worker: DartWorker(callbackId: 'dummy'),
+        trigger: const TaskTrigger.oneTime(),
+      );
 
-        final event = await eventFuture;
-        expect(event, isNotNull, reason: 'DartWorker timed out (rp=false)');
-        expect(event!.success, isTrue);
-      },
-    );
+      final event = await eventFuture;
+      expect(event, isNotNull, reason: 'DartWorker timed out (rp=false)');
+      expect(event!.success, isTrue);
+    });
 
-    testWidgets(
-      'DartWorker succeeds with registerPlugins=true',
-      (tester) async {
-        await NativeWorkManager.initialize(
-          dartWorkers: {'dummy': _dummyCallback},
-          registerPlugins: true,
-        );
+    testWidgets('DartWorker succeeds with registerPlugins=true', (
+      tester,
+    ) async {
+      await NativeWorkManager.initialize(
+        dartWorkers: {'dummy': _dummyCallback},
+        registerPlugins: true,
+      );
 
-        final taskId = _id('rp_true_dart');
-        final eventFuture = _waitEvent(taskId);
+      final taskId = _id('rp_true_dart');
+      final eventFuture = _waitEvent(taskId);
 
-        await NativeWorkManager.enqueue(
-          taskId: taskId,
-          worker: DartWorker(callbackId: 'dummy'),
-          trigger: const TaskTrigger.oneTime(),
-        );
+      await NativeWorkManager.enqueue(
+        taskId: taskId,
+        worker: DartWorker(callbackId: 'dummy'),
+        trigger: const TaskTrigger.oneTime(),
+      );
 
-        final event = await eventFuture;
-        expect(event, isNotNull, reason: 'DartWorker timed out (rp=true)');
-        expect(event!.success, isTrue);
-      },
-    );
+      final event = await eventFuture;
+      expect(event, isNotNull, reason: 'DartWorker timed out (rp=true)');
+      expect(event!.success, isTrue);
+    });
   });
 }

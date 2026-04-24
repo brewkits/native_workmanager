@@ -697,6 +697,12 @@ class NativeWorkManager {
           'Use TaskTrigger.oneTime() for immediate execution.',
         );
       }
+      if (trigger.initialDelay != null && trigger.initialDelay!.isNegative) {
+        throw ArgumentError(
+          'initialDelay cannot be negative.\n'
+          'Current: ${trigger.initialDelay}',
+        );
+      }
     }
 
     // ExactTrigger is Android-only. BGTaskScheduler on iOS does not support

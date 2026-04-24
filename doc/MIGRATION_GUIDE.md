@@ -41,6 +41,17 @@ Impact: Higher App Store ratings, fewer user complaints
 - Better responsiveness
 - Less UI jank during background execution
 
+### 🆕 New Features in v1.2.3
+
+- **Initial Delay for Periodic Tasks**: You can now delay the very first execution of a periodic task.
+  ```dart
+  trigger: TaskTrigger.periodic(
+    const Duration(hours: 1),
+    initialDelay: const Duration(minutes: 30),
+  )
+  ```
+- **Security Hardening**: Strict validation for URLs and file paths to prevent injection and path traversal attacks.
+
 ---
 
 ## API Compatibility Matrix

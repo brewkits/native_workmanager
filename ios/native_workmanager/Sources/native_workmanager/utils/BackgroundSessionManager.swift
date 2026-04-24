@@ -230,8 +230,22 @@ extension BackgroundSessionManager: URLSessionDownloadDelegate {
             handleRelaunched(downloadTask: downloadTask, tempLocation: location)
             return
         }
+
+        // Apple docs: `location` is a temporary file deleted when this method returns.
+        // Move it synchronously to a stable temp path before we dispatch to the handler.
+        let safeTempURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString + ".tmp")
+        do {
+            try FileManager.default.moveItem(at: location, to: safeTempURL)
+        } catch {
+            let handler = queue.sync { downloadHandlers[taskId] }
+            DispatchQueue.main.async { handler?(.failure(error)) }
+            cleanup(taskId: taskId)
+            return
+        }
+
         let handler = queue.sync { downloadHandlers[taskId] }
-        DispatchQueue.main.async { handler?(.success(location)) }
+        DispatchQueue.main.async { handler?(.success(safeTempURL)) }
         cleanup(taskId: taskId)
     }
 

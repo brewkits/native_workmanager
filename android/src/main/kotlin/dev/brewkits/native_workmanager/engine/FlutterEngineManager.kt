@@ -132,7 +132,12 @@ object FlutterEngineManager {
 
             if (timedOut) {
                 NativeLogger.e("DartWorker timed out after ${timeoutMs}ms — force-disposing engine to free hung isolate")
-                try { dispose() } catch (_: Exception) {}
+                // Only destroy the engine if this is the sole in-flight task.
+                // Destroying while other tasks hold a methodChannel reference causes
+                // a JNI crash (access to freed C++ FlutterJNI memory).
+                if (activeTaskCount.get() <= 0) {
+                    try { dispose() } catch (_: Exception) {}
+                }
                 return@withContext false
             }
 
