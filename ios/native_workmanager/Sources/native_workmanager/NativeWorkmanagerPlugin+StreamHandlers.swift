@@ -45,12 +45,19 @@ class ProgressStreamHandler: NSObject, FlutterStreamHandler {
     func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         // Set progress sink on plugin
         plugin?.progressSink = events
+        
+        // Also forward updates from ProgressReporter (used by non-download workers)
+        ProgressReporter.shared.onProgress = { [weak plugin] dict in
+            plugin?.emitRichProgress(dict)
+        }
+        
         NativeLogger.d("ProgressStreamHandler: Progress sink registered")
         return nil
     }
 
     func onCancel(withArguments arguments: Any?) -> FlutterError? {
         plugin?.progressSink = nil
+        ProgressReporter.shared.onProgress = nil
         NativeLogger.d("ProgressStreamHandler: Progress sink cancelled")
         return nil
     }
@@ -91,7 +98,7 @@ extension NativeWorkmanagerPlugin: UNUserNotificationCenterDelegate {
             stateQueue.async(flags: .barrier) {
                 self.activeTasks[taskId]?.cancel()
                 self.activeTasks.removeValue(forKey: taskId)
-                self.taskStates[taskId] = "paused"
+                self.taskStates[taskId] = .paused
             }
             taskStore?.updateStatus(taskId: taskId, status: "paused")
             DownloadNotificationManager.dismiss(taskId: taskId)
@@ -105,7 +112,7 @@ extension NativeWorkmanagerPlugin: UNUserNotificationCenterDelegate {
             stateQueue.async(flags: .barrier) {
                 self.activeTasks[taskId]?.cancel()
                 self.activeTasks.removeValue(forKey: taskId)
-                self.taskStates[taskId] = "cancelled"
+                self.taskStates[taskId] = .cancelled
                 self.taskNotifTitles.removeValue(forKey: taskId)
                 self.taskAllowPause.removeValue(forKey: taskId)
             }

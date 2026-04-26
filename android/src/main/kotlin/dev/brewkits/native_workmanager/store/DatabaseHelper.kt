@@ -13,7 +13,7 @@ internal class DatabaseHelper(context: Context) :
 
     companion object {
         const val DATABASE_NAME = "native_workmanager_v2.db"
-        const val DATABASE_VERSION = 1
+        const val DATABASE_VERSION = 3
 
         @Volatile
         private var instance: DatabaseHelper? = null
@@ -44,7 +44,8 @@ internal class DatabaseHelper(context: Context) :
                 created_at       INTEGER NOT NULL,
                 updated_at       INTEGER NOT NULL,
                 result_data      TEXT,
-                constraints_json TEXT
+                constraints_json TEXT,
+                last_progress_json TEXT
             )
         """.trimIndent())
 
@@ -77,7 +78,8 @@ internal class DatabaseHelper(context: Context) :
                 source               TEXT PRIMARY KEY,
                 payload_key          TEXT NOT NULL,
                 worker_mappings_json TEXT NOT NULL,
-                updated_at           INTEGER NOT NULL
+                updated_at           INTEGER NOT NULL,
+                secret_key           TEXT
             )
         """.trimIndent())
 
@@ -108,6 +110,16 @@ internal class DatabaseHelper(context: Context) :
     }
 
     override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
+        if (old < 2) {
+            try {
+                db.execSQL("ALTER TABLE tasks ADD COLUMN last_progress_json TEXT")
+            } catch (_: Exception) {}
+        }
+        if (old < 3) {
+            try {
+                db.execSQL("ALTER TABLE remote_triggers ADD COLUMN secret_key TEXT")
+            } catch (_: Exception) {}
+        }
         onCreate(db)
     }
 }

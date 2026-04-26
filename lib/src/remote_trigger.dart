@@ -24,6 +24,7 @@ class RemoteTriggerRule {
   const RemoteTriggerRule({
     required this.payloadKey,
     required this.workerMappings,
+    this.secretKey,
   });
 
   /// The key in the remote message payload to look for.
@@ -45,6 +46,13 @@ class RemoteTriggerRule {
   /// ```
   final Map<String, Worker> workerMappings;
 
+  /// Optional secret key for HMAC SHA-256 signature verification.
+  ///
+  /// If provided, the plugin will verify that the remote payload contains
+  /// a valid `x-native-wm-signature` header/key computed using this secret.
+  /// This prevents malicious actors from spoofing pushes to drain battery.
+  final String? secretKey;
+
   /// Convert to a map for the platform channel.
   Map<String, dynamic> toMap() {
     return {
@@ -53,6 +61,7 @@ class RemoteTriggerRule {
             'workerClassName': worker.workerClassName,
             'workerConfig': worker.toMap(),
           })),
+      if (secretKey != null) 'secretKey': secretKey,
     };
   }
 }

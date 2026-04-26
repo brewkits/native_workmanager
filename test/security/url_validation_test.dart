@@ -151,4 +151,49 @@ void main() {
       });
     });
   });
+
+  group('Security Policy Enforcement', () {
+    test('blocks http:// when enforceHttps is true', () async {
+      try {
+        await NativeWorkManager.initialize(enforceHttps: true);
+      } catch (_) {}
+
+      expect(
+        () => NativeWorker.httpRequest(
+          url: 'http://example.com/api',
+          method: HttpMethod.get,
+        ),
+        throwsArgumentError,
+      );
+
+      NativeWorkManager.resetSecurityFlags();
+    });
+
+    test('blocks private IPs when blockPrivateIPs is true', () async {
+      try {
+        await NativeWorkManager.initialize(blockPrivateIPs: true);
+      } catch (_) {}
+
+      final privateUrls = [
+        'https://localhost/api',
+        'https://127.0.0.1/admin',
+        'https://192.168.1.1/config',
+        'https://10.0.0.5/metadata',
+        'https://172.16.0.1/secret',
+      ];
+
+      for (final url in privateUrls) {
+        expect(
+          () => NativeWorker.httpRequest(
+            url: url,
+            method: HttpMethod.get,
+          ),
+          throwsArgumentError,
+          reason: 'Should block private URL: $url',
+        );
+      }
+
+      NativeWorkManager.resetSecurityFlags();
+    });
+  });
 }

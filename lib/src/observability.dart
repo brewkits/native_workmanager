@@ -7,9 +7,13 @@ import 'platform_interface.dart';
 /// Register the DevTools service extensions for native_workmanager.
 /// This allows the DevTools Extension to request real-time task metrics,
 /// queue sizes, and DAG states without needing continuous polling.
+bool _devToolsExtensionsRegistered = false;
+
 @pragma('vm:entry-point')
 void registerDevToolsExtensions() {
   if (!kDebugMode && !kProfileMode) return;
+  if (_devToolsExtensionsRegistered) return;
+  _devToolsExtensionsRegistered = true;
 
   developer.registerExtension('ext.native_workmanager.getMetrics',
       (method, parameters) async {
@@ -38,6 +42,88 @@ void registerDevToolsExtensions() {
       );
     }
   });
+}
+
+/// Type-safe delegate for forwarding task events to third-party SDKs.
+///
+/// Implement this class and pass to [NativeWorkManager.configure] via
+/// [ObservabilityConfig] to integrate with any analytics, crash-reporting,
+/// or logging SDK without relying on `dynamic` reflection.
+///
+/// ## Example — Sentry
+///
+/// ```dart
+/// class SentryWorkManagerLogger implements WorkManagerLogger {
+///   @override
+///   void onTaskStart(String taskId, String workerType) {
+///     Sentry.addBreadcrumb(Breadcrumb(
+///       message: 'Background task started: $taskId ($workerType)',
+///       category: 'native_workmanager',
+///     ));
+///   }
+///
+///   @override
+///   void onTaskComplete(TaskEvent event) {
+///     Sentry.addBreadcrumb(Breadcrumb(
+///       message: 'Background task completed: ${event.taskId}',
+///       category: 'native_workmanager',
+///     ));
+///   }
+///
+///   @override
+///   void onTaskFail(TaskEvent event) {
+///     Sentry.captureMessage(
+///       'Background task failed: ${event.taskId}',
+///       hint: Hint.withMap({'message': event.message ?? ''}),
+///     );
+///   }
+/// }
+///
+/// // Wire up during initialization:
+/// NativeWorkManager.configure(
+///   observability: ObservabilityConfig.fromLogger(SentryWorkManagerLogger()),
+/// );
+/// ```
+///
+/// ## Example — Firebase
+///
+/// ```dart
+/// class FirebaseWorkManagerLogger implements WorkManagerLogger {
+///   @override
+///   void onTaskStart(String taskId, String workerType) {
+///     FirebaseAnalytics.instance.logEvent(
+///       name: 'bg_task_start',
+///       parameters: {'task_id': taskId, 'worker': workerType},
+///     );
+///   }
+///
+///   @override
+///   void onTaskComplete(TaskEvent event) {
+///     FirebaseAnalytics.instance.logEvent(
+///       name: 'bg_task_success',
+///       parameters: {'task_id': event.taskId},
+///     );
+///   }
+///
+///   @override
+///   void onTaskFail(TaskEvent event) {
+///     FirebaseCrashlytics.instance.recordError(
+///       event.message ?? 'Unknown error',
+///       null,
+///       reason: 'Background task failed: ${event.taskId}',
+///     );
+///   }
+/// }
+/// ```
+abstract class WorkManagerLogger {
+  /// Called when a background task begins execution.
+  void onTaskStart(String taskId, String workerType);
+
+  /// Called when a background task completes successfully.
+  void onTaskComplete(TaskEvent event);
+
+  /// Called when a background task fails.
+  void onTaskFail(TaskEvent event);
 }
 
 /// Configuration for built-in observability hooks.
@@ -96,6 +182,26 @@ class ObservabilityConfig {
     this.onProgress,
   });
 
+  /// Create an [ObservabilityConfig] from a [WorkManagerLogger] implementation.
+  ///
+  /// Prefer this over the deprecated `useSentry()` / `useFirebase()` stubs.
+  /// Implement [WorkManagerLogger] with your SDK's actual API calls, then pass
+  /// it here — fully type-safe, no `dynamic` reflection involved.
+  ///
+  /// ```dart
+  /// NativeWorkManager.configure(
+  ///   observability: ObservabilityConfig.fromLogger(MyLogger()),
+  /// );
+  /// ```
+  factory ObservabilityConfig.fromLogger(WorkManagerLogger logger) {
+    return ObservabilityConfig(
+      onTaskStart: (taskId, workerType) =>
+          logger.onTaskStart(taskId, workerType),
+      onTaskComplete: (event) => logger.onTaskComplete(event),
+      onTaskFail: (event) => logger.onTaskFail(event),
+    );
+  }
+
   /// Called when the native worker begins execution.
   ///
   /// The `workerType` parameter is the worker class name (e.g. `'HttpDownloadWorker'`,
@@ -131,6 +237,18 @@ class ObservabilityDispatcher {
 
   /// Called by [NativeWorkManager] internals when a progress update arrives.
   void dispatchProgress(TaskProgress progress) {
+    // Phase 2: Post real-time event to DevTools for streaming observability.
+    // This allows the DevTools extension to update progress bars without polling.
+    if (kDebugMode || kProfileMode) {
+      developer.postEvent('native_workmanager.progress', {
+        'taskId': progress.taskId,
+        'progress': progress.progress,
+        'message': progress.message,
+        'speed': progress.networkSpeed,
+        'timeRemaining': progress.timeRemaining?.inSeconds,
+      });
+    }
+
     if (_config.onProgress != null) {
       _safeCall(() => _config.onProgress!(progress), 'onProgress');
     }
@@ -141,6 +259,19 @@ class ObservabilityDispatcher {
   /// Handles both lifecycle events ([TaskEvent.isStarted]) and completion
   /// events (success / failure).
   void dispatchEvent(TaskEvent event) {
+    // Phase 2: Post real-time status change to DevTools.
+    if (kDebugMode || kProfileMode) {
+      developer.postEvent('native_workmanager.event', {
+        'taskId': event.taskId,
+        'success': event.success,
+        'isStarted': event.isStarted,
+        'workerType': event.workerType,
+        'message': event.message,
+        'timestamp': event.timestamp.toIso8601String(),
+        'resultData': event.resultData,
+      });
+    }
+
     if (event.isStarted) {
       if (_config.onTaskStart != null) {
         _safeCall(

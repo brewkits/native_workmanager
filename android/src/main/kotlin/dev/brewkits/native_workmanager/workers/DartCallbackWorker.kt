@@ -82,8 +82,26 @@ class DartCallbackWorkerWrapper(
             // Extract callbackId (for logging only)
             val callbackId = json.optString("callbackId", "unknown")
 
-            // Extract optional input data
-            val callbackInput = json.optString("input", null)
+            // Extract optional input data and inject __taskId so the Dart callback
+            // can call NativeWorkManager.reportDartWorkerProgress().
+            // __taskId sits at the outer config level (injected by handleEnqueue) but
+            // the Dart side only receives the inner "input" JSON string — so we merge
+            // it in here before forwarding to FlutterEngineManager.
+            val rawInput = json.optString("input", null)
+            val outerTaskId = json.optString("__taskId", null)
+            val callbackInput: String? = if (outerTaskId != null) {
+                try {
+                    val inputObj = if (!rawInput.isNullOrEmpty() && rawInput != "null") {
+                        JSONObject(rawInput)
+                    } else {
+                        JSONObject()
+                    }
+                    inputObj.put("__taskId", outerTaskId)
+                    inputObj.toString()
+                } catch (_: Exception) {
+                    rawInput // fallback to original if inner JSON is malformed
+                }
+            } else rawInput
 
             // Extract autoDispose flag (default: false)
             val autoDispose = json.optBoolean("autoDispose", false)

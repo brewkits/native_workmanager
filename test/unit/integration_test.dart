@@ -512,14 +512,18 @@ void main() {
   });
 
   group('Error Scenario Validation', () {
-    test('periodic trigger serializes interval correctly', () {
-      // Verify the trigger DOES serialize correctly before enqueue() validates it
+    test('periodic trigger rejects interval < 15 min at toMap()', () {
+      // Fail-fast: ArgumentError is thrown at toMap() before any native call is made.
       final trigger = TaskTrigger.periodic(const Duration(minutes: 10));
+      expect(() => trigger.toMap(), throwsArgumentError);
+    });
+
+    test('periodic trigger serializes correctly when interval >= 15 min', () {
+      final trigger = TaskTrigger.periodic(const Duration(minutes: 15));
       final map = trigger.toMap();
       expect(map['type'], equals('periodic'));
-      // The interval is serialized faithfully — enqueue() is responsible for rejecting < 15min
       expect(map['intervalMs'],
-          equals(const Duration(minutes: 10).inMilliseconds));
+          equals(const Duration(minutes: 15).inMilliseconds));
     });
 
     test('contentUri trigger serializes valid URI scheme', () {

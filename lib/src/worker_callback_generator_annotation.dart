@@ -5,6 +5,13 @@ class WorkerCallback {
   /// The unique ID for this worker callback.
   final String id;
 
-  /// Creates a [WorkerCallback] with the given [id].
-  const WorkerCallback(this.id);
+  /// Optional: The type of the input parameter for this worker.
+  ///
+  /// If provided, the generator will attempt to create a type-safe enqueue
+  /// wrapper for this worker. The type should have a `toMap()` method or be
+  /// a primitive type.
+  final Type? inputType;
+
+  /// Creates a [WorkerCallback] with the given [id] and optional [inputType].
+  const WorkerCallback(this.id, {this.inputType});
 }

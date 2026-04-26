@@ -2,24 +2,49 @@ import Flutter
 import UIKit
 import UserNotifications
 
+/// Type-safe task lifecycle states — replaces stringly-typed [String: String] map.
+/// `rawValue` is the canonical string forwarded to Flutter and persisted to SQLite.
+enum TaskState: String {
+    case pending    = "pending"
+    case running    = "running"
+    case paused     = "paused"
+    case cancelled  = "cancelled"
+    case completed  = "completed"
+    case failed     = "failed"
+    case success    = "success"
+}
+
 public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
     var methodChannel: FlutterMethodChannel?
     var eventChannel: FlutterEventChannel?
     var progressChannel: FlutterEventChannel?
+    var systemErrorChannel: FlutterEventChannel?
 
     var eventSink: FlutterEventSink?
     var progressSink: FlutterEventSink?
+    var systemErrorSink: FlutterEventSink?
 
     static let methodChannelName = "dev.brewkits/native_workmanager"
     static let eventChannelName = "dev.brewkits/native_workmanager/events"
     static let progressChannelName = "dev.brewkits/native_workmanager/progress"
+    static let systemErrorChannelName = "dev.brewkits/native_workmanager/system_errors"
+
+    public typealias PluginRegistrantCallback = (FlutterPluginRegistry) -> Void
+    public static var pluginRegistrantCallback: PluginRegistrantCallback? = nil
+
+    @objc
+    public static func setPluginRegistrantCallback(_ callback: @escaping PluginRegistrantCallback) {
+        pluginRegistrantCallback = callback
+    }
+
+    private static var shared: NativeWorkmanagerPlugin?
 
     let workerQueue = DispatchQueue(label: "dev.brewkits.native_workmanager.worker", qos: .utility)
 
     // Tag storage for fast lookup
     var taskTags: [String: String] = [:]
-    var taskStates: [String: String] = [:]
+    var taskStates: [String: TaskState] = [:]
     let stateQueue = DispatchQueue(label: "dev.brewkits.native_workmanager.state", attributes: .concurrent)
 
     var debugMode = false
@@ -27,11 +52,8 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     var activeTasks: [String: Task<Void, Never>] = [:]
     var workers: [String: IosWorker] = [:]
 
-    lazy var chainStateManager: ChainStateManager = {
-        let sqlite = SQLiteStore(name: "native_workmanager_chains")
-        let store = ChainStore(sqlite: sqlite)
-        return ChainStateManager(chainStore: store)
-    }()
+    @available(iOS 13.0, *)
+    var chainStateManager: ChainStateManager { ChainStateManager.shared }
 
     @available(iOS 13.0, *)
     var taskStore: TaskStore? { TaskStore.shared }
@@ -45,6 +67,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = NativeWorkmanagerPlugin()
+        shared = instance
         let messenger = registrar.messenger()
         
         instance.methodChannel = FlutterMethodChannel(name: methodChannelName, binaryMessenger: messenger)
@@ -55,11 +78,23 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
         instance.progressChannel = FlutterEventChannel(name: progressChannelName, binaryMessenger: messenger)
         instance.progressChannel?.setStreamHandler(ProgressStreamHandler(plugin: instance))
+        
+        instance.systemErrorChannel = FlutterEventChannel(name: systemErrorChannelName, binaryMessenger: messenger)
+        instance.systemErrorChannel?.setStreamHandler(SystemErrorStreamHandler(plugin: instance))
 
         KMPBridge.shared.initialize()
 
         if #available(iOS 13.0, *) {
             BGTaskSchedulerManager.shared.registerHandlers()
+            BGTaskSchedulerManager.shared.taskExecutor = { [weak instance] taskInfo in
+                guard let instance = instance else { return false }
+                return await instance.executeWorkerSync(
+                    taskId: taskInfo.taskId,
+                    workerClassName: taskInfo.workerClassName,
+                    workerConfig: taskInfo.workerConfig.mapValues { $0.value },
+                    qos: taskInfo.qos
+                )
+            }
             BGTaskSchedulerManager.shared.onTaskComplete = { [weak instance] taskId, success, message in
                 instance?.emitTaskEvent(taskId: taskId, success: success, message: message)
             }
@@ -68,6 +103,13 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             }
             BGTaskSchedulerManager.shared.onExpiration = { [weak instance] in
                 instance?.stopAllWorkers()
+            }
+            BGTaskSchedulerManager.shared.onTaskRunning = { [weak instance] taskId, runningTask in
+                // Track OS-triggered running tasks so NativeWorkManager.cancel(taskId) can
+                // cancel the Swift Task via cooperative cancellation.
+                instance?.stateQueue.sync(flags: .barrier) {
+                    instance?.activeTasks[taskId] = runningTask
+                }
             }
             BackgroundSessionManager.shared.richProgressDelegate = { [weak instance] _, dict in
                 instance?.emitRichProgress(dict)
@@ -78,6 +120,17 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                 case .failure(let error): instance?.emitTaskEvent(taskId: taskId, success: false, message: error.localizedDescription)
                 }
             }
+        }
+    }
+
+    public static func emitSystemError(code: String, message: String) {
+        NativeLogger.e("🚨 SYSTEM ERROR [\(code)]: \(message)")
+        DispatchQueue.main.async {
+            shared?.systemErrorSink?([
+                "code": code,
+                "message": message,
+                "timestamp": Int64(Date().timeIntervalSince1970 * 1000)
+            ])
         }
     }
 
@@ -101,6 +154,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         case "setMaxConcurrentPerHost": result(nil)  // no-op on iOS
         case "getMetrics":             result([:])   // stub
         case "syncOfflineQueue":        result(false) // stub
+        case "getRunningProgress":      result(ProgressReporter.shared.getRunningProgress())
         case "openFile":                handleOpenFile(call: call, result: result)
         default: handleExtensionMethods(call: call, result: result)
         }
@@ -110,6 +164,9 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         if let args = call.arguments as? [String: Any] {
             if let callbackHandle = args["callbackHandle"] as? Int64 {
                 FlutterEngineManager.shared.setCallbackHandle(callbackHandle)
+            }
+            if let registerPlugins = args["registerPlugins"] as? Bool {
+                FlutterEngineManager.shared.setRegisterPlugins(registerPlugins)
             }
             debugMode = args["debugMode"] as? Bool ?? false
         }
@@ -135,22 +192,79 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
         let tag = args["tag"] as? String
         stateQueue.sync(flags: .barrier) {
-            self.taskStates[taskId] = "pending"
+            self.taskStates[taskId] = .pending
             if let t = tag { self.taskTags[taskId] = t }
         }
 
         if #available(iOS 13.0, *) {
             let configRaw = args["workerConfig"] as? [String: Any]
-            let configJson = configRaw.flatMap { try? JSONSerialization.data(withJSONObject: $0) }.flatMap { String(data: $0, encoding: .utf8) }
+            // Sanitize before persisting to SQLite — plaintext secrets must never reach disk.
+            // 1. CryptoWorker: move password into Keychain, replace with a vault key that the
+            //    worker resolves at runtime (mirrors Android's KeystorePasswordVault pattern).
+            // 2. All workers: redact authToken / apiKey / Authorization headers etc.
+            var configForStorage = configRaw
+            if var config = configRaw {
+                if workerClassName.contains("CryptoWorker"),
+                   let password = config["password"] as? String, !password.isEmpty {
+                    let vaultKey = KeystorePasswordVault.shared.store(password)
+                    config.removeValue(forKey: "password")
+                    config["passwordKey"] = vaultKey
+                }
+                configForStorage = TaskStore.sanitizeConfig(config) ?? config
+            }
+            let configJson = configForStorage
+                .flatMap { try? JSONSerialization.data(withJSONObject: $0) }
+                .flatMap { String(data: $0, encoding: .utf8) }
             taskStore?.upsert(taskId: taskId, tag: tag, status: "pending", workerClassName: workerClassName, workerConfig: configJson)
         }
 
         let workerConfig = args["workerConfig"] as? [String: Any] ?? [:]
         let triggerMap = args["trigger"] as? [String: Any]
         let initialDelayMs = (triggerMap?["initialDelayMs"] as? Int) ?? 0
+        let runImmediately = (triggerMap?["runImmediately"] as? Bool) ?? true
+        let intervalMs = (triggerMap?["intervalMs"] as? Int) ?? 0
 
-        // Create the Swift Task first so cancel() can find it in activeTasks
-        // immediately after result("ACCEPTED") returns to Dart.
+        if #available(iOS 13.0, *), (triggerMap?["type"] as? String) == "periodic" {
+            // iOS doesn't have a "periodic" scheduler like Android, but we can simulate
+            // the initial delay and runImmediately: false by setting earliestBeginDate.
+            var effectiveDelayMs = Double(initialDelayMs)
+            if !runImmediately && effectiveDelayMs == 0 {
+                effectiveDelayMs = Double(intervalMs)
+            }
+            let earliestBeginDate = Date(timeIntervalSinceNow: effectiveDelayMs / 1000.0)
+            
+            let constraintsMap = args["constraints"] as? [String: Any]
+            let isHeavyTask = constraintsMap?["isHeavyTask"] as? Bool ?? false
+            let requiresNetwork = constraintsMap?["requiresNetwork"] as? Bool ?? false
+            let requiresExternalPower = constraintsMap?["requiresCharging"] as? Bool ?? false
+            let qos = (constraintsMap?["qos"] as? String) ?? "background"
+
+            let identifier = isHeavyTask ? BGTaskSchedulerManager.defaultTaskIdentifier : BGTaskSchedulerManager.refreshTaskIdentifier
+
+            BGTaskSchedulerManager.shared.scheduleTask(
+                identifier: identifier,
+                taskId: taskId,
+                workerClassName: workerClassName,
+                workerConfig: workerConfig,
+                earliestBeginDate: earliestBeginDate,
+                requiresNetwork: requiresNetwork,
+                requiresExternalPower: requiresExternalPower,
+                isHeavyTask: isHeavyTask,
+                qos: qos
+            )
+
+            // Track periodic tasks in activeTasks so cancel() works.
+            // The Task body is intentionally empty — it completes immediately.
+            // Its presence in the dict is the only requirement: handleCancel reads
+            // activeTasks to decide whether to call BGTaskSchedulerManager.cancelTask().
+            stateQueue.sync(flags: .barrier) {
+                self.activeTasks[taskId] = Task { }
+            }
+
+            result("ACCEPTED")
+            return
+        }
+
         let task = Task { [weak self] in
             guard let self else { return }
             if initialDelayMs > 0 {
@@ -183,17 +297,25 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                 task.cancel()
             }
             activeTasks.removeAll()
-            // Also notify workers directly if possible
-            for (_, worker) in workers {
-                // Future: add stop() method to IosWorker if needed
-            }
         }
         NativeLogger.w("⚠️ OS Expiration: Stopped all active workers")
     }
 
     private func handleGetTaskStatus(call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any], let taskId = args["taskId"] as? String else { return }
-        result(stateQueue.sync { taskStates[taskId] })
+        result(stateQueue.sync { taskStates[taskId]?.rawValue })
+    }
+
+    private func handleGetTaskRecord(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any], let taskId = args["taskId"] as? String else {
+            result(nil)
+            return
+        }
+        
+        workerQueue.async {
+            let record = self.taskStore?.task(taskId: taskId)
+            DispatchQueue.main.async { result(record?.toFlutterMap()) }
+        }
     }
 
     private func handleGetTaskRecord(call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -227,11 +349,13 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         stateQueue.async(flags: .barrier) {
             self.activeTasks[taskId]?.cancel()
             self.activeTasks.removeValue(forKey: taskId)
-            self.taskStates[taskId] = "cancelled"
+            self.taskStates[taskId] = .cancelled
+            self.workers[taskId]?.stop()
         }
         if #available(iOS 13.0, *) {
             cleanupTempFiles(forTaskId: taskId)
             taskStore?.updateStatus(taskId: taskId, status: "cancelled")
+            BGTaskSchedulerManager.shared.cancelTask(taskId: taskId)
         }
         result(nil)
     }
@@ -245,5 +369,18 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         case "registerMiddleware": handleRegisterMiddleware(call: call, result: result)
         default: result(FlutterMethodNotImplemented)
         }
+    }
+}
+
+class SystemErrorStreamHandler: NSObject, FlutterStreamHandler {
+    private weak var plugin: NativeWorkmanagerPlugin?
+    init(plugin: NativeWorkmanagerPlugin) { self.plugin = plugin }
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        plugin?.systemErrorSink = events
+        return nil
+    }
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        plugin?.systemErrorSink = nil
+        return nil
     }
 }

@@ -90,6 +90,26 @@ void main() {
       final worker = DartWorker(callbackId: 'cb', timeoutMs: 600000);
       expect(worker.toMap()['timeoutMs'], 600000);
     });
+
+    test('should throw ArgumentError for non-JSON serializable input', () {
+      expect(
+        () => DartWorker(
+          callbackId: 'test',
+          input: {'date': DateTime.now()},
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('should handle large input payloads', () {
+      final largeString = 'a' * 1024 * 1024; // 1MB
+      final worker =
+          DartWorker(callbackId: 'large', input: {'data': largeString});
+
+      final map = worker.toMap();
+      expect(map['input'], isA<String>());
+      expect((map['input'] as String).length, greaterThan(1024 * 1024));
+    });
   });
 
   group('HttpRequestWorker', () {

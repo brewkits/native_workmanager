@@ -14,6 +14,7 @@ import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import dev.brewkits.kmpworkmanager.background.domain.*
 import dev.brewkits.native_workmanager.notification.DownloadNotificationManager
 import dev.brewkits.native_workmanager.store.TaskStore.Companion.sanitizeConfig
+import dev.brewkits.native_workmanager.utils.MappingUtils.toJson
 import dev.brewkits.native_workmanager.workers.HttpDownloadWorker
 import dev.brewkits.native_workmanager.workers.utils.HostConcurrencyManager
 import dev.brewkits.native_workmanager.workers.utils.KeystorePasswordVault
@@ -280,6 +281,11 @@ internal fun NativeWorkmanagerPlugin.handleEnqueue(call: MethodCall, result: Res
                 val filename = url?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
                     ?: (workerConfig["savePath"] as? String)?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
                 if (filename != null) taskFilenames[taskId] = filename
+
+                // Also populate ProgressReporter for automatic native-side updates
+                dev.brewkits.native_workmanager.workers.utils.ProgressReporter.taskNotifTitles[taskId] = title
+                dev.brewkits.native_workmanager.workers.utils.ProgressReporter.taskAllowPause[taskId] = taskAllowPause[taskId] ?: true
+                if (filename != null) dev.brewkits.native_workmanager.workers.utils.ProgressReporter.taskFilenames[taskId] = filename
             }
 
             // Parse trigger from method call arguments
@@ -290,7 +296,14 @@ internal fun NativeWorkmanagerPlugin.handleEnqueue(call: MethodCall, result: Res
                 "periodic" -> {
                     val intervalMs = (triggerMap?.get("intervalMs") as? Number)?.toLong() ?: 900_000L
                     val flexMs = (triggerMap?.get("flexMs") as? Number)?.toLong()
-                    TaskTrigger.Periodic(intervalMs = intervalMs, flexMs = flexMs)
+                    val initialDelayMs = (triggerMap?.get("initialDelayMs") as? Number)?.toLong() ?: 0L
+                    val runImmediately = triggerMap?.get("runImmediately") as? Boolean ?: true
+                    TaskTrigger.Periodic(
+                        intervalMs = intervalMs,
+                        flexMs = flexMs,
+                        initialDelayMs = initialDelayMs,
+                        runImmediately = runImmediately
+                    )
                 }
                 "exact" -> {
                     val scheduledTimeMs = (triggerMap?.get("scheduledTimeMs") as? Number)?.toLong()
@@ -438,6 +451,7 @@ internal fun NativeWorkmanagerPlugin.handleCancel(call: MethodCall, result: Resu
             taskNotifTitles.remove(taskId)?.let { DownloadNotificationManager.dismiss(context, taskId) }
             taskAllowPause.remove(taskId)
             taskFilenames.remove(taskId)
+            dev.brewkits.native_workmanager.workers.utils.ProgressReporter.clearTask(taskId)
             result.success(null)
         } catch (e: Exception) {
             result.error("CANCEL_ERROR", e.message, null)
@@ -470,6 +484,9 @@ internal fun NativeWorkmanagerPlugin.handleCancelAll(result: Result) {
             taskStatuses.clear()
             taskAllowPause.clear()
             taskFilenames.clear()
+            // Clear ProgressReporter for all tasks
+            val allTaskIds = withContext(Dispatchers.IO) { taskStore.getAllTasks().map { it.taskId } }
+            allTaskIds.forEach { dev.brewkits.native_workmanager.workers.utils.ProgressReporter.clearTask(it) }
             result.success(null)
         } catch (e: Exception) {
             result.error("CANCEL_ERROR", e.message, null)
@@ -507,6 +524,7 @@ internal fun NativeWorkmanagerPlugin.handleCancelByTag(call: MethodCall, result:
                 taskNotifTitles.remove(taskId)?.let { DownloadNotificationManager.dismiss(context, taskId) }
                 taskAllowPause.remove(taskId)
                 taskFilenames.remove(taskId)
+                dev.brewkits.native_workmanager.workers.utils.ProgressReporter.clearTask(taskId)
             }
 
             result.success(null)
@@ -588,50 +606,8 @@ internal fun NativeWorkmanagerPlugin.handleGetTaskRecord(call: MethodCall, resul
     }
 }
 
-internal fun NativeWorkmanagerPlugin.parseConstraints(map: Map<String, Any?>?): Constraints {
-    if (map == null) return Constraints()
-
-    val requiresNetwork = map["requiresNetwork"] as? Boolean ?: false
-    val requiresUnmeteredNetwork = map["requiresUnmeteredNetwork"] as? Boolean ?: false
-    val requiresCharging = map["requiresCharging"] as? Boolean ?: false
-    val allowWhileIdle = map["allowWhileIdle"] as? Boolean ?: false
-    val isHeavyTask = map["isHeavyTask"] as? Boolean ?: false
-    val backoffDelayMs = (map["backoffDelayMs"] as? Number)?.toLong() ?: 30_000L
-
-    val backoffPolicy = when ((map["backoffPolicy"] as? String)?.lowercase()) {
-        "linear" -> BackoffPolicy.LINEAR
-        else -> BackoffPolicy.EXPONENTIAL
-    }
-
-    val systemConstraintNames = map["systemConstraints"] as? List<*> ?: emptyList<Any>()
-    val systemConstraints: MutableSet<SystemConstraint> = systemConstraintNames
-        .filterIsInstance<String>()
-        .mapNotNull { name ->
-            when (name) {
-                "allowLowStorage" -> SystemConstraint.ALLOW_LOW_STORAGE
-                "allowLowBattery" -> SystemConstraint.ALLOW_LOW_BATTERY
-                "requireBatteryNotLow" -> SystemConstraint.REQUIRE_BATTERY_NOT_LOW
-                "deviceIdle" -> SystemConstraint.DEVICE_IDLE
-                else -> null
-            }
-        }.toMutableSet()
-
-    // Merge legacy boolean flags into systemConstraints if not already covered
-    if (map["requiresDeviceIdle"] as? Boolean == true) systemConstraints.add(SystemConstraint.DEVICE_IDLE)
-    if (map["requiresBatteryNotLow"] as? Boolean == true) systemConstraints.add(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)
-    // requiresStorageNotLow has no direct SystemConstraint equivalent — intentionally skipped
-
-    return Constraints(
-        requiresNetwork = requiresNetwork,
-        requiresUnmeteredNetwork = requiresUnmeteredNetwork,
-        requiresCharging = requiresCharging,
-        allowWhileIdle = allowWhileIdle,
-        isHeavyTask = isHeavyTask,
-        backoffPolicy = backoffPolicy,
-        backoffDelayMs = backoffDelayMs,
-        systemConstraints = systemConstraints
-    )
-}
+internal fun NativeWorkmanagerPlugin.parseConstraints(map: Map<String, Any?>?): Constraints =
+    dev.brewkits.native_workmanager.utils.MappingUtils.parseConstraints(map)
 
 /**
  * Schedules a OneTime task directly via WorkManager, bypassing kmpworkmanager.
@@ -656,13 +632,28 @@ internal fun NativeWorkmanagerPlugin.enqueueOneTimeWorkDirect(
     val workerClass = if (constraints.isHeavyTask) KmpHeavyWorker::class.java else KmpWorker::class.java
 
     val dataBuilder = Data.Builder().putString("workerClassName", workerClassName)
-    
+
     // Apply middleware to inputJson before enqueuing (Phase 2)
     val effectiveInputJson = if (inputJson != null) {
         NativeWorkmanagerPlugin.applyMiddleware(context, workerClassName, inputJson)
     } else inputJson
-    
-    if (effectiveInputJson != null) dataBuilder.putString("inputJson", effectiveInputJson)
+
+    if (effectiveInputJson != null) {
+        // WorkManager hard-limits Data payloads to 10 240 bytes (10 KB).
+        // If the config exceeds that, spill it to a temp file and pass only the path.
+        // The worker reads the file and deletes it after use.
+        val payloadBytes = effectiveInputJson.toByteArray(Charsets.UTF_8)
+        if (payloadBytes.size > 10 * 1024) {
+            val spillFile = java.io.File(context.cacheDir, "wm_spill_${taskId}.json")
+            spillFile.writeText(effectiveInputJson, Charsets.UTF_8)
+            // Use the same key as kmpworkmanager (NativeTaskScheduler.KEY_INPUT_JSON_FILE)
+            // so BaseKmpWorker.resolveInputJson() picks it up without any changes.
+            dataBuilder.putString("inputJsonFile", spillFile.absolutePath)
+            NativeLogger.d("inputJson for '$taskId' exceeds 10 KB — spilled to ${spillFile.name}")
+        } else {
+            dataBuilder.putString("inputJson", effectiveInputJson)
+        }
+    }
 
     val networkType = when {
         constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED

@@ -49,6 +49,11 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
   /// [blockPrivateIPs] - When true, HTTP workers block requests to
   /// private/loopback IP ranges (10.x, 172.16-31.x, 192.168.x, 127.x, ::1)
   /// to prevent SSRF attacks. Defaults to false for backward compatibility.
+  ///
+  /// [registerPlugins] - When true, the background Flutter Engine will
+  /// automatically register all plugins. Required for using other plugins
+  /// in the background. Defaults to false. If false, you can still register
+  /// plugins manually on the native side via `NativeWorkmanagerPlugin.setPluginRegistrantCallback`.
   Future<void> initialize({
     int? callbackHandle,
     bool debugMode = false,
@@ -57,6 +62,7 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
     int cleanupAfterDays = 30,
     bool enforceHttps = false,
     bool blockPrivateIPs = false,
+    bool registerPlugins = false,
   }) {
     throw UnimplementedError('initialize() has not been implemented.');
   }
@@ -123,6 +129,11 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
     throw UnimplementedError('progress has not been implemented.');
   }
 
+  /// Stream of system-level errors (e.g. Disk Full).
+  Stream<SystemError> get systemErrors {
+    throw UnimplementedError('systemErrors has not been implemented.');
+  }
+
   /// Pause a running task (best-effort; saves resume data where possible).
   Future<void> pauseTask({required String taskId}) {
     throw UnimplementedError('pauseTask() has not been implemented.');
@@ -148,6 +159,14 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
     int timeoutMs = 30000,
   }) {
     throw UnimplementedError('getServerFilename() has not been implemented.');
+  }
+
+  /// Get the current progress of all running tasks.
+  ///
+  /// Returns a map of task IDs to their latest progress update.
+  /// Useful for "re-attaching" to progress streams when the app restarts.
+  Future<Map<String, dynamic>> getRunningProgress() {
+    throw UnimplementedError('getRunningProgress() has not been implemented.');
   }
 
   /// Open a file with the OS default viewer/handler.

@@ -49,7 +49,7 @@ void main() {
     test('enqueue() with HttpRequestWorker', () async {
       await NativeWorkManager.initialize();
 
-      final result = await NativeWorkManager.enqueue(
+      final handler = await NativeWorkManager.enqueue(
         taskId: 'test-http-request',
         trigger: TaskTrigger.oneTime(),
         worker: HttpRequestWorker(
@@ -58,13 +58,13 @@ void main() {
         ),
       );
 
-      expect(result, equals(ScheduleResult.accepted));
+      expect(handler.scheduleResult, equals(ScheduleResult.accepted));
     });
 
     test('enqueue() with HttpDownloadWorker', () async {
       await NativeWorkManager.initialize();
 
-      final result = await NativeWorkManager.enqueue(
+      final handler = await NativeWorkManager.enqueue(
         taskId: 'test-download',
         trigger: TaskTrigger.oneTime(),
         worker: HttpDownloadWorker(
@@ -73,13 +73,13 @@ void main() {
         ),
       );
 
-      expect(result, equals(ScheduleResult.accepted));
+      expect(handler.scheduleResult, equals(ScheduleResult.accepted));
     });
 
     test('enqueue() with HttpUploadWorker', () async {
       await NativeWorkManager.initialize();
 
-      final result = await NativeWorkManager.enqueue(
+      final handler = await NativeWorkManager.enqueue(
         taskId: 'test-upload',
         trigger: TaskTrigger.oneTime(),
         worker: HttpUploadWorker(
@@ -88,7 +88,7 @@ void main() {
         ),
       );
 
-      expect(result, equals(ScheduleResult.accepted));
+      expect(handler.scheduleResult, equals(ScheduleResult.accepted));
     });
 
     test('enqueue() with DartWorker - throws StateError when not registered',
@@ -112,7 +112,7 @@ void main() {
       await NativeWorkManager.initialize();
 
       // Use HttpRequestWorker since DartWorker requires real Flutter VM callback handles
-      final result = await NativeWorkManager.enqueue(
+      final handler = await NativeWorkManager.enqueue(
         taskId: 'test-constraints',
         trigger: TaskTrigger.oneTime(),
         worker: HttpRequestWorker(
@@ -133,7 +133,7 @@ void main() {
         ),
       );
 
-      expect(result, equals(ScheduleResult.accepted));
+      expect(handler.scheduleResult, equals(ScheduleResult.accepted));
     });
 
     test('cancel() task by ID', () async {
@@ -208,7 +208,7 @@ void main() {
     test('OneTime trigger with delay', () async {
       await NativeWorkManager.initialize();
 
-      final result = await NativeWorkManager.enqueue(
+      final handler = await NativeWorkManager.enqueue(
         taskId: 'test-onetime',
         trigger: TaskTrigger.oneTime(const Duration(minutes: 5)),
         worker: HttpRequestWorker(
@@ -217,13 +217,13 @@ void main() {
         ),
       );
 
-      expect(result, equals(ScheduleResult.accepted));
+      expect(handler.scheduleResult, equals(ScheduleResult.accepted));
     });
 
     test('Periodic trigger', () async {
       await NativeWorkManager.initialize();
 
-      final result = await NativeWorkManager.enqueue(
+      final handler = await NativeWorkManager.enqueue(
         taskId: 'test-periodic',
         trigger: TaskTrigger.periodic(
           const Duration(hours: 1),
@@ -235,13 +235,13 @@ void main() {
         ),
       );
 
-      expect(result, equals(ScheduleResult.accepted));
+      expect(handler.scheduleResult, equals(ScheduleResult.accepted));
     });
 
     test('Exact trigger', () async {
       await NativeWorkManager.initialize();
 
-      final result = await NativeWorkManager.enqueue(
+      final handler = await NativeWorkManager.enqueue(
         taskId: 'test-exact',
         trigger: TaskTrigger.exact(
           DateTime.now().add(const Duration(hours: 2)),
@@ -252,13 +252,13 @@ void main() {
         ),
       );
 
-      expect(result, equals(ScheduleResult.accepted));
+      expect(handler.scheduleResult, equals(ScheduleResult.accepted));
     });
 
     test('Windowed trigger', () async {
       await NativeWorkManager.initialize();
 
-      final result = await NativeWorkManager.enqueue(
+      final handler = await NativeWorkManager.enqueue(
         taskId: 'test-windowed',
         trigger: TaskTrigger.windowed(
           earliest: const Duration(hours: 1),
@@ -270,13 +270,13 @@ void main() {
         ),
       );
 
-      expect(result, equals(ScheduleResult.accepted));
+      expect(handler.scheduleResult, equals(ScheduleResult.accepted));
     });
 
     test('ContentUri trigger (Android)', () async {
       await NativeWorkManager.initialize();
 
-      final result = await NativeWorkManager.enqueue(
+      final handler = await NativeWorkManager.enqueue(
         taskId: 'test-content-uri',
         trigger: TaskTrigger.contentUri(
           uri: Uri.parse('content://media/external/images/media'),
@@ -288,7 +288,7 @@ void main() {
         ),
       );
 
-      expect(result, equals(ScheduleResult.accepted));
+      expect(handler.scheduleResult, equals(ScheduleResult.accepted));
     });
   });
 
@@ -559,7 +559,7 @@ void main() {
     test('HttpRequestWorker with headers', () async {
       await NativeWorkManager.initialize();
 
-      final result = await NativeWorkManager.enqueue(
+      final handler = await NativeWorkManager.enqueue(
         taskId: 'test-headers',
         trigger: TaskTrigger.oneTime(),
         worker: HttpRequestWorker(
@@ -572,13 +572,13 @@ void main() {
         ),
       );
 
-      expect(result, equals(ScheduleResult.accepted));
+      expect(handler.scheduleResult, equals(ScheduleResult.accepted));
     });
 
     test('HttpRequestWorker with body', () async {
       await NativeWorkManager.initialize();
 
-      final result = await NativeWorkManager.enqueue(
+      final handler = await NativeWorkManager.enqueue(
         taskId: 'test-body',
         trigger: TaskTrigger.oneTime(),
         worker: HttpRequestWorker(
@@ -588,13 +588,13 @@ void main() {
         ),
       );
 
-      expect(result, equals(ScheduleResult.accepted));
+      expect(handler.scheduleResult, equals(ScheduleResult.accepted));
     });
 
     test('HttpDownloadWorker with headers', () async {
       await NativeWorkManager.initialize();
 
-      final result = await NativeWorkManager.enqueue(
+      final handler = await NativeWorkManager.enqueue(
         taskId: 'test-download-headers',
         trigger: TaskTrigger.oneTime(),
         worker: HttpDownloadWorker(
@@ -606,13 +606,13 @@ void main() {
         ),
       );
 
-      expect(result, equals(ScheduleResult.accepted));
+      expect(handler.scheduleResult, equals(ScheduleResult.accepted));
     });
 
     test('HttpUploadWorker with additional fields', () async {
       await NativeWorkManager.initialize();
 
-      final result = await NativeWorkManager.enqueue(
+      final handler = await NativeWorkManager.enqueue(
         taskId: 'test-upload-fields',
         trigger: TaskTrigger.oneTime(),
         worker: HttpUploadWorker(
@@ -628,7 +628,7 @@ void main() {
         ),
       );
 
-      expect(result, equals(ScheduleResult.accepted));
+      expect(handler.scheduleResult, equals(ScheduleResult.accepted));
     });
   });
 
@@ -791,7 +791,7 @@ void main() {
     test('enqueue() with periodic trigger exactly 15 min succeeds', () async {
       await NativeWorkManager.initialize();
 
-      final result = await NativeWorkManager.enqueue(
+      final handler = await NativeWorkManager.enqueue(
         taskId: 'test-15min',
         trigger: TaskTrigger.periodic(const Duration(minutes: 15)),
         worker: HttpRequestWorker(
@@ -800,7 +800,7 @@ void main() {
         ),
       );
 
-      expect(result, equals(ScheduleResult.accepted));
+      expect(handler.scheduleResult, equals(ScheduleResult.accepted));
     });
 
     test('enqueue() with empty tag throws ArgumentError', () async {

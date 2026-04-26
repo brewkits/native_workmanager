@@ -114,6 +114,45 @@ import native_workmanager
   e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"dev.brewkits.native_workmanager.refresh"]
   ```
 
+### Other plugins not working in DartWorker
+
+**Symptoms:** Your `DartWorker` runs, but other plugins like `flutter_local_notifications` or `shared_preferences` don't seem to work or throw errors.
+
+**Solution:**
+Enable plugin registration during initialization in Dart:
+```dart
+await NativeWorkManager.initialize(
+  registerPlugins: true,
+  dartWorkers: { ... },
+);
+```
+By default, the background engine does **not** register plugins to save RAM and avoid side-effects.
+
+### Selective Plugin Registration (Recommended)
+
+To maintain peak performance and avoid side-effects (like Audio/Bluetooth drops), we recommend keeping `registerPlugins: false` and manually registering only the necessary plugins for your background tasks.
+
+In your `AppDelegate.swift`:
+
+```swift
+import native_workmanager
+import flutter_local_notifications
+
+@main
+@objc class AppDelegate: FlutterAppDelegate {
+    override func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        GeneratedPluginRegistrant.register(with: self)
+        
+        NativeWorkmanagerPlugin.setPluginRegistrantCallback { registry in
+            // Manually register specific plugins for the background engine
+            FlutterLocalNotificationsPlugin.register(with: registry.registrar(forPlugin: "FlutterLocalNotificationsPlugin")!)
+        }
+        
+        return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    }
+}
+```
+
 ---
 
 ## 6. App Store Submission (Privacy Info)

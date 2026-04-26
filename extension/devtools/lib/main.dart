@@ -33,24 +33,46 @@ class _NativeWorkmanagerDashboardState
     'offlineQueueSize': 0,
     'failedTasks': 0,
     'completedTasks': 0,
+    'dagNodes': [],
   };
   Timer? _pollingTimer;
+  StreamSubscription? _eventSubscription;
   bool _isConnected = false;
 
   @override
   void initState() {
     super.initState();
     _startPolling();
+    _subscribeToEvents();
   }
 
   @override
   void dispose() {
     _pollingTimer?.cancel();
+    _eventSubscription?.cancel();
     super.dispose();
   }
 
+  void _subscribeToEvents() {
+    // Phase 2: Listen for real-time events streamed from the host app via postEvent.
+    // This provides instantaneous UI updates (streaming) to complement the periodic polling.
+    _eventSubscription =
+        serviceManager.service?.onExtensionEvent.listen((event) {
+      if (event.extensionKind?.startsWith('native_workmanager.') ?? false) {
+        debugPrint(
+            'DevTools: Received real-time event: ${event.extensionKind}');
+
+        if (event.extensionKind == 'native_workmanager.event' ||
+            event.extensionKind == 'native_workmanager.progress') {
+          // Trigger a targeted refresh when an event occurs
+          _fetchMetrics();
+        }
+      }
+    });
+  }
+
   void _startPolling() {
-    // Poll the host application every 2 seconds
+    // Poll the host application every 2 seconds for a complete snapshot (including DAG nodes)
     _pollingTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       _fetchMetrics();
     });

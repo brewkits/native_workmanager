@@ -18,6 +18,7 @@ class MockNativeWorkManagerPlatform extends NativeWorkManagerPlatform
     int cleanupAfterDays = 30,
     bool enforceHttps = false,
     bool blockPrivateIPs = false,
+    bool registerPlugins = false,
   }) async {}
 
   @override

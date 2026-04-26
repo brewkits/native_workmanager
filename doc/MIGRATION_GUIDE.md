@@ -41,6 +41,17 @@ Impact: Higher App Store ratings, fewer user complaints
 - Better responsiveness
 - Less UI jank during background execution
 
+### 🆕 New Features in v1.2.3
+
+- **Initial Delay for Periodic Tasks**: You can now delay the very first execution of a periodic task.
+  ```dart
+  trigger: TaskTrigger.periodic(
+    const Duration(hours: 1),
+    initialDelay: const Duration(minutes: 30),
+  )
+  ```
+- **Security Hardening**: Strict validation for URLs and file paths to prevent injection and path traversal attacks.
+
 ---
 
 ## API Compatibility Matrix
@@ -66,6 +77,7 @@ These APIs work with minimal or no changes:
 | Task tags | Not yet supported | Use individual `cancel()` calls (v1.1 will add tagging) |
 | Input data (Map) | `worker.input` or `DartWorker.input` | Restructure data passing |
 | Callback dispatcher (switch/case) | Callback ID map | Refactor to map-based registration |
+| Plugin registration | `registerPlugins` parameter | Set `registerPlugins: true` if using other plugins in background |
 
 ### ❌ Not Supported
 
@@ -126,7 +138,7 @@ dependencies:
 **After:**
 ```yaml
 dependencies:
-  native_workmanager: ^1.0.3
+  native_workmanager: ^1.2.2
 ```
 
 **Then run:**
@@ -192,12 +204,12 @@ import 'package:native_workmanager/native_workmanager.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await NativeWorkManager.initialize(
+    registerPlugins: true, // Required if your callbacks use other plugins
     dartWorkers: {
       'syncTask': _syncDataCallback,
       'uploadTask': _uploadFilesCallback,
     },
-  );
-  runApp(MyApp());
+  );  runApp(MyApp());
 }
 
 @pragma('vm:entry-point')
@@ -839,7 +851,7 @@ Use this checklist to track your migration progress:
 ```yaml
 dependencies:
   workmanager: ^0.5.0
-  native_workmanager: ^1.0.3
+  native_workmanager: ^1.2.2
 ```
 
 Migrate tasks one at a time, then remove workmanager when done.

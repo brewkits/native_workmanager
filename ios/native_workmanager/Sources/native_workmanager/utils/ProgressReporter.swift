@@ -30,11 +30,22 @@ final class ProgressReporter {
 
     // MARK: - Throttle state
 
-    /// Last reported % per task — used to suppress updates < 1% apart.
-    private var lastEmitted: [String: Int] = [:]
+    /// Last reported update per task — used to suppress updates < 1% apart and support re-attaching.
+    private var lastEmittedUpdates: [String: [String: Any]] = [:]
+    
+    /// Last progress percentage persisted to SQLite per task (5% throttle).
+    private var lastPersistedProgress: [String: Int] = [:]
+    
     private let lock = NSLock()
 
     // MARK: - Public API
+
+    /// Get all current progress updates for running tasks.
+    func getRunningProgress() -> [String: [String: Any]] {
+        lock.lock()
+        defer { lock.unlock() }
+        return lastEmittedUpdates
+    }
 
     /// Report a rich progress update.
     ///
@@ -60,13 +71,12 @@ final class ProgressReporter {
         // 1 % throttle — same filter as Android's ProgressReporter to prevent
         // flooding the Flutter bridge on large-file downloads.
         lock.lock()
-        let last = lastEmitted[taskId]
-        if let last = last, clamped != 100, abs(clamped - last) < 1 {
+        let lastUpdate = lastEmittedUpdates[taskId]
+        let lastProgress = lastUpdate?["progress"] as? Int
+        if let last = lastProgress, clamped != 100, abs(clamped - last) < 1 {
             lock.unlock()
             return
         }
-        lastEmitted[taskId] = clamped
-        lock.unlock()
 
         var dict: [String: Any] = ["taskId": taskId, "progress": clamped]
         if let m = message            { dict["message"]         = m }
@@ -75,13 +85,28 @@ final class ProgressReporter {
         if let s = networkSpeed       { dict["networkSpeed"]    = s }
         if let e = timeRemainingMs    { dict["timeRemainingMs"] = e }
 
+        lastEmittedUpdates[taskId] = dict
+        
+        // 5% Persistence throttle
+        let lastPersisted = lastPersistedProgress[taskId]
+        if lastPersisted == nil || clamped == 100 || abs(clamped - (lastPersisted ?? 0)) >= 5 {
+            lastPersistedProgress[taskId] = clamped
+            if let data = try? JSONSerialization.data(withJSONObject: dict),
+               let json = String(data: data, encoding: .utf8) {
+                TaskStore.shared.updateProgress(taskId: taskId, progressJson: json)
+            }
+        }
+        
+        lock.unlock()
+
         onProgress?(dict)
     }
 
     /// Clear throttle state for a finished task (avoids stale entries accumulating).
     func clearTask(_ taskId: String) {
         lock.lock()
-        lastEmitted.removeValue(forKey: taskId)
+        lastEmittedUpdates.removeValue(forKey: taskId)
+        lastPersistedProgress.removeValue(forKey: taskId)
         lock.unlock()
     }
 }

@@ -58,6 +58,7 @@
 		<string>dev.brewkits.native_workmanager.exact</string>
 		<string>dev.brewkits.native_workmanager.windowed</string>
 		<string>dev.brewkits.native_workmanager.refresh</string>
+		<string>kmp_chain_executor_task</string>
 		<string>demo-quick-sync</string>
 	</array>
 	<!-- Network Access -->

@@ -26,7 +26,8 @@ internal class TaskStore(context: Context) {
         val createdAt: Long,
         val updatedAt: Long,
         val resultData: String?,
-        val constraintsJson: String? = null
+        val constraintsJson: String? = null,
+        val lastProgressJson: String? = null
     )
 
     private val dbHelper = DatabaseHelper.getInstance(context)
@@ -109,6 +110,14 @@ internal class TaskStore(context: Context) {
         dbHelper.writableDatabase.update("tasks", cv, "task_id = ?", arrayOf(taskId))
     }
 
+    fun updateProgress(taskId: String, progressJson: String) {
+        val cv = ContentValues().apply {
+            put("last_progress_json", progressJson)
+            put("updated_at", System.currentTimeMillis())
+        }
+        dbHelper.writableDatabase.update("tasks", cv, "task_id = ?", arrayOf(taskId))
+    }
+
     fun getTask(taskId: String): TaskRecord? =
         dbHelper.readableDatabase.rawQuery("SELECT * FROM tasks WHERE task_id = ?", arrayOf(taskId))
             .use { c -> if (c.moveToFirst()) c.toRecord() else null }
@@ -133,17 +142,23 @@ internal class TaskStore(context: Context) {
         dbHelper.writableDatabase.delete("tasks", "task_id = ?", arrayOf(taskId))
     }
 
-    fun deleteCompleted(olderThanMs: Long = 0L) {
+    fun deleteCompleted(olderThanMs: Long = 0L, batchSize: Int = 1000) {
         val threshold = if (olderThanMs > 0) System.currentTimeMillis() - olderThanMs else Long.MAX_VALUE
-        dbHelper.writableDatabase.delete(
-            "tasks",
-            "status IN ('completed','failed','cancelled') AND updated_at < ?",
-            arrayOf(threshold.toString())
-        )
+        // Batch delete to avoid holding a long write-lock that blocks concurrent upsert calls.
+        // Repeat until fewer rows than batchSize are deleted (i.e. no more rows to clean).
+        do {
+            val deleted = dbHelper.writableDatabase.delete(
+                "tasks",
+                "task_id IN (SELECT task_id FROM tasks WHERE status IN ('completed','failed','cancelled') AND updated_at < ? LIMIT ?)",
+                arrayOf(threshold.toString(), batchSize.toString())
+            )
+            if (deleted < batchSize) break
+        } while (true)
     }
 
     private fun android.database.Cursor.toRecord(): TaskRecord {
         val constraintsColIdx = getColumnIndex("constraints_json")
+        val progressColIdx = getColumnIndex("last_progress_json")
         return TaskRecord(
             taskId          = getString(getColumnIndexOrThrow("task_id")),
             tag             = getString(getColumnIndexOrThrow("tag")),
@@ -153,7 +168,8 @@ internal class TaskStore(context: Context) {
             createdAt       = getLong(getColumnIndexOrThrow("created_at")),
             updatedAt       = getLong(getColumnIndexOrThrow("updated_at")),
             resultData      = getString(getColumnIndexOrThrow("result_data")),
-            constraintsJson = if (constraintsColIdx >= 0) getString(constraintsColIdx) else null
+            constraintsJson = if (constraintsColIdx >= 0) getString(constraintsColIdx) else null,
+            lastProgressJson = if (progressColIdx >= 0) getString(progressColIdx) else null
         )
     }
 

@@ -98,6 +98,26 @@ void main() {
           throwsArgumentError,
         );
       });
+
+      test('blocks encoded path traversal (%2e%2e)', () {
+        expect(
+          () => NativeWorker.httpDownload(
+            url: 'https://example.com/file.zip',
+            savePath: '/tmp/%2e%2e%2f%2e%2e%2fetc/passwd',
+          ),
+          throwsArgumentError,
+        );
+      });
+
+      test('blocks null byte injection', () {
+        expect(
+          () => NativeWorker.httpDownload(
+            url: 'https://example.com/file.zip',
+            savePath: '/tmp/safe.txt\x00/../../../etc/passwd',
+          ),
+          throwsArgumentError,
+        );
+      });
     });
 
     group('HttpUploadWorker', () {

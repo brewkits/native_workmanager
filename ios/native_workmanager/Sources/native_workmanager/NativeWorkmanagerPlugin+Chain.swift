@@ -60,10 +60,10 @@ extension NativeWorkmanagerPlugin {
         // which is checked via `Task.isCancelled` between steps in executeChain.
         stateQueue.sync(flags: .barrier) {
             activeTasks[chainCancelId] = chainTask
-            taskStates[chainCancelId] = "pending"
+            taskStates[chainCancelId] = .pending
             for stepId in allStepIds {
                 activeTasks[stepId] = chainTask
-                taskStates[stepId] = "pending"
+                taskStates[stepId] = .pending
             }
         }
 

@@ -29,10 +29,17 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   final progressChannel =
       const EventChannel('dev.brewkits/native_workmanager/progress');
 
+  /// Event channel for system-level errors.
+  @visibleForTesting
+  final systemErrorChannel =
+      const EventChannel('dev.brewkits/native_workmanager/system_errors');
+
   StreamController<TaskEvent>? _eventController;
   StreamController<TaskProgress>? _progressController;
+  StreamController<SystemError>? _systemErrorController;
   StreamSubscription? _eventSubscription;
   StreamSubscription? _progressSubscription;
+  StreamSubscription? _systemErrorSubscription;
 
   /// Task IDs that have reached a terminal state (completed / failed / cancelled).
   ///
@@ -57,6 +64,7 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
     int cleanupAfterDays = 30,
     bool enforceHttps = false,
     bool blockPrivateIPs = false,
+    bool registerPlugins = false,
   }) async {
     // Setup method call handler for Dart callbacks
     methodChannel.setMethodCallHandler(_handleMethodCall);
@@ -74,6 +82,7 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
       'cleanupAfterDays': cleanupAfterDays,
       'enforceHttps': enforceHttps,
       'blockPrivateIPs': blockPrivateIPs,
+      'registerPlugins': registerPlugins,
     };
     if (callbackHandle != null) args['callbackHandle'] = callbackHandle;
     if (debugMode) args['debugMode'] = debugMode;
@@ -85,8 +94,10 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
     // This prevents memory leaks and duplicate event emissions during hot restarts.
     _eventSubscription?.cancel();
     _progressSubscription?.cancel();
+    _systemErrorSubscription?.cancel();
     _eventController?.close();
     _progressController?.close();
+    _systemErrorController?.close();
 
     // Clear stale terminal-state entries from any previous session so that
     // re-initialisation (hot restart, engine re-attach) starts clean.
@@ -94,6 +105,7 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
 
     _eventController = StreamController<TaskEvent>.broadcast();
     _progressController = StreamController<TaskProgress>.broadcast();
+    _systemErrorController = StreamController<SystemError>.broadcast();
 
     _eventSubscription =
         eventChannel.receiveBroadcastStream().listen((dynamic event) {
@@ -130,6 +142,17 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
       }
     }, onError: (error) {
       developer.log('Progress channel error: $error', error: error);
+    });
+
+    _systemErrorSubscription =
+        systemErrorChannel.receiveBroadcastStream().listen((dynamic event) {
+      if (event is Map) {
+        final map = Map<String, dynamic>.from(event);
+        final systemError = SystemError.fromMap(map);
+        _systemErrorController?.add(systemError);
+      }
+    }, onError: (error) {
+      developer.log('System error channel error: $error', error: error);
     });
   }
 
@@ -306,6 +329,10 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   Stream<TaskProgress> get progress =>
       _progressController?.stream ?? const Stream.empty();
 
+  @override
+  Stream<SystemError> get systemErrors =>
+      _systemErrorController?.stream ?? const Stream.empty();
+
   ScheduleResult _parseScheduleResult(String? result) {
     if (result == null) return ScheduleResult.accepted;
 
@@ -325,6 +352,14 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
       level: 900, // WARNING
     );
     return ScheduleResult.accepted;
+  }
+
+  @override
+  Future<Map<String, dynamic>> getRunningProgress() async {
+    final result = await methodChannel
+        .invokeMethod<Map<Object?, Object?>>('getRunningProgress');
+    if (result == null) return {};
+    return result.map((key, value) => MapEntry(key.toString(), value));
   }
 
   @override
@@ -392,8 +427,10 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   void dispose() {
     _eventSubscription?.cancel();
     _progressSubscription?.cancel();
+    _systemErrorSubscription?.cancel();
     _eventController?.close();
     _progressController?.close();
+    _systemErrorController?.close();
     _completedTaskIds.clear();
   }
 }

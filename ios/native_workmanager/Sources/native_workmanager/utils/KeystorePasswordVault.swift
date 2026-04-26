@@ -18,6 +18,7 @@ final class KeystorePasswordVault {
     private init() {}
 
     private let service = "dev.brewkits.native_workmanager.crypto_vault"
+    private let remoteTriggerService = "dev.brewkits.native_workmanager.remote_trigger_vault"
 
     /// Store [secret] in the Keychain; returns the UUID key to pass to the worker.
     func store(_ secret: String) -> String {
@@ -74,6 +75,63 @@ final class KeystorePasswordVault {
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: key
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+
+    // MARK: - Persistent Storage (for Remote Triggers)
+
+    /// Store or update a secret associated with a fixed [account] name (e.g. "fcm").
+    func upsert(account: String, secret: String) {
+        guard let secretData = secret.data(using: .utf8) else { return }
+
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: remoteTriggerService,
+            kSecAttrAccount: account
+        ]
+
+        let update: [CFString: Any] = [
+            kSecValueData: secretData,
+            kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        ]
+
+        let status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
+        
+        if status == errSecItemNotFound {
+            var addQuery = query
+            addQuery[kSecValueData] = secretData
+            addQuery[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            SecItemAdd(addQuery as CFDictionary, nil)
+        }
+    }
+
+    /// Retrieve a secret without deleting it.
+    func retrieve(account: String) -> String? {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: remoteTriggerService,
+            kSecAttrAccount: account,
+            kSecReturnData: kCFBooleanTrue!,
+            kSecMatchLimit: kSecMatchLimitOne
+        ]
+
+        var item: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+
+        if status == errSecSuccess,
+           let data = item as? Data {
+            return String(data: data, encoding: .utf8)
+        }
+        return nil
+    }
+
+    /// Delete a persistent secret.
+    func deletePersistent(account: String) {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: remoteTriggerService,
+            kSecAttrAccount: account
         ]
         SecItemDelete(query as CFDictionary)
     }

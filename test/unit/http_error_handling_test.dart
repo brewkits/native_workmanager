@@ -102,7 +102,45 @@ void main() {
           () => NativeWorker.httpRequest(
             url: 'https://example.com',
             method: HttpMethod.get,
-            timeout: const Duration(hours: 1),
+            timeout: const Duration(minutes: 6),
+          ),
+          throwsArgumentError,
+        );
+      });
+    });
+
+    group('TokenRefreshConfig', () {
+      test('should create TokenRefreshConfig with default values', () {
+        const config =
+            TokenRefreshConfig(url: 'https://api.example.com/refresh');
+        expect(config.url, 'https://api.example.com/refresh');
+        expect(config.method, 'POST');
+        expect(config.responseKey, 'access_token');
+        expect(config.tokenHeaderName, 'Authorization');
+        expect(config.tokenPrefix, 'Bearer ');
+      });
+
+      test('should serialize TokenRefreshConfig to map', () {
+        const config = TokenRefreshConfig(
+          url: 'https://api.example.com/refresh',
+          method: 'GET',
+          body: {'client_id': 'abc'},
+          responseKey: 'data.token',
+        );
+        final map = config.toMap();
+        expect(map['url'], 'https://api.example.com/refresh');
+        expect(map['method'], 'GET');
+        expect(map['body'], {'client_id': 'abc'});
+        expect(map['responseKey'], 'data.token');
+      });
+    });
+
+    group('NativeWorker - HttpSync Validation', () {
+      test('should validate timeout for httpSync', () {
+        expect(
+          () => NativeWorker.httpSync(
+            url: 'https://example.com/sync',
+            timeout: const Duration(minutes: 10),
           ),
           throwsArgumentError,
         );

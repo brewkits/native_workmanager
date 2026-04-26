@@ -1,0 +1,13 @@
+GEMINI.md
+CLAUDE.md
+CONTRIBUTING.md
+ROADMAP.md
+.github/
+.idea/
+.dart_tool/
+build/
+benchmark/
+scripts/
+tool/
+assets/
+doc/internal/

@@ -19,8 +19,12 @@ migrate_working_dir/
 *_OLD*
 *_BACKUP*
 
+# Gemini
+GEMINI.md
+
 # Claude Code
 .claude/
+CLAUDE.md
 
 # IntelliJ related
 *.iml
@@ -63,3 +67,5 @@ SPM_ANALYSIS.md
 # (dart pub uses a custom gitignore parser that may differ from git's behaviour)
 !ios/native_workmanager/Package.resolved
 !ios/native_workmanager/Sources/native_workmanager/utils/HttpSecurityHelper.swift
+\ndoc/internal/
+benchmark/

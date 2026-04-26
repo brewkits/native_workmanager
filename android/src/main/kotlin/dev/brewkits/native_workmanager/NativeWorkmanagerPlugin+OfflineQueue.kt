@@ -6,6 +6,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkManager
 import dev.brewkits.native_workmanager.store.OfflineQueueStore
+import dev.brewkits.native_workmanager.utils.MappingUtils.toJson
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 import kotlinx.coroutines.Dispatchers
@@ -41,7 +42,7 @@ internal fun NativeWorkmanagerPlugin.handleOfflineQueueEnqueue(call: MethodCall,
             }
 
             // Schedule the processor to run when network is available
-            scheduleOfflineQueueProcessor(context)
+            dev.brewkits.native_workmanager.utils.CommandProcessor.scheduleOfflineQueueProcessor(context)
 
             result.success(null)
         } catch (e: Exception) {
@@ -49,26 +50,4 @@ internal fun NativeWorkmanagerPlugin.handleOfflineQueueEnqueue(call: MethodCall,
             result.error("OFFLINE_QUEUE_ERROR", e.message, null)
         }
     }
-}
-
-/**
- * Schedules a background worker to process the offline queue.
- *
- * This worker only runs when network is available.
- */
-fun scheduleOfflineQueueProcessor(context: android.content.Context) {
-    val constraints = Constraints.Builder()
-        .setRequiredNetworkType(NetworkType.CONNECTED)
-        .build()
-
-    val request = OneTimeWorkRequest.Builder(OfflineQueueProcessor::class.java)
-        .setConstraints(constraints)
-        .addTag("offline_queue_processor")
-        .build()
-
-    WorkManager.getInstance(context).enqueueUniqueWork(
-        "offline_queue_processor",
-        ExistingWorkPolicy.KEEP, // Don't interrupt if already running
-        request
-    )
 }

@@ -4,6 +4,7 @@ import '../events.dart';
 import '../native_work_manager.dart';
 import '../task_chain.dart';
 import '../task_graph.dart';
+import '../task_handler.dart';
 import '../task_trigger.dart';
 import '../worker.dart';
 import 'i_work_manager.dart';
@@ -46,7 +47,11 @@ class NativeWorkManagerClient implements IWorkManager {
   Stream<TaskProgress> get progress => NativeWorkManager.progress;
 
   @override
-  Future<ScheduleResult> enqueue({
+  Future<Map<String, TaskProgress>> getRunningProgress() =>
+      NativeWorkManager.getRunningProgress();
+
+  @override
+  Future<TaskHandler> enqueue({
     required String taskId,
     required TaskTrigger trigger,
     required Worker worker,
@@ -64,7 +69,7 @@ class NativeWorkManagerClient implements IWorkManager {
       );
 
   @override
-  Future<List<ScheduleResult>> enqueueAll(List<EnqueueRequest> requests) =>
+  Future<List<TaskHandler>> enqueueAll(List<EnqueueRequest> requests) =>
       NativeWorkManager.enqueueAll(requests);
 
   @override

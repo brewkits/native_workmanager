@@ -11,6 +11,14 @@ import Foundation
 /// **Cleanup:** Auto-removes chains completed > 7 days ago
 actor ChainStateManager {
 
+    // MARK: - Shared Instance
+
+    static let shared: ChainStateManager = {
+        let sqlite = SQLiteStore(name: "native_workmanager_chains")
+        let store = ChainStore(sqlite: sqlite)
+        return ChainStateManager(chainStore: store)
+    }()
+
     // MARK: - Constants
 
     private static let userDefaultsKey = "com.brewkits.native_workmanager.chain_states"

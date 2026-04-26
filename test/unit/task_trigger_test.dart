@@ -684,14 +684,17 @@ void main() {
 
       test('should round-trip periodic trigger', () {
         final original = TaskTrigger.periodic(
-          Duration(hours: 2),
-          flexInterval: Duration(minutes: 15),
+          const Duration(hours: 1),
+          flexInterval: const Duration(minutes: 15),
+          initialDelay: const Duration(minutes: 30),
         );
         final map = original.toMap();
 
         expect(map['type'], 'periodic');
-        expect(map['intervalMs'], Duration(hours: 2).inMilliseconds);
-        expect(map['flexMs'], Duration(minutes: 15).inMilliseconds);
+        expect(map['intervalMs'], const Duration(hours: 1).inMilliseconds);
+        expect(map['flexMs'], const Duration(minutes: 15).inMilliseconds);
+        expect(
+            map['initialDelayMs'], const Duration(minutes: 30).inMilliseconds);
       });
 
       test('should round-trip exact trigger', () {

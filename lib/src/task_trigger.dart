@@ -122,6 +122,34 @@ sealed class TaskTrigger {
   /// );
   /// ```
   ///
+  /// ## Periodic Task with Initial Delay
+  ///
+  /// ```dart
+  /// // Run every hour, but wait for the first hour before starting
+  /// await NativeWorkManager.enqueue(
+  ///   taskId: 'delayed-periodic-sync',
+  ///   trigger: TaskTrigger.periodic(
+  ///     Duration(hours: 1),
+  ///     initialDelay: Duration(hours: 1),
+  ///   ),
+  ///   worker: NativeWorker.httpSync(url: 'https://api.example.com/sync'),
+  /// );
+  /// ```
+  ///
+  /// ## Skip First Run
+  ///
+  /// ```dart
+  /// // Run every day, but don't run right now - wait for the first 24h
+  /// await NativeWorkManager.enqueue(
+  ///   taskId: 'daily-sync',
+  ///   trigger: TaskTrigger.periodic(
+  ///     Duration(days: 1),
+  ///     runImmediately: false,
+  ///   ),
+  ///   worker: NativeWorker.httpSync(url: 'https://api.example.com/sync'),
+  /// );
+  /// ```
+  ///
   /// ## Parameters
   ///
   /// **[interval]** - Time between executions.
@@ -135,21 +163,32 @@ sealed class TaskTrigger {
   /// - Improves battery life by batching work
   /// - Ignored on iOS
   ///
+  /// **[initialDelay]** *(optional)* - Delay before the very first execution.
+  /// - On Android, the task will only run after this delay has passed.
+  /// - Useful for scheduling tasks that shouldn't run immediately upon registration.
+  /// - Supported on iOS (mapped to `earliestBeginDate`).
+  ///
+  /// **[runImmediately]** *(optional)* - Whether to run the task immediately.
+  /// - Defaults to `true`.
+  /// - If `false`, the first execution will happen after one [interval] has passed.
+  /// - On Android, this is natively supported in WorkManager 2.1+.
+  /// - On iOS, this is simulated by setting an initial delay equal to [interval].
+  ///
   /// ## Platform Behavior
   ///
   /// **Android:**
   /// - Uses WorkManager PeriodicWorkRequest
   /// - Minimum interval: 15 minutes (OS limitation)
   /// - Flex interval helps Android optimize battery usage
-  /// - May defer execution if device is in Doze mode
+  /// - Initial delay allows delaying the first run (WorkManager 2.1+)
   /// - Timing is approximate, not exact
   ///
   /// **iOS:**
   /// - Uses BGAppRefreshTask
   /// - Interval is a suggestion, not guaranteed
+  /// - Initial delay supported via `earliestBeginDate`
   /// - OS decides actual execution timing
   /// - May run less frequently to save battery
-  /// - Best effort scheduling (no guarantees)
   ///
   /// ## When to Use
   ///
@@ -171,8 +210,9 @@ sealed class TaskTrigger {
   /// ❌ **Don't** rely on precise scheduling on iOS
   /// ❌ **Don't** schedule too many periodic tasks (battery drain)
   /// ✅ **Do** use flexInterval on Android for better battery life
+  /// ✅ **Do** use initialDelay if the first run shouldn't happen immediately
+  /// ✅ **Do** use `runImmediately: false` to skip the first execution
   /// ✅ **Do** combine with network constraints for data sync
-  /// ✅ **Do** handle cases where task doesn't run on time
   ///
   /// ## Battery Impact
   ///
@@ -190,6 +230,8 @@ sealed class TaskTrigger {
   const factory TaskTrigger.periodic(
     Duration interval, {
     Duration? flexInterval,
+    Duration? initialDelay,
+    bool runImmediately,
   }) = PeriodicTrigger;
 
   /// Execute at an exact time (alarm-style).
@@ -570,7 +612,12 @@ class OneTimeTrigger extends TaskTrigger {
 
 /// Execute periodically at a fixed interval.
 class PeriodicTrigger extends TaskTrigger {
-  const PeriodicTrigger(this.interval, {this.flexInterval});
+  const PeriodicTrigger(
+    this.interval, {
+    this.flexInterval,
+    this.initialDelay,
+    this.runImmediately = true,
+  });
 
   /// Interval between executions.
   final Duration interval;
@@ -578,25 +625,68 @@ class PeriodicTrigger extends TaskTrigger {
   /// Flex time window for execution.
   final Duration? flexInterval;
 
+  /// Initial delay before first execution.
+  final Duration? initialDelay;
+
+  /// Whether to run the task immediately.
+  final bool runImmediately;
+
+  static const Duration _androidMinInterval = Duration(minutes: 15);
+  static const Duration _androidMinFlex = Duration(minutes: 5);
+
   @override
-  Map<String, dynamic> toMap() => {
-        'type': 'periodic',
-        'intervalMs': interval.inMilliseconds,
-        'flexMs': flexInterval?.inMilliseconds,
-      };
+  Map<String, dynamic> toMap() {
+    if (interval < _androidMinInterval) {
+      throw ArgumentError.value(
+        interval,
+        'interval',
+        'Periodic interval must be at least 15 minutes on Android. '
+            'Received ${interval.inMinutes} min. '
+            'Android WorkManager silently clamps values below 15 min, masking bugs. '
+            'Use Duration(minutes: 15) or longer.',
+      );
+    }
+    final flex = flexInterval;
+    if (flex != null && flex < _androidMinFlex) {
+      throw ArgumentError.value(
+        flex,
+        'flexInterval',
+        'flexInterval must be at least 5 minutes on Android. '
+            'Received ${flex.inMinutes} min. '
+            'WorkManager rejects values below 5 min with IllegalArgumentException at runtime.',
+      );
+    }
+    assert(
+      runImmediately || (initialDelay?.inMilliseconds ?? 0) == 0,
+      'runImmediately: false and initialDelay cannot both be set — behaviour is undefined. '
+      'Use one or the other: initialDelay to specify an exact first-run offset, '
+      'or runImmediately: false to defer by one full interval.',
+    );
+    return {
+      'type': 'periodic',
+      'intervalMs': interval.inMilliseconds,
+      'flexMs': flexInterval?.inMilliseconds,
+      'initialDelayMs': initialDelay?.inMilliseconds,
+      'runImmediately': runImmediately,
+    };
+  }
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is PeriodicTrigger &&
           interval == other.interval &&
-          flexInterval == other.flexInterval;
+          flexInterval == other.flexInterval &&
+          initialDelay == other.initialDelay &&
+          runImmediately == other.runImmediately;
 
   @override
-  int get hashCode => Object.hash(interval, flexInterval);
+  int get hashCode =>
+      Object.hash(interval, flexInterval, initialDelay, runImmediately);
 
   @override
-  String toString() => 'TaskTrigger.periodic($interval, flex: $flexInterval)';
+  String toString() =>
+      'TaskTrigger.periodic($interval, flex: $flexInterval, initialDelay: $initialDelay, runImmediately: $runImmediately)';
 }
 
 /// Execute at an exact time.

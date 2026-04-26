@@ -60,7 +60,11 @@ Future<void> schedulePeriodicSync() async {
     taskId: 'api-sync',
 
     // Run every 1 hour (minimum is 15 minutes on Android)
-    trigger: TaskTrigger.periodic(const Duration(hours: 1)),
+    // New in v1.2.3: Use initialDelay to wait for 1 hour before first run
+    trigger: TaskTrigger.periodic(
+      const Duration(hours: 1),
+      initialDelay: const Duration(hours: 1),
+    ),
 
     // Use native HTTP worker (no Flutter Engine needed)
     worker: NativeWorker.httpSync(

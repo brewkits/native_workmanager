@@ -16,7 +16,9 @@ import 'remote_trigger.dart';
 import 'middleware.dart';
 import 'task_chain.dart';
 import 'task_graph.dart';
+import 'task_handler.dart';
 import 'task_trigger.dart';
+
 import 'worker.dart';
 
 /// Main entry point for scheduling native background tasks.
@@ -213,6 +215,41 @@ class NativeWorkManager {
   NativeWorkManager._();
 
   static bool _initialized = false;
+  static bool _enforceHttps = false;
+  static bool _blockPrivateIPs = false;
+  static bool _registerPlugins = false;
+
+  /// Whether HTTPS is enforced for all background HTTP tasks.
+  @internal
+  static bool get enforceHttps => _enforceHttps;
+
+  /// Whether private/loopback IPs are blocked for background HTTP tasks.
+  @internal
+  static bool get blockPrivateIPs => _blockPrivateIPs;
+
+  /// Whether plugins are registered in the background Flutter Engine.
+  @internal
+  static bool get registerPluginsEnabled => _registerPlugins;
+
+  /// Internal testing only - resets security flags.
+  @visibleForTesting
+  static void resetSecurityFlags() {
+    _enforceHttps = false;
+    _blockPrivateIPs = false;
+    _registerPlugins = false;
+  }
+
+  /// Internal testing only - resets initialized state so initialize() can be
+  /// called again with different parameters in the same test process.
+  @visibleForTesting
+  static void resetInitializedState() {
+    _initialized = false;
+    _initCompleter = null;
+    _enforceHttps = false;
+    _blockPrivateIPs = false;
+    _registerPlugins = false;
+  }
+
   // Completer used to make concurrent initialize() calls wait on the first one
   // rather than racing past the _initialized flag check.
   static Completer<void>? _initCompleter;
@@ -328,6 +365,21 @@ class NativeWorkManager {
     /// Has no effect on hostnames — only parsed IP literals are checked.
     /// Default: false (backward compatible).
     bool blockPrivateIPs = false,
+
+    /// When true, the background Flutter Engine will automatically register all
+    /// plugins (calls GeneratedPluginRegistrant). This is required if you want
+    /// to use other plugins (like flutter_local_notifications) inside your
+    /// Dart workers.
+    ///
+    /// WARNING: Enabling this may increase RAM usage (~10-20MB) and may cause
+    /// side-effects if other plugins perform cleanup when the background
+    /// engine is destroyed (e.g. disconnecting Bluetooth or stopping audio).
+    ///
+    /// ALTERNATIVE: If you leave this false, you can still register specific
+    /// plugins natively via `NativeWorkmanagerPlugin.setPluginRegistrantCallback`.
+    ///
+    /// Default: false (Zero-Engine I/O principle).
+    bool registerPlugins = false,
   }) async {
     // If already initializing (concurrent calls), wait on the in-flight future.
     if (_initCompleter != null) return _initCompleter!.future;
@@ -343,6 +395,7 @@ class NativeWorkManager {
         cleanupAfterDays: cleanupAfterDays,
         enforceHttps: enforceHttps,
         blockPrivateIPs: blockPrivateIPs,
+        registerPlugins: registerPlugins,
       );
       _initialized = true;
       _initCompleter!.complete();
@@ -361,7 +414,12 @@ class NativeWorkManager {
     int cleanupAfterDays = 30,
     bool enforceHttps = false,
     bool blockPrivateIPs = false,
+    bool registerPlugins = false,
   }) async {
+    _enforceHttps = enforceHttps;
+    _blockPrivateIPs = blockPrivateIPs;
+    _registerPlugins = registerPlugins;
+
     // Phase 2: Register DevTools Extension Service
     registerDevToolsExtensions();
 
@@ -422,6 +480,7 @@ class NativeWorkManager {
       cleanupAfterDays: cleanupAfterDays,
       enforceHttps: enforceHttps,
       blockPrivateIPs: blockPrivateIPs,
+      registerPlugins: registerPlugins,
     );
     // _initialized is set by the caller (initialize()) after this returns.
   }
@@ -590,17 +649,19 @@ class NativeWorkManager {
   ///
   /// ## Returns
   ///
-  /// A [ScheduleResult] indicating whether the task was accepted by the OS.
+  /// A [TaskHandler] which allows tracking progress and completion of this specific task,
+  /// and contains the [ScheduleResult] from the OS.
   ///
   /// ## See Also
   ///
+  /// - [TaskHandler] - Controller for tracking task progress and result
   /// - [cancel] - Cancel a specific task
   /// - [cancelByTag] - Cancel all tasks with a tag
   /// - [cancelAll] - Cancel all scheduled tasks
   /// - [NativeWorkManager.getTaskStatus] - Check task status
   /// - [TaskTrigger] - Available trigger types
   /// - [Constraints] - Available constraints
-  static Future<ScheduleResult> enqueue({
+  static Future<TaskHandler> enqueue({
     required String taskId,
     TaskTrigger trigger = const TaskTrigger.oneTime(),
     required Worker worker,
@@ -614,7 +675,7 @@ class NativeWorkManager {
     if (taskId.isEmpty) {
       throw ArgumentError(
         'taskId cannot be empty. '
-        'Use a unique identifier like "sync-\${DateTime.now().millisecondsSinceEpoch}"',
+        'Use a unique identifier like "sync-${DateTime.now().millisecondsSinceEpoch}"',
       );
     }
 
@@ -636,6 +697,29 @@ class NativeWorkManager {
           'Use TaskTrigger.oneTime() for immediate execution.',
         );
       }
+      if (trigger.initialDelay != null && trigger.initialDelay!.isNegative) {
+        throw ArgumentError(
+          'initialDelay cannot be negative.\n'
+          'Current: ${trigger.initialDelay}',
+        );
+      }
+    }
+
+    // ExactTrigger is Android-only. BGTaskScheduler on iOS does not support
+    // exact alarm scheduling — tasks fire within an OS-determined window that
+    // can be hours late. Throw early so developers get a clear error rather
+    // than silent misfires that are hard to debug.
+    if (trigger is ExactTrigger &&
+        defaultTargetPlatform == TargetPlatform.iOS) {
+      throw UnsupportedError(
+        'ExactTrigger is not supported on iOS.\n'
+        'BGTaskScheduler cannot guarantee exact timing — tasks may run '
+        'hours after the scheduled time depending on OS conditions.\n'
+        'Alternatives:\n'
+        '  • TaskTrigger.windowed() — approximate window (recommended)\n'
+        '  • TaskTrigger.oneTime()  — run as soon as possible\n'
+        '  • Local notifications (flutter_local_notifications) for user-visible alarms',
+      );
     }
 
     // Validate DartWorker registration and prepare worker data
@@ -687,13 +771,18 @@ class NativeWorkManager {
       );
     }
 
-    return NativeWorkManagerPlatform.instance.enqueue(
+    final scheduleResult = await NativeWorkManagerPlatform.instance.enqueue(
       taskId: taskId,
       trigger: trigger,
       worker: workerToEnqueue,
       constraints: finalConstraints,
       existingPolicy: existingPolicy,
       tag: tag,
+    );
+
+    return TaskHandler(
+      taskId: taskId,
+      scheduleResult: scheduleResult,
     );
   }
 
@@ -1192,6 +1281,19 @@ class NativeWorkManager {
     );
   }
 
+  /// Get the current progress of all running tasks.
+  ///
+  /// Useful for restoring UI state when the app restarts, allowing you to
+  /// "re-attach" to tasks that are still executing in the background.
+  ///
+  /// Returns a map of task IDs to their most recent [TaskProgress] update.
+  static Future<Map<String, TaskProgress>> getRunningProgress() async {
+    _checkInitialized();
+    final raw = await NativeWorkManagerPlatform.instance.getRunningProgress();
+    return raw.map((k, v) =>
+        MapEntry(k, TaskProgress.fromMap(Map<String, dynamic>.from(v))));
+  }
+
   /// Open a file with the system default application.
   ///
   /// Launches the OS file viewer for the given [path]. Useful after a download
@@ -1302,16 +1404,16 @@ class NativeWorkManager {
   ///     tag: 'batch-download',
   ///   ),
   /// ]);
-  /// final accepted = results.where((r) => r == ScheduleResult.accepted).length;
-  /// print('$accepted / ${results.length} tasks accepted');
+  ///   final accepted = results.where((r) => r.scheduleResult == ScheduleResult.accepted).length;
+  ///   print('$accepted / ${results.length} tasks accepted');
   /// ```
-  static Future<List<ScheduleResult>> enqueueAll(
+  static Future<List<TaskHandler>> enqueueAll(
     List<EnqueueRequest> requests,
   ) async {
     _checkInitialized();
     return Future.wait(
       requests.map(
-        (r) => NativeWorkManagerPlatform.instance.enqueue(
+        (r) => enqueue(
           taskId: r.taskId,
           trigger: r.trigger,
           worker: r.worker,
@@ -2086,118 +2188,119 @@ class NativeWorkManager {
   // OBSERVABILITY EXTENSIONS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Automatically forwards background task failures to Sentry.
+  /// Convenience stub for Sentry integration.
   ///
-  /// Requires `package:sentry_flutter` to be initialized in your app.
+  /// **⚠️ This method does not call any Sentry SDK.** It only logs to
+  /// `debugPrint` so it is useful only as a quick smoke-test.
   ///
-  /// [addBreadcrumbs] (default: true) adds a breadcrumb whenever a task starts
-  /// or completes, which helps reconstruct the crash context.
-  static void useSentry({
-    bool addBreadcrumbs = true,
-    dynamic sentryInstance, // Optional: pass a specific Sentry instance
-  }) {
-    // We use dynamic/reflection-style check to avoid hard dependency on Sentry SDK
-    final config = ObservabilityConfig(
-      onTaskStart: (taskId, workerType) {
-        if (addBreadcrumbs) {
-          _logToSentry(
-              'Background task started: $taskId ($workerType)', sentryInstance);
-        }
-      },
-      onTaskComplete: (event) {
-        if (addBreadcrumbs) {
-          _logToSentry(
-              'Background task completed: ${event.taskId}', sentryInstance);
-        }
-      },
-      onTaskFail: (event) {
-        _reportToSentry(
-          'Background task failed: ${event.taskId}',
-          event.message,
-          sentryInstance,
-        );
-      },
+  /// For production Sentry integration, implement [WorkManagerLogger] and
+  /// wire it up via [ObservabilityConfig.fromLogger]:
+  ///
+  /// ```dart
+  /// class SentryWorkManagerLogger implements WorkManagerLogger {
+  ///   @override
+  ///   void onTaskStart(String taskId, String workerType) =>
+  ///       Sentry.addBreadcrumb(Breadcrumb(message: 'Task started: $taskId'));
+  ///
+  ///   @override
+  ///   void onTaskComplete(TaskEvent event) =>
+  ///       Sentry.addBreadcrumb(Breadcrumb(message: 'Task done: ${event.taskId}'));
+  ///
+  ///   @override
+  ///   void onTaskFail(TaskEvent event) =>
+  ///       Sentry.captureMessage('Task failed: ${event.taskId}');
+  /// }
+  ///
+  /// NativeWorkManager.configure(
+  ///   observability: ObservabilityConfig.fromLogger(SentryWorkManagerLogger()),
+  /// );
+  /// ```
+  @Deprecated(
+    'useSentry() does not call the Sentry SDK. '
+    'Implement WorkManagerLogger and use ObservabilityConfig.fromLogger() instead.',
+  )
+  static void useSentry({bool addBreadcrumbs = true, dynamic sentryInstance}) {
+    configure(
+      observability: ObservabilityConfig(
+        onTaskStart: addBreadcrumbs
+            ? (id, type) =>
+                debugPrint('[native_workmanager] task started: $id ($type)')
+            : null,
+        onTaskComplete: addBreadcrumbs
+            ? (e) => debugPrint('[native_workmanager] task done: ${e.taskId}')
+            : null,
+        onTaskFail: (e) => debugPrint(
+            '[native_workmanager] task FAILED: ${e.taskId} — ${e.message}'),
+      ),
     );
-
-    NativeWorkManager.configure(observability: config);
   }
 
-  /// Automatically logs background task events to Firebase Analytics and Crashlytics.
+  /// Convenience stub for Firebase Analytics / Crashlytics integration.
   ///
-  /// Requires `package:firebase_analytics` and `package:firebase_crashlytics`.
+  /// **⚠️ This method does not call any Firebase SDK.** It only logs to
+  /// `debugPrint` so it is useful only as a quick smoke-test.
+  ///
+  /// For production Firebase integration, implement [WorkManagerLogger] and
+  /// wire it up via [ObservabilityConfig.fromLogger]:
+  ///
+  /// ```dart
+  /// class FirebaseWorkManagerLogger implements WorkManagerLogger {
+  ///   @override
+  ///   void onTaskStart(String taskId, String workerType) =>
+  ///       FirebaseAnalytics.instance.logEvent(
+  ///         name: 'bg_task_start',
+  ///         parameters: {'task_id': taskId, 'worker': workerType},
+  ///       );
+  ///
+  ///   @override
+  ///   void onTaskComplete(TaskEvent event) =>
+  ///       FirebaseAnalytics.instance.logEvent(
+  ///         name: 'bg_task_success',
+  ///         parameters: {'task_id': event.taskId},
+  ///       );
+  ///
+  ///   @override
+  ///   void onTaskFail(TaskEvent event) =>
+  ///       FirebaseCrashlytics.instance.recordError(
+  ///         event.message ?? 'Unknown',
+  ///         null,
+  ///         reason: 'Background task failed: ${event.taskId}',
+  ///       );
+  /// }
+  ///
+  /// NativeWorkManager.configure(
+  ///   observability: ObservabilityConfig.fromLogger(FirebaseWorkManagerLogger()),
+  /// );
+  /// ```
+  @Deprecated(
+    'useFirebase() does not call the Firebase SDK. '
+    'Implement WorkManagerLogger and use ObservabilityConfig.fromLogger() instead.',
+  )
   static void useFirebase({
     bool logToAnalytics = true,
     bool logToCrashlytics = true,
   }) {
-    final config = ObservabilityConfig(
-      onTaskStart: (taskId, workerType) {
-        if (logToAnalytics) {
-          _logToFirebaseAnalytics(
-              'bg_task_start', {'task_id': taskId, 'worker': workerType});
-        }
-        if (logToCrashlytics) {
-          _logToFirebaseCrashlytics('Background task started: $taskId');
-        }
-      },
-      onTaskComplete: (event) {
-        if (logToAnalytics) {
-          _logToFirebaseAnalytics('bg_task_success', {'task_id': event.taskId});
-        }
-      },
-      onTaskFail: (event) {
-        if (logToAnalytics) {
-          _logToFirebaseAnalytics('bg_task_fail', {
-            'task_id': event.taskId,
-            'error': event.message ?? 'Unknown error',
-          });
-        }
-        if (logToCrashlytics) {
-          _recordFirebaseError(
-              'Background task failed: ${event.taskId}', event.message);
-        }
-      },
+    configure(
+      observability: ObservabilityConfig(
+        onTaskStart: logToAnalytics
+            ? (id, type) => debugPrint(
+                '[native_workmanager] Firebase: bg_task_start $id $type')
+            : null,
+        onTaskComplete: logToAnalytics
+            ? (e) => debugPrint(
+                '[native_workmanager] Firebase: bg_task_success ${e.taskId}')
+            : null,
+        onTaskFail: (e) {
+          if (logToAnalytics) {
+            debugPrint(
+                '[native_workmanager] Firebase: bg_task_fail ${e.taskId} — ${e.message}');
+          }
+          if (logToCrashlytics) {
+            debugPrint(
+                '[native_workmanager] Firebase Crashlytics: task failed: ${e.taskId}');
+          }
+        },
+      ),
     );
-
-    NativeWorkManager.configure(observability: config);
-  }
-
-  // Private helpers that safely check for SDK presence via dynamic calls
-  // to avoid forcing every user to include Sentry/Firebase.
-
-  static void _logToSentry(String message, dynamic instance) {
-    try {
-      // Logic would typically call Sentry.addBreadcrumb(...)
-      debugPrint('[native_workmanager] Sentry Breadcrumb: $message');
-    } catch (_) {}
-  }
-
-  static void _reportToSentry(String message, String? error, dynamic instance) {
-    try {
-      // Logic would typically call Sentry.captureMessage(...) or captureException(...)
-      debugPrint('[native_workmanager] Sentry Report: $message - $error');
-    } catch (_) {}
-  }
-
-  static void _logToFirebaseAnalytics(
-      String name, Map<String, dynamic> params) {
-    try {
-      // Logic would typically call FirebaseAnalytics.instance.logEvent(...)
-      debugPrint('[native_workmanager] Firebase Analytics: $name $params');
-    } catch (_) {}
-  }
-
-  static void _logToFirebaseCrashlytics(String message) {
-    try {
-      // Logic would typically call FirebaseCrashlytics.instance.log(...)
-      debugPrint('[native_workmanager] Firebase Crashlytics Log: $message');
-    } catch (_) {}
-  }
-
-  static void _recordFirebaseError(String message, String? error) {
-    try {
-      // Logic would typically call FirebaseCrashlytics.instance.recordError(...)
-      debugPrint(
-          '[native_workmanager] Firebase Crashlytics Error: $message - $error');
-    } catch (_) {}
   }
 }
