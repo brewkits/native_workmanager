@@ -92,16 +92,14 @@ void main() {
       expect(names, isNot(contains('success')));
     });
     test('parse by name: "completed" → TaskStatus.completed', () {
-      final parsed = TaskStatus.values
-          .where((e) => e.name == 'completed')
-          .firstOrNull;
+      final parsed =
+          TaskStatus.values.where((e) => e.name == 'completed').firstOrNull;
       expect(parsed, TaskStatus.completed);
     });
     test('parse by name: "success" → null (iOS bug regression)', () {
       // iOS previously wrote "success" to SQLite. Dart must return null, not crash.
-      final parsed = TaskStatus.values
-          .where((e) => e.name == 'success')
-          .firstOrNull;
+      final parsed =
+          TaskStatus.values.where((e) => e.name == 'success').firstOrNull;
       expect(parsed, isNull);
     });
   });
@@ -126,8 +124,7 @@ void main() {
     final ts = DateTime(2026, 1, 1);
 
     test('success event has correct fields', () {
-      final e = TaskEvent(
-          taskId: 'task-1', success: true, timestamp: ts);
+      final e = TaskEvent(taskId: 'task-1', success: true, timestamp: ts);
       expect(e.taskId, 'task-1');
       expect(e.success, isTrue);
       expect(e.isStarted, isFalse);
@@ -254,11 +251,10 @@ void main() {
       final before = DateTime.now();
       final e = TaskEvent.fromMap({'taskId': 't', 'success': true});
       final after = DateTime.now();
+      expect(e.timestamp.isAfter(before.subtract(const Duration(seconds: 1))),
+          isTrue);
       expect(
-          e.timestamp.isAfter(before.subtract(const Duration(seconds: 1))),
-          isTrue);
-      expect(e.timestamp.isBefore(after.add(const Duration(seconds: 1))),
-          isTrue);
+          e.timestamp.isBefore(after.add(const Duration(seconds: 1))), isTrue);
     });
 
     test('handles non-Map resultData — returns null', () {
@@ -314,21 +310,17 @@ void main() {
 
     test('events with resultData are equal when maps match', () {
       final a = TaskEvent(
-          taskId: 't', success: true,
-          resultData: {'k': 'v'}, timestamp: ts);
+          taskId: 't', success: true, resultData: {'k': 'v'}, timestamp: ts);
       final b = TaskEvent(
-          taskId: 't', success: true,
-          resultData: {'k': 'v'}, timestamp: ts);
+          taskId: 't', success: true, resultData: {'k': 'v'}, timestamp: ts);
       expect(a, equals(b));
     });
 
     test('events differ when resultData maps differ', () {
       final a = TaskEvent(
-          taskId: 't', success: true,
-          resultData: {'k': 'v1'}, timestamp: ts);
+          taskId: 't', success: true, resultData: {'k': 'v1'}, timestamp: ts);
       final b = TaskEvent(
-          taskId: 't', success: true,
-          resultData: {'k': 'v2'}, timestamp: ts);
+          taskId: 't', success: true, resultData: {'k': 'v2'}, timestamp: ts);
       expect(a, isNot(equals(b)));
     });
   });
@@ -336,8 +328,8 @@ void main() {
   group('TaskEvent.toMap round-trip', () {
     test('success event survives fromMap(toMap())', () {
       final ts = DateTime.fromMillisecondsSinceEpoch(9999);
-      final orig = TaskEvent(
-          taskId: 'rt1', success: true, message: 'ok', timestamp: ts);
+      final orig =
+          TaskEvent(taskId: 'rt1', success: true, message: 'ok', timestamp: ts);
       final copy = TaskEvent.fromMap(orig.toMap());
       expect(copy.taskId, orig.taskId);
       expect(copy.success, orig.success);
@@ -397,8 +389,7 @@ void main() {
 
     test('hasNetworkInfo false if any field null', () {
       const p = TaskProgress(
-          taskId: 't', progress: 50,
-          bytesDownloaded: 500, totalBytes: 1000);
+          taskId: 't', progress: 50, bytesDownloaded: 500, totalBytes: 1000);
       expect(p.hasNetworkInfo, isFalse);
     });
   });
@@ -491,11 +482,17 @@ void main() {
 
     test('equal instances have equal hashCode', () {
       const a = TaskProgress(
-          taskId: 't', progress: 50, networkSpeed: 1024.0,
-          bytesDownloaded: 500, totalBytes: 1000);
+          taskId: 't',
+          progress: 50,
+          networkSpeed: 1024.0,
+          bytesDownloaded: 500,
+          totalBytes: 1000);
       const b = TaskProgress(
-          taskId: 't', progress: 50, networkSpeed: 1024.0,
-          bytesDownloaded: 500, totalBytes: 1000);
+          taskId: 't',
+          progress: 50,
+          networkSpeed: 1024.0,
+          bytesDownloaded: 500,
+          totalBytes: 1000);
       expect(a.hashCode, b.hashCode);
     });
   });

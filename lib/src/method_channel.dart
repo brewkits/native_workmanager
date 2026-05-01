@@ -259,7 +259,8 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   }
 
   @override
-  Future<List<TaskRecord>> getTasksByStatus({required TaskStatus status}) async {
+  Future<List<TaskRecord>> getTasksByStatus(
+      {required TaskStatus status}) async {
     final result = await methodChannel.invokeMethod<List<dynamic>>(
       'getTasksByStatus',
       {'status': status.name},

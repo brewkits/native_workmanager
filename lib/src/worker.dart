@@ -107,7 +107,8 @@ class NativeWorker {
   }
 
   /// Check input for malicious patterns (Null bytes, injection chars).
-  static void _validateInput(String? value, String label, {bool isUrl = false}) {
+  static void _validateInput(String? value, String label,
+      {bool isUrl = false}) {
     if (value == null) return;
 
     if (value.contains('\u0000')) {
@@ -127,7 +128,19 @@ class NativeWorker {
 
     // Path-specific dangerous characters (allowed in URLs like & and #)
     if (!isUrl) {
-      const pathDangerous = ['&', '*', '?', '~', '[', ']', '(', ')', '{', '}', '#'];
+      const pathDangerous = [
+        '&',
+        '*',
+        '?',
+        '~',
+        '[',
+        ']',
+        '(',
+        ')',
+        '{',
+        '}',
+        '#'
+      ];
       for (final char in pathDangerous) {
         if (value.contains(char)) {
           throw ArgumentError(

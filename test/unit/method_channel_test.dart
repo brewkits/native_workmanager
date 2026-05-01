@@ -5,7 +5,8 @@ import 'package:native_workmanager/native_workmanager.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const MethodChannel channel = MethodChannel('dev.brewkits/native_workmanager');
+  const MethodChannel channel =
+      MethodChannel('dev.brewkits/native_workmanager');
   final List<MethodCall> log = <MethodCall>[];
 
   setUp(() {
@@ -60,18 +61,28 @@ void main() {
         worker: NativeWorker.httpSync(url: 'https://a.com'),
       );
       expect(handler.scheduleResult, ScheduleResult.accepted);
-      expect(log.any((call) => call.method == 'enqueue' && call.arguments['taskId'] == 't1'), isTrue);
+      expect(
+          log.any((call) =>
+              call.method == 'enqueue' && call.arguments['taskId'] == 't1'),
+          isTrue);
     });
 
     test('cancel', () async {
       await NativeWorkManager.cancel(taskId: 't1');
-      expect(log.any((call) => call.method == 'cancel' && call.arguments['taskId'] == 't1'), isTrue);
+      expect(
+          log.any((call) =>
+              call.method == 'cancel' && call.arguments['taskId'] == 't1'),
+          isTrue);
     });
 
     test('getTaskStatus', () async {
       final status = await NativeWorkManager.getTaskStatus(taskId: 't1');
       expect(status, TaskStatus.completed);
-      expect(log.any((call) => call.method == 'getTaskStatus' && call.arguments['taskId'] == 't1'), isTrue);
+      expect(
+          log.any((call) =>
+              call.method == 'getTaskStatus' &&
+              call.arguments['taskId'] == 't1'),
+          isTrue);
     });
 
     test('getTaskRecord', () async {

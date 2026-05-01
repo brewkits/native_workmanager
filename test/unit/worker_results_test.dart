@@ -13,9 +13,9 @@ void main() {
         'serverSuggestedName': 'suggested.zip',
         'skipped': true,
       };
-      
+
       final result = DownloadResult.from(map);
-      
+
       expect(result, isNotNull);
       expect(result!.filePath, '/tmp/file.zip');
       expect(result.fileName, 'file.zip');
@@ -24,7 +24,8 @@ void main() {
       expect(result.finalUrl, 'https://example.com/file.zip');
       expect(result.serverSuggestedName, 'suggested.zip');
       expect(result.skipped, isTrue);
-      expect(result.toString(), 'DownloadResult(filePath: /tmp/file.zip, fileSize: 1024, skipped: true)');
+      expect(result.toString(),
+          'DownloadResult(filePath: /tmp/file.zip, fileSize: 1024, skipped: true)');
     });
 
     test('returns null for null or invalid map', () {
@@ -55,19 +56,19 @@ void main() {
           }
         ]
       };
-      
+
       final result = ParallelDownloadResult.from(map);
-      
+
       expect(result, isNotNull);
       expect(result!.downloadedCount, 2);
       expect(result.failedCount, 1);
       expect(result.totalBytes, 2048);
       expect(result.files.length, 2);
-      
+
       expect(result.files[0].url, 'https://example.com/1.jpg');
       expect(result.files[0].success, isTrue);
       expect(result.files[0].filePath, '/tmp/1.jpg');
-      
+
       expect(result.files[1].success, isFalse);
       expect(result.files[1].error, 'Network error');
     });
@@ -85,9 +86,9 @@ void main() {
         'fileCount': 3,
         'responseBody': '{"status":"ok"}',
       };
-      
+
       final result = UploadResult.from(map);
-      
+
       expect(result, isNotNull);
       expect(result!.statusCode, 200);
       expect(result.uploadedSize, 4096);
@@ -117,9 +118,9 @@ void main() {
           }
         ]
       };
-      
+
       final result = ParallelUploadResult.from(map);
-      
+
       expect(result, isNotNull);
       expect(result!.uploadedCount, 1);
       expect(result.files.length, 1);
@@ -139,9 +140,9 @@ void main() {
         'body': 'Created',
         'contentLength': 7,
       };
-      
+
       final result = HttpRequestResult.from(map);
-      
+
       expect(result, isNotNull);
       expect(result!.statusCode, 201);
       expect(result.body, 'Created');
@@ -162,9 +163,9 @@ void main() {
         'fileSize': 100,
         'operation': 'encrypt',
       };
-      
+
       final result = CryptoResult.from(map);
-      
+
       expect(result, isNotNull);
       expect(result!.hash, 'abc');
       expect(result.operation, 'encrypt');
@@ -183,9 +184,9 @@ void main() {
         'totalSize': 1000,
         'compressedSize': 500,
       };
-      
+
       final result = CompressionResult.from(map);
-      
+
       expect(result, isNotNull);
       expect(result!.outputPath, '/tmp/out.zip');
       expect(result.compressionRatio, 0.5);
@@ -204,9 +205,9 @@ void main() {
         'extractedCount': 10,
         'totalSize': 2000,
       };
-      
+
       final result = DecompressionResult.from(map);
-      
+
       expect(result, isNotNull);
       expect(result!.outputPath, '/tmp/out/');
       expect(result.extractedCount, 10);
@@ -227,9 +228,9 @@ void main() {
         'fileSize': 40000,
         'format': 'jpeg',
       };
-      
+
       final result = ImageProcessResult.from(map);
-      
+
       expect(result, isNotNull);
       expect(result!.outputPath, '/tmp/out.jpg');
       expect(result.width, 800);
@@ -251,9 +252,9 @@ void main() {
         'entries': ['file1', 'file2'],
         'count': 2,
       };
-      
+
       final result = FileSystemResult.from(map);
-      
+
       expect(result, isNotNull);
       expect(result!.operation, 'copy');
       expect(result.entries, ['file1', 'file2']);

@@ -1131,8 +1131,8 @@ class TaskProgress {
           timeRemaining == other.timeRemaining;
 
   @override
-  int get hashCode => Object.hash(
-      taskId, progress, message, bytesDownloaded, totalBytes, networkSpeed, timeRemaining);
+  int get hashCode => Object.hash(taskId, progress, message, bytesDownloaded,
+      totalBytes, networkSpeed, timeRemaining);
 
   @override
   String toString() => 'TaskProgress('

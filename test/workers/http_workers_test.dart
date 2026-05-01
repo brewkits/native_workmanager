@@ -80,13 +80,13 @@ void main() {
         url: 'https://api.example.com',
         method: HttpMethod.get,
       ) as HttpRequestWorker;
-      
+
       final w2 = w1.copyWith(
         url: 'https://api.example.com/v2',
         method: HttpMethod.post,
         timeout: const Duration(seconds: 45),
       );
-      
+
       expect(w2.url, 'https://api.example.com/v2');
       expect(w2.method, HttpMethod.post);
       expect(w2.timeout, const Duration(seconds: 45));
@@ -98,9 +98,9 @@ void main() {
         url: 'https://api.example.com',
         headers: {'Accept': 'application/json'},
       ) as HttpRequestWorker;
-      
+
       final w2 = w1.withHeaders({'X-Custom': 'value'});
-      
+
       expect(w2.headers, {
         'Accept': 'application/json',
         'X-Custom': 'value',
@@ -108,31 +108,37 @@ void main() {
     });
 
     test('withAuth adds Authorization header', () {
-      final w1 = NativeWorker.httpRequest(url: 'https://api.example.com') as HttpRequestWorker;
-      
+      final w1 = NativeWorker.httpRequest(url: 'https://api.example.com')
+          as HttpRequestWorker;
+
       final w2 = w1.withAuth(token: 'my-token');
       expect(w2.headers['Authorization'], 'Bearer my-token');
-      
-      final w3 = w1.withAuth(token: 'my-token', template: 'Basic {accessToken}');
+
+      final w3 =
+          w1.withAuth(token: 'my-token', template: 'Basic {accessToken}');
       expect(w3.headers['Authorization'], 'Basic my-token');
     });
 
     test('withBody sets body and Content-Type', () {
-      final w1 = NativeWorker.httpRequest(url: 'https://api.example.com') as HttpRequestWorker;
-      
+      final w1 = NativeWorker.httpRequest(url: 'https://api.example.com')
+          as HttpRequestWorker;
+
       final w2 = w1.withBody('{"key":"value"}');
-      
+
       expect(w2.body, '{"key":"value"}');
       expect(w2.headers['Content-Type'], 'application/json');
     });
 
     test('withSigning and withTokenRefresh set config', () {
-      final w1 = NativeWorker.httpRequest(url: 'https://api.example.com') as HttpRequestWorker;
-      
-      final w2 = w1.withSigning(const RequestSigning(secretKey: '1234567890123456'));
+      final w1 = NativeWorker.httpRequest(url: 'https://api.example.com')
+          as HttpRequestWorker;
+
+      final w2 =
+          w1.withSigning(const RequestSigning(secretKey: '1234567890123456'));
       expect(w2.requestSigning, isNotNull);
-      
-      final w3 = w1.withTokenRefresh(const TokenRefreshConfig(url: 'https://auth.com'));
+
+      final w3 = w1
+          .withTokenRefresh(const TokenRefreshConfig(url: 'https://auth.com'));
       expect(w3.tokenRefresh, isNotNull);
     });
   });
@@ -242,7 +248,8 @@ void main() {
         filePath: '/tmp/f.jpg',
       ) as HttpUploadWorker;
 
-      final w2 = w1.withSigning(const RequestSigning(secretKey: 'key1234567890123'));
+      final w2 =
+          w1.withSigning(const RequestSigning(secretKey: 'key1234567890123'));
       expect(w2.requestSigning, isNotNull);
     });
   });
@@ -317,7 +324,7 @@ void main() {
         savePath: '/tmp/v2.zip',
         timeout: const Duration(minutes: 10),
       );
-      
+
       expect(w2.url, 'https://cdn.example.com/v2.zip');
       expect(w2.savePath, '/tmp/v2.zip');
       expect(w2.timeout, const Duration(minutes: 10));
@@ -330,8 +337,9 @@ void main() {
         savePath: '/tmp/f.zip',
       ) as HttpDownloadWorker;
 
-      final w2 = w1.withNotification(title: 'Title', body: 'Body', allowPause: true);
-      
+      final w2 =
+          w1.withNotification(title: 'Title', body: 'Body', allowPause: true);
+
       expect(w2.showNotification, isTrue);
       expect(w2.notificationTitle, 'Title');
       expect(w2.notificationBody, 'Body');
@@ -347,7 +355,7 @@ void main() {
       final w2 = w1.withAuth(token: 'token123');
       expect(w2.authToken, 'token123');
       expect(w2.authHeaderTemplate, 'Bearer {accessToken}');
-      
+
       final w3 = w1.withAuth(token: 'token123', template: 'Auth {accessToken}');
       expect(w3.authHeaderTemplate, 'Auth {accessToken}');
     });
@@ -395,7 +403,8 @@ void main() {
         savePath: '/tmp/f.zip',
       ) as HttpDownloadWorker;
 
-      final w2 = w1.withSigning(const RequestSigning(secretKey: 'key1234567890123'));
+      final w2 =
+          w1.withSigning(const RequestSigning(secretKey: 'key1234567890123'));
       expect(w2.requestSigning, isNotNull);
     });
   });
@@ -518,7 +527,11 @@ void main() {
       final w = ParallelHttpUploadWorker(
         url: 'https://upload.example.com/batch',
         files: [
-          const UploadFile(filePath: '/tmp/a.jpg', fieldName: 'file1', fileName: 'f1.jpg', mimeType: 'image/jpeg'),
+          const UploadFile(
+              filePath: '/tmp/a.jpg',
+              fieldName: 'file1',
+              fileName: 'f1.jpg',
+              mimeType: 'image/jpeg'),
         ],
         headers: {'X-Auth': 'token'},
         fields: {'user': '123'},
@@ -538,7 +551,7 @@ void main() {
       expect(map['showNotification'], true);
       expect(map['notificationTitle'], 'Uploading');
       expect(map['notificationBody'], 'Please wait');
-      
+
       final files = map['files'] as List;
       expect(files.first['filePath'], '/tmp/a.jpg');
       expect(files.first['fieldName'], 'file1');
@@ -555,22 +568,34 @@ void main() {
 
     test('invalid maxConcurrent throws RangeError', () {
       expect(
-        () => ParallelHttpUploadWorker(url: 'https://example.com', files: [const UploadFile(filePath: '/tmp/a.jpg')], maxConcurrent: 0),
+        () => ParallelHttpUploadWorker(
+            url: 'https://example.com',
+            files: [const UploadFile(filePath: '/tmp/a.jpg')],
+            maxConcurrent: 0),
         throwsA(isA<RangeError>()),
       );
       expect(
-        () => ParallelHttpUploadWorker(url: 'https://example.com', files: [const UploadFile(filePath: '/tmp/a.jpg')], maxConcurrent: 17),
+        () => ParallelHttpUploadWorker(
+            url: 'https://example.com',
+            files: [const UploadFile(filePath: '/tmp/a.jpg')],
+            maxConcurrent: 17),
         throwsA(isA<RangeError>()),
       );
     });
 
     test('invalid maxRetries throws RangeError', () {
       expect(
-        () => ParallelHttpUploadWorker(url: 'https://example.com', files: [const UploadFile(filePath: '/tmp/a.jpg')], maxRetries: -1),
+        () => ParallelHttpUploadWorker(
+            url: 'https://example.com',
+            files: [const UploadFile(filePath: '/tmp/a.jpg')],
+            maxRetries: -1),
         throwsA(isA<RangeError>()),
       );
       expect(
-        () => ParallelHttpUploadWorker(url: 'https://example.com', files: [const UploadFile(filePath: '/tmp/a.jpg')], maxRetries: 6),
+        () => ParallelHttpUploadWorker(
+            url: 'https://example.com',
+            files: [const UploadFile(filePath: '/tmp/a.jpg')],
+            maxRetries: 6),
         throwsA(isA<RangeError>()),
       );
     });

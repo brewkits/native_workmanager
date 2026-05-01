@@ -22,7 +22,8 @@ void main() {
 
       expect(OfflineRetryPolicy.aggressive.maxRetries, 3);
       expect(OfflineRetryPolicy.aggressive.requiresNetwork, isFalse);
-      expect(OfflineRetryPolicy.aggressive.initialDelay, const Duration(seconds: 5));
+      expect(OfflineRetryPolicy.aggressive.initialDelay,
+          const Duration(seconds: 5));
     });
 
     test('delayFor calculations with backoffMultiplier = 2.0', () {
@@ -75,9 +76,12 @@ void main() {
     });
 
     test('asserts on invalid inputs', () {
-      expect(() => OfflineRetryPolicy(maxRetries: -1), throwsA(isA<AssertionError>()));
-      expect(() => OfflineRetryPolicy(maxRetries: 101), throwsA(isA<AssertionError>()));
-      expect(() => OfflineRetryPolicy(backoffMultiplier: 0.5), throwsA(isA<AssertionError>()));
+      expect(() => OfflineRetryPolicy(maxRetries: -1),
+          throwsA(isA<AssertionError>()));
+      expect(() => OfflineRetryPolicy(maxRetries: 101),
+          throwsA(isA<AssertionError>()));
+      expect(() => OfflineRetryPolicy(backoffMultiplier: 0.5),
+          throwsA(isA<AssertionError>()));
     });
   });
 
@@ -147,7 +151,7 @@ void main() {
       final worker = NativeWorker.httpRequest(url: 'https://a.com');
       await queue.enqueue(QueueEntry(taskId: 't1', worker: worker));
       await queue.enqueue(QueueEntry(taskId: 't2', worker: worker));
-      
+
       expect(queue.pendingCount, 2);
       queue.cancel(taskId: 't1');
       expect(queue.pendingCount, 1);
@@ -155,9 +159,11 @@ void main() {
 
     test('cancel removes from pending by tag', () async {
       final worker = NativeWorker.httpRequest(url: 'https://a.com');
-      await queue.enqueue(QueueEntry(taskId: 't1', worker: worker, tag: 'groupA'));
-      await queue.enqueue(QueueEntry(taskId: 't2', worker: worker, tag: 'groupB'));
-      
+      await queue
+          .enqueue(QueueEntry(taskId: 't1', worker: worker, tag: 'groupA'));
+      await queue
+          .enqueue(QueueEntry(taskId: 't2', worker: worker, tag: 'groupB'));
+
       expect(queue.pendingCount, 2);
       queue.cancel(tag: 'groupA');
       expect(queue.pendingCount, 1);

@@ -147,8 +147,8 @@ void main() {
       expect(find.text('75%'), findsOneWidget);
 
       // Verify progress bar
-      final indicator = tester
-          .widget<LinearProgressIndicator>(find.byType(LinearProgressIndicator));
+      final indicator = tester.widget<LinearProgressIndicator>(
+          find.byType(LinearProgressIndicator));
       expect(indicator.value, 0.75);
     });
 

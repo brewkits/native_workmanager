@@ -248,8 +248,8 @@ void main() {
             id: 'a', worker: NativeWorker.httpSync(url: 'https://a.com')));
       final node = TaskNode(
           id: 'b', worker: NativeWorker.httpSync(url: 'https://b.com'));
-      expect(() => (g.nodes as List<TaskNode>).add(node),
-          throwsUnsupportedError);
+      expect(
+          () => (g.nodes as List<TaskNode>).add(node), throwsUnsupportedError);
     });
 
     test('empty graph has zero nodes', () {

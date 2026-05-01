@@ -103,8 +103,8 @@ void main() {
     });
 
     test('timeRemainingMs=0 → Duration.zero', () {
-      final p = TaskProgress.fromMap({'taskId': 't', 'progress': 0,
-          'timeRemainingMs': 0});
+      final p = TaskProgress.fromMap(
+          {'taskId': 't', 'progress': 0, 'timeRemainingMs': 0});
       expect(p.timeRemaining, Duration.zero);
     });
 

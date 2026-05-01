@@ -97,7 +97,8 @@ void main() {
         );
 
         expect(trigger, isA<PeriodicTrigger>());
-        expect((trigger as PeriodicTrigger).initialDelay, Duration(minutes: 30));
+        expect(
+            (trigger as PeriodicTrigger).initialDelay, Duration(minutes: 30));
       });
 
       test('should create periodic trigger with runImmediately false', () {
@@ -133,7 +134,9 @@ void main() {
         expect(map['runImmediately'], false);
       });
 
-      test('should throw error if both initialDelay and runImmediately: false are set', () {
+      test(
+          'should throw error if both initialDelay and runImmediately: false are set',
+          () {
         final trigger = TaskTrigger.periodic(
           Duration(hours: 1),
           initialDelay: Duration(minutes: 30),
