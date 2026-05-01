@@ -53,10 +53,10 @@ final class TaskStoreTests: XCTestCase {
         let taskId = "test-update-status"
         taskStore.upsert(taskId: taskId, tag: nil, status: "pending", workerClassName: "Worker", workerConfig: nil)
         
-        taskStore.updateStatus(taskId: taskId, status: "success", resultData: "{\"done\":true}", errorMessage: nil)
-        
+        taskStore.updateStatus(taskId: taskId, status: "completed", resultData: "{\"done\":true}", errorMessage: nil)
+
         let record = taskStore.task(taskId: taskId)
-        XCTAssertEqual(record?.status, "success")
+        XCTAssertEqual(record?.status, "completed")
         XCTAssertEqual(record?.resultData, "{\"done\":true}")
         XCTAssertNil(record?.errorMessage)
     }

@@ -288,11 +288,11 @@ class FileSystemWorker : AndroidWorker {
 
             // Apply pattern filter efficiently
             val regex = pattern?.let {
-                // Fix Regex Injection — use a safer glob-to-regex conversion
-                // This prevents users from breaking the regex with special chars
-                val escaped = it.replace(".", "\\.")
-                    .replace("*", ".*")
-                    .replace("?", ".")
+                // Fix Regex Injection — properly quote the entire pattern to escape all meta-characters,
+                // then unquote the specific wildcards (* and ?) we want to support.
+                val escaped = java.util.regex.Pattern.quote(it)
+                    .replace("\\*", ".*")
+                    .replace("\\?", ".")
                 try {
                     "^$escaped$".toRegex(RegexOption.IGNORE_CASE)
                 } catch (e: Exception) {

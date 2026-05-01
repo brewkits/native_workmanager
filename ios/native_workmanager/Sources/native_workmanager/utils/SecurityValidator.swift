@@ -106,7 +106,8 @@ enum SecurityValidator {
         // Only allow paths within app sandbox (resolve symlinks on both sides)
         for allowedURL in allowedURLs {
             let resolvedAllowed = allowedURL.resolvingSymlinksInPath().path
-            if resolvedPath.hasPrefix(resolvedAllowed) {
+            let allowedPrefix = resolvedAllowed.hasSuffix("/") ? resolvedAllowed : resolvedAllowed + "/"
+            if resolvedPath == resolvedAllowed || resolvedPath.hasPrefix(allowedPrefix) {
                 return true
             }
         }
@@ -191,8 +192,8 @@ enum SecurityValidator {
 
     // MARK: - File Size Limits
 
-    /// Maximum allowed file size for uploads/downloads (500MB).
-    static var maxFileSize: Int64 = 500 * 1024 * 1024
+    /// Maximum allowed file size for uploads/downloads/crypto (15MB). Reduced to prevent OOM in non-streaming workers like CryptoWorker.
+    static var maxFileSize: Int64 = 15 * 1024 * 1024
 
     /// Maximum allowed archive size (1GB).
     static var maxArchiveSize: Int64 = 1024 * 1024 * 1024

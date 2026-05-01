@@ -127,40 +127,50 @@ class FlutterEngineManager {
         }
 
         // Execute callback with timeout
-        return try await withThrowingTaskGroup(of: Bool.self) { group in
-            // Task 1: Execute callback
-            group.addTask {
-                try await self.invokeCallback(callbackHandle: callbackHandle, input: input)
-            }
-
-            // Task 2: Timeout
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
-                throw FlutterEngineError.timeout
-            }
-
-            // Return first result (either success or timeout)
-            guard let result = try await group.next() else {
-                throw FlutterEngineError.unknown
-            }
-
-            group.cancelAll()
-
-            let totalTime = Date().timeIntervalSince(startTime)
-            print("FlutterEngineManager: Callback (handle: \(callbackHandle)) completed in \(Int(totalTime * 1000))ms")
-
-            if disposeImmediately {
-                print("FlutterEngineManager: Aggressively disposing engine to free RAM")
-                dispose()
-            } else {
-                // Original behavior: Keep engine alive for 5 minutes
-                queue.sync {
-                    self.lastUsedTimestamp = Date()
+        do {
+            let result = try await withThrowingTaskGroup(of: Bool.self) { group in
+                // Task 1: Execute callback
+                group.addTask {
+                    try await self.invokeCallback(callbackHandle: callbackHandle, input: input)
                 }
-                scheduleDisposalCheck()
-            }
 
+                // Task 2: Timeout
+                group.addTask {
+                    try await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+                    throw FlutterEngineError.timeout
+                }
+
+                // Return first result (either success or timeout)
+                guard let result = try await group.next() else {
+                    throw FlutterEngineError.unknown
+                }
+
+                group.cancelAll()
+
+                let totalTime = Date().timeIntervalSince(startTime)
+                print("FlutterEngineManager: Callback (handle: \(callbackHandle)) completed in \(Int(totalTime * 1000))ms")
+
+                if disposeImmediately {
+                    print("FlutterEngineManager: Aggressively disposing engine to free RAM")
+                    dispose()
+                } else {
+                    // Original behavior: Keep engine alive for 5 minutes
+                    queue.sync {
+                        self.lastUsedTimestamp = Date()
+                    }
+                    scheduleDisposalCheck()
+                }
+
+                return result
+            }
             return result
+        } catch FlutterEngineError.timeout {
+            // Dart isolate is hung — dispose the engine so the next task gets a fresh start.
+            // Without this, isInitialized stays true and subsequent DartWorker tasks inherit
+            // a hung MethodChannel whose invokeMethod replies will never arrive.
+            print("FlutterEngineManager: Callback timed out — disposing hung engine")
+            dispose()
+            throw FlutterEngineError.timeout
         }
     }
 
@@ -169,22 +179,20 @@ class FlutterEngineManager {
     /// WARNING: This will make next callback execution slow (cold start).
     /// Only call this if memory is critical.
     func dispose() {
-        queue.sync {
-            print("FlutterEngineManager: Disposing engine...")
+        queue.sync { _disposeInternal() }
+    }
 
-            // Remove method channel handler before clearing reference to prevent handler retention
-            methodChannel?.setMethodCallHandler(nil)
-            methodChannel = nil
-
-            engine = nil
-            isInitialized = false
-
-            disposalWorkItem?.cancel()
-            disposalWorkItem = nil
-            lastUsedTimestamp = nil
-
-            print("FlutterEngineManager: Engine disposed")
-        }
+    /// Dispose internals. Must be called with `queue` already held — never acquires the lock itself.
+    private func _disposeInternal() {
+        print("FlutterEngineManager: Disposing engine...")
+        methodChannel?.setMethodCallHandler(nil)
+        methodChannel = nil
+        engine = nil
+        isInitialized = false
+        disposalWorkItem?.cancel()
+        disposalWorkItem = nil
+        lastUsedTimestamp = nil
+        print("FlutterEngineManager: Engine disposed")
     }
 
     // MARK: - Private Methods
@@ -448,7 +456,9 @@ class FlutterEngineManager {
                     let idleTime = Date().timeIntervalSince(lastUsed)
                     if idleTime >= FlutterEngineManager.idleTimeoutSeconds {
                         print("FlutterEngineManager: Auto-disposing after \(Int(idleTime))s idle")
-                        self.dispose()
+                        // Call _disposeInternal() directly — queue is already held here,
+                        // so calling dispose() (which does queue.sync) would deadlock.
+                        self._disposeInternal()
                     }
                 }
             }

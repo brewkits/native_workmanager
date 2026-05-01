@@ -456,51 +456,64 @@ extension NativeWorkmanagerPlugin {
 
         let qosClass = mapQoS(qos)
 
-        return await withCheckedContinuation { (continuation: CheckedContinuation<WorkerResult, Never>) in
-            Task(priority: mapToConcurrencyPriority(qos)) {
-                var enrichedConfig = workerConfig
-                enrichedConfig["__taskId"] = taskId
+        // Bridge outer Task cancellation into the WorkerEnvironment.isCancelled closure.
+        // The inner Task is unstructured so it doesn't inherit cancellation automatically;
+        // withTaskCancellationHandler propagates the outer cancellation via a shared flag.
+        final class CancellationFlag: @unchecked Sendable { var cancelled = false }
+        let cancelFlag = CancellationFlag()
 
-                let inputJson: String
-                if let nestedInput = workerConfig["input"] as? String {
-                    inputJson = nestedInput
-                } else {
-                    guard let jsonData = try? JSONSerialization.data(withJSONObject: enrichedConfig),
-                          let configJson = String(data: jsonData, encoding: .utf8) else {
-                        NativeLogger.d("Error serializing worker config")
-                        continuation.resume(returning: .failure(message: "Config serialization failed"))
-                        return
+        return await withTaskCancellationHandler(
+            operation: {
+                await withCheckedContinuation { (continuation: CheckedContinuation<WorkerResult, Never>) in
+                    Task(priority: mapToConcurrencyPriority(qos)) {
+                        var enrichedConfig = workerConfig
+                        enrichedConfig["__taskId"] = taskId
+
+                        let inputJson: String
+                        if let nestedInput = workerConfig["input"] as? String {
+                            inputJson = nestedInput
+                        } else {
+                            guard let jsonData = try? JSONSerialization.data(withJSONObject: enrichedConfig),
+                                  let configJson = String(data: jsonData, encoding: .utf8) else {
+                                NativeLogger.d("Error serializing worker config")
+                                continuation.resume(returning: .failure(message: "Config serialization failed"))
+                                return
+                            }
+                            inputJson = configJson
+                        }
+
+                        guard let worker = IosWorkerFactory.createWorker(className: workerClassName) else {
+                            NativeLogger.d("Unknown worker class: \(workerClassName)")
+                            continuation.resume(returning: .failure(message: "Unknown worker class"))
+                            return
+                        }
+
+                        self.stateQueue.sync(flags: .barrier) {
+                            self.workers[taskId] = worker
+                        }
+
+                        defer {
+                            self.stateQueue.sync(flags: .barrier) {
+                                self.workers.removeValue(forKey: taskId)
+                            }
+                        }
+
+                        do {
+                            let env = WorkerEnvironment(
+                                progressListener: nil,
+                                isCancelled: { KotlinBoolean(bool: cancelFlag.cancelled) }
+                            )
+                            let result = try await worker.doWork(input: inputJson, env: env)
+                            continuation.resume(returning: result)
+                        } catch {
+                            NativeLogger.d("Task '\(taskId)' error: \(error.localizedDescription)")
+                            continuation.resume(returning: .failure(message: error.localizedDescription))
+                        }
                     }
-                    inputJson = configJson
                 }
-
-                guard let worker = IosWorkerFactory.createWorker(className: workerClassName) else {
-                    NativeLogger.d("Unknown worker class: \(workerClassName)")
-                    continuation.resume(returning: .failure(message: "Unknown worker class"))
-                    return
-                }
-
-                
-                self.stateQueue.sync(flags: .barrier) {
-                    self.workers[taskId] = worker
-                }
-
-                defer {
-                    self.stateQueue.sync(flags: .barrier) {
-                        self.workers.removeValue(forKey: taskId)
-                    }
-                }
-
-                do {
-                    let env = WorkerEnvironment(progressListener: nil, isCancelled: { KotlinBoolean(bool: false) })
-                    let result = try await worker.doWork(input: inputJson, env: env)
-                    continuation.resume(returning: result)
-                } catch {
-                    NativeLogger.d("Task '\(taskId)' error: \(error.localizedDescription)")
-                    continuation.resume(returning: .failure(message: error.localizedDescription))
-                }
-            }
-        }
+            },
+            onCancel: { cancelFlag.cancelled = true }
+        )
     }
 
     private func mapToConcurrencyPriority(_ qos: String) -> _Concurrency.TaskPriority {

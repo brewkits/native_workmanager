@@ -259,11 +259,23 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   }
 
   @override
+  Future<List<TaskRecord>> getTasksByStatus({required TaskStatus status}) async {
+    final result = await methodChannel.invokeMethod<List<dynamic>>(
+      'getTasksByStatus',
+      {'status': status.name},
+    );
+    if (result == null) return [];
+    return result
+        .map((e) => TaskRecord.fromMap(Map<String, dynamic>.from(e as Map)))
+        .toList();
+  }
+
+  @override
   Future<TaskRecord?> getTaskRecord({required String taskId}) async {
     developer.log(
         'MethodChannel[${methodChannel.name}]: invoking getTaskRecord for $taskId');
     try {
-      final result = await methodChannel.invokeMapMethod<String, dynamic>(
+      final result = await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
         'getTaskRecord',
         {'taskId': taskId},
       );
@@ -271,7 +283,7 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
           'MethodChannel[${methodChannel.name}]: getTaskRecord result: ${result != null}');
 
       if (result == null) return null;
-      return TaskRecord.fromMap(result);
+      return TaskRecord.fromMap(Map<String, dynamic>.from(result));
     } catch (e, s) {
       developer.log(
           'MethodChannel[${methodChannel.name}]: error in getTaskRecord: $e\n$s');
@@ -332,6 +344,24 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   @override
   Stream<SystemError> get systemErrors =>
       _systemErrorController?.stream ?? const Stream.empty();
+
+  /// Report a task event manually for testing purposes.
+  @override
+  @visibleForTesting
+  void reportTestEvent(TaskEvent event) {
+    _eventController?.add(event);
+    if (!event.isStarted) {
+      _completedTaskIds.add(event.taskId);
+    }
+  }
+
+  /// Report a task progress manually for testing purposes.
+  @override
+  @visibleForTesting
+  void reportTestProgress(TaskProgress progress) {
+    if (_completedTaskIds.contains(progress.taskId)) return;
+    _progressController?.add(progress);
+  }
 
   ScheduleResult _parseScheduleResult(String? result) {
     if (result == null) return ScheduleResult.accepted;

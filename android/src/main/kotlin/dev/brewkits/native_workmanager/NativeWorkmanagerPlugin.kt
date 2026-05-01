@@ -28,7 +28,7 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Native WorkManager Flutter Plugin for Android.
  *
- * Uses kmpworkmanager v2.4.1 from Maven Central as the core engine.
+ * Uses kmpworkmanager v2.4.3 from Maven Central as the core engine.
  */
 class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
     android.content.ComponentCallbacks2 {
@@ -117,11 +117,18 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
 
         fun emitSystemError(context: Context, code: String, message: String) {
             NativeLogger.e("🚨 SYSTEM ERROR [$code]: $message")
-            sharedPluginInstance?.systemErrorSink?.success(mapOf(
+            val instance = sharedPluginInstance ?: return
+            val payload = mapOf(
                 "code" to code,
                 "message" to message,
                 "timestamp" to System.currentTimeMillis()
-            ))
+            )
+            // EventSink.success() must be called on the main thread. Callers of emitSystemError
+            // may be on IO threads (e.g. RemoteTriggerStore, ioScope.launch), so we always
+            // post to main to avoid EventChannel threading crashes.
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                instance.systemErrorSink?.success(payload)
+            }
         }
     }
 
@@ -230,45 +237,46 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
     }
 
     override fun onMethodCall(call: MethodCall, result: Result) {
+        val safeResult = dev.brewkits.native_workmanager.utils.SafeResult(result)
         try {
             when (call.method) {
-                "initialize" -> handleInitialize(call, result)
-                "enqueue" -> handleEnqueue(call, result)
-                "cancel" -> handleCancel(call, result)
-                "cancelAll" -> handleCancelAll(result)
-                "cancelByTag" -> handleCancelByTag(call, result)
-                "getTasksByTag" -> handleGetTasksByTag(call, result)
-                "getAllTags" -> handleGetAllTags(result)
-                "enqueueChain" -> handleEnqueueChain(call, result)
-                "getTaskStatus" -> handleGetTaskStatus(call, result)
-                "getTaskRecord" -> handleGetTaskRecord(call, result)
-                "pause" -> handlePause(call, result)
-                "resume" -> handleResume(call, result)
-                "allTasks" -> handleAllTasks(result)
-                "getServerFilename" -> handleGetServerFilename(call, result)
-                "openFile" -> handleOpenFile(call, result)
+                "initialize" -> handleInitialize(call, safeResult)
+                "enqueue" -> handleEnqueue(call, safeResult)
+                "cancel" -> handleCancel(call, safeResult)
+                "cancelAll" -> handleCancelAll(safeResult)
+                "cancelByTag" -> handleCancelByTag(call, safeResult)
+                "getTasksByTag" -> handleGetTasksByTag(call, safeResult)
+                "getAllTags" -> handleGetAllTags(safeResult)
+                "enqueueChain" -> handleEnqueueChain(call, safeResult)
+                "getTaskStatus" -> handleGetTaskStatus(call, safeResult)
+                "getTaskRecord" -> handleGetTaskRecord(call, safeResult)
+                "pause" -> handlePause(call, safeResult)
+                "resume" -> handleResume(call, safeResult)
+                "allTasks" -> handleAllTasks(safeResult)
+                "getServerFilename" -> handleGetServerFilename(call, safeResult)
+                "openFile" -> handleOpenFile(call, safeResult)
                 "setMaxConcurrentPerHost" -> {
                     val max = call.argument<Int>("max") ?: 2
                     HostConcurrencyManager.maxConcurrentPerHost = max
-                    result.success(null)
+                    safeResult.success(null)
                 }
-                "registerRemoteTrigger" -> handleRegisterRemoteTrigger(call, result)
-                "enqueueGraph" -> handleEnqueueGraph(call, result)
-                "offlineQueueEnqueue" -> handleOfflineQueueEnqueue(call, result)
-                "registerMiddleware" -> handleRegisterMiddleware(call, result)
-                "getMetrics" -> handleGetMetrics(result)
-                "syncOfflineQueue" -> handleSyncOfflineQueue(result)
+                "registerRemoteTrigger" -> handleRegisterRemoteTrigger(call, safeResult)
+                "enqueueGraph" -> handleEnqueueGraph(call, safeResult)
+                "offlineQueueEnqueue" -> handleOfflineQueueEnqueue(call, safeResult)
+                "registerMiddleware" -> handleRegisterMiddleware(call, safeResult)
+                "getMetrics" -> handleGetMetrics(safeResult)
+                "syncOfflineQueue" -> handleSyncOfflineQueue(safeResult)
                 "getRunningProgress" -> {
-                    result.success(ProgressReporter.getRunningProgress())
+                    safeResult.success(ProgressReporter.getRunningProgress())
                 }
-                else -> result.notImplemented()
+                else -> safeResult.notImplemented()
             }
         } catch (e: android.database.sqlite.SQLiteFullException) {
             NativeLogger.e("❌ Disk full during method call: ${call.method}")
             emitSystemError(context, "DISK_FULL", "Database operation failed: Disk full")
-            result.error("DISK_FULL", "Operation failed because the device is out of storage", null)
+            safeResult.error("DISK_FULL", "Operation failed because the device is out of storage", null)
         } catch (e: Exception) {
-            result.error("PLUGIN_ERROR", e.message, null)
+            safeResult.error("PLUGIN_ERROR", e.message, null)
         }
     }
 

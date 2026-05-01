@@ -1,5 +1,4 @@
 
-
 import Foundation
 import KMPWorkManager
 import BackgroundTasks
@@ -74,8 +73,10 @@ class BGTaskSchedulerManager {
     /// Stores the currently running worker to handle stop/expiration.
     private var activeWorker: IosWorker?
 
-    /// Stores pending tasks (taskId -> task info)
-    private var pendingTasks: [String: TaskInfo] = [:]
+    /// Stores pending tasks in an ordered list to ensure FIFO execution.
+    /// FIX I1: Changed from Dictionary to Array to ensure stable order and
+    /// allow filtering by type when popping.
+    private var pendingTasks: [TaskInfo] = []
     private let queue = DispatchQueue(label: "dev.brewkits.bgtask_manager")
 
     /// Guards a single disk-load on first access (cold-start BGTask invocation).
@@ -128,18 +129,6 @@ class BGTaskSchedulerManager {
     // MARK: - Scheduling
 
     /// Schedule a background task.
-    ///
-    /// - Parameters:
-    ///   - identifier: BGTaskScheduler identifier (must be in Info.plist)
-    ///   - taskId: Unique task ID
-    ///   - workerClassName: Name of worker class to execute
-    ///   - workerConfig: Configuration for the worker
-    ///   - earliestBeginDate: Earliest time to run (default: now)
-    ///   - requiresNetwork: Whether task needs network (default: false)
-    ///   - requiresExternalPower: Whether task needs charging (default: false)
-    ///   - isHeavyTask: Use BGProcessingTask (60s) instead of BGAppRefreshTask (30s)
-    ///   - qos: Quality of Service for task execution (default: background)
-    /// - Returns: true if scheduled successfully
     @discardableResult
     func scheduleTask(
         identifier: String = defaultTaskIdentifier,
@@ -164,7 +153,13 @@ class BGTaskSchedulerManager {
         )
 
         queue.sync {
-            pendingTasks[taskId] = taskInfo
+            // FIX I1: Append to array instead of dictionary to preserve order.
+            // If task ID already exists, replace it (ExistingTaskPolicy.replace behavior).
+            if let index = pendingTasks.firstIndex(where: { $0.taskId == taskId }) {
+                pendingTasks[index] = taskInfo
+            } else {
+                pendingTasks.append(taskInfo)
+            }
             savePendingTasks()
         }
 
@@ -172,20 +167,12 @@ class BGTaskSchedulerManager {
         let request: BGTaskRequest
 
         if isHeavyTask {
-            // Heavy task: Use BGProcessingTask (60s limit, supports network/power constraints)
-            // Use the provided identifier (must be registered in Info.plist)
             let processingRequest = BGProcessingTaskRequest(identifier: identifier)
             processingRequest.requiresNetworkConnectivity = requiresNetwork
             processingRequest.requiresExternalPower = requiresExternalPower
             request = processingRequest
             NativeLogger.d("BGTaskSchedulerManager: Using BGProcessingTask for heavy task with identifier '\(identifier)'")
         } else {
-            // Normal task: Use BGAppRefreshTask (30s limit, no network/power constraints).
-            // Use the provided identifier — the caller is responsible for registering it
-            // in Info.plist as a BGAppRefreshTask identifier. Silently substituting
-            // refreshTaskIdentifier here meant that tasks scheduled with a custom
-            // identifier would silently execute under a different BGTask slot, making
-            // per-task scheduling impossible.
             request = BGAppRefreshTaskRequest(identifier: identifier)
             NativeLogger.d("BGTaskSchedulerManager: Using BGAppRefreshTask with identifier '\(identifier)'")
         }
@@ -204,15 +191,10 @@ class BGTaskSchedulerManager {
     }
 
     /// Cancel a scheduled task.
-    ///
-    /// - Note: `BGTaskScheduler` has no API to cancel individual task requests by identifier —
-    ///   only `cancelAllTaskRequests()` exists at the OS level. Removing the task from
-    ///   `pendingTasks` here is sufficient: if the OS still fires the BGTask, the execution
-    ///   handler will find no pending entry and return early without running the worker.
-    ///   Callers should be aware that one additional OS-level fire may occur after this call.
     func cancelTask(taskId: String) {
         queue.sync {
-            pendingTasks.removeValue(forKey: taskId)
+            // FIX I1: Remove from array by ID.
+            pendingTasks.removeAll(where: { $0.taskId == taskId })
             savePendingTasks()
         }
         NativeLogger.d("BGTaskSchedulerManager: Cancelled task '\(taskId)' (OS-level request may still fire once)")
@@ -232,10 +214,6 @@ class BGTaskSchedulerManager {
     // MARK: - Task Execution
 
     /// Ensures `bgTask.setTaskCompleted` is called exactly once per BGTask instance.
-    ///
-    /// The singleton-level flag approach breaks when iOS fires two BGTasks concurrently:
-    /// Task A resets the flag, Task B could see Task A's flag state. Per-instance guard
-    /// binds completion lifetime to the BGTask itself.
     private final class TaskCompletionGuard {
         private var fired = false
         private let lock = NSLock()
@@ -254,8 +232,9 @@ class BGTaskSchedulerManager {
         let completionGuard = TaskCompletionGuard()
         onTaskStart?()
 
-        guard let taskInfo = popNextPendingTask() else {
-            NativeLogger.d("BGTaskSchedulerManager: No pending tasks")
+        // FIX I2: Filter by isHeavyTask = true when popping for processing handler.
+        guard let taskInfo = popNextPendingTask(isHeavy: true) else {
+            NativeLogger.d("BGTaskSchedulerManager: No pending processing tasks")
             completionGuard.completeOnce(task: task, success: true)
             return
         }
@@ -283,7 +262,9 @@ class BGTaskSchedulerManager {
         let completionGuard = TaskCompletionGuard()
         onTaskStart?()
 
-        guard let taskInfo = popNextPendingTask() else {
+        // FIX I2: Filter by isHeavyTask = false when popping for refresh handler.
+        guard let taskInfo = popNextPendingTask(isHeavy: false) else {
+            NativeLogger.d("BGTaskSchedulerManager: No pending refresh tasks")
             completionGuard.completeOnce(task: task, success: true)
             return
         }
@@ -320,11 +301,6 @@ class BGTaskSchedulerManager {
     }
 
     /// Execute a worker with the given task info.
-    ///
-    /// Uses native Swift Concurrency throughout — no DispatchQueue wrapping needed.
-    /// Task(priority:) in the caller already sets the execution context; wrapping in
-    /// DispatchQueue.global().async { Task { } } would create an orphaned child Task that
-    /// doesn't inherit cancellation from its parent, wasting a thread in the process.
     private func executeWorker(taskInfo: TaskInfo) async -> Bool {
         NativeLogger.d("BGTaskSchedulerManager: Executing worker '\(taskInfo.workerClassName)' for task '\(taskInfo.taskId)'")
 
@@ -335,8 +311,6 @@ class BGTaskSchedulerManager {
         activeWorker = worker
 
         do {
-            // Custom workers (via NativeWorker.custom) store user data under the "input" key
-            // as a pre-encoded JSON string. Built-in workers receive the full config.
             let inputForWorker: String?
             if let inputAnyCodable = taskInfo.workerConfig["input"],
                let inputString = inputAnyCodable.value as? String {
@@ -361,8 +335,8 @@ class BGTaskSchedulerManager {
     // MARK: - Persistence
 
     private var storageURL: URL {
-        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return dir.appendingPathComponent("pending_tasks.json")
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        return dir.appendingPathComponent("pending_tasks_v2.json")
     }
 
     private func savePendingTasks() {
@@ -379,28 +353,28 @@ class BGTaskSchedulerManager {
 
         do {
             let data = try Data(contentsOf: storageURL)
-            pendingTasks = try JSONDecoder().decode([String: TaskInfo].self, from: data)
+            pendingTasks = try JSONDecoder().decode([TaskInfo].self, from: data)
             NativeLogger.d("BGTaskSchedulerManager: Loaded \(pendingTasks.count) pending tasks")
         } catch {
             NativeLogger.e("BGTaskSchedulerManager: failed to load pending tasks")
         }
     }
 
-    /// Atomically pops the next pending task.
+    /// Atomically pops the next pending task matching the required type.
     ///
-    /// On cold-start BGTask invocations `pendingTasks` is empty (no prior `scheduleTask` call
-    /// in this process). Load from disk once, then pop — guarantees no two concurrent
-    /// BGTask handlers can dequeue the same task, preventing duplicate execution and
-    /// starvation of other queued tasks.
-    private func popNextPendingTask() -> TaskInfo? {
+    /// FIX I1: Preserves FIFO by picking the first task in the array.
+    /// FIX I2: Filters by [isHeavy] to ensure tasks run in the correct BGTask slot.
+    private func popNextPendingTask(isHeavy: Bool) -> TaskInfo? {
         return queue.sync {
             if !pendingTasksLoaded {
                 loadPendingTasks()
                 pendingTasksLoaded = true
             }
-            guard let key = pendingTasks.keys.first else { return nil }
-            let taskInfo = pendingTasks.removeValue(forKey: key)
-            if taskInfo != nil { savePendingTasks() }
+            guard let index = pendingTasks.firstIndex(where: { $0.isHeavyTask == isHeavy }) else {
+                return nil
+            }
+            let taskInfo = pendingTasks.remove(at: index)
+            savePendingTasks()
             return taskInfo
         }
     }
@@ -408,15 +382,8 @@ class BGTaskSchedulerManager {
     // MARK: - Testing Support
 
     #if DEBUG
-    /// Simulate background task execution (for testing in simulator).
-    ///
-    /// Usage in terminal:
-    /// ```bash
-    /// e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"dev.brewkits.native_workmanager.task"]
-    /// ```
     func simulateTaskExecution(identifier: String = defaultTaskIdentifier) {
         NativeLogger.d("BGTaskSchedulerManager: Simulating task execution for '\(identifier)'")
-        // This is called via debugger commands
     }
     #endif
 }

@@ -101,6 +101,70 @@ void main() {
     });
   });
 
+  group('PeriodicTrigger Integration Tests', () {
+    setUp(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (MethodCall call) async {
+        switch (call.method) {
+          case 'initialize':
+            return null;
+          case 'enqueue':
+            final args = call.arguments as Map<dynamic, dynamic>;
+            final trigger = args['trigger'] as Map<dynamic, dynamic>;
+
+            if (trigger['type'] == 'periodic') {
+              if (args['taskId'] == 'test-initial-delay') {
+                expect(trigger['initialDelayMs'], 300000); // 5 min
+              }
+              if (args['taskId'] == 'test-run-immediately-false') {
+                expect(trigger['runImmediately'], false);
+              }
+            }
+            return 'accepted';
+          default:
+            return null;
+        }
+      });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
+    test('enqueue periodic with initialDelay', () async {
+      await NativeWorkManager.initialize();
+
+      await NativeWorkManager.enqueue(
+        taskId: 'test-initial-delay',
+        trigger: TaskTrigger.periodic(
+          const Duration(hours: 1),
+          initialDelay: const Duration(minutes: 5),
+        ),
+        worker: HttpRequestWorker(
+          url: 'https://httpbin.org/get',
+          method: HttpMethod.get,
+        ),
+      );
+    });
+
+    test('enqueue periodic with runImmediately false', () async {
+      await NativeWorkManager.initialize();
+
+      await NativeWorkManager.enqueue(
+        taskId: 'test-run-immediately-false',
+        trigger: TaskTrigger.periodic(
+          const Duration(hours: 1),
+          runImmediately: false,
+        ),
+        worker: HttpRequestWorker(
+          url: 'https://httpbin.org/get',
+          method: HttpMethod.get,
+        ),
+      );
+    });
+  });
+
   group('ContentUri Integration Tests', () {
     setUp(() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

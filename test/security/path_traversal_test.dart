@@ -214,5 +214,28 @@ void main() {
         throwsArgumentError,
       );
     });
+
+    test('blocks shell injection characters in file paths', () {
+      final maliciousPaths = [
+        r'/tmp/file;rm -rf /',
+        r'/tmp/$(whoami)',
+        r'/tmp/file|nc -e /bin/sh',
+        r'/tmp/file&ls',
+        r'/tmp/`sleep 10`',
+        r'/tmp/file<input',
+        r'/tmp/file>output',
+      ];
+
+      for (final path in maliciousPaths) {
+        expect(
+          () => NativeWorker.httpUpload(
+            url: 'https://api.example.com/upload',
+            filePath: path,
+          ),
+          throwsArgumentError,
+          reason: 'Should block malicious path: $path',
+        );
+      }
+    });
   });
 }

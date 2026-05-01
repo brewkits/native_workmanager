@@ -3,9 +3,11 @@ package dev.brewkits.native_workmanager
 import android.content.Intent
 import androidx.core.content.FileProvider
 import androidx.work.Data
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
+import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
 import androidx.work.await
 import dev.brewkits.kmpworkmanager.background.data.KmpHeavyWorker
@@ -123,7 +125,9 @@ internal fun NativeWorkmanagerPlugin.handleResume(call: MethodCall, result: Resu
                             is Int     -> v
                             is Long    -> v
                             is Double  -> v
-                            else       -> v.toString()
+                            is org.json.JSONArray -> List(v.length()) { i -> v.get(i) }
+                            is org.json.JSONObject -> v.keys().asSequence().associateWith { k -> v.get(k) }
+                            else       -> v
                         }
                     } as Map<String, Any?>
                 } catch (_: Exception) { null }
@@ -362,7 +366,16 @@ internal fun NativeWorkmanagerPlugin.handleEnqueue(call: MethodCall, result: Res
                 return@launch
             }
 
-            val isPeriodic = trigger is TaskTrigger.Periodic
+            if (trigger is TaskTrigger.Periodic) {
+                NativeLogger.d("Scheduling '$taskId': Periodic → direct WorkManager")
+                enqueuePeriodicWorkDirect(taskId, workerClassName, inputJson, tag, constraints, policy, trigger)
+                taskStatuses[taskId] = "pending"
+                observeWorkCompletion(taskId, true)
+                result.success("ACCEPTED")
+                return@launch
+            }
+
+            val isPeriodic = false // Cannot be periodic here anymore
             NativeLogger.d("Scheduling '$taskId': trigger=$triggerType, policy=$existingPolicyStr, heavy=${constraints.isHeavyTask}")
 
             val scheduleResult = scheduler.enqueue(
@@ -436,6 +449,31 @@ internal fun NativeWorkmanagerPlugin.handleCancel(call: MethodCall, result: Resu
             val taskId = call.argument<String>("taskId")
                 ?: return@launch result.error("INVALID_ARGS", "taskId required", null)
 
+            // If taskId is a chain step, cancel ALL remaining steps in that chain so
+            // behavior is consistent with iOS (which cancels the whole chain on any step cancel).
+            val chainRecord = withContext(Dispatchers.IO) { chainStore.getChainForTaskId(taskId) }
+            if (chainRecord != null) {
+                val steps = withContext(Dispatchers.IO) { chainStore.getStepsForChain(chainRecord.chainId) }
+                withContext(Dispatchers.IO) {
+                    for (step in steps) {
+                        WorkManager.getInstance(context).cancelAllWorkByTag(step.taskId).await()
+                        taskStore.updateStatus(taskId = step.taskId, status = "cancelled")
+                    }
+                    chainStore.updateChainStatus(chainRecord.chainId, "cancelled")
+                }
+                steps.forEach { step ->
+                    taskTags.remove(step.taskId)
+                    taskStatuses[step.taskId] = "cancelled"
+                    taskNotifTitles.remove(step.taskId)?.let { DownloadNotificationManager.dismiss(context, step.taskId) }
+                    taskAllowPause.remove(step.taskId)
+                    taskFilenames.remove(step.taskId)
+                    dev.brewkits.native_workmanager.workers.utils.ProgressReporter.clearTask(step.taskId)
+                    cleanupTempFilesForTask(step.taskId)
+                }
+                result.success(null)
+                return@launch
+            }
+
             // Use cancelAllWorkByTag instead of cancelUniqueWork so that both standalone
             // tasks (unique work) AND chain steps (non-unique work tagged with taskId) are
             // correctly cancelled. All tasks are tagged with their taskId via addTag(taskId).
@@ -468,8 +506,14 @@ internal fun NativeWorkmanagerPlugin.handleCancelAll(result: Result) {
                     val savePath = try {
                         org.json.JSONObject(config).optString("savePath").takeIf { it.isNotBlank() }
                     } catch (_: Exception) { null } ?: return@forEach
-                    for (suffix in listOf(".tmp", ".tmp.etag")) {
-                        val f = java.io.File(savePath + suffix)
+                    // Directory-mode downloads use "__pending__.tmp" sentinel; file-mode use
+                    // "savePath.tmp". cleanupTempFilesForTask handles both cases correctly.
+                    val tempPath = if (savePath.endsWith("/"))
+                        savePath + "__pending__.tmp"
+                    else
+                        savePath + ".tmp"
+                    for (suffix in listOf("", ".etag")) {
+                        val f = java.io.File(tempPath + suffix)
                         if (f.exists()) f.delete()
                     }
                 }
@@ -706,3 +750,84 @@ internal fun NativeWorkmanagerPlugin.enqueueOneTimeWorkDirect(
 }
 
 
+
+internal fun NativeWorkmanagerPlugin.enqueuePeriodicWorkDirect(
+    taskId: String,
+    workerClassName: String,
+    inputJson: String?,
+    tag: String?,
+    constraints: Constraints,
+    policy: ExistingPolicy,
+    trigger: TaskTrigger.Periodic
+) {
+    val workerClass = if (constraints.isHeavyTask) KmpHeavyWorker::class.java else KmpWorker::class.java
+
+    val dataBuilder = Data.Builder().putString("workerClassName", workerClassName)
+
+    val effectiveInputJson = if (inputJson != null) {
+        NativeWorkmanagerPlugin.applyMiddleware(context, workerClassName, inputJson)
+    } else inputJson
+
+    if (effectiveInputJson != null) {
+        val payloadBytes = effectiveInputJson.toByteArray(Charsets.UTF_8)
+        if (payloadBytes.size > 10 * 1024) {
+            val spillFile = java.io.File(context.cacheDir, "wm_spill_${taskId}.json")
+            spillFile.writeText(effectiveInputJson, Charsets.UTF_8)
+            dataBuilder.putString("inputJsonFile", spillFile.absolutePath)
+        } else {
+            dataBuilder.putString("inputJson", effectiveInputJson)
+        }
+    }
+
+    val networkType = when {
+        constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED
+        constraints.requiresNetwork -> NetworkType.CONNECTED
+        else -> NetworkType.NOT_REQUIRED
+    }
+    val wmConstraintsBuilder = androidx.work.Constraints.Builder()
+        .setRequiredNetworkType(networkType)
+        .setRequiresCharging(constraints.requiresCharging)
+    val sysConstraints = constraints.systemConstraints ?: emptySet()
+    if (sysConstraints.contains(SystemConstraint.DEVICE_IDLE)) wmConstraintsBuilder.setRequiresDeviceIdle(true)
+    if (sysConstraints.contains(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)) wmConstraintsBuilder.setRequiresBatteryNotLow(true)
+
+    val flex = trigger.flexMs
+    val requestBuilder = if (flex != null && flex > 0) {
+        PeriodicWorkRequest.Builder(workerClass, trigger.intervalMs, TimeUnit.MILLISECONDS, flex, TimeUnit.MILLISECONDS)
+    } else {
+        PeriodicWorkRequest.Builder(workerClass, trigger.intervalMs, TimeUnit.MILLISECONDS)
+    }
+
+    requestBuilder.setConstraints(wmConstraintsBuilder.build())
+        .setInputData(dataBuilder.build())
+        .addTag(NativeTaskScheduler.TAG_KMP_TASK)
+        .addTag("worker-$workerClassName")
+        .addTag(taskId)
+        .addTag(workerClassName)
+    
+    if (tag != null) requestBuilder.addTag(tag)
+
+    val delayMs = if (!trigger.runImmediately && trigger.initialDelayMs == 0L) {
+        trigger.intervalMs
+    } else {
+        trigger.initialDelayMs
+    }
+    if (delayMs > 0) {
+        requestBuilder.setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
+    }
+
+    val wmBackoffPolicy = when (constraints.backoffPolicy) {
+        BackoffPolicy.LINEAR -> androidx.work.BackoffPolicy.LINEAR
+        else -> androidx.work.BackoffPolicy.EXPONENTIAL
+    }
+    requestBuilder.setBackoffCriteria(wmBackoffPolicy, constraints.backoffDelayMs, TimeUnit.MILLISECONDS)
+
+    val workPolicy = when (policy) {
+        ExistingPolicy.REPLACE -> ExistingPeriodicWorkPolicy.REPLACE
+        else -> ExistingPeriodicWorkPolicy.KEEP
+    }
+    
+    val request = requestBuilder.build()
+    WorkManager.getInstance(context).enqueueUniquePeriodicWork(taskId, workPolicy, request)
+    NativeLogger.d("✅ Periodic '$taskId' enqueued via direct WorkManager (delay=${delayMs}ms)")
+}

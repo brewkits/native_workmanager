@@ -1096,6 +1096,7 @@ Worker _buildHttpSync({
   Map<String, dynamic>? requestBody,
   Duration timeout = const Duration(seconds: 60),
   TokenRefreshConfig? tokenRefresh,
+  RequestSigning? requestSigning,
 }) {
   NativeWorker._validateUrl(url);
 
@@ -1116,5 +1117,6 @@ Worker _buildHttpSync({
     requestBody: requestBody,
     timeout: timeout,
     tokenRefresh: tokenRefresh,
+    requestSigning: requestSigning,
   );
 }

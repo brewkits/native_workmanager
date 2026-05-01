@@ -48,7 +48,7 @@ extension NativeWorkmanagerPlugin {
             }
             taskStore?.updateStatus(
                 taskId: taskId,
-                status: success ? "success" : "failed",
+                status: success ? "completed" : "failed",
                 resultData: resultJson
             )
 

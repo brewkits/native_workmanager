@@ -77,10 +77,12 @@ class HttpSyncWorker : AndroidWorker {
             val sanitizedURL = SecurityValidator.sanitizedURL(config.url)
             Log.d(TAG, "${config.httpMethod} $sanitizedURL")
 
-            val bodyData = config.requestBody?.toByteArray(Charsets.UTF_8)
-            val requestBody = bodyData?.let {
-                if (!SecurityValidator.validateRequestSize(it)) null
-                else it.toRequestBody(JSON_CONTENT_TYPE.toMediaType())
+            val requestBody = config.requestBody?.let { body ->
+                val bodyBytes = body.toByteArray(Charsets.UTF_8)
+                if (!SecurityValidator.validateRequestSize(bodyBytes)) {
+                    throw IllegalArgumentException("Request body too large")
+                }
+                bodyBytes.toRequestBody(JSON_CONTENT_TYPE.toMediaType())
             } ?: if (config.httpMethod in listOf("POST", "PUT", "PATCH")) {
                 ByteArray(0).toRequestBody(JSON_CONTENT_TYPE.toMediaType())
             } else null

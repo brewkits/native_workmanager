@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+---
+
+## [1.2.4] - 2026-04-29
+
+### Fixed
+- **Android**: Added automatic ProGuard rules to prevent task classes from being stripped in Release builds ([#24](https://github.com/brewkits/native_workmanager/issues/24)).
+- **Android**: Clarified that `Application` class setup is required for all tasks to survive app kill.
+- **iOS**: Synchronized background task identifiers between `setup_ios.dart` and Swift code.
+- **iOS**: `getTaskStatus()` now correctly returns `TaskStatus.completed` for finished tasks. Previously, the iOS plugin wrote `"success"` to SQLite but Dart's `TaskStatus` enum has no `success` case, so every call returned `null`.
+- **Android**: Removed duplicate `taskStore.updateStatus()` call on task completion. The redundant second write used `JSONObject(map).toString()` which could corrupt nested result maps, overwriting the correctly-encoded first write.
+- **iOS**: `FlutterEngineManager` now disposes the engine after a Dart callback timeout. Previously the engine remained `isInitialized = true` with a hung `MethodChannel`, causing all subsequent `DartCallbackWorker` tasks to silently fail (timeout again).
+
+### Changed
+- **Engine**: Upgraded core `kmpworkmanager` to v2.4.3 (re-publish of v2.4.2 to fix Maven Central artifact issue; no code changes).
+
 ## [1.2.3] - 2026-04-24
 
 ### Added

@@ -11,7 +11,7 @@ enum TaskState: String {
     case cancelled  = "cancelled"
     case completed  = "completed"
     case failed     = "failed"
-    case success    = "success"
+    case success    = "completed"
 }
 
 public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
@@ -218,7 +218,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             taskStore?.upsert(taskId: taskId, tag: tag, status: "pending", workerClassName: workerClassName, workerConfig: configJson)
         }
 
-        let workerConfig = args["workerConfig"] as? [String: Any] ?? [:]
+            let workerConfig = args["workerConfig"] as? [String: Any] ?? [:]
         let triggerMap = args["trigger"] as? [String: Any]
         let initialDelayMs = (triggerMap?["initialDelayMs"] as? Int) ?? 0
         let runImmediately = (triggerMap?["runImmediately"] as? Bool) ?? true
@@ -234,10 +234,24 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             let earliestBeginDate = Date(timeIntervalSinceNow: effectiveDelayMs / 1000.0)
             
             let constraintsMap = args["constraints"] as? [String: Any]
-            let isHeavyTask = constraintsMap?["isHeavyTask"] as? Bool ?? false
-            let requiresNetwork = constraintsMap?["requiresNetwork"] as? Bool ?? false
+            
+            // FIX I4: Respect bgTaskType if provided, otherwise fallback to auto-selection via isHeavyTask.
+            let bgTaskType = constraintsMap?["bgTaskType"] as? String
+            let isHeavyTask: Bool
+            if let type = bgTaskType {
+                isHeavyTask = (type == "processing")
+            } else {
+                isHeavyTask = constraintsMap?["isHeavyTask"] as? Bool ?? false
+            }
+
+            // requiresUnmeteredNetwork (WiFi-only) also implies network required.
+            // iOS BGTask doesn't distinguish metered vs unmetered, so both map to requiresNetwork.
+            let requiresNetwork = (constraintsMap?["requiresNetwork"] as? Bool ?? false)
+                || (constraintsMap?["requiresUnmeteredNetwork"] as? Bool ?? false)
             let requiresExternalPower = constraintsMap?["requiresCharging"] as? Bool ?? false
             let qos = (constraintsMap?["qos"] as? String) ?? "background"
+            // Note: backoffPolicy, backoffDelayMs, and systemConstraints (DEVICE_IDLE,
+            // REQUIRE_BATTERY_NOT_LOW) have no BGTask equivalents and are intentionally ignored.
 
             let identifier = isHeavyTask ? BGTaskSchedulerManager.defaultTaskIdentifier : BGTaskSchedulerManager.refreshTaskIdentifier
 
@@ -302,20 +316,11 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     }
 
     private func handleGetTaskStatus(call: FlutterMethodCall, result: @escaping FlutterResult) {
-        guard let args = call.arguments as? [String: Any], let taskId = args["taskId"] as? String else { return }
-        result(stateQueue.sync { taskStates[taskId]?.rawValue })
-    }
-
-    private func handleGetTaskRecord(call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any], let taskId = args["taskId"] as? String else {
-            result(nil)
+            result(FlutterError(code: "INVALID_ARGS", message: "taskId required", details: nil))
             return
         }
-        
-        workerQueue.async {
-            let record = self.taskStore?.task(taskId: taskId)
-            DispatchQueue.main.async { result(record?.toFlutterMap()) }
-        }
+        result(stateQueue.sync { taskStates[taskId]?.rawValue })
     }
 
     private func handleGetTaskRecord(call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -345,7 +350,10 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     }
 
     private func handleCancel(call: FlutterMethodCall, result: @escaping FlutterResult) {
-        guard let args = call.arguments as? [String: Any], let taskId = args["taskId"] as? String else { return }
+        guard let args = call.arguments as? [String: Any], let taskId = args["taskId"] as? String else {
+            result(FlutterError(code: "INVALID_ARGS", message: "taskId required", details: nil))
+            return
+        }
         stateQueue.async(flags: .barrier) {
             self.activeTasks[taskId]?.cancel()
             self.activeTasks.removeValue(forKey: taskId)
@@ -353,6 +361,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             self.workers[taskId]?.stop()
         }
         if #available(iOS 13.0, *) {
+            BackgroundSessionManager.shared.cancel(taskId: taskId)
             cleanupTempFiles(forTaskId: taskId)
             taskStore?.updateStatus(taskId: taskId, status: "cancelled")
             BGTaskSchedulerManager.shared.cancelTask(taskId: taskId)

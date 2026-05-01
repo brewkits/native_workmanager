@@ -155,11 +155,11 @@ class TaskStore {
 
     func recoverZombieTasks() {
         let now = Int(Date().timeIntervalSince1970)
-        // If app crashed/rebooted, tasks stuck in 'running' or 'pending' for over 1 hour 
+        // If app crashed/rebooted, tasks stuck in 'running' for over 5 minutes 
         // without an update should be marked as failed so they can be retried.
-        let oneHourAgo = now - 3600
-        let sql = "UPDATE tasks SET status = 'failed', error_message = 'Process terminated unexpectedly' WHERE status IN ('running', 'pending') AND updated_at < ?;"
-        sqlite.execute(sql: sql, params: [oneHourAgo])
+        let fiveMinutesAgo = now - (5 * 60)
+        let sql = "UPDATE tasks SET status = 'failed', error_message = 'Process terminated unexpectedly (heartbeat timeout)' WHERE status = 'running' AND updated_at < ?;"
+        sqlite.execute(sql: sql, params: [fiveMinutesAgo])
     }
 
     // MARK: - Background Registry (Replacing UserDefaults)

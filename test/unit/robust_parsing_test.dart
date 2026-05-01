@@ -58,5 +58,146 @@ void main() {
       });
       expect(e.timestamp, isA<DateTime>());
     });
+
+    test('handles null success — defaults to false', () {
+      final e = TaskEvent.fromMap({'taskId': 't', 'timestamp': 0});
+      expect(e.success, isFalse);
+    });
+
+    test('handles empty map without crash', () {
+      final e = TaskEvent.fromMap({});
+      expect(e.taskId, '');
+      expect(e.success, isFalse);
+      expect(e.isStarted, isFalse);
+    });
+
+    test('handles resultData as non-map string — returns null', () {
+      final e = TaskEvent.fromMap({
+        'taskId': 't',
+        'success': true,
+        'resultData': 'plain-string',
+        'timestamp': 0,
+      });
+      expect(e.resultData, isNull);
+    });
+  });
+
+  group('TaskProgress edge cases', () {
+    test('progress clamped to integer from double', () {
+      final p = TaskProgress.fromMap({'taskId': 't', 'progress': 66.9});
+      expect(p.progress, 66); // truncated
+    });
+
+    test('all zero numeric fields parse correctly', () {
+      final p = TaskProgress.fromMap({
+        'taskId': 't',
+        'progress': 0,
+        'bytesDownloaded': 0,
+        'totalBytes': 0,
+        'networkSpeed': 0.0,
+      });
+      expect(p.progress, 0);
+      expect(p.bytesDownloaded, 0);
+      expect(p.totalBytes, 0);
+      expect(p.networkSpeed, 0.0);
+    });
+
+    test('timeRemainingMs=0 → Duration.zero', () {
+      final p = TaskProgress.fromMap({'taskId': 't', 'progress': 0,
+          'timeRemainingMs': 0});
+      expect(p.timeRemaining, Duration.zero);
+    });
+
+    test('timeRemainingMs and timeRemainingSeconds both absent → null', () {
+      final p = TaskProgress.fromMap({'taskId': 't', 'progress': 0});
+      expect(p.timeRemaining, isNull);
+    });
+
+    test('step info is preserved', () {
+      final p = TaskProgress.fromMap({
+        'taskId': 't',
+        'progress': 50,
+        'currentStep': 3,
+        'totalSteps': 6,
+      });
+      expect(p.currentStep, 3);
+      expect(p.totalSteps, 6);
+    });
+
+    test('toString contains taskId and progress', () {
+      const p = TaskProgress(taskId: 'my-task', progress: 42);
+      expect(p.toString(), contains('my-task'));
+      expect(p.toString(), contains('42'));
+    });
+  });
+
+  group('TaskRecord edge cases', () {
+    test('resultData as double-encoded JSON string is parsed', () {
+      final r = TaskRecord.fromMap({
+        'taskId': 't',
+        'status': 'completed',
+        'workerClassName': 'W',
+        'resultData': '{"nested":{"key":1}}',
+        'createdAt': 0,
+        'updatedAt': 0,
+      });
+      final nested = r.resultData?['nested'];
+      expect(nested, isA<Map>());
+    });
+
+    test('workerConfig is preserved as raw string', () {
+      final r = TaskRecord.fromMap({
+        'taskId': 't',
+        'status': 'pending',
+        'workerClassName': 'W',
+        'workerConfig': '{"url":"https://x.com"}',
+        'createdAt': 0,
+        'updatedAt': 0,
+      });
+      expect(r.workerConfig, contains('url'));
+    });
+
+    test('toMap preserves all fields', () {
+      final r = TaskRecord.fromMap({
+        'taskId': 'rt',
+        'tag': 'sync',
+        'status': 'running',
+        'workerClassName': 'HttpDownloadWorker',
+        'workerConfig': '{}',
+        'createdAt': 1000,
+        'updatedAt': 2000,
+      });
+      final m = r.toMap();
+      expect(m['taskId'], 'rt');
+      expect(m['tag'], 'sync');
+      expect(m['status'], 'running');
+      expect(m['workerClassName'], 'HttpDownloadWorker');
+      expect(m['createdAt'], 1000);
+      expect(m['updatedAt'], 2000);
+    });
+  });
+
+  group('NativeWorkManagerError edge cases', () {
+    test('empty string returns unknown', () {
+      expect(NativeWorkManagerError.fromString(''),
+          NativeWorkManagerError.unknown);
+    });
+
+    test('whitespace string returns unknown', () {
+      expect(NativeWorkManagerError.fromString(' NETWORK_ERROR '),
+          NativeWorkManagerError.unknown);
+    });
+
+    test('all enum values have non-empty rawValue', () {
+      for (final e in NativeWorkManagerError.values) {
+        expect(e.rawValue, isNotEmpty,
+            reason: '${e.name} rawValue should not be empty');
+      }
+    });
+
+    test('all rawValues are unique', () {
+      final rawValues = NativeWorkManagerError.values.map((e) => e.rawValue);
+      expect(rawValues.toSet().length, NativeWorkManagerError.values.length);
+    });
   });
 }

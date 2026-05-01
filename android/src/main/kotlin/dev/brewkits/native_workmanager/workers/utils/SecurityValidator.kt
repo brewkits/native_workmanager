@@ -26,7 +26,7 @@ object SecurityValidator {
     // MARK: - Configurable Limits (Allow users to override these)
     @Volatile var maxRequestBodySize = 10 * 1024 * 1024L
     @Volatile var maxResponseBodySize = 50 * 1024 * 1024L
-    @Volatile var maxFileSize = 500 * 1024 * 1024L // Increased to 500MB default
+    @Volatile var maxFileSize = 15 * 1024 * 1024L // Reduced to 15MB to prevent OOM in non-streaming workers (like CryptoWorker)
     @Volatile var maxArchiveSize = 1024 * 1024 * 1024L // Increased to 1GB default
 
     // MARK: - URL Validation
@@ -107,7 +107,7 @@ object SecurityValidator {
             val canonical = File(path).canonicalPath
             // Block read/write to OS-owned directories regardless of how the path
             // was constructed. This catches symlink escapes into system space.
-            val blockedPrefixes = listOf("/proc", "/sys", "/etc", "/system", "/vendor", "/dev", "/root")
+            val blockedPrefixes = listOf("/proc", "/sys", "/etc", "/system", "/vendor", "/dev", "/root", "/data")
             for (blocked in blockedPrefixes) {
                 if (canonical.startsWith(blocked)) {
                     Log.e(TAG, "File path '$canonical' points to restricted system directory '$blocked'")

@@ -26,7 +26,7 @@
 |-----------|---------|
 | Current Version | v1.2.0 |
 | Platforms | Android (API 26+), iOS (14.0+) |
-| Engine Core | kmpworkmanager 2.3.9 (KMP, Maven Central) |
+| Engine Core | kmpworkmanager 2.4.3 (KMP, Maven Central) |
 | Dart SDK | >=3.6.0 <4.0.0 |
 | Flutter | >=3.27.0 |
 | License | MIT |
@@ -65,7 +65,7 @@ For mid-range Android devices running multiple apps, starting the Flutter Engine
 │  KMP Engine Layer                                            │
 │  Android: WorkManager 2.10.1 (Androidx)                     │
 │  iOS: BGTaskScheduler / BGProcessingTask                    │
-│  Shared domain: kmpworkmanager 2.3.9                        │
+│  Shared domain: kmpworkmanager 2.4.3                        │
 └─────────────────────────────────────────────────────────────┘
 ```
 

@@ -60,7 +60,7 @@ class NativeWorker {
 
   /// Validate URL format and throw helpful error if invalid.
   static void _validateUrl(String url) {
-    _validateInput(url, 'URL');
+    _validateInput(url, 'URL', isUrl: true);
     if (url.isEmpty) {
       throw ArgumentError(
         'URL cannot be empty.\n'
@@ -107,29 +107,51 @@ class NativeWorker {
   }
 
   /// Check input for malicious patterns (Null bytes, injection chars).
-  static void _validateInput(String? value, String label) {
+  static void _validateInput(String? value, String label, {bool isUrl = false}) {
     if (value == null) return;
 
     if (value.contains('\u0000')) {
       throw ArgumentError(
           '$label contains null bytes which is not allowed for security reasons.');
     }
+
+    // SECURITY: Block common shell injection characters
+    // Dangerous characters that should never be in URLs or paths
+    const dangerous = ['|', ';', '<', '>', '`', '!', '\\'];
+    for (final char in dangerous) {
+      if (value.contains(char)) {
+        throw ArgumentError(
+            '$label contains illegal shell injection character: "$char"');
+      }
+    }
+
+    // Path-specific dangerous characters (allowed in URLs like & and #)
+    if (!isUrl) {
+      const pathDangerous = ['&', '*', '?', '~', '[', ']', '(', ')', '{', '}', '#'];
+      for (final char in pathDangerous) {
+        if (value.contains(char)) {
+          throw ArgumentError(
+              '$label contains illegal shell injection character: "$char"');
+        }
+      }
+    }
+
+    // Handle $ separately to avoid interpolation issues in source or tests
+    if (value.contains('\$') && !value.contains('{{')) {
+      throw ArgumentError(
+          '$label contains illegal shell injection character: "\$"');
+    }
   }
 
   /// Validate file path for path traversal or injection.
   static void _validatePath(String path, String label) {
-    _validateInput(path, label);
+    _validateInput(path, label, isUrl: false);
 
     // SECURITY: Prevent path traversal attacks
     final normalized = path.toLowerCase();
     if (normalized.contains('..') || normalized.contains('%2e%2e')) {
       throw ArgumentError(
           '$label cannot contain ".." or encoded dot-segments (path traversal attempt blocked).');
-    }
-
-    if (path.contains(';') || path.contains('|')) {
-      throw ArgumentError(
-          '$label contains illegal shell injection characters.');
     }
 
     // SECURITY: Require absolute paths (relative paths can be manipulated)
@@ -328,6 +350,7 @@ class NativeWorker {
     Map<String, dynamic>? requestBody,
     Duration timeout = const Duration(seconds: 60),
     TokenRefreshConfig? tokenRefresh,
+    RequestSigning? requestSigning,
   }) =>
       _buildHttpSync(
         url: url,
@@ -336,6 +359,7 @@ class NativeWorker {
         requestBody: requestBody,
         timeout: timeout,
         tokenRefresh: tokenRefresh,
+        requestSigning: requestSigning,
       );
 
   // ── Custom worker ────────────────────────────────────────────────────────────

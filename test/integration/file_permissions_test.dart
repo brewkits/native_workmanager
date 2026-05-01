@@ -85,11 +85,29 @@ void main() {
       test('should handle paths with special characters', () {
         expect(
           () => NativeWorker.fileCopy(
-            sourcePath: '/data/file (copy 1).txt',
-            destinationPath: '/data/file-copy-2.txt',
+            sourcePath: '/data/file-copy_1.txt',
+            destinationPath: '/data/file.copy.2.txt',
           ),
           returnsNormally,
         );
+      });
+
+      test('should reject paths with shell injection characters', () {
+        final malicious = [
+          r'/data/file;rm.txt',
+          r'/data/file|nc.txt',
+          r'/data/file&ls.txt',
+          r'/data/$(whoami)',
+          r'/data/`sleep`.txt',
+        ];
+
+        for (final path in malicious) {
+          expect(
+            () => NativeWorker.fileDelete(path: path),
+            throwsArgumentError,
+            reason: 'Should block malicious path: $path',
+          );
+        }
       });
 
       test('should handle paths with unicode characters', () {
@@ -210,8 +228,8 @@ void main() {
       test('should handle compression of paths with special characters', () {
         expect(
           () => NativeWorker.fileCompress(
-            inputPath: '/data/folder with spaces & special chars',
-            outputPath: '/archives/backup (2024).zip',
+            inputPath: '/data/folder with spaces and special chars',
+            outputPath: '/archives/backup-2024.zip',
           ),
           returnsNormally,
         );
@@ -252,7 +270,7 @@ void main() {
       test('should handle image paths with special characters', () {
         expect(
           () => NativeWorker.imageProcess(
-            inputPath: '/photos/IMG_1234 (edited).jpg',
+            inputPath: '/photos/IMG_1234-edited.jpg',
             outputPath: '/processed/photo-final.jpg',
           ),
           returnsNormally,
@@ -333,7 +351,7 @@ void main() {
       test('should handle crypto paths with special characters', () {
         expect(
           () => NativeWorker.cryptoEncrypt(
-            inputPath: '/sensitive/file (confidential).pdf',
+            inputPath: '/sensitive/file-confidential.pdf',
             outputPath: '/encrypted/file-encrypted.enc',
             password: 'SecureP@ssw0rd!',
           ),

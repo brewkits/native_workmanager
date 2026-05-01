@@ -106,7 +106,14 @@ class KMPSchedulerBridge {
     private static func parseConstraints(from map: [String: Any]?) -> Constraints {
         let requiresNetwork = map?["requiresNetwork"] as? Bool ?? false
         let requiresCharging = map?["requiresCharging"] as? Bool ?? false
-        let isHeavyTask = map?["isHeavyTask"] as? Bool ?? false
+        
+        // FIX I4: Respect bgTaskType if provided, otherwise fallback to auto-selection via isHeavyTask.
+        let isHeavyTask: Bool
+        if let type = map?["bgTaskType"] as? String {
+            isHeavyTask = (type == "processing")
+        } else {
+            isHeavyTask = map?["isHeavyTask"] as? Bool ?? false
+        }
 
         let qos: Qos
         switch (map?["qos"] as? String)?.lowercased() {

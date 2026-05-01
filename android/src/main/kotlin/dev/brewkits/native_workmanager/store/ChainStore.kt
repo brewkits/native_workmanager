@@ -120,6 +120,15 @@ internal class ChainStore(context: Context) {
                 list
             }
 
+    /** Returns the chain that contains [taskId] as a step, or null if not found. */
+    fun getChainForTaskId(taskId: String): ChainRecord? =
+        dbHelper.readableDatabase
+            .rawQuery(
+                "SELECT c.* FROM chains c INNER JOIN chain_steps s ON c.chain_id = s.chain_id WHERE s.task_id = ? LIMIT 1",
+                arrayOf(taskId)
+            )
+            .use { c -> if (c.moveToFirst()) c.toChainRecord() else null }
+
     fun getStepsForChain(chainId: String): List<ChainStepRecord> =
         dbHelper.readableDatabase
             .rawQuery(

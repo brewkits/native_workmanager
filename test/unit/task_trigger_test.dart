@@ -90,6 +90,59 @@ void main() {
         expect(trigger.flexInterval, Duration(minutes: 30));
       });
 
+      test('should create periodic trigger with initialDelay', () {
+        final trigger = TaskTrigger.periodic(
+          Duration(hours: 1),
+          initialDelay: Duration(minutes: 30),
+        );
+
+        expect(trigger, isA<PeriodicTrigger>());
+        expect((trigger as PeriodicTrigger).initialDelay, Duration(minutes: 30));
+      });
+
+      test('should create periodic trigger with runImmediately false', () {
+        final trigger = TaskTrigger.periodic(
+          Duration(hours: 1),
+          runImmediately: false,
+        );
+
+        expect(trigger, isA<PeriodicTrigger>());
+        expect((trigger as PeriodicTrigger).runImmediately, false);
+      });
+
+      test('should serialize periodic with initialDelay to map', () {
+        final trigger = TaskTrigger.periodic(
+          Duration(hours: 1),
+          initialDelay: Duration(minutes: 30),
+        );
+        final map = trigger.toMap();
+
+        expect(map['type'], 'periodic');
+        expect(map['initialDelayMs'], Duration(minutes: 30).inMilliseconds);
+        expect(map['runImmediately'], true);
+      });
+
+      test('should serialize periodic with runImmediately false to map', () {
+        final trigger = TaskTrigger.periodic(
+          Duration(hours: 1),
+          runImmediately: false,
+        );
+        final map = trigger.toMap();
+
+        expect(map['type'], 'periodic');
+        expect(map['runImmediately'], false);
+      });
+
+      test('should throw error if both initialDelay and runImmediately: false are set', () {
+        final trigger = TaskTrigger.periodic(
+          Duration(hours: 1),
+          initialDelay: Duration(minutes: 30),
+          runImmediately: false,
+        );
+
+        expect(() => trigger.toMap(), throwsA(isA<AssertionError>()));
+      });
+
       test('should serialize periodic without flex to map', () {
         final trigger = TaskTrigger.periodic(Duration(hours: 1));
         final map = trigger.toMap();

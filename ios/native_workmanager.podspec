@@ -4,7 +4,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'native_workmanager'
-  s.version          = '1.2.2'
+  s.version          = '1.2.4'
   s.summary          = 'Background task manager for Flutter using platform-native APIs.'
   s.description      = <<-DESC
 Native WorkManager is a Flutter plugin that provides native background task scheduling
@@ -36,7 +36,7 @@ Features:
   }
   s.swift_version = '5.0'
 
-  # KMP WorkManager Framework (kmpworkmanager v2.4.1)
+  # KMP WorkManager Framework (kmpworkmanager v2.4.3)
   # Tracked with Git LFS for efficient binary storage
   s.vendored_frameworks = 'Frameworks/KMPWorkManager.xcframework'
 

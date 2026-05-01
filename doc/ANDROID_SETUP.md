@@ -82,32 +82,25 @@ Run:
 flutter pub get
 ```
 
-### 2. Basic Setup (Native Workers Only)
+### 2. Basic Setup
 
-For **native workers** (HTTP, file, crypto, image, PDF, etc.) no extra Android configuration is
-needed. The plugin automatically:
+For **native workers** (HTTP, file, crypto, image, PDF, etc.) that run while the app is in the
+foreground or background (but not yet killed), no extra Android configuration is needed.
 
-- ✅ Registers all built-in native workers
-- ✅ Initializes WorkManager with the plugin's `WorkerFactory`
-- ✅ Sets up notification channels (for debug mode)
+**However**, if you want **any task** (Native or Dart) to trigger reliably after the app process
+has been killed (by the OS or the user), you **must** follow the **Killed-App Support**
+instructions in the next section.
 
 ---
 
-### 3. Required: Killed-App Support for Dart Workers
+### 3. Required: Killed-App Support
 
-> **This section only applies if you use `DartWorker`.** Native-worker-only apps can skip it.
+When Android kills your app (low memory, user swipe) and WorkManager later fires a scheduled
+task, the process restarts. For the task to succeed, WorkManager needs to be initialized
+with the plugin's custom `WorkerFactory`.
 
-When Android kills your app (low memory, user swipe) and WorkManager fires a scheduled
-`DartWorker`, the process restarts **without Flutter**. Two things must happen for the task
-to succeed:
-
-| Requirement | Who handles it |
-|---|---|
-| Restore `callbackHandle` so `FlutterEngineManager` can boot Dart | **Plugin** — persisted automatically to SharedPreferences during `initialize()` |
-| Provide `KmpWorkerFactory` so WorkManager can create `KmpWorker` | **Host app** — must implement `Configuration.Provider` on the `Application` class |
-
-The second requirement cannot be automated by the plugin: Android's `Configuration.Provider`
-interface must be on the host app's `Application` class.
+The `Configuration.Provider` interface must be implemented on your host app's `Application`
+class to provide this factory during a cold process start.
 
 #### Step 1 — Create (or update) your `Application` class
 
@@ -158,6 +151,16 @@ If you also register custom native workers, pass your user factory to `SimpleAnd
 ```kotlin
 addFactory(KmpWorkerFactory(SimpleAndroidWorkerFactory(this, myUserFactory)))
 ```
+
+> **ProGuard / R8 note:** The plugin automatically ships ProGuard rules that protect its own
+> classes (via `consumerProguardFiles`). However, your **custom worker classes** live in your
+> app's package and are not covered. Add a keep rule for them in
+> `android/app/proguard-rules.pro`:
+> ```
+> -keep class com.example.yourapp.workers.** { *; }
+> ```
+> Without this, R8 will rename the class in Release builds and WorkManager will fail to
+> instantiate it (the class name is stored as a String in SQLite and resolved via reflection).
 
 #### Step 2 — Register the Application class in `AndroidManifest.xml`
 

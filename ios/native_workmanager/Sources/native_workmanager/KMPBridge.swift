@@ -36,7 +36,7 @@ public class KMPBridge {
         )
 
         isInitialized = true
-        NativeLogger.d("KMPBridge: Initialized with NativeTaskScheduler from kmpworkmanager v2.4.1")
+        NativeLogger.d("KMPBridge: Initialized with NativeTaskScheduler from kmpworkmanager v2.4.3")
     }
 
     public func reinitialize(diskSpaceBufferMB: Int) {
@@ -134,7 +134,7 @@ public actor AuthTokenManager {
 
         let refreshTask = Task<String?, Never> {
             do {
-                guard let url = URL(string: config.url) else { return nil }
+                guard let url = SecurityValidator.validateURL(config.url) else { return nil }
                 var request = URLRequest(url: url)
                 request.httpMethod = config.effectiveMethod
                 config.headers?.forEach { request.setValue($1, forHTTPHeaderField: $0) }

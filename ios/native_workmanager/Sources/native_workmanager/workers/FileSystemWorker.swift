@@ -364,11 +364,11 @@ class FileSystemWorker: IosWorker {
                 return .failure(message: "Cannot enumerate directory")
             }
             
-            // Fix Regex Injection — pre-compile and escape pattern
+            // Fix Regex Injection — pre-compile and safely escape pattern
             let regex = try pattern.flatMap { p -> NSRegularExpression? in
-                let escaped = p.replacingOccurrences(of: ".", with: "\\.")
-                               .replacingOccurrences(of: "*", with: ".*")
-                               .replacingOccurrences(of: "?", with: ".")
+                let escaped = NSRegularExpression.escapedPattern(for: p)
+                               .replacingOccurrences(of: "\\*", with: ".*")
+                               .replacingOccurrences(of: "\\?", with: ".")
                 return try NSRegularExpression(pattern: "^" + escaped + "$", options: .caseInsensitive)
             }
 

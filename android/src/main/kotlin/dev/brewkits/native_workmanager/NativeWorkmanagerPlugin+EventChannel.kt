@@ -151,15 +151,6 @@ internal fun NativeWorkmanagerPlugin.subscribeToTaskEvents() {
 
                 NativeLogger.d("EventChannel: received event for ${event.taskName}, success=${event.success}, hasOutputData=${event.outputData != null}")
 
-                // Update TaskStore so getTaskRecord() sees the result data
-                withContext(Dispatchers.IO) {
-                    taskStore.updateStatus(
-                        taskId = event.taskName,
-                        status = if (event.success) "success" else "failed",
-                        resultData = event.outputData?.let { org.json.JSONObject(it).toString() }
-                    )
-                }
-
                 // Always emit event to Dart (v2.3.1+: includes outputData)
                 val eventMap = mutableMapOf<String, Any?>(
                     "taskId" to event.taskName,
@@ -384,10 +375,20 @@ internal fun NativeWorkmanagerPlugin.observeWorkCompletion(taskId: String, isPer
                             // computeIfAbsent is atomic — creates deferred if not yet signalled,
                             // then suspends. If TaskEventBus already fired, await() returns at once.
                             // withTimeoutOrNull caps the wait at 2 s for edge cases.
-                            withTimeoutOrNull(2_000L) {
+                            val wasSignalled = withTimeoutOrNull(2_000L) {
                                 taskBusSignals.computeIfAbsent(taskId) { CompletableDeferred() }.await()
-                            }
+                                true
+                            } ?: false
+                            
                             taskBusSignals.remove(taskId)
+
+                            // FIX A1: If TaskEventBus already handled the event, skip the fallback emission.
+                            // This prevents duplicate success/failure events being sent to Dart.
+                            if (wasSignalled) {
+                                NativeLogger.d("TaskEventBus already handled $taskId - skipping WorkInfo fallback")
+                                break
+                            }
+
                             if (taskStatuses[taskId] != "completed") {
                                 taskStatuses[taskId] = "completed"
                                 NativeLogger.d("✅ WorkInfo SUCCEEDED (fallback): $taskId")
@@ -403,10 +404,18 @@ internal fun NativeWorkmanagerPlugin.observeWorkCompletion(taskId: String, isPer
                         }
                         WorkInfo.State.FAILED -> {
                             // Same deferred-signal pattern for FAILED.
-                            withTimeoutOrNull(2_000L) {
+                            val wasSignalled = withTimeoutOrNull(2_000L) {
                                 taskBusSignals.computeIfAbsent(taskId) { CompletableDeferred() }.await()
-                            }
+                                true
+                            } ?: false
+                            
                             taskBusSignals.remove(taskId)
+
+                            if (wasSignalled) {
+                                NativeLogger.d("TaskEventBus already handled $taskId - skipping WorkInfo fallback")
+                                break
+                            }
+
                             if (taskStatuses[taskId] != "failed") {
                                 taskStatuses[taskId] = "failed"
                                 NativeLogger.e("❌ WorkInfo FAILED (fallback): $taskId")

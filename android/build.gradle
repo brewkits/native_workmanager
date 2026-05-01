@@ -1,5 +1,5 @@
 group = "dev.brewkits.native_workmanager"
-version = "1.2.2"
+version = "1.2.4"
 
 apply plugin: "com.android.library"
 apply plugin: "kotlin-android"
@@ -30,11 +30,12 @@ android {
 
     defaultConfig {
         minSdk = 26  // Android 8.0+ required for WorkManager
+        consumerProguardFiles 'proguard-rules.pro'
     }
 
     dependencies {
-        // KMP WorkManager - Core library (from Maven Central v2.4.0)
-        api("dev.brewkits:kmpworkmanager:2.4.1")
+        // KMP WorkManager - Core library (from Maven Central v2.4.3)
+        api("dev.brewkits:kmpworkmanager:2.4.3")
         // Android WorkManager — safe to use 2.10.0+ with kmpworkmanager 2.4.0+
         // (getForegroundInfo() override added in kmpworkmanager 2.3.3)
         api("androidx.work:work-runtime-ktx:2.10.1")

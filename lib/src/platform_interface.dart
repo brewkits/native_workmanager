@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'constraints.dart';
@@ -112,6 +113,11 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
   /// Get detailed task record.
   Future<TaskRecord?> getTaskRecord({required String taskId}) {
     throw UnimplementedError('getTaskRecord() has not been implemented.');
+  }
+
+  /// Get tasks by status.
+  Future<List<TaskRecord>> getTasksByStatus({required TaskStatus status}) {
+    throw UnimplementedError('getTasksByStatus() has not been implemented.');
   }
 
   /// Schedule a task chain.
@@ -245,5 +251,17 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
   /// Manually trigger processing of the native offline queue.
   Future<bool> syncOfflineQueue() {
     throw UnimplementedError('syncOfflineQueue() has not been implemented.');
+  }
+
+  /// Report a task event manually for testing purposes.
+  @visibleForTesting
+  void reportTestEvent(TaskEvent event) {
+    throw UnimplementedError('reportTestEvent() has not been implemented.');
+  }
+
+  /// Report a task progress manually for testing purposes.
+  @visibleForTesting
+  void reportTestProgress(TaskProgress progress) {
+    throw UnimplementedError('reportTestProgress() has not been implemented.');
   }
 }

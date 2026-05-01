@@ -192,9 +192,9 @@ void main() async {
   await NativeWorkManager.initialize();
   runApp(MyApp());
 }
-
-// No callback dispatcher needed for native workers!
 ```
+
+> **Note:** If you want your tasks to run reliably after the app is killed (swiped away or killed by OS), you still need to follow the **[Android Killed-App Support](ANDROID_SETUP.md#3-required-killed-app-support)** setup.
 
 **Option B: With Dart Workers (Need Dart code in background)**
 

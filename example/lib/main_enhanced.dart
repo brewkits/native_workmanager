@@ -98,7 +98,7 @@ class _DemoHomePageState extends State<DemoHomePage>
       });
     });
 
-    _addLog('🚀 Native WorkManager v1.2.0 initialized (kmpworkmanager v2.3.9)');
+    _addLog('🚀 Native WorkManager v1.2.4 initialized (kmpworkmanager v2.4.3)');
   }
 
   @override

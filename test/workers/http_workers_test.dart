@@ -74,6 +74,67 @@ void main() {
       final w = NativeWorker.httpRequest(url: 'https://example.com');
       expect(w.workerClassName, 'HttpRequestWorker');
     });
+
+    test('copyWith creates new instance with updated values', () {
+      final w1 = NativeWorker.httpRequest(
+        url: 'https://api.example.com',
+        method: HttpMethod.get,
+      ) as HttpRequestWorker;
+      
+      final w2 = w1.copyWith(
+        url: 'https://api.example.com/v2',
+        method: HttpMethod.post,
+        timeout: const Duration(seconds: 45),
+      );
+      
+      expect(w2.url, 'https://api.example.com/v2');
+      expect(w2.method, HttpMethod.post);
+      expect(w2.timeout, const Duration(seconds: 45));
+      expect(w1.url, 'https://api.example.com'); // Original unchanged
+    });
+
+    test('withHeaders merges headers', () {
+      final w1 = NativeWorker.httpRequest(
+        url: 'https://api.example.com',
+        headers: {'Accept': 'application/json'},
+      ) as HttpRequestWorker;
+      
+      final w2 = w1.withHeaders({'X-Custom': 'value'});
+      
+      expect(w2.headers, {
+        'Accept': 'application/json',
+        'X-Custom': 'value',
+      });
+    });
+
+    test('withAuth adds Authorization header', () {
+      final w1 = NativeWorker.httpRequest(url: 'https://api.example.com') as HttpRequestWorker;
+      
+      final w2 = w1.withAuth(token: 'my-token');
+      expect(w2.headers['Authorization'], 'Bearer my-token');
+      
+      final w3 = w1.withAuth(token: 'my-token', template: 'Basic {accessToken}');
+      expect(w3.headers['Authorization'], 'Basic my-token');
+    });
+
+    test('withBody sets body and Content-Type', () {
+      final w1 = NativeWorker.httpRequest(url: 'https://api.example.com') as HttpRequestWorker;
+      
+      final w2 = w1.withBody('{"key":"value"}');
+      
+      expect(w2.body, '{"key":"value"}');
+      expect(w2.headers['Content-Type'], 'application/json');
+    });
+
+    test('withSigning and withTokenRefresh set config', () {
+      final w1 = NativeWorker.httpRequest(url: 'https://api.example.com') as HttpRequestWorker;
+      
+      final w2 = w1.withSigning(const RequestSigning(secretKey: '1234567890123456'));
+      expect(w2.requestSigning, isNotNull);
+      
+      final w3 = w1.withTokenRefresh(const TokenRefreshConfig(url: 'https://auth.com'));
+      expect(w3.tokenRefresh, isNotNull);
+    });
   });
 
   // ── HttpUploadWorker ───────────────────────────────────────────────────────
@@ -127,6 +188,62 @@ void main() {
         filePath: '/tmp/f.jpg',
       );
       expect(w.workerClassName, 'HttpUploadWorker');
+    });
+
+    test('copyWith updates fields', () {
+      final w1 = NativeWorker.httpUpload(
+        url: 'https://example.com',
+        filePath: '/tmp/f.jpg',
+      ) as HttpUploadWorker;
+
+      final w2 = w1.copyWith(
+        url: 'https://example.com/v2',
+        filePath: '/tmp/v2.jpg',
+        timeout: const Duration(minutes: 10),
+      );
+
+      expect(w2.url, 'https://example.com/v2');
+      expect(w2.filePath, '/tmp/v2.jpg');
+      expect(w2.timeout, const Duration(minutes: 10));
+      expect(w1.url, 'https://example.com'); // Original unchanged
+    });
+
+    test('withHeaders merges headers', () {
+      final w1 = NativeWorker.httpUpload(
+        url: 'https://example.com',
+        filePath: '/tmp/f.jpg',
+        headers: {'Accept': 'application/json'},
+      ) as HttpUploadWorker;
+
+      final w2 = w1.withHeaders({'X-Custom': 'value'});
+
+      expect(w2.headers, {
+        'Accept': 'application/json',
+        'X-Custom': 'value',
+      });
+    });
+
+    test('withAuth adds Authorization header', () {
+      final w1 = NativeWorker.httpUpload(
+        url: 'https://example.com',
+        filePath: '/tmp/f.jpg',
+      ) as HttpUploadWorker;
+
+      final w2 = w1.withAuth(token: 'token123');
+      expect(w2.headers['Authorization'], 'Bearer token123');
+
+      final w3 = w1.withAuth(token: 'token123', template: 'Auth {accessToken}');
+      expect(w3.headers['Authorization'], 'Auth token123');
+    });
+
+    test('withSigning sets requestSigning', () {
+      final w1 = NativeWorker.httpUpload(
+        url: 'https://example.com',
+        filePath: '/tmp/f.jpg',
+      ) as HttpUploadWorker;
+
+      final w2 = w1.withSigning(const RequestSigning(secretKey: 'key1234567890123'));
+      expect(w2.requestSigning, isNotNull);
     });
   });
 
@@ -187,6 +304,99 @@ void main() {
         savePath: '/tmp/f.zip',
       );
       expect(w.workerClassName, 'HttpDownloadWorker');
+    });
+
+    test('copyWith updates fields', () {
+      final w1 = NativeWorker.httpDownload(
+        url: 'https://cdn.example.com/f.zip',
+        savePath: '/tmp/f.zip',
+      ) as HttpDownloadWorker;
+
+      final w2 = w1.copyWith(
+        url: 'https://cdn.example.com/v2.zip',
+        savePath: '/tmp/v2.zip',
+        timeout: const Duration(minutes: 10),
+      );
+      
+      expect(w2.url, 'https://cdn.example.com/v2.zip');
+      expect(w2.savePath, '/tmp/v2.zip');
+      expect(w2.timeout, const Duration(minutes: 10));
+      expect(w1.url, 'https://cdn.example.com/f.zip'); // Original unchanged
+    });
+
+    test('withNotification sets notification fields', () {
+      final w1 = NativeWorker.httpDownload(
+        url: 'https://cdn.example.com/f.zip',
+        savePath: '/tmp/f.zip',
+      ) as HttpDownloadWorker;
+
+      final w2 = w1.withNotification(title: 'Title', body: 'Body', allowPause: true);
+      
+      expect(w2.showNotification, isTrue);
+      expect(w2.notificationTitle, 'Title');
+      expect(w2.notificationBody, 'Body');
+      expect(w2.allowPause, isTrue);
+    });
+
+    test('withAuth sets auth fields', () {
+      final w1 = NativeWorker.httpDownload(
+        url: 'https://cdn.example.com/f.zip',
+        savePath: '/tmp/f.zip',
+      ) as HttpDownloadWorker;
+
+      final w2 = w1.withAuth(token: 'token123');
+      expect(w2.authToken, 'token123');
+      expect(w2.authHeaderTemplate, 'Bearer {accessToken}');
+      
+      final w3 = w1.withAuth(token: 'token123', template: 'Auth {accessToken}');
+      expect(w3.authHeaderTemplate, 'Auth {accessToken}');
+    });
+
+    test('withResume sets resume and skip options', () {
+      final w1 = NativeWorker.httpDownload(
+        url: 'https://cdn.example.com/f.zip',
+        savePath: '/tmp/f.zip',
+        enableResume: false,
+      ) as HttpDownloadWorker;
+
+      final w2 = w1.withResume(skipIfExists: true);
+      expect(w2.enableResume, isTrue);
+      expect(w2.skipExisting, isTrue);
+    });
+
+    test('withChecksum sets checksum fields', () {
+      final w1 = NativeWorker.httpDownload(
+        url: 'https://cdn.example.com/f.zip',
+        savePath: '/tmp/f.zip',
+      ) as HttpDownloadWorker;
+
+      final w2 = w1.withChecksum(expected: 'abc');
+      expect(w2.expectedChecksum, 'abc');
+      expect(w2.checksumAlgorithm, 'SHA-256');
+
+      final w3 = w1.withChecksum(expected: 'def', algorithm: 'MD5');
+      expect(w3.expectedChecksum, 'def');
+      expect(w3.checksumAlgorithm, 'MD5');
+    });
+
+    test('withBandwidthLimit sets limit', () {
+      final w1 = NativeWorker.httpDownload(
+        url: 'https://cdn.example.com/f.zip',
+        savePath: '/tmp/f.zip',
+      ) as HttpDownloadWorker;
+
+      final w2 = w1.withBandwidthLimit(1024);
+      expect(w2.bandwidthLimitBytesPerSecond, 1024);
+    });
+
+    test('withSigning sets requestSigning', () {
+      final w1 = NativeWorker.httpDownload(
+        url: 'https://cdn.example.com/f.zip',
+        savePath: '/tmp/f.zip',
+      ) as HttpDownloadWorker;
+
+      final w2 = w1.withSigning(const RequestSigning(secretKey: 'key1234567890123'));
+      expect(w2.requestSigning, isNotNull);
     });
   });
 
@@ -278,12 +488,99 @@ void main() {
       );
     });
 
-    test('workerClassName is ParallelHttpUploadWorker', () {
+    test('workerClassName is HttpUploadWorker', () {
       final w = NativeWorker.multiUpload(
         url: 'https://upload.example.com/batch',
         files: [const UploadFile(filePath: '/tmp/a.jpg')],
       );
       expect(w.workerClassName, 'HttpUploadWorker');
+    });
+  });
+
+  // ── ParallelHttpUploadWorker ─────────────────────────────────────────────
+
+  group('ParallelHttpUploadWorker', () {
+    test('required fields serialise', () {
+      final w = ParallelHttpUploadWorker(
+        url: 'https://upload.example.com/batch',
+        files: [
+          const UploadFile(filePath: '/tmp/a.jpg'),
+        ],
+      );
+      final map = w.toMap();
+      expect(map['url'], 'https://upload.example.com/batch');
+      expect(map['workerType'], 'parallelHttpUpload');
+      expect(map['maxConcurrent'], 3);
+      expect(map['maxRetries'], 1);
+    });
+
+    test('optional fields serialise', () {
+      final w = ParallelHttpUploadWorker(
+        url: 'https://upload.example.com/batch',
+        files: [
+          const UploadFile(filePath: '/tmp/a.jpg', fieldName: 'file1', fileName: 'f1.jpg', mimeType: 'image/jpeg'),
+        ],
+        headers: {'X-Auth': 'token'},
+        fields: {'user': '123'},
+        maxConcurrent: 5,
+        maxRetries: 3,
+        timeout: const Duration(minutes: 10),
+        showNotification: true,
+        notificationTitle: 'Uploading',
+        notificationBody: 'Please wait',
+      );
+      final map = w.toMap();
+      expect(map['headers']['X-Auth'], 'token');
+      expect(map['fields']['user'], '123');
+      expect(map['maxConcurrent'], 5);
+      expect(map['maxRetries'], 3);
+      expect(map['timeoutMs'], 600000);
+      expect(map['showNotification'], true);
+      expect(map['notificationTitle'], 'Uploading');
+      expect(map['notificationBody'], 'Please wait');
+      
+      final files = map['files'] as List;
+      expect(files.first['filePath'], '/tmp/a.jpg');
+      expect(files.first['fieldName'], 'file1');
+      expect(files.first['fileName'], 'f1.jpg');
+      expect(files.first['mimeType'], 'image/jpeg');
+    });
+
+    test('empty files throws ArgumentError', () {
+      expect(
+        () => ParallelHttpUploadWorker(url: 'https://example.com', files: []),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('invalid maxConcurrent throws RangeError', () {
+      expect(
+        () => ParallelHttpUploadWorker(url: 'https://example.com', files: [const UploadFile(filePath: '/tmp/a.jpg')], maxConcurrent: 0),
+        throwsA(isA<RangeError>()),
+      );
+      expect(
+        () => ParallelHttpUploadWorker(url: 'https://example.com', files: [const UploadFile(filePath: '/tmp/a.jpg')], maxConcurrent: 17),
+        throwsA(isA<RangeError>()),
+      );
+    });
+
+    test('invalid maxRetries throws RangeError', () {
+      expect(
+        () => ParallelHttpUploadWorker(url: 'https://example.com', files: [const UploadFile(filePath: '/tmp/a.jpg')], maxRetries: -1),
+        throwsA(isA<RangeError>()),
+      );
+      expect(
+        () => ParallelHttpUploadWorker(url: 'https://example.com', files: [const UploadFile(filePath: '/tmp/a.jpg')], maxRetries: 6),
+        throwsA(isA<RangeError>()),
+      );
+    });
+
+    test('workerClassName is ParallelHttpUploadWorker', () {
+      final w = ParallelHttpUploadWorker(
+        url: 'https://upload.example.com/batch',
+        files: [const UploadFile(filePath: '/tmp/a.jpg')],
+      );
+      expect(w.workerClassName, 'ParallelHttpUploadWorker');
     });
   });
 
@@ -316,6 +613,27 @@ void main() {
         () => NativeWorker.httpSync(url: ''),
         throwsA(isA<ArgumentError>()),
       );
+    });
+
+    test('non-serializable requestBody throws ArgumentError', () {
+      expect(
+        () => NativeWorker.httpSync(
+          url: 'https://api.example.com',
+          requestBody: {'data': Object()}, // Not JSON-serializable
+        ).toMap(),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('requestSigning and tokenRefresh serialise', () {
+      final w = NativeWorker.httpSync(
+        url: 'https://api.example.com/sync',
+        requestSigning: const RequestSigning(secretKey: '1234567890123456'),
+        tokenRefresh: const TokenRefreshConfig(url: 'https://auth.com'),
+      );
+      final map = w.toMap();
+      expect(map['requestSigning'], isNotNull);
+      expect(map['tokenRefresh'], isNotNull);
     });
 
     test('workerClassName is HttpSyncWorker', () {

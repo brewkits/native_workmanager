@@ -1,11 +1,34 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:native_workmanager/native_workmanager.dart';
+import 'package:flutter/services.dart';
 
 /// Security tests for URL validation.
 ///
 /// Tests that the library properly validates URL schemes to prevent
 /// security vulnerabilities like SSRF (Server-Side Request Forgery).
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  const MethodChannel channel =
+      MethodChannel('dev.brewkits/native_workmanager');
+
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
+      switch (methodCall.method) {
+        case 'initialize':
+          return null;
+        default:
+          return null;
+      }
+    });
+  });
+
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null);
+  });
+
   group('URL Scheme Validation', () {
     test('allows https:// scheme', () {
       // Should not throw
@@ -109,6 +132,26 @@ void main() {
       );
     });
 
+    test('blocks shell injection characters in URLs', () {
+      final maliciousUrls = [
+        r'https://example.com/api;rm -rf /',
+        r'https://example.com/api?q=$(whoami)',
+        r'https://example.com/api|nc -e /bin/sh',
+        r'https://example.com/api`sleep 10`',
+      ];
+
+      for (final url in maliciousUrls) {
+        expect(
+          () => NativeWorker.httpRequest(
+            url: url,
+            method: HttpMethod.get,
+          ),
+          throwsArgumentError,
+          reason: 'Should block malicious URL: $url',
+        );
+      }
+    });
+
     group('HttpDownloadWorker URL validation', () {
       test('allows valid https URL', () {
         final worker = NativeWorker.httpDownload(
@@ -154,6 +197,7 @@ void main() {
 
   group('Security Policy Enforcement', () {
     test('blocks http:// when enforceHttps is true', () async {
+      NativeWorkManager.resetInitializedState();
       try {
         await NativeWorkManager.initialize(enforceHttps: true);
       } catch (_) {}
@@ -170,6 +214,7 @@ void main() {
     });
 
     test('blocks private IPs when blockPrivateIPs is true', () async {
+      NativeWorkManager.resetInitializedState();
       try {
         await NativeWorkManager.initialize(blockPrivateIPs: true);
       } catch (_) {}

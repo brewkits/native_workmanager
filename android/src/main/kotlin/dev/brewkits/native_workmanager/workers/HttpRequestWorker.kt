@@ -133,11 +133,11 @@ class HttpRequestWorker : AndroidWorker {
             // Set method and body
             val requestBody = config.body?.let { body ->
                 val bodyBytes = body.toByteArray(Charsets.UTF_8)
-                if (!SecurityValidator.validateRequestSize(bodyBytes)) null
-                else {
-                    val contentType = config.headers?.get("Content-Type") ?: "application/json"
-                    bodyBytes.toRequestBody(contentType.toMediaType())
+                if (!SecurityValidator.validateRequestSize(bodyBytes)) {
+                    throw IllegalArgumentException("Request body too large")
                 }
+                val contentType = config.headers?.get("Content-Type") ?: "application/json"
+                bodyBytes.toRequestBody(contentType.toMediaType())
             } ?: if (config.httpMethod in listOf("POST", "PUT", "PATCH")) {
                 ByteArray(0).toRequestBody(null)
             } else null

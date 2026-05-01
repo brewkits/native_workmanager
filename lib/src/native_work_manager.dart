@@ -400,8 +400,9 @@ class NativeWorkManager {
       _initialized = true;
       _initCompleter!.complete();
     } catch (e, st) {
+      final completer = _initCompleter;
       _initCompleter = null; // allow retry on failure
-      _initCompleter?.completeError(e, st);
+      completer?.completeError(e, st);
       rethrow;
     }
   }
@@ -1343,8 +1344,7 @@ class NativeWorkManager {
   /// ```
   static Future<List<TaskRecord>> getTasksByStatus(TaskStatus status) async {
     _checkInitialized();
-    final all = await NativeWorkManagerPlatform.instance.allTasks();
-    return all.where((t) => t.status == status.name).toList();
+    return NativeWorkManagerPlatform.instance.getTasksByStatus(status: status);
   }
 
   /// Pause all currently-running tasks.
@@ -2035,6 +2035,7 @@ class NativeWorkManager {
   /// Unregister a Dart worker.
   static void unregisterDartWorker(String id) {
     _dartWorkers.remove(id);
+    _callbackHandles.remove(id);
   }
 
   /// Check if a Dart worker is registered.
@@ -2302,5 +2303,17 @@ class NativeWorkManager {
         },
       ),
     );
+  }
+
+  /// Report a task event manually for testing purposes.
+  @visibleForTesting
+  static void reportTestEvent(TaskEvent event) {
+    NativeWorkManagerPlatform.instance.reportTestEvent(event);
+  }
+
+  /// Report a task progress manually for testing purposes.
+  @visibleForTesting
+  static void reportTestProgress(TaskProgress progress) {
+    NativeWorkManagerPlatform.instance.reportTestProgress(progress);
   }
 }

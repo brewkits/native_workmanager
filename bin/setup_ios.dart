@@ -43,8 +43,8 @@ void main() async {
 
   // 2. Check for BGTaskSchedulerPermittedIdentifiers
   final identifiers = [
-    'dev.brewkits.native_workmanager.background_task',
-    'dev.brewkits.native_workmanager.refresh_task',
+    'dev.brewkits.native_workmanager.task',
+    'dev.brewkits.native_workmanager.refresh',
   ];
 
   if (!content.contains('<key>BGTaskSchedulerPermittedIdentifiers</key>')) {

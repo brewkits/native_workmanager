@@ -289,10 +289,10 @@ void main() {
       final p2 = TaskProgress(taskId: 'task-1', progress: 50, message: 'msg-B');
       final p3 = TaskProgress(taskId: 'task-1', progress: 75);
 
-      expect(p1, equals(p2)); // Same taskId + progress
+      expect(p1.taskId, equals(p2.taskId));
+      expect(p1.progress, equals(p2.progress));
       expect(p1, isNot(equals(p3))); // Different progress
     });
-
     test('should support hashCode', () {
       final p1 = TaskProgress(taskId: 'task-1', progress: 50);
       final p2 = TaskProgress(taskId: 'task-1', progress: 50);

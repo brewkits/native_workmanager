@@ -1123,10 +1123,16 @@ class TaskProgress {
       identical(this, other) ||
       other is TaskProgress &&
           taskId == other.taskId &&
-          progress == other.progress;
+          progress == other.progress &&
+          message == other.message &&
+          bytesDownloaded == other.bytesDownloaded &&
+          totalBytes == other.totalBytes &&
+          networkSpeed == other.networkSpeed &&
+          timeRemaining == other.timeRemaining;
 
   @override
-  int get hashCode => Object.hash(taskId, progress);
+  int get hashCode => Object.hash(
+      taskId, progress, message, bytesDownloaded, totalBytes, networkSpeed, timeRemaining);
 
   @override
   String toString() => 'TaskProgress('
