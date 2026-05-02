@@ -81,7 +81,7 @@ jobs:
   publish-plugin:
     name: Publish native_workmanager
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     needs: preflight
     permissions:
       id-token: write   # Required for OIDC-based pub.dev auth
