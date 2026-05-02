@@ -11,7 +11,6 @@ enum TaskState: String {
     case cancelled  = "cancelled"
     case completed  = "completed"
     case failed     = "failed"
-    case success    = "completed"
 }
 
 public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
