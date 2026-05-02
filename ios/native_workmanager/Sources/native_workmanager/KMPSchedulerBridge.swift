@@ -72,12 +72,11 @@ class KMPSchedulerBridge {
             let flexMs = (map["flexMs"] as? NSNumber)?.int64Value
             let initialDelayMs = (map["initialDelayMs"] as? NSNumber)?.int64Value ?? 0
             
-            // Note: KMPWorkManager TaskTriggerPeriodic doesn't currently support 
-            // initialDelayMs in its constructor. We parse it for future-proofing
-            // or in case we decide to handle it via a Task wrapper on iOS too.
             return TaskTriggerPeriodic(
                 intervalMs: intervalMs,
-                flexMs: flexMs != nil ? KotlinLong(value: flexMs!) : nil
+                flexMs: flexMs != nil ? KotlinLong(value: flexMs!) : nil,
+                initialDelayMs: initialDelayMs,
+                runImmediately: initialDelayMs == 0
             )
 
         case "exact":

@@ -32,7 +32,11 @@ public class KMPBridge {
         scheduler = NativeTaskScheduler(
             additionalPermittedTaskIds: [],
             diskSpaceBufferBytes: bufferBytes,
-            fileStorage: fileStorage
+            singleTaskExecutor: nil,
+            chainExecutor: nil,
+            fileStorage: fileStorage,
+            scope: nil,
+            forceWaitMigration: false
         )
 
         isInitialized = true
@@ -52,7 +56,11 @@ public class KMPBridge {
         scheduler = NativeTaskScheduler(
             additionalPermittedTaskIds: [],
             diskSpaceBufferBytes: bufferBytes,
-            fileStorage: fileStorage
+            singleTaskExecutor: nil,
+            chainExecutor: nil,
+            fileStorage: fileStorage,
+            scope: nil,
+            forceWaitMigration: false
         )
         NativeLogger.d("KMPBridge: scheduler recreated with diskSpaceBuffer=\(diskSpaceBufferMB)MB")
     }
