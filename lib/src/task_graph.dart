@@ -330,7 +330,7 @@ class _GraphExecutor {
 
     if (!_inFlight.contains(nodeId)) return;
 
-    // FIX G1: Lifecycle 'started' events must NOT remove nodes from _inFlight.
+    // Lifecycle 'started' events must NOT remove nodes from _inFlight.
     // Proceed only if this is a completion event (success or failure).
     // Removing the node here for a 'started' event would cause the actual
     // completion event to be ignored later, hanging the graph.

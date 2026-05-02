@@ -214,7 +214,7 @@ class HttpDownloadWorker : AndroidWorker {
             null
         }
 
-        // FIX H1: Use canonical-path validation instead of the weak contains("..")
+        // Use canonical-path validation instead of the weak contains("..")
         // string check. File.canonicalPath resolves symlinks and ".." at the OS level,
         // defeating URL-encoded paths and symlink-based escapes.
         if (!SecurityValidator.validateFilePathSafe(config.savePath)) {
@@ -729,7 +729,7 @@ class HttpDownloadWorker : AndroidWorker {
                 digest.update(buffer, 0, bytesRead)
                 readSoFar += bytesRead
                 
-                // FIX #07: Report progress during checksum calculation for large files
+                // Report progress during checksum calculation for large files.
                 if (taskId != null && totalSize > 10 * 1024 * 1024) { // Only report if > 10MB
                     val pct = (readSoFar * 100 / totalSize).toInt()
                     ProgressReporter.reportProgressNonBlocking(

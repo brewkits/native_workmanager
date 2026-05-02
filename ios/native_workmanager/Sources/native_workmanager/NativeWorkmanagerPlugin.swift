@@ -234,7 +234,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             
             let constraintsMap = args["constraints"] as? [String: Any]
             
-            // FIX I4: Respect bgTaskType if provided, otherwise fallback to auto-selection via isHeavyTask.
+            // Respect bgTaskType if provided, otherwise fallback to auto-selection via isHeavyTask.
             let bgTaskType = constraintsMap?["bgTaskType"] as? String
             let isHeavyTask: Bool
             if let type = bgTaskType {

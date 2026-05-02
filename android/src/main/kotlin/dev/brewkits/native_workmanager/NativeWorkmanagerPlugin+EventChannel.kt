@@ -236,7 +236,7 @@ internal fun NativeWorkmanagerPlugin.observeChainStepCompletion(taskId: String, 
                     }
                 }
         } catch (e: kotlinx.coroutines.CancellationException) {
-            // FIX M7: Always rethrow CancellationException so coroutine cancellation
+            // Always rethrow CancellationException so coroutine cancellation
             // propagates correctly. Catching it as Exception swallows scope cancellation
             // and prevents the coroutine from stopping when the plugin detaches.
             throw e
@@ -382,7 +382,7 @@ internal fun NativeWorkmanagerPlugin.observeWorkCompletion(taskId: String, isPer
                             
                             taskBusSignals.remove(taskId)
 
-                            // FIX A1: If TaskEventBus already handled the event, skip the fallback emission.
+                            // If TaskEventBus already handled the event, skip the fallback emission.
                             // This prevents duplicate success/failure events being sent to Dart.
                             if (wasSignalled) {
                                 NativeLogger.d("TaskEventBus already handled $taskId - skipping WorkInfo fallback")

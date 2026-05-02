@@ -116,9 +116,8 @@ class NativeWorker {
           '$label contains null bytes which is not allowed for security reasons.');
     }
 
-    // SECURITY: Block common shell injection characters
-    // Dangerous characters that should never be in URLs or paths
-    const dangerous = ['|', ';', '<', '>', '`', '!', '\\'];
+    // Block shell operator characters dangerous in both URLs and file paths.
+    const dangerous = ['|', ';', '<', '>', '`', '\\'];
     for (final char in dangerous) {
       if (value.contains(char)) {
         throw ArgumentError(
@@ -126,33 +125,18 @@ class NativeWorker {
       }
     }
 
-    // Path-specific dangerous characters (allowed in URLs like & and #)
-    if (!isUrl) {
-      const pathDangerous = [
-        '&',
-        '*',
-        '?',
-        '~',
-        '[',
-        ']',
-        '(',
-        ')',
-        '{',
-        '}',
-        '#'
-      ];
-      for (final char in pathDangerous) {
-        if (value.contains(char)) {
-          throw ArgumentError(
-              '$label contains illegal shell injection character: "$char"');
-        }
-      }
-    }
-
-    // Handle $ separately to avoid interpolation issues in source or tests
+    // $ enables command substitution ($(...)) in shells; block everywhere.
+    // Allow {{...}} template patterns used by middleware token injection.
     if (value.contains('\$') && !value.contains('{{')) {
       throw ArgumentError(
           '$label contains illegal shell injection character: "\$"');
+    }
+
+    // & is a shell background-execution operator; only reject in file paths
+    // since URLs legitimately use & as a query-param separator.
+    if (!isUrl && value.contains('&')) {
+      throw ArgumentError(
+          '$label contains illegal shell injection character: "&"');
     }
   }
 

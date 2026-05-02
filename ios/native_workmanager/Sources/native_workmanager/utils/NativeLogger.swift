@@ -45,7 +45,7 @@ struct NativeLogger {
     }
 
     /// Logs a URL after redacting sensitive query parameters.
-    /// FIX #05: Prevents sensitive tokens from leaking via Console.
+    /// Prevents sensitive tokens from leaking via Console.
     static func url(_ prefixStr: String, _ urlStr: String) {
         #if !targetEnvironment(simulator)
         guard enabled else { return }

@@ -93,7 +93,7 @@ class CryptoWorker : AndroidWorker {
     ) {
         val effectiveAlgorithm: String get() = algorithm ?: DEFAULT_ALGORITHM
 
-        // L-1: Override to prevent password leaking into logs via data class toString().
+        // Override to prevent password leaking into logs via data class toString().
         override fun toString() =
             "Config(operation=$operation, filePath=$filePath, algorithm=$algorithm, " +
             "password=${if (password != null) "[REDACTED]" else "null"})"
@@ -145,7 +145,7 @@ class CryptoWorker : AndroidWorker {
     private fun performHash(config: Config): WorkerResult {
         val algorithm = config.effectiveAlgorithm.uppercase()
 
-        // SC-M-005: whitelist to prevent injection of arbitrary JCA algorithm names
+        // Whitelist to prevent injection of arbitrary JCA algorithm names.
         val normalizedAlgorithm = when (algorithm) {
             "SHA256" -> "SHA-256"
             "SHA512" -> "SHA-512"
@@ -161,7 +161,7 @@ class CryptoWorker : AndroidWorker {
         return when {
             config.filePath != null -> {
                 // Hash file
-                // FIX H1: canonical-path check (replaces weak contains(".."))
+                // Canonical-path check (replaces weak contains("..")).
                 if (!SecurityValidator.validateFilePathSafe(config.filePath)) {
                     Log.e(TAG, "Error - Invalid or unsafe file path")
                     return WorkerResult.Failure("Invalid or unsafe file path")
@@ -175,7 +175,7 @@ class CryptoWorker : AndroidWorker {
 
                 try {
                     val hash = calculateFileHash(file, normalizedAlgorithm)
-                    // SC-M-003: do not log hash value — it is sensitive data
+                    // Do not log hash value — it is sensitive data.
                     Log.d(TAG, "Hash calculated: ${file.name} ($normalizedAlgorithm)")
 
                     WorkerResult.Success(
@@ -196,7 +196,7 @@ class CryptoWorker : AndroidWorker {
                 // Hash string
                 try {
                     val hash = calculateStringHash(config.data, normalizedAlgorithm)
-                    // SC-M-003: do not log hash value — it is sensitive data
+                    // Do not log hash value — it is sensitive data.
                     Log.d(TAG, "Hash calculated: ${config.data.length} chars ($normalizedAlgorithm)")
 
                     WorkerResult.Success(
@@ -233,7 +233,7 @@ class CryptoWorker : AndroidWorker {
             return WorkerResult.Failure("password required for encrypt operation")
         }
 
-        // FIX H1: canonical-path checks (replace weak contains(".."))
+        // Canonical-path checks (replace weak contains("..")).
         if (!SecurityValidator.validateFilePathSafe(config.filePath)) {
             Log.e(TAG, "Error - Invalid or unsafe input file path")
             return WorkerResult.Failure("Invalid or unsafe input file path")
@@ -329,7 +329,7 @@ class CryptoWorker : AndroidWorker {
             return WorkerResult.Failure("password required for decrypt operation")
         }
 
-        // FIX H1: canonical-path checks (replace weak contains(".."))
+        // Canonical-path checks (replace weak contains("..")).
         if (!SecurityValidator.validateFilePathSafe(config.filePath)) {
             Log.e(TAG, "Error - Invalid or unsafe input file path")
             return WorkerResult.Failure("Invalid or unsafe input file path")
@@ -350,14 +350,14 @@ class CryptoWorker : AndroidWorker {
 
         val outputFile = File(outputPath)
 
-        // SC-H-001: validate file size before loading into RAM (AES-GCM buffers entire
-        // ciphertext to verify the authentication tag before releasing plaintext)
+        // Validate file size before loading into RAM (AES-GCM buffers entire
+        // ciphertext to verify the authentication tag before releasing plaintext).
         if (!SecurityValidator.validateFileSize(inputFile)) {
             Log.e(TAG, "Error - Encrypted file too large for GCM decryption (not truly streaming)")
             return WorkerResult.Failure("Encrypted file exceeds max size for decryption (${SecurityValidator.maxFileSize / 1024 / 1024}MB)")
         }
 
-        // SC-M-001: reject files too small to be valid AES-GCM output
+        // Reject files too small to be valid AES-GCM output.
         val minDecryptSize = SALT_SIZE + GCM_IV_SIZE + 16  // salt(16) + IV(12) + GCM tag(16)
         if (inputFile.length() < minDecryptSize) {
             Log.e(TAG, "Error - Encrypted file too small (${inputFile.length()} bytes, min $minDecryptSize)")
@@ -456,7 +456,7 @@ class CryptoWorker : AndroidWorker {
             val tmp = factory.generateSecret(spec)
             SecretKeySpec(tmp.encoded, "AES")
         } finally {
-            spec.clearPassword()   // SC-H-002: zero password char[] on heap
+            spec.clearPassword()   // Zero password char[] on heap.
         }
     }
 }

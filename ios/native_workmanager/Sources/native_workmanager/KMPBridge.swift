@@ -237,7 +237,7 @@ public class PinningDelegate: NSObject, URLSessionDelegate {
         let host = challenge.protectionSpace.host
         var allowedHashes: [String]?
         for (pattern, hashes) in config.pins {
-            // SC-H-004: proper wildcard matching — "*.example.com" must not match "notexample.com"
+            // Proper wildcard matching: "*.example.com" must not match "notexample.com".
             let matched: Bool
             if pattern.hasPrefix("*.") {
                 let domain = String(pattern.dropFirst(2))  // "example.com"
@@ -274,7 +274,7 @@ public class PinningDelegate: NSObject, URLSessionDelegate {
             guard result == .proceed || result == .unspecified else { return false }
         }
 
-        // SC-H-005: use non-deprecated SecTrustCopyKey (iOS 14+), fall back to
+        // Use non-deprecated SecTrustCopyKey (iOS 14+), fall back to
         // SecTrustCopyPublicKey (deprecated in iOS 15) — never force-unwrap.
         let serverPublicKey: SecKey?
         if #available(iOS 14.0, *) {
@@ -289,7 +289,7 @@ public class PinningDelegate: NSObject, URLSessionDelegate {
         }
 
         let keyHash = sha256(data: publicKeyData).base64EncodedString()
-        // SC-M-004: timing-safe comparison — avoid short-circuit string equality
+        // Timing-safe comparison to avoid short-circuit string equality.
         return pins.contains { timingSafeEqual($0, keyHash) }
     }
 

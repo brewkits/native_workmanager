@@ -83,7 +83,7 @@ class FileDecompressionWorker : AndroidWorker {
             null
         }
 
-        // FIX H1: Use canonical-path validation (replaces bypassable contains("..") check)
+        // Use canonical-path validation (replaces bypassable contains("..") check).
         if (!SecurityValidator.validateFilePathSafe(config.zipPath)) {
             Log.e(TAG, "Error - Invalid or unsafe ZIP path")
             return@withContext WorkerResult.Failure("Invalid ZIP path")

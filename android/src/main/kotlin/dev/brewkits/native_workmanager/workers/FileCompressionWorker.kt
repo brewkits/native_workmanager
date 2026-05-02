@@ -101,7 +101,7 @@ class FileCompressionWorker : AndroidWorker {
                 return WorkerResult.Failure("Missing required parameter: outputPath")
             }
 
-            // FIX H1: Canonical-path validation
+            // Canonical-path validation.
             if (!SecurityValidator.validateFilePathSafe(inputPath)) {
                 Log.e(TAG, "Invalid or unsafe input path")
                 return WorkerResult.Failure("Invalid or unsafe input path")

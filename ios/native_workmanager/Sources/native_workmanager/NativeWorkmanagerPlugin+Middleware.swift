@@ -123,7 +123,7 @@ extension NativeWorkmanagerPlugin {
                 do {
                     _ = try await URLSession.shared.data(for: request)
                 } catch {
-                    print("LoggingMiddleware: Failed to POST to \(logUrl) for task '\(taskId)': \(error)")
+                    NativeLogger.d("LoggingMiddleware: Failed to POST to \(logUrl) for task '\(taskId)': \(error)")
                 }
             }
         }

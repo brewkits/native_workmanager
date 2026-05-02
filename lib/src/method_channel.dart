@@ -374,7 +374,7 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
     }
     if (lower == 'throttled') return ScheduleResult.throttled;
 
-    // FIX L1: Log unknown values instead of silently treating them as accepted.
+    // Log unknown values instead of silently treating them as accepted.
     // This surfaces native-side bugs (e.g. typos, new values) during development.
     developer.log(
       'NativeWorkManager: Unrecognised schedule result "$result" — defaulting to accepted. '

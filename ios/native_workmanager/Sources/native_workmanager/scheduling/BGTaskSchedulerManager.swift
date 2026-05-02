@@ -74,7 +74,7 @@ class BGTaskSchedulerManager {
     private var activeWorker: IosWorker?
 
     /// Stores pending tasks in an ordered list to ensure FIFO execution.
-    /// FIX I1: Changed from Dictionary to Array to ensure stable order and
+    /// Changed from Dictionary to Array to ensure stable order and
     /// allow filtering by type when popping.
     private var pendingTasks: [TaskInfo] = []
     private let queue = DispatchQueue(label: "dev.brewkits.bgtask_manager")
@@ -153,7 +153,7 @@ class BGTaskSchedulerManager {
         )
 
         queue.sync {
-            // FIX I1: Append to array instead of dictionary to preserve order.
+            // Append to array instead of dictionary to preserve order.
             // If task ID already exists, replace it (ExistingTaskPolicy.replace behavior).
             if let index = pendingTasks.firstIndex(where: { $0.taskId == taskId }) {
                 pendingTasks[index] = taskInfo
@@ -193,7 +193,7 @@ class BGTaskSchedulerManager {
     /// Cancel a scheduled task.
     func cancelTask(taskId: String) {
         queue.sync {
-            // FIX I1: Remove from array by ID.
+            // Remove from array by ID.
             pendingTasks.removeAll(where: { $0.taskId == taskId })
             savePendingTasks()
         }
@@ -232,7 +232,7 @@ class BGTaskSchedulerManager {
         let completionGuard = TaskCompletionGuard()
         onTaskStart?()
 
-        // FIX I2: Filter by isHeavyTask = true when popping for processing handler.
+        // Filter by isHeavyTask = true when popping for processing handler.
         guard let taskInfo = popNextPendingTask(isHeavy: true) else {
             NativeLogger.d("BGTaskSchedulerManager: No pending processing tasks")
             completionGuard.completeOnce(task: task, success: true)
@@ -262,7 +262,7 @@ class BGTaskSchedulerManager {
         let completionGuard = TaskCompletionGuard()
         onTaskStart?()
 
-        // FIX I2: Filter by isHeavyTask = false when popping for refresh handler.
+        // Filter by isHeavyTask = false when popping for refresh handler.
         guard let taskInfo = popNextPendingTask(isHeavy: false) else {
             NativeLogger.d("BGTaskSchedulerManager: No pending refresh tasks")
             completionGuard.completeOnce(task: task, success: true)
@@ -362,8 +362,8 @@ class BGTaskSchedulerManager {
 
     /// Atomically pops the next pending task matching the required type.
     ///
-    /// FIX I1: Preserves FIFO by picking the first task in the array.
-    /// FIX I2: Filters by [isHeavy] to ensure tasks run in the correct BGTask slot.
+    /// Preserves FIFO by picking the first task in the array.
+    /// Filters by [isHeavy] to ensure tasks run in the correct BGTask slot.
     private func popNextPendingTask(isHeavy: Bool) -> TaskInfo? {
         return queue.sync {
             if !pendingTasksLoaded {

@@ -83,7 +83,7 @@ enum RequestSigner {
         )
 
         guard let signature = hmacSHA256(message: message, key: config.secretKey) else {
-            print("RequestSigner: HMAC computation failed — request not signed")
+            NativeLogger.d("RequestSigner: HMAC computation failed — request not signed")
             return
         }
 
@@ -92,7 +92,7 @@ enum RequestSigner {
             request.setValue(ts, forHTTPHeaderField: "X-Timestamp")
         }
 
-        print("RequestSigner: Signed — header=\(config.headerName) ts=\(timestamp ?? "none")")
+        NativeLogger.d("RequestSigner: Signed — header=\(config.headerName) ts=\(timestamp ?? "none")")
     }
 
     // MARK: - Private helpers

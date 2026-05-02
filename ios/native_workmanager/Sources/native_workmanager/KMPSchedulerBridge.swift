@@ -106,7 +106,7 @@ class KMPSchedulerBridge {
         let requiresNetwork = map?["requiresNetwork"] as? Bool ?? false
         let requiresCharging = map?["requiresCharging"] as? Bool ?? false
         
-        // FIX I4: Respect bgTaskType if provided, otherwise fallback to auto-selection via isHeavyTask.
+        // Respect bgTaskType if provided, otherwise fallback to auto-selection via isHeavyTask.
         let isHeavyTask: Bool
         if let type = map?["bgTaskType"] as? String {
             isHeavyTask = (type == "processing")

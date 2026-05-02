@@ -196,7 +196,7 @@ extension NativeWorkmanagerPlugin {
 
         // Execute chain steps
         for (stepIndex, stepData) in steps.enumerated() {
-            // FIX C1: Honour cancellation between steps.
+            // Honour cancellation between steps.
             guard !Task.isCancelled else {
                 NativeLogger.d("Chain '\(chainCancelId)' cancelled at step \(stepIndex + 1)")
                 try? await chainStateManager.markChainFailed(chainId: chainId)

@@ -72,7 +72,7 @@ actor ChainStateManager {
 
     private func migrateFromUserDefaults() async {
         guard let data = defaults.data(forKey: Self.userDefaultsKey) else { return }
-        print("ChainStateManager: Found legacy data in UserDefaults. Migrating to SQLite...")
+        NativeLogger.d("ChainStateManager: Found legacy data in UserDefaults. Migrating to SQLite...")
         
         do {
             let states = try JSONDecoder().decode([ChainState].self, from: data)
@@ -92,9 +92,9 @@ actor ChainStateManager {
             // Clear legacy data after successful migration
             defaults.removeObject(forKey: Self.userDefaultsKey)
             defaults.synchronize()
-            print("ChainStateManager: Migration complete (\(states.count) chains)")
+            NativeLogger.d("ChainStateManager: Migration complete (\(states.count) chains)")
         } catch {
-            print("ChainStateManager: Migration failed: \(error)")
+            NativeLogger.d("ChainStateManager: Migration failed: \(error)")
         }
     }
 
@@ -102,8 +102,8 @@ actor ChainStateManager {
 
     /// Save chain state to SQLite
     func saveChainState(_ state: ChainState) throws {
-        print("ChainStateManager: Saving state for chain '\(state.chainId)' to SQLite")
-        print("  Progress: \(state.currentStep + 1)/\(state.totalSteps) steps")
+        NativeLogger.d("ChainStateManager: Saving state for chain '\(state.chainId)' to SQLite")
+        NativeLogger.d("  Progress: \(state.currentStep + 1)/\(state.totalSteps) steps")
 
         let stateData = try JSONEncoder().encode(state)
         guard let stateJson = String(data: stateData, encoding: .utf8) else {
@@ -119,7 +119,7 @@ actor ChainStateManager {
             stateJson: stateJson
         )
 
-        print("ChainStateManager: Saved successfully to SQLite")
+        NativeLogger.d("ChainStateManager: Saved successfully to SQLite")
     }
 
     /// Load chain state by ID
@@ -163,22 +163,22 @@ actor ChainStateManager {
     /// Save result data from a completed step
     func saveStepResult(chainId: String, stepIndex: Int, resultData: [String: Any]?) throws {
         guard var state = try loadChainState(chainId: chainId) else {
-            print("ChainStateManager: Chain '\(chainId)' not found")
+            NativeLogger.d("ChainStateManager: Chain '\(chainId)' not found")
             return
         }
 
         guard stepIndex >= 0 && stepIndex < state.totalSteps else {
-            print("ChainStateManager: Invalid step index \(stepIndex)")
+            NativeLogger.d("ChainStateManager: Invalid step index \(stepIndex)")
             return
         }
 
         // Store result data (convert to AnyCodable)
         if let resultData = resultData {
             state.stepResults[stepIndex] = resultData.mapValues { AnyCodable($0) }
-            print("ChainStateManager: Saved result data for step \(stepIndex + 1) (\(resultData.count) keys)")
+            NativeLogger.d("ChainStateManager: Saved result data for step \(stepIndex + 1) (\(resultData.count) keys)")
         } else {
             state.stepResults[stepIndex] = nil
-            print("ChainStateManager: No result data for step \(stepIndex + 1)")
+            NativeLogger.d("ChainStateManager: No result data for step \(stepIndex + 1)")
         }
 
         state.lastUpdatedAt = Date()
@@ -212,21 +212,21 @@ actor ChainStateManager {
     /// Mark current step as completed and advance to next step
     func advanceToNextStep(chainId: String) throws {
         guard var state = try loadChainState(chainId: chainId) else {
-            print("ChainStateManager: Chain '\(chainId)' not found")
+            NativeLogger.d("ChainStateManager: Chain '\(chainId)' not found")
             return
         }
 
-        print("ChainStateManager: Advancing chain '\(chainId)'")
-        print("  From step: \(state.currentStep + 1)/\(state.totalSteps)")
+        NativeLogger.d("ChainStateManager: Advancing chain '\(chainId)'")
+        NativeLogger.d("  From step: \(state.currentStep + 1)/\(state.totalSteps)")
 
         state.currentStep += 1
         state.lastUpdatedAt = Date()
 
         if state.currentStep >= state.totalSteps {
             state.completed = true
-            print("  Chain completed!")
+            NativeLogger.d("  Chain completed!")
         } else {
-            print("  To step: \(state.currentStep + 1)/\(state.totalSteps)")
+            NativeLogger.d("  To step: \(state.currentStep + 1)/\(state.totalSteps)")
         }
 
         try saveChainState(state)
@@ -238,7 +238,7 @@ actor ChainStateManager {
             return
         }
 
-        print("ChainStateManager: Marking chain '\(chainId)' as completed")
+        NativeLogger.d("ChainStateManager: Marking chain '\(chainId)' as completed")
         state.completed = true
         state.lastUpdatedAt = Date()
         try saveChainState(state)
@@ -246,7 +246,7 @@ actor ChainStateManager {
 
     /// Mark chain as failed
     func markChainFailed(chainId: String) throws {
-        print("ChainStateManager: Removing failed chain '\(chainId)'")
+        NativeLogger.d("ChainStateManager: Removing failed chain '\(chainId)'")
         try removeChainState(chainId: chainId)
     }
 
@@ -254,20 +254,20 @@ actor ChainStateManager {
 
     /// Remove specific chain state
     func removeChainState(chainId: String) throws {
-        print("ChainStateManager: Removing chain '\(chainId)' from SQLite")
+        NativeLogger.d("ChainStateManager: Removing chain '\(chainId)' from SQLite")
         chainStore.deleteChain(id: chainId)
     }
 
     /// Remove all completed or expired chains
     func cleanupOldStates() throws {
-        print("ChainStateManager: Cleaning up old states in SQLite...")
+        NativeLogger.d("ChainStateManager: Cleaning up old states in SQLite...")
         let cutoffDate = Date().addingTimeInterval(-Self.maxStateAge)
         chainStore.cleanup(olderThan: cutoffDate)
     }
 
     /// Remove ALL chain states (use for testing/debugging only)
     func clearAllStates() {
-        print("ChainStateManager: Clearing ALL chain states in SQLite")
+        NativeLogger.d("ChainStateManager: Clearing ALL chain states in SQLite")
         let states = (try? loadAllStates()) ?? []
         for state in states {
             chainStore.deleteChain(id: state.chainId)

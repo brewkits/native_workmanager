@@ -190,7 +190,7 @@ extension NativeWorkmanagerPlugin {
     }
 
     private func showDebugNotification(taskId: String, success: Bool, message: String?) {
-        // FIX H3: Read and remove taskStartTimes under the state lock to prevent data races.
+        // Read and remove taskStartTimes under the state lock to prevent data races.
         // emitTaskEvent (which calls this) can be called from multiple threads.
         let startTime: Date? = stateQueue.sync { taskStartTimes[taskId] }
         stateQueue.async(flags: .barrier) { self.taskStartTimes.removeValue(forKey: taskId) }

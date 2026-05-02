@@ -729,7 +729,7 @@ class TaskEvent {
 
   /// Create from platform channel map.
   ///
-  /// FIX M5: Uses null-safe access on every field. A version mismatch between
+  /// Uses null-safe access on every field. A version mismatch between
   /// native and Dart (or a platform bug) could send null for required fields;
   /// an unchecked cast would throw and close the EventChannel stream silently.
   factory TaskEvent.fromMap(Map<String, dynamic> map) {
@@ -1083,7 +1083,7 @@ class TaskProgress {
 
   /// Create from platform channel map.
   ///
-  /// FIX M5: Null-safe access prevents crash if platform omits a required field.
+  /// Null-safe access prevents crash if platform omits a required field.
   factory TaskProgress.fromMap(Map<String, dynamic> map) => TaskProgress(
         taskId: (map['taskId'] as String?) ?? '',
         progress: (map['progress'] as num?)?.toInt() ?? 0,

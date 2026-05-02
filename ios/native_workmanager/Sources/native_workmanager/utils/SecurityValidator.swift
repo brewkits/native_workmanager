@@ -323,7 +323,7 @@ enum SecurityValidator {
     ///   - targetURL: Directory where file will be written (default: temp directory)
     /// - Returns: true if sufficient space available, false otherwise
     static func hasEnoughDiskSpace(requiredBytes: Int64, targetURL: URL? = nil) -> Bool {
-        // FIX M2 (improved): Use the deepest existing ancestor of targetURL so that
+        // Use the deepest existing ancestor of targetURL so that
         // attributesOfFileSystem() works even when the destination file/dir doesn't exist yet
         // (a common case for downloads). Falls back to NSTemporaryDirectory if needed.
         var checkPath = NSTemporaryDirectory()

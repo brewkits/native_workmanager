@@ -51,7 +51,7 @@ object SecurityValidator {
             // Only allow HTTP and HTTPS schemes
             val allowedSchemes = listOf("http", "https")
             if (scheme !in allowedSchemes) {
-                // FIX #06: Explicitly reject content:// and file:// schemes for URL-based workers
+                // Explicitly reject content:// and file:// schemes for URL-based workers
                 // unless they are specifically designed to handle them.
                 Log.e(TAG, "Unsafe URL scheme '$scheme'. Only HTTP/HTTPS allowed.")
                 return false
@@ -91,7 +91,7 @@ object SecurityValidator {
      * to restricted OS directories. Use this in workers that do not have a Context.
      * For stricter sandbox enforcement pass allowedDirs to [validateFilePath].
      *
-     * FIX H1: Workers previously used `contains("..")` which is bypassable via
+     * Workers previously used `contains("..")` which is bypassable via
      * URL-encoded sequences or symlinks. This method uses File.canonicalPath which
      * the JVM resolves via the OS, defeating those bypasses.
      *
@@ -369,7 +369,7 @@ object SecurityValidator {
 
             return true
         } catch (e: Exception) {
-            // FIX M2: Fail-closed on disk space check errors.
+            // Fail-closed on disk space check errors.
             // Previously this returned true (fail-open) meaning an exception (e.g.
             // permission denied, unmounted volume) silently bypassed the check and
             // could allow disk-filling operations to proceed unchecked.

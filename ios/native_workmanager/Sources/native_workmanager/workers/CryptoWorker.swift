@@ -75,7 +75,7 @@ class CryptoWorker: IosWorker {
             algorithm ?? CryptoWorker.defaultAlgorithm
         }
 
-        // SC-H-003: prevent password leaking via default struct description in logs
+        // Prevent password leaking via default struct description in logs.
         var description: String {
             "Config(operation=\(operation), filePath=\(filePath ?? "nil"), " +
             "algorithm=\(algorithm ?? "nil"), password=\(password != nil ? "[REDACTED]" : "nil"))"
@@ -158,7 +158,7 @@ class CryptoWorker: IosWorker {
             do {
                 let hash = try calculateFileHash(fileURL: fileURL, algorithm: algorithm)
                 let fileSize = try FileManager.default.attributesOfItem(atPath: filePath)[.size] as? Int64 ?? 0
-                // SC-M-003: do not log hash value — it is sensitive data
+                // Do not log hash value — it is sensitive data.
                 NativeLogger.d("CryptoWorker: Hash calculated: \(fileURL.lastPathComponent) (\(algorithm))")
 
                 return .success(
@@ -178,7 +178,7 @@ class CryptoWorker: IosWorker {
             // Hash string
             do {
                 let hash = try calculateStringHash(data: data, algorithm: algorithm)
-                // SC-M-003: do not log hash value — it is sensitive data
+                // Do not log hash value — it is sensitive data.
                 NativeLogger.d("CryptoWorker: Hash calculated: \(data.count) chars (\(algorithm))")
 
                 return .success(
@@ -330,7 +330,7 @@ class CryptoWorker: IosWorker {
         do {
             // Read encrypted file: [salt(16)][nonce(12)+ciphertext+tag(16)]
             let encryptedData = try Data(contentsOf: inputURL)
-            // SC-M-002: salt(16) + nonce(12) + GCM tag(16) = 44 bytes minimum
+            // salt(16) + nonce(12) + GCM tag(16) = 44 bytes minimum.
             let minValidSize = CryptoWorker.saltSize + CryptoWorker.nonceSize + 16
             guard encryptedData.count >= minValidSize else {
                 throw NSError(domain: "CryptoWorker", code: -1,
