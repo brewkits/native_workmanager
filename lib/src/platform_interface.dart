@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'constraints.dart';
@@ -254,13 +253,11 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
   }
 
   /// Report a task event manually for testing purposes.
-  @visibleForTesting
   void reportTestEvent(TaskEvent event) {
     throw UnimplementedError('reportTestEvent() has not been implemented.');
   }
 
   /// Report a task progress manually for testing purposes.
-  @visibleForTesting
   void reportTestProgress(TaskProgress progress) {
     throw UnimplementedError('reportTestProgress() has not been implemented.');
   }
