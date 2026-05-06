@@ -242,7 +242,8 @@ void main() {
           ).toMap();
           expect(map['intervalMs'], const Duration(hours: 1).inMilliseconds);
           expect(map['flexMs'], isNull);
-          expect(map['initialDelayMs'], const Duration(minutes: 5).inMilliseconds);
+          expect(
+              map['initialDelayMs'], const Duration(minutes: 5).inMilliseconds);
           expect(map['runImmediately'], isTrue);
         });
 
@@ -265,7 +266,8 @@ void main() {
           ).toMap();
           expect(map['intervalMs'], const Duration(hours: 6).inMilliseconds);
           expect(map['flexMs'], const Duration(minutes: 30).inMilliseconds);
-          expect(map['initialDelayMs'], const Duration(minutes: 10).inMilliseconds);
+          expect(map['initialDelayMs'],
+              const Duration(minutes: 10).inMilliseconds);
           expect(map['runImmediately'], isTrue);
         });
 
@@ -282,7 +284,8 @@ void main() {
         });
 
         // issue_26: this combination was blocked by an assert in v1.2.4
-        test('combo: interval + initialDelay + runImmediately:false [issue_26]', () {
+        test('combo: interval + initialDelay + runImmediately:false [issue_26]',
+            () {
           final map = TaskTrigger.periodic(
             const Duration(hours: 1),
             initialDelay: const Duration(minutes: 30),
@@ -290,13 +293,16 @@ void main() {
           ).toMap();
           expect(map['intervalMs'], const Duration(hours: 1).inMilliseconds);
           expect(map['flexMs'], isNull);
-          expect(map['initialDelayMs'], const Duration(minutes: 30).inMilliseconds);
+          expect(map['initialDelayMs'],
+              const Duration(minutes: 30).inMilliseconds);
           // Dart emits false; native bridge overrides to true when initialDelayMs>0
           // to satisfy KMP library. See KMPSchedulerBridge.swift and +Enqueue.kt.
           expect(map['runImmediately'], isFalse);
         });
 
-        test('combo: all four — interval + flex + initialDelay + runImmediately:false', () {
+        test(
+            'combo: all four — interval + flex + initialDelay + runImmediately:false',
+            () {
           final map = TaskTrigger.periodic(
             const Duration(hours: 6),
             flexInterval: const Duration(minutes: 30),
@@ -305,7 +311,8 @@ void main() {
           ).toMap();
           expect(map['intervalMs'], const Duration(hours: 6).inMilliseconds);
           expect(map['flexMs'], const Duration(minutes: 30).inMilliseconds);
-          expect(map['initialDelayMs'], const Duration(minutes: 10).inMilliseconds);
+          expect(map['initialDelayMs'],
+              const Duration(minutes: 10).inMilliseconds);
           expect(map['runImmediately'], isFalse);
         });
       });

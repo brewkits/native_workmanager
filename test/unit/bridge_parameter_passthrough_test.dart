@@ -43,7 +43,8 @@ void main() {
       test('intervalMs is int (milliseconds)', () {
         final map = TaskTrigger.periodic(const Duration(hours: 2)).toMap();
         expect(map['intervalMs'], isA<int>());
-        expect(map['intervalMs'], equals(const Duration(hours: 2).inMilliseconds));
+        expect(
+            map['intervalMs'], equals(const Duration(hours: 2).inMilliseconds));
       });
 
       test('flexMs is int when set, null when absent', () {
@@ -52,7 +53,8 @@ void main() {
           flexInterval: const Duration(minutes: 20),
         ).toMap();
         expect(withFlex['flexMs'], isA<int>());
-        expect(withFlex['flexMs'], equals(const Duration(minutes: 20).inMilliseconds));
+        expect(withFlex['flexMs'],
+            equals(const Duration(minutes: 20).inMilliseconds));
 
         final noFlex = TaskTrigger.periodic(const Duration(hours: 1)).toMap();
         expect(noFlex['flexMs'], isNull);
@@ -72,8 +74,7 @@ void main() {
       });
 
       test('runImmediately is bool', () {
-        final trueMap =
-            TaskTrigger.periodic(const Duration(hours: 1)).toMap();
+        final trueMap = TaskTrigger.periodic(const Duration(hours: 1)).toMap();
         expect(trueMap['runImmediately'], isA<bool>());
         expect(trueMap['runImmediately'], isTrue);
 
@@ -88,8 +89,7 @@ void main() {
 
     group('OneTimeTrigger map keys and types', () {
       test('all expected keys are present', () {
-        final map =
-            TaskTrigger.oneTime(const Duration(minutes: 5)).toMap();
+        final map = TaskTrigger.oneTime(const Duration(minutes: 5)).toMap();
         expect(map.containsKey('type'), isTrue);
         expect(map.containsKey('initialDelayMs'), isTrue);
       });
@@ -100,11 +100,10 @@ void main() {
       });
 
       test('initialDelayMs is int (milliseconds)', () {
-        final map =
-            TaskTrigger.oneTime(const Duration(minutes: 10)).toMap();
+        final map = TaskTrigger.oneTime(const Duration(minutes: 10)).toMap();
         expect(map['initialDelayMs'], isA<int>());
-        expect(
-            map['initialDelayMs'], equals(const Duration(minutes: 10).inMilliseconds));
+        expect(map['initialDelayMs'],
+            equals(const Duration(minutes: 10).inMilliseconds));
       });
 
       test('zero delay emits 0 not null', () {
@@ -159,8 +158,10 @@ void main() {
         ).toMap();
         expect(map['earliestMs'], isA<int>());
         expect(map['latestMs'], isA<int>());
-        expect(map['earliestMs'], equals(const Duration(hours: 1).inMilliseconds));
-        expect(map['latestMs'], equals(const Duration(hours: 3).inMilliseconds));
+        expect(
+            map['earliestMs'], equals(const Duration(hours: 1).inMilliseconds));
+        expect(
+            map['latestMs'], equals(const Duration(hours: 3).inMilliseconds));
       });
     });
   });
