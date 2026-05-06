@@ -146,13 +146,13 @@ class HttpUploadWorker: IosWorker {
 
     func doWork(input: String?, env: KMPWorkManager.WorkerEnvironment) async throws -> WorkerResult {
         guard let input = input, !input.isEmpty else {
-            print("HttpUploadWorker: Error - Empty or null input")
+            NativeLogger.e("HttpUploadWorker: Error - Empty or null input")
             return .failure(message: "Empty or null input")
         }
 
         // Parse configuration
         guard let data = input.data(using: .utf8) else {
-            print("HttpUploadWorker: Error - Invalid UTF-8 encoding")
+            NativeLogger.e("HttpUploadWorker: Error - Invalid UTF-8 encoding")
             return .failure(message: "Invalid input encoding")
         }
 
@@ -160,13 +160,13 @@ class HttpUploadWorker: IosWorker {
         do {
             config = try JSONDecoder().decode(Config.self, from: data)
         } catch {
-            print("HttpUploadWorker: Error parsing JSON config: \(error)")
+            NativeLogger.e("HttpUploadWorker: Error parsing JSON config: \(error)")
             return .failure(message: "Invalid JSON config: \(error.localizedDescription)")
         }
 
         // Validate URL scheme (prevent file://, ftp://, etc.)
         guard let url = SecurityValidator.validateURL(config.url) else {
-            print("HttpUploadWorker: Error - Invalid or unsafe URL")
+            NativeLogger.e("HttpUploadWorker: Error - Invalid or unsafe URL")
             return .failure(message: "Invalid or unsafe URL")
         }
 
@@ -176,12 +176,12 @@ class HttpUploadWorker: IosWorker {
 
         // Validate upload mode
         if isRawBodyUpload && !fileConfigs.isEmpty {
-            print("HttpUploadWorker: Error - Cannot mix raw body and file upload")
+            NativeLogger.e("HttpUploadWorker: Error - Cannot mix raw body and file upload")
             return .failure(message: "Cannot use both body/bodyBytes and filePath/files")
         }
 
         if !isRawBodyUpload && fileConfigs.isEmpty {
-            print("HttpUploadWorker: Error - No data to upload")
+            NativeLogger.e("HttpUploadWorker: Error - No data to upload")
             return .failure(message: "No data to upload (provide body/bodyBytes or filePath/files)")
         }
 
@@ -197,19 +197,19 @@ class HttpUploadWorker: IosWorker {
         for fileConfig in fileConfigs {
             // Validate file path
             guard SecurityValidator.validateFilePath(fileConfig.filePath) else {
-                print("HttpUploadWorker: Error - File path outside sandbox: \(fileConfig.filePath)")
+                NativeLogger.e("HttpUploadWorker: Error - File path outside sandbox: \(fileConfig.filePath)")
                 return .failure(message: "File path outside sandbox")
             }
 
             let fileURL = URL(fileURLWithPath: fileConfig.filePath)
             guard FileManager.default.fileExists(atPath: fileConfig.filePath) else {
-                print("HttpUploadWorker: Error - File not found: \(fileConfig.filePath)")
+                NativeLogger.e("HttpUploadWorker: Error - File not found: \(fileConfig.filePath)")
                 return .failure(message: "File not found: \(fileURL.lastPathComponent)")
             }
 
             // Validate file size
             guard SecurityValidator.validateFileSize(fileURL) else {
-                print("HttpUploadWorker: Error - File too large: \(fileConfig.filePath)")
+                NativeLogger.e("HttpUploadWorker: Error - File too large: \(fileConfig.filePath)")
                 return .failure(message: "File size exceeds limit")
             }
 
@@ -220,7 +220,7 @@ class HttpUploadWorker: IosWorker {
                     totalSize += fileSize
                 }
             } catch {
-                print("HttpUploadWorker: Error reading file: \(error)")
+                NativeLogger.e("HttpUploadWorker: Error reading file: \(error)")
                 return .failure(message: "Failed to read file: \(fileURL.lastPathComponent)")
             }
 
@@ -233,12 +233,12 @@ class HttpUploadWorker: IosWorker {
 
         // Sanitize logging
         let sanitizedURL = SecurityValidator.sanitizedURL(config.url)
-        print("HttpUploadWorker: Uploading to \(sanitizedURL)")
-        print("  Files: \(validatedFiles.count), Total Size: \(totalSize) bytes")
+        NativeLogger.d("HttpUploadWorker: Uploading to \(sanitizedURL)")
+        NativeLogger.d("  Files: \(validatedFiles.count), Total Size: \(totalSize) bytes")
         for (index, (fileURL, fileName, mimeType)) in validatedFiles.enumerated() {
             let fileAttributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
             let fileSize = fileAttributes?[.size] as? Int64 ?? 0
-            print("    [\(index)] \(fileName) (\(fileSize) bytes, \(mimeType))")
+            NativeLogger.d("    [\(index)] \(fileName) (\(fileSize) bytes, \(mimeType))")
         }
 
         // 🚀 Use background session if enabled (v2.3.0+)
@@ -276,12 +276,10 @@ class HttpUploadWorker: IosWorker {
         do {
             bodyTempURL = try buildMultipartBodyToFile(boundary: boundary, fields: config.fields, files: fileTuples)
         } catch {
-            print("HttpUploadWorker: Error building multipart body: \(error)")
+            NativeLogger.e("HttpUploadWorker: Error building multipart body: \(error)")
             return .failure(message: "Failed to build upload body: \(error.localizedDescription)")
         }
         defer { try? FileManager.default.removeItem(at: bodyTempURL) }
-
-        // T3-7: HMAC-SHA256 request signing
         let uploadRawDict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         if let signingDict = uploadRawDict?["requestSigning"] as? [String: Any],
            let signingCfg: RequestSigner.Config = RequestSigner.Config.from(signingDict) {
@@ -299,13 +297,13 @@ class HttpUploadWorker: IosWorker {
             let (data, response) = try await uploadSession.upload(for: request, fromFile: bodyTempURL)
 
             guard let httpResponse = response as? HTTPURLResponse else {
-                print("HttpUploadWorker: Error - Invalid response type")
+                NativeLogger.e("HttpUploadWorker: Error - Invalid response type")
                 return .failure(message: "Invalid response type")
             }
 
             // Validate response body size
             guard SecurityValidator.validateResponseSize(data) else {
-                print("HttpUploadWorker: Error - Response body too large")
+                NativeLogger.e("HttpUploadWorker: Error - Response body too large")
                 return .failure(message: "Response body too large")
             }
 
@@ -316,8 +314,8 @@ class HttpUploadWorker: IosWorker {
             if success {
                 // Truncate response for logging
                 let truncatedResponse = SecurityValidator.truncateForLogging(responseBody, maxLength: 200)
-                print("HttpUploadWorker: Success - Status \(statusCode)")
-                print("HttpUploadWorker: Response: \(truncatedResponse)")
+                NativeLogger.d("HttpUploadWorker: Success - Status \(statusCode)")
+                NativeLogger.d("HttpUploadWorker: Response: \(truncatedResponse)")
 
                 return .success(
                     message: "Uploaded \(validatedFiles.count) file(s), \(totalSize) bytes",
@@ -332,8 +330,8 @@ class HttpUploadWorker: IosWorker {
             } else {
                 // Truncate error body for logging
                 let truncatedError = SecurityValidator.truncateForLogging(responseBody, maxLength: 200)
-                print("HttpUploadWorker: Failed - Status \(statusCode)")
-                print("HttpUploadWorker: Error: \(truncatedError)")
+                NativeLogger.e("HttpUploadWorker: Failed - Status \(statusCode)")
+                NativeLogger.e("HttpUploadWorker: Error: \(truncatedError)")
 
                 // 401 + token refresh: attempt refresh and retry once
                 if statusCode == 401, let refreshConfig = uploadTokenRefreshConfig {
@@ -363,7 +361,7 @@ class HttpUploadWorker: IosWorker {
                 return .failure(message: "HTTP \(statusCode)", shouldRetry: statusCode >= 500)
             }
         } catch {
-            print("HttpUploadWorker: Error - \(error.localizedDescription)")
+            NativeLogger.e("HttpUploadWorker: Error - \(error.localizedDescription)")
             return .failure(message: error.localizedDescription, shouldRetry: true)
         }
     }
@@ -372,28 +370,28 @@ class HttpUploadWorker: IosWorker {
     private func handleRawBodyUpload(config: Config, url: URL, rawInputData: Data) async -> WorkerResult {
         // Validate content type is provided
         guard let contentType = config.contentType, !contentType.isEmpty else {
-            print("HttpUploadWorker: Error - contentType is required for raw body upload")
+            NativeLogger.e("HttpUploadWorker: Error - contentType is required for raw body upload")
             return .failure(message: "contentType is required for raw body upload")
         }
 
         let sanitizedURL = SecurityValidator.sanitizedURL(config.url)
-        print("HttpUploadWorker: Uploading raw body to \(sanitizedURL)")
-        print("  Content-Type: \(contentType)")
+        NativeLogger.d("HttpUploadWorker: Uploading raw body to \(sanitizedURL)")
+        NativeLogger.d("  Content-Type: \(contentType)")
 
         // Build request body
         let requestBody: Data
         if let body = config.body {
             requestBody = body.data(using: .utf8) ?? Data()
-            print("  Body: \(body.count) characters (\(requestBody.count) bytes)")
+            NativeLogger.d("  Body: \(body.count) characters (\(requestBody.count) bytes)")
         } else if let bodyBytes = config.bodyBytes {
             guard let decodedData = Data(base64Encoded: bodyBytes) else {
-                print("HttpUploadWorker: Error - Failed to decode base64 bodyBytes")
+                NativeLogger.e("HttpUploadWorker: Error - Failed to decode base64 bodyBytes")
                 return .failure(message: "Invalid base64 bodyBytes")
             }
             requestBody = decodedData
-            print("  Body: \(requestBody.count) bytes (from base64)")
+            NativeLogger.d("  Body: \(requestBody.count) bytes (from base64)")
         } else {
-            print("HttpUploadWorker: Error - No body or bodyBytes provided")
+            NativeLogger.e("HttpUploadWorker: Error - No body or bodyBytes provided")
             return .failure(message: "No body or bodyBytes provided")
         }
 
@@ -409,8 +407,6 @@ class HttpUploadWorker: IosWorker {
                 request.setValue(value, forHTTPHeaderField: key)
             }
         }
-
-        // T3-7: HMAC-SHA256 request signing (raw body path)
         let rawBodyDict = (try? JSONSerialization.jsonObject(with: rawInputData)) as? [String: Any]
         if let signingDict = rawBodyDict?["requestSigning"] as? [String: Any],
            let signingCfg: RequestSigner.Config = RequestSigner.Config.from(signingDict) {
@@ -428,13 +424,13 @@ class HttpUploadWorker: IosWorker {
             let (data, response) = try await rawBodySession.upload(for: request, from: requestBody)
 
             guard let httpResponse = response as? HTTPURLResponse else {
-                print("HttpUploadWorker: Error - Invalid response type")
+                NativeLogger.e("HttpUploadWorker: Error - Invalid response type")
                 return .failure(message: "Invalid response type")
             }
 
             // Validate response body size
             guard SecurityValidator.validateResponseSize(data) else {
-                print("HttpUploadWorker: Error - Response body too large")
+                NativeLogger.e("HttpUploadWorker: Error - Response body too large")
                 return .failure(message: "Response body too large")
             }
 
@@ -445,8 +441,8 @@ class HttpUploadWorker: IosWorker {
             if success {
                 // Truncate response for logging
                 let truncatedResponse = SecurityValidator.truncateForLogging(responseBody, maxLength: 200)
-                print("HttpUploadWorker: Success - Status \(statusCode)")
-                print("HttpUploadWorker: Response: \(truncatedResponse)")
+                NativeLogger.d("HttpUploadWorker: Success - Status \(statusCode)")
+                NativeLogger.d("HttpUploadWorker: Response: \(truncatedResponse)")
 
                 return .success(
                     message: "Uploaded raw body",
@@ -460,8 +456,8 @@ class HttpUploadWorker: IosWorker {
             } else {
                 // Truncate error body for logging
                 let truncatedError = SecurityValidator.truncateForLogging(responseBody, maxLength: 200)
-                print("HttpUploadWorker: Failed - Status \(statusCode)")
-                print("HttpUploadWorker: Error: \(truncatedError)")
+                NativeLogger.e("HttpUploadWorker: Failed - Status \(statusCode)")
+                NativeLogger.e("HttpUploadWorker: Error: \(truncatedError)")
 
                 // 401 + token refresh: attempt refresh and retry once
                 if statusCode == 401, let refreshConfig = rawBodyTokenRefreshConfig {
@@ -490,7 +486,7 @@ class HttpUploadWorker: IosWorker {
                 return .failure(message: "HTTP \(statusCode)", shouldRetry: statusCode >= 500)
             }
         } catch {
-            print("HttpUploadWorker: Error - \(error.localizedDescription)")
+            NativeLogger.e("HttpUploadWorker: Error - \(error.localizedDescription)")
             return .failure(message: error.localizedDescription, shouldRetry: true)
         }
     }
@@ -513,7 +509,7 @@ class HttpUploadWorker: IosWorker {
         validatedFiles: [(url: URL, fileName: String, mimeType: String)],
         totalSize: Int64
     ) async -> WorkerResult {
-        print("HttpUploadWorker: Using background URLSession for upload")
+        NativeLogger.d("HttpUploadWorker: Using background URLSession for upload")
 
         // NET-001/NET-004: Build multipart body by streaming files to a temp file (avoids OOM).
         let fileConfigs = config.getFileConfigs()
@@ -524,7 +520,7 @@ class HttpUploadWorker: IosWorker {
         do {
             tempFileURL = try buildMultipartBodyToFile(boundary: boundary, fields: config.fields, files: fileTuplesBg)
         } catch {
-            print("HttpUploadWorker: Error building multipart body: \(error)")
+            NativeLogger.e("HttpUploadWorker: Error building multipart body: \(error)")
             return .failure(message: "Failed to build upload body: \(error.localizedDescription)")
         }
         defer { try? FileManager.default.removeItem(at: tempFileURL) }
@@ -554,7 +550,7 @@ class HttpUploadWorker: IosWorker {
                     let success = (200..<300).contains(statusCode)
 
                     if success {
-                        print("HttpUploadWorker: Background upload succeeded - Status \(statusCode)")
+                        NativeLogger.d("HttpUploadWorker: Background upload succeeded - Status \(statusCode)")
 
                         continuation.resume(returning: .success(
                             message: "Uploaded \(validatedFiles.count) file(s) via background session",
@@ -567,12 +563,12 @@ class HttpUploadWorker: IosWorker {
                             ]
                         ))
                     } else {
-                        print("HttpUploadWorker: Background upload failed - Status \(statusCode)")
+                        NativeLogger.e("HttpUploadWorker: Background upload failed - Status \(statusCode)")
                         continuation.resume(returning: .failure(message: "HTTP \(statusCode)"))
                     }
 
                 case .failure(let error):
-                    print("HttpUploadWorker: Background upload failed: \(error.localizedDescription)")
+                    NativeLogger.e("HttpUploadWorker: Background upload failed: \(error.localizedDescription)")
                     continuation.resume(returning: .failure(message: "Background upload failed: \(error.localizedDescription)"))
                 }
             }

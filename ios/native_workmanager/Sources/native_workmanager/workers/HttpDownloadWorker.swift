@@ -48,7 +48,7 @@ class HttpDownloadWorker: IosWorker {
     func stop() {
         isStopped = true
         currentDownloadTask?.cancel()
-        print("HttpDownloadWorker: Stop signal received, download cancelled.")
+        NativeLogger.d("HttpDownloadWorker: Stop signal received, download cancelled.")
     }
 
     struct Config: Codable {
@@ -62,22 +62,15 @@ class HttpDownloadWorker: IosWorker {
         let useBackgroundSession: Bool?
         let skipExisting: Bool?
 
-        // Sprint 1 - Feature 5: Advanced file handling
         let onDuplicate: String?              // "overwrite" (default) | "rename" | "skip"
         let moveToPublicDownloads: Bool?      // Copy to iOS Downloads folder after download
         let saveToGallery: Bool?              // Save image/video to Photos library after download
         let extractAfterDownload: Bool?       // Extract archive after download
         let extractPath: String?              // Destination directory for extraction
         let deleteArchiveAfterExtract: Bool?  // Delete archive after successful extraction
-
-        // Sprint 3 - Cookie support
         let cookies: [String: String]?
-
-        // Sprint 3 - Auth layer
         let authToken: String?
         let authHeaderTemplate: String?       // Default: "Bearer {accessToken}"
-
-        // T3-6 - Bandwidth throttling (bytes/s; nil = no limit)
         let bandwidthLimitBytesPerSecond: Int64?
 
         var timeout: TimeInterval {
@@ -107,13 +100,13 @@ class HttpDownloadWorker: IosWorker {
 
     func doWork(input: String?, env: KMPWorkManager.WorkerEnvironment) async throws -> WorkerResult {
         guard let input = input, !input.isEmpty else {
-            print("HttpDownloadWorker: Error - Empty or null input")
+            NativeLogger.e("HttpDownloadWorker: Error - Empty or null input")
             return .failure(message: "Empty or null input")
         }
 
         // Parse configuration
         guard let data = input.data(using: .utf8) else {
-            print("HttpDownloadWorker: Error - Invalid UTF-8 encoding")
+            NativeLogger.e("HttpDownloadWorker: Error - Invalid UTF-8 encoding")
             return .failure(message: "Invalid input encoding")
         }
 
@@ -127,14 +120,14 @@ class HttpDownloadWorker: IosWorker {
         do {
             config = try JSONDecoder().decode(Config.self, from: data)
         } catch {
-            print("HttpDownloadWorker: Error parsing JSON config: \(error)")
+            NativeLogger.e("HttpDownloadWorker: Error parsing JSON config: \(error)")
             return .failure(message: "Invalid JSON config: \(error.localizedDescription)")
         }
 
         // Skip download if destination already exists and skipExisting is enabled
         // (only for non-directory paths where we already know the final filename)
         if config.shouldSkipExisting && !config.isDirectory && FileManager.default.fileExists(atPath: config.savePath) {
-            print("HttpDownloadWorker: skipExisting=true and file already exists — skipping")
+            NativeLogger.w("HttpDownloadWorker: skipExisting=true and file already exists — skipping")
             let size = (try? FileManager.default.attributesOfItem(atPath: config.savePath))?[.size] as? Int64 ?? 0
             return .success(
                 message: "File already exists, download skipped",
@@ -146,7 +139,7 @@ class HttpDownloadWorker: IosWorker {
         if !config.isDirectory {
             let duplicate = config.effectiveOnDuplicate
             if duplicate == "skip" && FileManager.default.fileExists(atPath: config.savePath) {
-                print("HttpDownloadWorker: onDuplicate=skip and file exists — skipping")
+                NativeLogger.w("HttpDownloadWorker: onDuplicate=skip and file exists — skipping")
                 let size = (try? FileManager.default.attributesOfItem(atPath: config.savePath))?[.size] as? Int64 ?? 0
                 return .success(
                     message: "File already exists, download skipped (onDuplicate=skip)",
@@ -163,13 +156,13 @@ class HttpDownloadWorker: IosWorker {
 
         // Validate URL scheme (prevent file://, ftp://, etc.)
         guard let url = SecurityValidator.validateURL(config.url) else {
-            print("HttpDownloadWorker: Error - Invalid or unsafe URL")
+            NativeLogger.e("HttpDownloadWorker: Error - Invalid or unsafe URL")
             return .failure(message: "Invalid or unsafe URL")
         }
 
         // Validate file path is within app sandbox
         guard SecurityValidator.validateFilePath(config.savePath) else {
-            print("HttpDownloadWorker: Error - File path outside app sandbox")
+            NativeLogger.e("HttpDownloadWorker: Error - File path outside app sandbox")
             return .failure(message: "File path outside app sandbox")
         }
 
@@ -192,9 +185,9 @@ class HttpDownloadWorker: IosWorker {
             do {
                 try FileManager.default.createDirectory(at: parentDir,
                                                        withIntermediateDirectories: true)
-                print("HttpDownloadWorker: Created directory: \(parentDir.path)")
+                NativeLogger.d("HttpDownloadWorker: Created directory: \(parentDir.path)")
             } catch {
-                print("HttpDownloadWorker: Error creating directory: \(error)")
+                NativeLogger.e("HttpDownloadWorker: Error creating directory: \(error)")
                 return .failure(message: "Failed to create directory: \(error.localizedDescription)")
             }
         }
@@ -214,13 +207,13 @@ class HttpDownloadWorker: IosWorker {
                 let attributes = try FileManager.default.attributesOfItem(atPath: tempURL.path)
                 if let fileSize = attributes[.size] as? Int64, fileSize > 0 {
                     existingBytes = fileSize
-                    print("HttpDownloadWorker: Found existing partial download: \(existingBytes) bytes")
+                    NativeLogger.d("HttpDownloadWorker: Found existing partial download: \(existingBytes) bytes")
                 } else {
                     // Delete empty temp file
                     try? FileManager.default.removeItem(at: tempURL)
                 }
             } catch {
-                print("HttpDownloadWorker: Error reading temp file: \(error)")
+                NativeLogger.e("HttpDownloadWorker: Error reading temp file: \(error)")
                 try? FileManager.default.removeItem(at: tempURL)
             }
         } else if FileManager.default.fileExists(atPath: tempURL.path) {
@@ -230,8 +223,8 @@ class HttpDownloadWorker: IosWorker {
 
         // Sanitize URL for logging
         let sanitizedURL = SecurityValidator.sanitizedURL(config.url)
-        print("HttpDownloadWorker: Downloading \(sanitizedURL)")
-        print("  Save to: \(destinationURL.lastPathComponent)")
+        NativeLogger.d("HttpDownloadWorker: Downloading \(sanitizedURL)")
+        NativeLogger.d("  Save to: \(destinationURL.lastPathComponent)")
 
         // Build request
         var request = URLRequest(url: url)
@@ -249,7 +242,7 @@ class HttpDownloadWorker: IosWorker {
                 request.setValue(stored.trimmingCharacters(in: .whitespacesAndNewlines),
                                  forHTTPHeaderField: HttpConstants.headerIfRange)
             }
-            print("HttpDownloadWorker: Resuming download from byte \(existingBytes)")
+            NativeLogger.d("HttpDownloadWorker: Resuming download from byte \(existingBytes)")
         }
 
         // Add custom headers
@@ -258,27 +251,19 @@ class HttpDownloadWorker: IosWorker {
                 request.setValue(value, forHTTPHeaderField: key)
             }
         }
-
-        // Sprint 3: Cookie support
         if let cookies = config.cookies, !cookies.isEmpty {
             let cookieHeader = cookies.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
             request.addValue(cookieHeader, forHTTPHeaderField: HttpConstants.headerCookie)
         }
-
-        // Sprint 3: Auth layer
         if let authToken = config.authToken {
             let headerValue = config.effectiveAuthHeaderTemplate
                 .replacingOccurrences(of: "{accessToken}", with: authToken)
             request.addValue(headerValue, forHTTPHeaderField: HttpConstants.headerAuthorization)
         }
-
-        // T3-7: HMAC-SHA256 request signing
         let rawDictForSigning = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
         if let signingCfg = RequestSigner.Config.from(rawDictForSigning?["requestSigning"] as? [String: Any]) {
             RequestSigner.sign(request: &request, config: signingCfg)
         }
-
-        // Sprint 2: per-host concurrency — block here until a permit is available.
         // The permit is released after the download completes (success, failure, or skip).
         let host = URL(string: config.url)?.host ?? config.url
         HostConcurrencyManager.shared.acquire(host: host)
@@ -296,8 +281,6 @@ class HttpDownloadWorker: IosWorker {
                 existingBytes: existingBytes
             )
         }
-
-        // T3-6: Throttled foreground download (iOS 15+) when bandwidth limit is configured
         if #available(iOS 15.0, *),
            let bwLimit = config.bandwidthLimitBytesPerSecond, bwLimit > 0 {
             return await throttledForegroundDownload(
@@ -310,7 +293,7 @@ class HttpDownloadWorker: IosWorker {
                 taskIdForProgress: taskIdForProgress
             )
         } else if let bwLimit = config.bandwidthLimitBytesPerSecond, bwLimit > 0 {
-            print("HttpDownloadWorker: bandwidth throttling requires iOS 15+, proceeding unthrottled")
+            NativeLogger.d("HttpDownloadWorker: bandwidth throttling requires iOS 15+, proceeding unthrottled")
         }
 
         // Execute download using foreground session (iOS 13+ compatible)
@@ -333,7 +316,7 @@ class HttpDownloadWorker: IosWorker {
                 
                 // Handle errors
                 if let error = error {
-                    print("HttpDownloadWorker: Error - \(error.localizedDescription)")
+                    NativeLogger.e("HttpDownloadWorker: Error - \(error.localizedDescription)")
                     try? FileManager.default.removeItem(at: tempURL)
                     continuation.resume(returning: .failure(message: error.localizedDescription))
                     return
@@ -341,7 +324,7 @@ class HttpDownloadWorker: IosWorker {
 
                 guard let location = location,
                       let httpResponse = response as? HTTPURLResponse else {
-                    print("HttpDownloadWorker: Error - Invalid response")
+                    NativeLogger.e("HttpDownloadWorker: Error - Invalid response")
                     continuation.resume(returning: .failure(message: "Invalid response"))
                     return
                 }
@@ -355,7 +338,7 @@ class HttpDownloadWorker: IosWorker {
 
                 // 416 Range Not Satisfiable: our .tmp is stale (server file changed). Delete and signal retry.
                 if statusCode == HttpConstants.rangeNotSatisfiable {
-                    print("HttpDownloadWorker: 416 Range Not Satisfiable — deleting stale .tmp, restart on retry")
+                    NativeLogger.d("HttpDownloadWorker: 416 Range Not Satisfiable — deleting stale .tmp, restart on retry")
                     try? FileManager.default.removeItem(at: tempURL)
                     try? FileManager.default.removeItem(atPath: tempURL.path + HttpConstants.etagSidecarSuffix)
                     continuation.resume(returning: .failure(
@@ -365,7 +348,7 @@ class HttpDownloadWorker: IosWorker {
                 }
 
                 if !isPartialContent && !isFullContent {
-                    print("HttpDownloadWorker: Failed - Status \(statusCode)")
+                    NativeLogger.e("HttpDownloadWorker: Failed - Status \(statusCode)")
                     try? FileManager.default.removeItem(at: location)
                     continuation.resume(returning: .failure(message: "HTTP \(statusCode)"))
                     return
@@ -375,7 +358,7 @@ class HttpDownloadWorker: IosWorker {
                 let contentLength = httpResponse.expectedContentLength
                 if contentLength > 0 {
                     if !SecurityValidator.validateContentLength(contentLength) {
-                        print("HttpDownloadWorker: Error - Content too large")
+                        NativeLogger.e("HttpDownloadWorker: Error - Content too large")
                         try? FileManager.default.removeItem(at: location)
                         continuation.resume(returning: .failure(message: "Download size exceeds limit"))
                         return
@@ -383,7 +366,7 @@ class HttpDownloadWorker: IosWorker {
 
                     // Check disk space
                     if !SecurityValidator.hasEnoughDiskSpace(requiredBytes: contentLength, targetURL: destinationURL) {
-                        print("HttpDownloadWorker: Error - Insufficient disk space")
+                        NativeLogger.e("HttpDownloadWorker: Error - Insufficient disk space")
                         try? FileManager.default.removeItem(at: location)
                         continuation.resume(returning: .failure(message: "Insufficient disk space"))
                         return
@@ -392,14 +375,12 @@ class HttpDownloadWorker: IosWorker {
 
                 // Log resume status
                 if isResumingDownload {
-                    print("HttpDownloadWorker: Resume confirmed - Server sent 206 Partial Content")
+                    NativeLogger.d("HttpDownloadWorker: Resume confirmed - Server sent 206 Partial Content")
                 } else if existingBytes > 0 && statusCode == HttpConstants.httpOk {
-                    print("HttpDownloadWorker: Server doesn't support resume - Starting from beginning")
+                    NativeLogger.d("HttpDownloadWorker: Server doesn't support resume - Starting from beginning")
                     try? FileManager.default.removeItem(at: tempURL)
                     try? FileManager.default.removeItem(atPath: tempURL.path + HttpConstants.etagSidecarSuffix)
                 }
-
-                // Feature 4: Resolve filename from Content-Disposition or URL when savePath is a directory
                 let cdHeader = httpResponse.value(forHTTPHeaderField: "Content-Disposition")
                 let serverSuggestedName: String? = self.parseFilenameFromContentDisposition(cdHeader)
                 if config.isDirectory {
@@ -410,11 +391,11 @@ class HttpDownloadWorker: IosWorker {
                     // LOGIC-001: keep tempURL as the sentinel file in directory mode so that partial
                     // download data is preserved across retries. Only destinationURL changes here;
                     // the final rename moves tempURL (sentinel) → destinationURL (resolved name).
-                    print("HttpDownloadWorker: Directory mode — resolved filename: \(name)")
+                    NativeLogger.d("HttpDownloadWorker: Directory mode — resolved filename: \(name)")
 
                     // skipExisting check for directory mode (now we know actual path)
                     if config.shouldSkipExisting && FileManager.default.fileExists(atPath: destinationURL.path) {
-                        print("HttpDownloadWorker: skipExisting=true and resolved file exists — skipping")
+                        NativeLogger.w("HttpDownloadWorker: skipExisting=true and resolved file exists — skipping")
                         let size = (try? FileManager.default.attributesOfItem(atPath: destinationURL.path))?[.size] as? Int64 ?? 0
                         try? FileManager.default.removeItem(at: location)
                         var skipData: [String: Any] = ["filePath": destinationURL.path, "fileSize": size, "skipped": true]
@@ -477,26 +458,26 @@ class HttpDownloadWorker: IosWorker {
 
                     // Verify checksum if expected checksum is provided
                     if let expectedChecksum = config.expectedChecksum {
-                        print("HttpDownloadWorker: Verifying checksum with \(config.effectiveChecksumAlgorithm)...")
+                        NativeLogger.d("HttpDownloadWorker: Verifying checksum with \(config.effectiveChecksumAlgorithm)...")
 
                         guard let actualChecksum = self.calculateChecksum(fileURL: tempURL, algorithm: config.effectiveChecksumAlgorithm, taskId: taskIdForProgress) else {
-                            print("HttpDownloadWorker: Error - Failed to calculate checksum")
+                            NativeLogger.e("HttpDownloadWorker: Error - Failed to calculate checksum")
                             try? FileManager.default.removeItem(at: tempURL)
                             continuation.resume(returning: .failure(message: "Failed to calculate checksum"))
                             return
                         }
 
                         if actualChecksum.caseInsensitiveCompare(expectedChecksum) != .orderedSame {
-                            print("HttpDownloadWorker: Checksum verification failed!")
-                            print("  Expected: \(expectedChecksum)")
-                            print("  Actual:   \(actualChecksum)")
-                            print("  Algorithm: \(config.effectiveChecksumAlgorithm)")
+                            NativeLogger.e("HttpDownloadWorker: Checksum verification failed!")
+                            NativeLogger.d("  Expected: \(expectedChecksum)")
+                            NativeLogger.d("  Actual:   \(actualChecksum)")
+                            NativeLogger.d("  Algorithm: \(config.effectiveChecksumAlgorithm)")
                             try? FileManager.default.removeItem(at: tempURL)
                             continuation.resume(returning: .failure(message: "Checksum verification failed (expected: \(expectedChecksum), actual: \(actualChecksum))"))
                             return
                         }
 
-                        print("HttpDownloadWorker: Checksum verified: \(actualChecksum)")
+                        NativeLogger.d("HttpDownloadWorker: Checksum verified: \(actualChecksum)")
                     }
 
                     // Capture content type and final URL
@@ -517,8 +498,8 @@ class HttpDownloadWorker: IosWorker {
                     // Clean up ETag sidecar after successful download
                     try? FileManager.default.removeItem(atPath: tempURL.path + HttpConstants.etagSidecarSuffix)
 
-                    print("HttpDownloadWorker: Success - Downloaded \(finalFileSize) bytes")
-                    print("HttpDownloadWorker: Saved to: \(destinationURL.path)")
+                    NativeLogger.d("HttpDownloadWorker: Success - Downloaded \(finalFileSize) bytes")
+                    NativeLogger.d("HttpDownloadWorker: Saved to: \(destinationURL.path)")
 
                     // Post-download actions
                     self.performPostDownloadActions(config: config, filePath: destinationURL.path)
@@ -537,7 +518,7 @@ class HttpDownloadWorker: IosWorker {
                         data: resultData
                     ))
                 } catch {
-                    print("HttpDownloadWorker: Error moving file - \(error.localizedDescription)")
+                    NativeLogger.e("HttpDownloadWorker: Error moving file - \(error.localizedDescription)")
                     try? FileManager.default.removeItem(at: tempURL)
                     try? FileManager.default.removeItem(at: location)
                     continuation.resume(returning: .failure(message: "Failed to move file: \(error.localizedDescription)"))
@@ -765,26 +746,26 @@ class HttpDownloadWorker: IosWorker {
 
                         // Verify checksum if expected checksum is provided
                         if let expectedChecksum = config.expectedChecksum {
-                            print("HttpDownloadWorker: Verifying checksum with \(config.effectiveChecksumAlgorithm)...")
+                            NativeLogger.d("HttpDownloadWorker: Verifying checksum with \(config.effectiveChecksumAlgorithm)...")
 
                             guard let actualChecksum = self.calculateChecksum(fileURL: location, algorithm: config.effectiveChecksumAlgorithm, taskId: nil) else {
-                                print("HttpDownloadWorker: Error - Failed to calculate checksum")
+                                NativeLogger.e("HttpDownloadWorker: Error - Failed to calculate checksum")
                                 try? FileManager.default.removeItem(at: location)
                                 continuation.resume(returning: .failure(message: "Failed to calculate checksum"))
                                 return
                             }
 
                             if actualChecksum.lowercased() != expectedChecksum.lowercased() {
-                                print("HttpDownloadWorker: Checksum verification failed!")
-                                print("  Expected: \(expectedChecksum)")
-                                print("  Actual:   \(actualChecksum)")
-                                print("  Algorithm: \(config.effectiveChecksumAlgorithm)")
+                                NativeLogger.e("HttpDownloadWorker: Checksum verification failed!")
+                                NativeLogger.d("  Expected: \(expectedChecksum)")
+                                NativeLogger.d("  Actual:   \(actualChecksum)")
+                                NativeLogger.d("  Algorithm: \(config.effectiveChecksumAlgorithm)")
                                 try? FileManager.default.removeItem(at: location)
                                 continuation.resume(returning: .failure(message: "Checksum verification failed (expected: \(expectedChecksum), actual: \(actualChecksum))"))
                                 return
                             }
 
-                            print("HttpDownloadWorker: Checksum verified: \(actualChecksum)")
+                            NativeLogger.d("HttpDownloadWorker: Checksum verified: \(actualChecksum)")
                         }
 
                         // Remove destination if exists
@@ -793,8 +774,8 @@ class HttpDownloadWorker: IosWorker {
                         // Move to final destination
                         try FileManager.default.moveItem(at: location, to: destinationURL)
 
-                        print("HttpDownloadWorker: Background download success - Downloaded \(finalFileSize) bytes")
-                        print("HttpDownloadWorker: Saved to: \(config.savePath)")
+                        NativeLogger.d("HttpDownloadWorker: Background download success - Downloaded \(finalFileSize) bytes")
+                        NativeLogger.d("HttpDownloadWorker: Saved to: \(config.savePath)")
 
                         // Return success with rich data
                         continuation.resume(returning: .success(
@@ -808,13 +789,13 @@ class HttpDownloadWorker: IosWorker {
                             ]
                         ))
                     } catch {
-                        print("HttpDownloadWorker: Error moving file - \(error.localizedDescription)")
+                        NativeLogger.e("HttpDownloadWorker: Error moving file - \(error.localizedDescription)")
                         try? FileManager.default.removeItem(at: location)
                         continuation.resume(returning: .failure(message: "Failed to move file: \(error.localizedDescription)"))
                     }
 
                 case .failure(let error):
-                    print("HttpDownloadWorker: Background download failed - \(error.localizedDescription)")
+                    NativeLogger.e("HttpDownloadWorker: Background download failed - \(error.localizedDescription)")
                     continuation.resume(returning: .failure(message: "Background download failed: \(error.localizedDescription)"))
                 }
             }
@@ -859,9 +840,9 @@ class HttpDownloadWorker: IosWorker {
                     PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: fileURL)
                 }, completionHandler: { success, error in
                     if let error = error {
-                        print("HttpDownloadWorker: saveToGallery image error: \(error.localizedDescription)")
+                        NativeLogger.e("HttpDownloadWorker: saveToGallery image error: \(error.localizedDescription)")
                     } else if success {
-                        print("HttpDownloadWorker: Image saved to gallery")
+                        NativeLogger.d("HttpDownloadWorker: Image saved to gallery")
                     }
                 })
             } else if ["mp4", "mov", "m4v"].contains(ext) {
@@ -869,9 +850,9 @@ class HttpDownloadWorker: IosWorker {
                     PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: fileURL)
                 }, completionHandler: { success, error in
                     if let error = error {
-                        print("HttpDownloadWorker: saveToGallery video error: \(error.localizedDescription)")
+                        NativeLogger.e("HttpDownloadWorker: saveToGallery video error: \(error.localizedDescription)")
                     } else if success {
-                        print("HttpDownloadWorker: Video saved to gallery")
+                        NativeLogger.d("HttpDownloadWorker: Video saved to gallery")
                     }
                 })
             }
@@ -887,16 +868,16 @@ class HttpDownloadWorker: IosWorker {
                         try FileManager.default.removeItem(at: destURL)
                     }
                     try FileManager.default.copyItem(at: fileURL, to: destURL)
-                    print("HttpDownloadWorker: Copied to public Downloads: \(destURL.path)")
+                    NativeLogger.d("HttpDownloadWorker: Copied to public Downloads: \(destURL.path)")
                 } catch {
-                    print("HttpDownloadWorker: moveToPublicDownloads error: \(error.localizedDescription)")
+                    NativeLogger.e("HttpDownloadWorker: moveToPublicDownloads error: \(error.localizedDescription)")
                 }
             }
         }
 
         // extractAfterDownload: disabled in v1.1.0 for Zero Dependencies
         if config.effectiveExtractAfterDownload {
-            print("HttpDownloadWorker: extractAfterDownload is disabled in v1.1.0 to achieve Zero Dependencies. Please use the Dart 'archive' package.")
+            NativeLogger.d("HttpDownloadWorker: extractAfterDownload is disabled in v1.1.0 to achieve Zero Dependencies. Please use the Dart 'archive' package.")
         }
     }
 
@@ -988,12 +969,12 @@ class HttpDownloadWorker: IosWorker {
                 return digest.map { String(format: "%02x", $0) }.joined()
 
             default:
-                print("HttpDownloadWorker: Unsupported checksum algorithm: \(algorithm)")
+                NativeLogger.d("HttpDownloadWorker: Unsupported checksum algorithm: \(algorithm)")
                 return nil
             }
         } else {
             // Fallback for iOS < 13 (CryptoKit not available)
-            print("HttpDownloadWorker: CryptoKit requires iOS 13+")
+            NativeLogger.d("HttpDownloadWorker: CryptoKit requires iOS 13+")
             return nil
         }
     }

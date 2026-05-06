@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
----
-
 ## [1.2.5] - 2026-05-06
 
 ### Fixed
@@ -93,41 +91,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Global Middleware API**: Global interceptors for task configuration (Headers, RemoteConfig, Logging).
 - **Code Generation Enhancements**: `native_workmanager_gen` now generates type-safe enqueue wrappers and automatic worker registries from `@WorkerCallback` annotations.
 - **Task Graphs (DAG)**: Support for complex non-linear task dependencies on Android.
-
----
-
-### ⚡ **Performance**
-
-All workers maintain high performance with low resource usage:
-
-| Worker | Memory Usage | Startup Time | Battery Impact |
-|--------|-------------|--------------|----------------|
-| HttpDownloadWorker | Low | Fast | Minimal |
-| HttpUploadWorker | Low | Fast | Minimal |
-| FileDecompressionWorker | Low | Fast | Minimal |
-| CryptoWorker | Low | Fast | Minimal |
-
-**Key:** Streaming I/O keeps memory low regardless of file size.
-
----
-
-### 🙏 **Acknowledgments**
-
-Built on [kmpworkmanager v2.4.3](https://github.com/brewkits/kmpworkmanager/releases/tag/v2.4.3) for Kotlin Multiplatform.
-
----
-
-## Links
-
-- [GitHub Repository](https://github.com/brewkits/native_workmanager)
-- [Issue Tracker](https://github.com/brewkits/native_workmanager/issues)
-- [Documentation](https://github.com/brewkits/native_workmanager#readme)
-- [KMP WorkManager](https://github.com/brewkits/kmpworkmanager)
-- [Migration Guide](doc/MIGRATION_GUIDE.md)
-
----
-
-**Latest Version:** 1.2.5
-**Status:**  Production Ready - Stable release for all production apps
-**KMP Parity:** 100%  (kmpworkmanager v2.4.3)
-**Platforms:** Android  | iOS 

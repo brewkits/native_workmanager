@@ -60,13 +60,13 @@ class DartCallbackWorker: IosWorker {
 
     func doWork(input: String?, env: KMPWorkManager.WorkerEnvironment) async throws -> WorkerResult {
         guard let input = input, !input.isEmpty else {
-            print("DartCallbackWorker: Error - Empty or null input")
+            NativeLogger.e("DartCallbackWorker: Error - Empty or null input")
             return WorkerResult.failure(message: "Empty or null input")
         }
 
         // Parse configuration
         guard let data = input.data(using: .utf8) else {
-            print("DartCallbackWorker: Error - Invalid UTF-8 encoding")
+            NativeLogger.e("DartCallbackWorker: Error - Invalid UTF-8 encoding")
             return WorkerResult.failure(message: "Invalid input encoding")
         }
 
@@ -74,11 +74,11 @@ class DartCallbackWorker: IosWorker {
         do {
             config = try JSONDecoder().decode(Config.self, from: data)
         } catch {
-            print("DartCallbackWorker: Error parsing JSON config: \(error)")
+            NativeLogger.e("DartCallbackWorker: Error parsing JSON config: \(error)")
             return WorkerResult.failure(message: "Error parsing JSON config: \(error.localizedDescription)")
         }
 
-        print("DartCallbackWorker: Executing callback '\(config.callbackId)' (handle: \(config.callbackHandle), autoDispose: \(config.shouldAutoDispose))")
+        NativeLogger.d("DartCallbackWorker: Executing callback '\(config.callbackId)' (handle: \(config.callbackHandle), autoDispose: \(config.shouldAutoDispose))")
 
         let startTime = Date()
         let engineWasAlive = FlutterEngineManager.shared.isEngineAlive
@@ -97,18 +97,18 @@ class DartCallbackWorker: IosWorker {
 
             if result {
                 if engineWasAlive {
-                    print("DartCallbackWorker: Success (warm start) - \(Int(executionTime * 1000))ms")
+                    NativeLogger.d("DartCallbackWorker: Success (warm start) - \(Int(executionTime * 1000))ms")
                 } else {
-                    print("DartCallbackWorker: Success (cold start) - \(Int(executionTime * 1000))ms")
+                    NativeLogger.d("DartCallbackWorker: Success (cold start) - \(Int(executionTime * 1000))ms")
                 }
                 return WorkerResult.success(message: "Callback returned true")
             } else {
-                print("DartCallbackWorker: Failed - Callback returned false")
+                NativeLogger.e("DartCallbackWorker: Failed - Callback returned false")
                 return WorkerResult.failure(message: "Callback returned false")
             }
         } catch {
             let executionTime = Date().timeIntervalSince(startTime)
-            print("DartCallbackWorker: Error - \(error.localizedDescription) (\(Int(executionTime * 1000))ms)")
+            NativeLogger.e("DartCallbackWorker: Error - \(error.localizedDescription) (\(Int(executionTime * 1000))ms)")
             return WorkerResult.failure(message: "Execution error: \(error.localizedDescription)")
         }
     }
