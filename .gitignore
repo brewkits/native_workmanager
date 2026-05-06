@@ -23,6 +23,7 @@ migrate_working_dir/
 GEMINI.md
 .gemini/
 .gemini_security/
+CLAUSE.md
 
 # Claude Code
 .claude/

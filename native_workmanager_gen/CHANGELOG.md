@@ -1,48 +1,68 @@
-## 1.2.5 - 2026-05-06
+# Changelog
 
-- Bump version to 1.2.5 to synchronize with the `native_workmanager` package release.
+All notable changes to this project will be documented in this file.
 
-## 1.2.3 - 2026-04-24
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-- Bump version to 1.2.3 to synchronize with the `native_workmanager` package release.
+---
 
-## 1.0.4 - 2026-04-20
+## [1.2.5] - 2026-05-06
 
-- Widen `analyzer` constraint from `^12.0.0` to `>=10.0.0 <13.0.0` so that
-  Flutter projects whose SDK pins `meta` to `1.17.0` (e.g. Flutter 3.41.x)
-  can resolve the dependency without conflict — `analyzer 10.x` requires
-  `meta ^1.15.0` which satisfies the pin.
-- Fix deprecation: replace `getDisplayString(withNullability: false)` with
-  `getDisplayString()` (the `withNullability` parameter was deprecated across
-  all supported analyzer versions).
+### Changed
+- Version bump to match `native_workmanager` 1.2.5 release.
 
-## 1.0.3
+---
 
-- Require analyzer `>=12.0.0` and Dart SDK `>=3.9.0` to match pub.dev analysis
-  environment and gain access to stable analyzer 12.x APIs.
-- Replace `FunctionElement` (removed in analyzer 12.x / Dart 3.11+) with
-  `ElementKind.FUNCTION` check and `TopLevelFunctionElement` cast.
-- Replace `element.parameters` (renamed to `formalParameters` in analyzer 12.x)
-  with `fn.formalParameters` throughout validation logic.
-- Replace `element.name` (now `String?` in analyzer 12.x) with
-  `element.displayName` (always non-null `String`) throughout.
-- Drop redundant `enclosingElement is! LibraryElement` guard — annotated
-  top-level functions always satisfy `kind == ElementKind.FUNCTION`.
+## [1.2.3] - 2026-04-24
 
-## 1.0.2
+### Changed
+- Version bump to match `native_workmanager` 1.2.3 release.
 
-- Replace `TypeChecker.fromRuntime` (removed in source_gen 4.x) with `TypeChecker.fromUrl`
-  — removes `dart:mirrors` dependency and fixes static analysis on pub.dev.
-- Remove `native_workmanager` from runtime dependencies (only needed at build time via URI).
+---
 
-## 1.0.1
+## [1.0.4] - 2026-04-20
 
-- Widen dependency constraints: `build <5`, `source_gen <5`, `analyzer <13`, `build_runner <4`.
-- Add dartdoc to `workerCallbackBuilder` and `WorkerCallbackGenerator` constructor.
-- Add example demonstrating codegen setup.
+### Fixed
+- Widened `analyzer` constraint from `^12.0.0` to `>=10.0.0 <13.0.0` to resolve
+  `meta` version conflict on Flutter 3.41.x (`analyzer 10.x` requires `meta ^1.15.0`).
+- Replaced deprecated `getDisplayString(withNullability: false)` with `getDisplayString()`.
 
-## 1.0.0
+---
 
+## [1.0.3]
+
+### Changed
+- Require `analyzer >=12.0.0` and Dart SDK `>=3.9.0`.
+- Replaced `FunctionElement` (removed in analyzer 12.x) with `ElementKind.FUNCTION` check
+  and `TopLevelFunctionElement` cast.
+- Replaced `element.parameters` with `fn.formalParameters` (renamed in analyzer 12.x).
+- Replaced `element.name` with `element.displayName` (now `String?` in analyzer 12.x).
+
+---
+
+## [1.0.2]
+
+### Fixed
+- Replaced `TypeChecker.fromRuntime` (removed in source_gen 4.x) with `TypeChecker.fromUrl` —
+  removes `dart:mirrors` dependency and fixes static analysis on pub.dev.
+- Removed `native_workmanager` from runtime dependencies (only needed at build time via URI).
+
+---
+
+## [1.0.1]
+
+### Changed
+- Widened dependency constraints: `build <5`, `source_gen <5`, `analyzer <13`, `build_runner <4`.
+
+### Added
+- Dartdoc to `workerCallbackBuilder` and `WorkerCallbackGenerator` constructor.
+- Example demonstrating codegen setup.
+
+---
+
+## [1.0.0]
+
+### Added
 - Initial release: `@WorkerCallback` annotation code generator for `native_workmanager`.
 - Generates type-safe callback IDs and worker registry from annotated top-level functions.
 - Validates callback signature (`Future<bool>` return type, `String?` parameter).

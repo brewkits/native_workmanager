@@ -1,5 +1,6 @@
 GEMINI.md
 CLAUDE.md
+CLAUSE.md
 CONTRIBUTING.md
 ROADMAP.md
 .github/
@@ -10,4 +11,6 @@ benchmark/
 scripts/
 tool/
 assets/
+coverage/
+test_results.txt
 doc/internal/

@@ -70,14 +70,14 @@ class MoveToSharedStorageWorker: IosWorker {
                 request.addResource(with: .photo, fileURL: sourceURL, options: nil)
             }) { success, error in
                 if success {
-                    print("MoveToSharedStorageWorker: Saved to Photo Library: \(fileName)")
+                    NativeLogger.d("MoveToSharedStorageWorker: Saved to Photo Library: \(fileName)")
                     continuation.resume(returning: .success(
                         message: "Saved to Photo Library",
                         data: ["fileName": fileName, "storageType": "photos"]
                     ))
                 } else {
                     let msg = error?.localizedDescription ?? "Unknown error"
-                    print("MoveToSharedStorageWorker: Photo Library error: \(msg)")
+                    NativeLogger.e("MoveToSharedStorageWorker: Photo Library error: \(msg)")
                     continuation.resume(returning: .failure(message: "Failed to save to Photo Library: \(msg)"))
                 }
             }
@@ -123,13 +123,13 @@ class MoveToSharedStorageWorker: IosWorker {
             }
             try FileManager.default.copyItem(at: sourceURL, to: destURL)
 
-            print("MoveToSharedStorageWorker: Copied to Documents: \(destURL.path)")
+            NativeLogger.d("MoveToSharedStorageWorker: Copied to Documents: \(destURL.path)")
             return .success(
                 message: "Saved to Documents",
                 data: ["filePath": destURL.path, "fileName": fileName, "storageType": "documents"]
             )
         } catch {
-            print("MoveToSharedStorageWorker: Documents copy failed: \(error.localizedDescription)")
+            NativeLogger.e("MoveToSharedStorageWorker: Documents copy failed: \(error.localizedDescription)")
             return .failure(message: "Failed to copy to Documents: \(error.localizedDescription)")
         }
     }

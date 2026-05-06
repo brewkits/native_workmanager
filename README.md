@@ -15,7 +15,7 @@
   <a href="https://github.com/brewkits/native_workmanager/actions"><img src="https://github.com/brewkits/native_workmanager/workflows/ci/badge.svg" alt="CI"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT"></a>
   <img src="https://img.shields.io/badge/Android-8.0%2B-brightgreen.svg" alt="Android 8.0+">
-  <img src="https://img.shields.io/badge/iOS-13.0%2B-lightgrey.svg" alt="iOS 13.0+">
+  <img src="https://img.shields.io/badge/iOS-14.0%2B-lightgrey.svg" alt="iOS 14.0+">
 </p>
 
 ---
@@ -46,7 +46,7 @@ No boilerplate. No native code to write. No `AndroidManifest.xml` changes. Each 
 
 ```yaml
 dependencies:
-  native_workmanager: ^1.2.4
+  native_workmanager: ^1.2.5
 ```
 
 **2. Initialize once in `main()`:**

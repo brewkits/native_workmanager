@@ -78,7 +78,7 @@ class ParallelHttpDownloadWorker: IosWorker {
 
         // Skip download if destination already exists and skipExisting is enabled
         if (config.skipExisting ?? false) && FileManager.default.fileExists(atPath: config.savePath) {
-            print("ParallelHttpDownloadWorker: skipExisting=true and file already exists — skipping")
+            NativeLogger.w("ParallelHttpDownloadWorker: skipExisting=true and file already exists — skipping")
             let size = (try? FileManager.default.attributesOfItem(atPath: config.savePath))?[.size] as? Int64 ?? 0
             return .success(
                 message: "File already exists, download skipped",
@@ -108,14 +108,14 @@ class ParallelHttpDownloadWorker: IosWorker {
                 let ar = http.value(forHTTPHeaderField: "Accept-Ranges")?.lowercased() == "bytes"
                 return (cl, ar)
             } catch {
-                print("ParallelHttpDownloadWorker: HEAD failed, fallback: \(error.localizedDescription)")
+                NativeLogger.e("ParallelHttpDownloadWorker: HEAD failed, fallback: \(error.localizedDescription)")
                 return (-1, false)
             }
         }()
 
         // ── Step 2: Fallback if server does not support range requests ────────
         if !acceptsRanges || contentLength <= 0 {
-            print("ParallelHttpDownloadWorker: No range support or unknown size — sequential fallback")
+            NativeLogger.w("ParallelHttpDownloadWorker: No range support or unknown size — sequential fallback")
             return await downloadSequential(
                 session: session, url: url, config: config,
                 destinationURL: destinationURL, taskId: taskId,
@@ -124,7 +124,7 @@ class ParallelHttpDownloadWorker: IosWorker {
             )
         }
 
-        print("ParallelHttpDownloadWorker: Content-Length=\(contentLength)  chunks=\(config.effectiveNumChunks)")
+        NativeLogger.d("ParallelHttpDownloadWorker: Content-Length=\(contentLength)  chunks=\(config.effectiveNumChunks)")
 
         // ── Step 3: Compute byte ranges ───────────────────────────────────────
         let numChunks = config.effectiveNumChunks
@@ -175,7 +175,7 @@ class ParallelHttpDownloadWorker: IosWorker {
 
         // ── Step 7: Merge parts → temp file ──────────────────────────────────
         let tempURL = URL(fileURLWithPath: config.savePath + ".tmp")
-        print("ParallelHttpDownloadWorker: Merging \(numChunks) chunks")
+        NativeLogger.d("ParallelHttpDownloadWorker: Merging \(numChunks) chunks")
 
         do {
             // Resolve symlinks before writing (iOS /var → /private/var)
@@ -217,14 +217,14 @@ class ParallelHttpDownloadWorker: IosWorker {
 
             // ── Step 8: Checksum ───────────────────────────────────────────
             if let expected = config.expectedChecksum {
-                print("ParallelHttpDownloadWorker: Verifying checksum (\(config.effectiveChecksumAlgorithm))...")
+                NativeLogger.d("ParallelHttpDownloadWorker: Verifying checksum (\(config.effectiveChecksumAlgorithm))...")
                 guard let actual = calculateChecksum(fileURL: resolvedTemp, algorithm: config.effectiveChecksumAlgorithm) else {
                     return .failure(message: "Failed to calculate checksum")
                 }
                 if actual.caseInsensitiveCompare(expected) != .orderedSame {
                     return .failure(message: "Checksum mismatch (expected: \(expected), actual: \(actual))")
                 }
-                print("ParallelHttpDownloadWorker: Checksum OK: \(actual)")
+                NativeLogger.d("ParallelHttpDownloadWorker: Checksum OK: \(actual)")
             }
 
             // ── Step 9: Atomic rename ──────────────────────────────────────
@@ -239,7 +239,7 @@ class ParallelHttpDownloadWorker: IosWorker {
             let finalSize = (try? FileManager.default.attributesOfItem(atPath: resolvedDest.path))?[.size] as? Int64 ?? 0
             reportProgress(taskId: taskId, progress: 100, message: "Download complete",
                            bytesDownloaded: finalSize, totalBytes: totalBytes)
-            print("ParallelHttpDownloadWorker: Success — \(finalSize) bytes at \(config.savePath)")
+            NativeLogger.d("ParallelHttpDownloadWorker: Success — \(finalSize) bytes at \(config.savePath)")
 
             return .success(
                 message: "Downloaded \(finalSize) bytes (\(numChunks) parallel chunks)",
@@ -252,7 +252,7 @@ class ParallelHttpDownloadWorker: IosWorker {
                 ]
             )
         } catch {
-            print("ParallelHttpDownloadWorker: Merge failed: \(error.localizedDescription)")
+            NativeLogger.e("ParallelHttpDownloadWorker: Merge failed: \(error.localizedDescription)")
             return .failure(message: "Merge failed: \(error.localizedDescription)")
         }
     }
@@ -279,7 +279,7 @@ class ParallelHttpDownloadWorker: IosWorker {
         // Resume: skip if already complete
         let existingSize = (try? FileManager.default.attributesOfItem(atPath: partURL.path))?[.size] as? Int64 ?? 0
         if existingSize >= expectedSize {
-            print("ParallelHttpDownloadWorker: Chunk \(index) already complete, skipping")
+            NativeLogger.w("ParallelHttpDownloadWorker: Chunk \(index) already complete, skipping")
             downloadedAtomic.add(existingSize)
             return true
         }
@@ -290,7 +290,7 @@ class ParallelHttpDownloadWorker: IosWorker {
         config.headers?.forEach { request.setValue($1, forHTTPHeaderField: $0) }
         if let sc = signingConfig { RequestSigner.sign(request: &request, config: sc) }
 
-        print("ParallelHttpDownloadWorker: Chunk \(index) — bytes=\(resumeFrom)-\(rangeEnd)")
+        NativeLogger.d("ParallelHttpDownloadWorker: Chunk \(index) — bytes=\(resumeFrom)-\(rangeEnd)")
 
         do {
             var (data, response) = try await session.data(for: request)
@@ -311,7 +311,7 @@ class ParallelHttpDownloadWorker: IosWorker {
             guard let http = response as? HTTPURLResponse,
                   (200 ..< 300).contains(http.statusCode) else {
                 let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-                print("ParallelHttpDownloadWorker: Chunk \(index) HTTP \(code)")
+                NativeLogger.d("ParallelHttpDownloadWorker: Chunk \(index) HTTP \(code)")
                 return false
             }
 
@@ -341,10 +341,10 @@ class ParallelHttpDownloadWorker: IosWorker {
                     networkSpeed: speed, timeRemainingMs: etaMs
                 )
             }
-            print("ParallelHttpDownloadWorker: Chunk \(index) done (\(data.count) bytes)")
+            NativeLogger.d("ParallelHttpDownloadWorker: Chunk \(index) done (\(data.count) bytes)")
             return true
         } catch {
-            print("ParallelHttpDownloadWorker: Chunk \(index) error: \(error.localizedDescription)")
+            NativeLogger.e("ParallelHttpDownloadWorker: Chunk \(index) error: \(error.localizedDescription)")
             return false
         }
     }
@@ -509,7 +509,7 @@ class ParallelHttpDownloadWorker: IosWorker {
             }) {}
             return h.finalize().map { String(format: "%02x", $0) }.joined()
         default:
-            print("ParallelHttpDownloadWorker: Unsupported algorithm: \(algorithm)")
+            NativeLogger.d("ParallelHttpDownloadWorker: Unsupported algorithm: \(algorithm)")
             return nil
         }
     }

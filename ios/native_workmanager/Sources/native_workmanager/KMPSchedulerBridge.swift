@@ -67,21 +67,27 @@ class KMPSchedulerBridge {
 
         case "periodic":
             guard let intervalMs = (map["intervalMs"] as? NSNumber)?.int64Value else {
+                NativeLogger.d("ERROR: periodic trigger missing 'intervalMs' — rejecting. Dart bridge bug?")
                 return nil
             }
             let flexMs = (map["flexMs"] as? NSNumber)?.int64Value
             let initialDelayMs = (map["initialDelayMs"] as? NSNumber)?.int64Value ?? 0
             var runImmediately = map["runImmediately"] as? Bool ?? true
 
-            // Resolve KMP Library "Ambiguous" conflict: if initial delay is provided,
-            // the task is inherently not running immediately.
+            // ⚠️ KMP-BRIDGE-FROZEN: flexMs Int64? → KotlinLong? requires explicit constructor.
+            // Swift cannot cast Int64 to boxed Kotlin types directly.
+            // Do NOT simplify to 'as? KotlinLong'.
+            let flexMsValue = flexMs != nil ? KotlinLong(value: flexMs!) : nil
+            
+            // KMP library rejects runImmediately=false when initialDelayMs>0 ("Ambiguous" error).
+            // Force true so the library accepts the request; initialDelayMs controls first-run timing.
             if initialDelayMs > 0 {
                 runImmediately = true
             }
 
             return TaskTriggerPeriodic(
                 intervalMs: intervalMs,
-                flexMs: flexMs as? KotlinLong,
+                flexMs: flexMsValue,
                 initialDelayMs: initialDelayMs,
                 runImmediately: runImmediately
             )

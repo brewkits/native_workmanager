@@ -115,7 +115,7 @@ class ParallelHttpUploadWorker: IosWorker {
             ))
         }
 
-        print("ParallelHttpUploadWorker: Uploading \(resolvedFiles.count) files to \(host)" +
+        NativeLogger.d("ParallelHttpUploadWorker: Uploading \(resolvedFiles.count) files to \(host)" +
               "  maxConcurrent=\(config.effectiveMaxConcurrent)  maxRetries=\(config.effectiveMaxRetries)")
 
         let sessionConfig = URLSessionConfiguration.default
@@ -147,7 +147,7 @@ class ParallelHttpUploadWorker: IosWorker {
 
                     while attempt <= config.effectiveMaxRetries {
                         if attempt > 0 {
-                            print("ParallelHttpUploadWorker: Retry \(attempt)/\(config.effectiveMaxRetries) for \(rf.resolvedName)")
+                            NativeLogger.d("ParallelHttpUploadWorker: Retry \(attempt)/\(config.effectiveMaxRetries) for \(rf.resolvedName)")
                         }
 
                         // Per-host concurrency gate (DispatchSemaphore.wait — OK on cooperative pool thread).
@@ -183,7 +183,7 @@ class ParallelHttpUploadWorker: IosWorker {
                             let done = uploadedCount
                             progressLock.unlock()
 
-                            print("ParallelHttpUploadWorker: [\(i)] \(rf.resolvedName) uploaded (\(done)/\(resolvedFiles.count))")
+                            NativeLogger.d("ParallelHttpUploadWorker: [\(i)] \(rf.resolvedName) uploaded (\(done)/\(resolvedFiles.count))")
 
                             if let taskId = taskId {
                                 let pct = Int(min(99, Double(done) / Double(resolvedFiles.count) * 100))
@@ -208,7 +208,7 @@ class ParallelHttpUploadWorker: IosWorker {
                         attempt += 1
                     }
 
-                    print("ParallelHttpUploadWorker: [\(i)] \(rf.resolvedName) failed after \(attempt) attempt(s): \(lastError)")
+                    NativeLogger.e("ParallelHttpUploadWorker: [\(i)] \(rf.resolvedName) failed after \(attempt) attempt(s): \(lastError)")
                     return (i, [
                         "fileName": rf.resolvedName,
                         "filePath": rf.fileURL.path,
@@ -236,7 +236,7 @@ class ParallelHttpUploadWorker: IosWorker {
             ProgressReporter.shared.clearTask(taskId)
         }
 
-        print("ParallelHttpUploadWorker: Done — \(succeeded) succeeded, \(failed) failed, \(totalBytes) bytes total")
+        NativeLogger.e("ParallelHttpUploadWorker: Done — \(succeeded) succeeded, \(failed) failed, \(totalBytes) bytes total")
 
         if succeeded == 0 {
             return .failure(message: "All \(fileResults.count) file uploads failed")

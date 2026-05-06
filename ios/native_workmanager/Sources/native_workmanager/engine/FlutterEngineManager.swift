@@ -121,9 +121,9 @@ class FlutterEngineManager {
 
         let initTime = Date().timeIntervalSince(startTime)
         if !wasEngineAlive {
-            print("FlutterEngineManager: Cold start - Engine initialized in \(Int(initTime * 1000))ms")
+            NativeLogger.d("FlutterEngineManager: Cold start - Engine initialized in \(Int(initTime * 1000))ms")
         } else {
-            print("FlutterEngineManager: Warm start - Engine already alive")
+            NativeLogger.d("FlutterEngineManager: Warm start - Engine already alive")
         }
 
         // Execute callback with timeout
@@ -148,10 +148,10 @@ class FlutterEngineManager {
                 group.cancelAll()
 
                 let totalTime = Date().timeIntervalSince(startTime)
-                print("FlutterEngineManager: Callback (handle: \(callbackHandle)) completed in \(Int(totalTime * 1000))ms")
+                NativeLogger.d("FlutterEngineManager: Callback (handle: \(callbackHandle)) completed in \(Int(totalTime * 1000))ms")
 
                 if disposeImmediately {
-                    print("FlutterEngineManager: Aggressively disposing engine to free RAM")
+                    NativeLogger.d("FlutterEngineManager: Aggressively disposing engine to free RAM")
                     dispose()
                 } else {
                     // Original behavior: Keep engine alive for 5 minutes
@@ -168,7 +168,7 @@ class FlutterEngineManager {
             // Dart isolate is hung — dispose the engine so the next task gets a fresh start.
             // Without this, isInitialized stays true and subsequent DartWorker tasks inherit
             // a hung MethodChannel whose invokeMethod replies will never arrive.
-            print("FlutterEngineManager: Callback timed out — disposing hung engine")
+            NativeLogger.d("FlutterEngineManager: Callback timed out — disposing hung engine")
             dispose()
             throw FlutterEngineError.timeout
         }
@@ -184,7 +184,7 @@ class FlutterEngineManager {
 
     /// Dispose internals. Must be called with `queue` already held — never acquires the lock itself.
     private func _disposeInternal() {
-        print("FlutterEngineManager: Disposing engine...")
+        NativeLogger.d("FlutterEngineManager: Disposing engine...")
         methodChannel?.setMethodCallHandler(nil)
         methodChannel = nil
         engine = nil
@@ -192,7 +192,7 @@ class FlutterEngineManager {
         disposalWorkItem?.cancel()
         disposalWorkItem = nil
         lastUsedTimestamp = nil
-        print("FlutterEngineManager: Engine disposed")
+        NativeLogger.d("FlutterEngineManager: Engine disposed")
     }
 
     // MARK: - Private Methods
@@ -210,7 +210,7 @@ class FlutterEngineManager {
                 let saved = UserDefaults.standard.object(forKey: FlutterEngineManager.callbackHandleKey) as? Int64
                 if let s = saved {
                     self.callbackHandle = s
-                    print("FlutterEngineManager: Restored callback handle from storage: \(s)")
+                    NativeLogger.d("FlutterEngineManager: Restored callback handle from storage: \(s)")
                 }
             }
         }
@@ -250,7 +250,7 @@ class FlutterEngineManager {
             return
         }
 
-        print("FlutterEngineManager: Initializing Flutter Engine...")
+        NativeLogger.d("FlutterEngineManager: Initializing Flutter Engine...")
 
         // Create engine
         let engine = FlutterEngine(name: "native_workmanager_background")
@@ -316,7 +316,7 @@ class FlutterEngineManager {
 
             if call.method == "dartReady" {
                 result(nil)
-                print("FlutterEngineManager: Dart side ready")
+                NativeLogger.d("FlutterEngineManager: Dart side ready")
 
                 // All writes to isReady AND continuation-resume happen on self.queue (serial).
                 self.queue.async {
@@ -355,7 +355,7 @@ class FlutterEngineManager {
             guard let self = self else { return }
 
             if !isReady {
-                print("FlutterEngineManager: Timeout waiting for Dart ready signal")
+                NativeLogger.d("FlutterEngineManager: Timeout waiting for Dart ready signal")
                 self.completeInitialization(error: FlutterEngineError.dartReadyTimeout)
             }
         }
@@ -399,7 +399,7 @@ class FlutterEngineManager {
                     ]
                     channel.invokeMethod("executeCallback", arguments: args) { result in
                         if let error = result as? FlutterError {
-                            print("FlutterEngineManager: Callback error: \(error.message ?? "unknown")")
+                            NativeLogger.e("FlutterEngineManager: Callback error: \(error.message ?? "unknown")")
                             continuation.resume(returning: false)
                         } else if let success = result as? Bool {
                             continuation.resume(returning: success)
@@ -455,7 +455,7 @@ class FlutterEngineManager {
 
                     let idleTime = Date().timeIntervalSince(lastUsed)
                     if idleTime >= FlutterEngineManager.idleTimeoutSeconds {
-                        print("FlutterEngineManager: Auto-disposing after \(Int(idleTime))s idle")
+                        NativeLogger.d("FlutterEngineManager: Auto-disposing after \(Int(idleTime))s idle")
                         // Call _disposeInternal() directly — queue is already held here,
                         // so calling dispose() (which does queue.sync) would deadlock.
                         self._disposeInternal()

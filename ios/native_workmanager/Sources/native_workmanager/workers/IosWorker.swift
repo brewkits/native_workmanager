@@ -115,7 +115,7 @@ public class IosWorkerFactory {
         case "PdfWorker":
             return PdfWorker()
         default:
-            print("IosWorkerFactory: Unknown worker class: \(className)")
+            NativeLogger.d("IosWorkerFactory: Unknown worker class: \(className)")
             return nil
         }
     }

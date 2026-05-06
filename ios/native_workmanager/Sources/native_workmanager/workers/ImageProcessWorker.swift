@@ -74,7 +74,7 @@ class ImageProcessWorker: IosWorker {
 
         // Parse configuration
         guard let data = input.data(using: .utf8) else {
-            print("ImageProcessWorker: Error - Invalid UTF-8 encoding")
+            NativeLogger.e("ImageProcessWorker: Error - Invalid UTF-8 encoding")
             return .failure(message: "Invalid input encoding")
         }
 
@@ -136,7 +136,7 @@ class ImageProcessWorker: IosWorker {
                 return .failure(message: "Failed to crop image")
             }
             processedImage = croppedImage
-            print("ImageProcessWorker: Cropped to: \(Int(processedImage.size.width))x\(Int(processedImage.size.height))")
+            NativeLogger.d("ImageProcessWorker: Cropped to: \(Int(processedImage.size.width))x\(Int(processedImage.size.height))")
         }
 
         // Resize if needed
@@ -149,7 +149,7 @@ class ImageProcessWorker: IosWorker {
                     maxHeight: CGFloat(maxHeight),
                     maintainAspectRatio: config.shouldMaintainAspectRatio
                 )
-                print("ImageProcessWorker: Resized to: \(Int(processedImage.size.width))x\(Int(processedImage.size.height))")
+                NativeLogger.d("ImageProcessWorker: Resized to: \(Int(processedImage.size.width))x\(Int(processedImage.size.height))")
             }
         }
 
@@ -194,12 +194,12 @@ class ImageProcessWorker: IosWorker {
         let processedSize = Int64(data.count)
         let compressionRatio = originalSize > 0 ? String(format: "%.1f", (Float(processedSize) / Float(originalSize)) * 100) : "N/A"
 
-        print("ImageProcessWorker: Processed image saved: \(processedSize) bytes (\(compressionRatio)% of original)")
+        NativeLogger.d("ImageProcessWorker: Processed image saved: \(processedSize) bytes (\(compressionRatio)% of original)")
 
         // Delete original if requested
         if config.shouldDeleteOriginal && inputURL.path != outputURL.path {
             try? FileManager.default.removeItem(at: inputURL)
-            print("ImageProcessWorker: Deleted original file")
+            NativeLogger.d("ImageProcessWorker: Deleted original file")
         }
 
         return .success(
@@ -234,7 +234,7 @@ class ImageProcessWorker: IosWorker {
         let imageBounds = CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height)
         let intersection = cropRect.intersection(imageBounds)
         guard !intersection.isEmpty else {
-            print("ImageProcessWorker: Invalid crop rectangle")
+            NativeLogger.d("ImageProcessWorker: Invalid crop rectangle")
             return nil
         }
 
