@@ -67,6 +67,7 @@ class KMPSchedulerBridge {
 
         case "periodic":
             guard let intervalMs = (map["intervalMs"] as? NSNumber)?.int64Value else {
+                NativeLogger.d("ERROR: periodic trigger missing 'intervalMs' — rejecting. Dart bridge bug?")
                 return nil
             }
             let flexMs = (map["flexMs"] as? NSNumber)?.int64Value
