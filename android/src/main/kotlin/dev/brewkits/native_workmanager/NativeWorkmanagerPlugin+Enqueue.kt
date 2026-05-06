@@ -303,8 +303,8 @@ internal fun NativeWorkmanagerPlugin.handleEnqueue(call: MethodCall, result: Res
                     val initialDelayMs = (triggerMap?.get("initialDelayMs") as? Number)?.toLong() ?: 0L
                     var runImmediately = triggerMap?.get("runImmediately") as? Boolean ?: true
 
-                    // Resolve KMP Library "Ambiguous" conflict: if initial delay is provided, 
-                    // the task is inherently not running immediately.
+                    // KMP library rejects runImmediately=false when initialDelayMs>0 ("Ambiguous" error).
+                    // Force true so the library accepts the request; initialDelayMs controls first-run timing.
                     if (initialDelayMs > 0L) {
                         runImmediately = true
                     }
