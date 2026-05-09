@@ -882,11 +882,15 @@ class Constraints {
   /// Allow task to run during Doze mode (Android only).
   ///
   /// **Android**: If true, the task is scheduled as **Expedited Work**.
-  /// - Can run even when the device is locked or in Doze mode.
-  /// - Has higher priority and is less likely to be deferred by the system.
-  /// - Only applicable to OneTime tasks.
+  /// - Can run even when the device is locked or in Doze mode without a notification.
+  /// - Has higher priority but is strictly regulated by Android App Standby quotas.
+  /// - WorkManager may reject this if combined with constraints like [requiresCharging].
   ///
-  /// **iOS**: Ignored (use [requiresCharging] or [bgTaskType] for similar control).
+  /// ⚠️ **WARNING**: Do NOT use this if `isHeavyTask` is true. `isHeavyTask` 
+  /// (Foreground Service) inherently bypasses Doze mode. Adding `allowWhileIdle: true`
+  /// is redundant and may cause Android to reject the task schedule.
+  ///
+  /// **iOS**: Ignored.
   final bool allowWhileIdle;
 
   /// Indicates this is a long-running or heavy task requiring special handling.

@@ -571,7 +571,7 @@ Constraints({
 })
 ```
 
-- `allowWhileIdle`: (Android only) If true, uses **Expedited Work**. Guaranteed to run even when the device is locked or in Doze mode.
+- `allowWhileIdle`: (Android only) If true, uses **Expedited Work** to run tasks silently even when the device is locked or in Doze mode. **Warning:** Do not use simultaneously with `isHeavyTask: true`.
 
 **Note on FGS Bypass**: Providing a `foregroundNotificationConfig` automatically promotes the task to an Android Foreground Service. This is the recommended way to bypass battery optimizations for critical, long-running tasks.
 

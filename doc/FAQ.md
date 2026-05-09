@@ -4,10 +4,34 @@
 
 ### Q: Will my task run if the app is force-closed?
 
-**A:** Yes! Tasks are registered with the OS (Android WorkManager / iOS BGTaskScheduler), not your Flutter app. They survive:
-- App force-close
+**A:** It depends on the platform and how the app was closed:
+
+**Android:**
+Yes! Tasks are registered with Android `WorkManager` and survive:
+- User force-close (swiping the app away)
+- System Purge (OOM kills)
 - Phone reboot
-- App uninstall → reinstall (if task IDs are consistent)
+*Note: For maximum reliability, use `isHeavyTask: true` (Foreground Service) for critical tasks to ensure execution even in Doze mode.*
+
+**iOS:**
+- **System Purge (OOM kill):** Yes. If iOS kills the app in the background to reclaim memory, tasks are preserved and will trigger when iOS allocates the next background window. `native_workmanager` excels here because it uses a native SQLite store to recover state instantly.
+- **User Force-Quit (Swipe up):** **No.** This is a strict Apple platform limitation. If a user manually swipes the app away, iOS cancels all pending background tasks. The system will not wake the app again until the user manually relaunches it. No third-party package can bypass this.
+
+---
+
+### Q: How does `native_workmanager` compare to `flutter_background_service` for long-running tasks?
+
+**A:** The underlying mechanisms are fundamentally different, making `native_workmanager` vastly more resilient to system memory limits (OOM kills):
+
+1. **Zero-Engine Memory Footprint (~2MB vs 50MB+):**
+   Traditional packages like `flutter_background_service` keep a full Flutter Engine running 24/7 inside a persistent service. When Android runs low on RAM, the OOM Killer targets heavy processes first. Once killed, it struggles to restart.
+   `native_workmanager`'s Native Workers run in **pure Kotlin/Swift** (<50ms startup, ~2MB RAM). Because it is so lightweight, the OS rarely considers it a target for termination.
+   
+2. **Event-Driven vs. Persistent Service:**
+   We do not maintain a permanent service. `native_workmanager` relies on native schedulers (`WorkManager` / `BGTaskScheduler`). The Foreground Service (via `isHeavyTask`) is only invoked **at the exact moment** the task runs and is torn down immediately after.
+
+3. **System-Level State Persistence:**
+   If the OS does kill the process mid-execution, the task state is safely stored in the internal `WorkManager` SQLite database. Android will automatically reschedule it once resources free up.
 
 ---
 
@@ -110,24 +134,25 @@ TaskA (✅) → TaskB (❌ FAILS) → TaskC (⏸️ Skipped) → TaskD (⏸️ S
 
 ### Q: Do tasks run when device is in Doze mode?
 
-**A:** It depends on constraints:
+**A:** By default, tasks **are deferred** during Doze mode to save battery. However, you can bypass this using specific constraints. 
 
-**Android Doze Mode:**
-- Tasks **are deferred** during Doze mode by default
-- Use constraints to wait for appropriate conditions:
+**Should I use `allowWhileIdle` or `isHeavyTask`? (Do not use both)**
 
-```dart
-constraints: Constraints(
-  requiresNetwork: true,        // Wait for network
-  requiresCharging: true,        // Wait for charging
-  requiresBatteryNotLow: true,  // Wait until battery is OK
-)
-```
+They serve different purposes and combining them is redundant and may cause scheduling conflicts:
 
-**iOS Low Power Mode:**
-- Background tasks have lower priority
-- May be delayed or skipped
-- Use `requiresCharging: true` for critical tasks
+1. **`isHeavyTask: true` (Foreground Service)**
+   - **Android:** Promotes your task to a full Foreground Service (requires `ForegroundNotificationConfig`). It completely bypasses Doze mode, ignores App Standby quotas, and survives app kills. This is the highest priority execution Android allows.
+   - **iOS:** Maps to a `BGProcessingTask`.
+   - **When to use:** For critical, long-running tasks (e.g., uploading large files) that MUST finish reliably.
+   - **Trade-off:** Shows a visible notification to the user while running.
+
+2. **`allowWhileIdle: true` (Expedited Work)**
+   - **Android:** Uses WorkManager's *Expedited Work* mechanism to run the task even if the device is locked/in Doze mode, **without** showing a persistent notification.
+   - **iOS:** Ignored (no effect).
+   - **When to use:** For short, fast tasks (< 1 minute) that you want to trigger silently.
+   - **Trade-off:** Strictly regulated by Android's App Standby Buckets (quotas). If you exceed the quota, Android downgrades the task. Also, WorkManager rejects Expedited jobs if combined with constraints like `requiresCharging`.
+
+**Summary:** If you use `isHeavyTask: true`, the task already bypasses Doze mode. Adding `allowWhileIdle: true` is redundant and discouraged.
 
 ---
 
