@@ -41,6 +41,20 @@ Impact: Higher App Store ratings, fewer user complaints
 - Better responsiveness
 - Less UI jank during background execution
 
+### 🆕 New Features in v1.2.6
+
+- **Foreground Service (FGS) Bypass (Android)**: Run heavy tasks with persistent notifications to bypass Android 12+ background restrictions.
+  ```dart
+  constraints: Constraints(
+    isHeavyTask: true,
+    foregroundNotificationConfig: ForegroundNotificationConfig(
+      title: 'Syncing Data',
+      body: 'Your data is being backed up...',
+    ),
+  )
+  ```
+- **Expedited Work for Locked Devices**: Tasks with `allowWhileIdle: true` now use Android's Expedited Work mechanism, ensuring they fire even when the screen is locked.
+
 ### 🆕 New Features in v1.2.3
 
 - **Initial Delay for Periodic Tasks**: You can now delay the very first execution of a periodic task.

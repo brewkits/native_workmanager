@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.6] - 2026-05-08
+
+### Added
+- **Android**: **Industrial-grade Foreground Service (FGS) Support**. Added `ForegroundNotificationConfig` to `Constraints`, allowing tasks to run as prioritized Foreground Services to bypass Android 12+ background restrictions.
+- **Android**: Full compliance with Android 14 (API 34) Foreground Service Types. Automatically maps task types (dataSync, location, media, etc.) to system-level flags.
+- **Android**: Proactive task promotion using `setForeground()` to ensure immediate execution even when the app is in the background.
+- **Android**: FGS state persistence: configuration is automatically restored after device reboots or task resumes.
+- **Core**: Added comprehensive unit tests and a new Demo page in the example app for FGS bypass.
+
+### Fixed
+- **Android**: Fixed regression where background tasks would not fire when the device screen was locked (Doze mode) even after the app was killed. Resolved by correctly mapping `allowWhileIdle` to WorkManager's expedited mode ([#28](https://github.com/brewkits/native_workmanager/issues/28)).
+- **iOS**: Fixed Swift Concurrency deadlocks by migrating SQLite queues (DispatchQueue) from concurrent to serial.
+- **iOS**: Improved scheduling reliability by adjusting internal `TaskTrigger` execution delays on iOS to ensure `BGTaskScheduler` correctly enqueues tasks.
+- **Test**: Added platform-aware timeouts for iOS integration tests and automatically excluded timeout-prone integration tests (`TaskGraph` and `OfflineQueue`) when running on the iOS Simulator.
+
 ## [1.2.5] - 2026-05-06
 
 ### Fixed

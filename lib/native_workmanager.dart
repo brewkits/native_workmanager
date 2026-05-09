@@ -35,6 +35,7 @@
 library;
 
 export 'src/constraints.dart';
+export 'src/foreground_notification_config.dart';
 export 'src/task_id.dart';
 export 'src/enqueue_request.dart';
 export 'src/events.dart';

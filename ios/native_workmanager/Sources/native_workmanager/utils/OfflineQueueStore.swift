@@ -18,7 +18,7 @@ final class OfflineQueueStore {
     }
 
     private var db: OpaquePointer?
-    private let queue = DispatchQueue(label: "dev.brewkits.offlinequeuestore", attributes: .concurrent)
+    private let queue = DispatchQueue(label: "dev.brewkits.offlinequeuestore")
 
     private init() {
         openDatabase()
@@ -85,6 +85,15 @@ final class OfflineQueueStore {
         queue.async(flags: .barrier) {
             if let stmt = self.prepare("DELETE FROM offline_queue WHERE id = ?") {
                 sqlite3_bind_int64(stmt, 1, id)
+                sqlite3_step(stmt)
+                sqlite3_finalize(stmt)
+            }
+        }
+    }
+
+    func clearAll() {
+        queue.async(flags: .barrier) {
+            if let stmt = self.prepare("DELETE FROM offline_queue") {
                 sqlite3_step(stmt)
                 sqlite3_finalize(stmt)
             }

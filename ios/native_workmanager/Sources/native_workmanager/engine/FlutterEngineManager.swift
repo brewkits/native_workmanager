@@ -113,6 +113,22 @@ class FlutterEngineManager {
         timeoutSeconds: TimeInterval = defaultCallbackTimeoutSeconds,
         disposeImmediately: Bool = false
     ) async throws -> Bool {
+        return try await callbackQueue.enqueue {
+            try await self._executeDartCallbackInternal(
+                callbackHandle: callbackHandle,
+                input: input,
+                timeoutSeconds: timeoutSeconds,
+                disposeImmediately: disposeImmediately
+            )
+        }
+    }
+
+    private func _executeDartCallbackInternal(
+        callbackHandle: Int64,
+        input: String?,
+        timeoutSeconds: TimeInterval,
+        disposeImmediately: Bool
+    ) async throws -> Bool {
         let startTime = Date()
         let wasEngineAlive = isEngineAlive
 
@@ -152,13 +168,13 @@ class FlutterEngineManager {
 
                 if disposeImmediately {
                     NativeLogger.d("FlutterEngineManager: Aggressively disposing engine to free RAM")
-                    dispose()
+                    self._dispose()
                 } else {
                     // Original behavior: Keep engine alive for 5 minutes
-                    queue.sync {
+                    self.queue.sync {
                         self.lastUsedTimestamp = Date()
                     }
-                    scheduleDisposalCheck()
+                    self.scheduleDisposalCheck()
                 }
 
                 return result
@@ -166,10 +182,8 @@ class FlutterEngineManager {
             return result
         } catch FlutterEngineError.timeout {
             // Dart isolate is hung — dispose the engine so the next task gets a fresh start.
-            // Without this, isInitialized stays true and subsequent DartWorker tasks inherit
-            // a hung MethodChannel whose invokeMethod replies will never arrive.
             NativeLogger.d("FlutterEngineManager: Callback timed out — disposing hung engine")
-            dispose()
+            self._dispose()
             throw FlutterEngineError.timeout
         }
     }
@@ -179,6 +193,10 @@ class FlutterEngineManager {
     /// WARNING: This will make next callback execution slow (cold start).
     /// Only call this if memory is critical.
     func dispose() {
+        _dispose()
+    }
+
+    private func _dispose() {
         queue.sync { _disposeInternal() }
     }
 
@@ -390,22 +408,20 @@ class FlutterEngineManager {
             throw FlutterEngineError.engineNotInitialized
         }
 
-        return try await callbackQueue.enqueue {
-            try await withCheckedThrowingContinuation { continuation in
-                DispatchQueue.main.async {
-                    let args: [String: Any?] = [
-                        "callbackHandle": callbackHandle,
-                        "input": input
-                    ]
-                    channel.invokeMethod("executeCallback", arguments: args) { result in
-                        if let error = result as? FlutterError {
-                            NativeLogger.e("FlutterEngineManager: Callback error: \(error.message ?? "unknown")")
-                            continuation.resume(returning: false)
-                        } else if let success = result as? Bool {
-                            continuation.resume(returning: success)
-                        } else {
-                            continuation.resume(returning: true)
-                        }
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.main.async {
+                let args: [String: Any?] = [
+                    "callbackHandle": callbackHandle,
+                    "input": input
+                ]
+                channel.invokeMethod("executeCallback", arguments: args) { result in
+                    if let error = result as? FlutterError {
+                        NativeLogger.e("FlutterEngineManager: Callback error: \(error.message ?? "unknown")")
+                        continuation.resume(returning: false)
+                    } else if let success = result as? Bool {
+                        continuation.resume(returning: success)
+                    } else {
+                        continuation.resume(returning: true)
                     }
                 }
             }

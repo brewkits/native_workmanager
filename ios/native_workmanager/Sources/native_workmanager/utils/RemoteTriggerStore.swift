@@ -19,7 +19,7 @@ final class RemoteTriggerStore {
     }
 
     private var db: OpaquePointer?
-    private let queue = DispatchQueue(label: "dev.brewkits.remotetriggerstore", attributes: .concurrent)
+    private let queue = DispatchQueue(label: "dev.brewkits.remotetriggerstore")
     private let migrationLock = NSLock()
 
     private init() {

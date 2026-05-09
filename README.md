@@ -46,7 +46,7 @@ No boilerplate. No native code to write. No `AndroidManifest.xml` changes. Each 
 
 ```yaml
 dependencies:
-  native_workmanager: ^1.2.5
+  native_workmanager: ^1.2.6
 ```
 
 **2. Initialize once in `main()`:**
@@ -91,6 +91,7 @@ The dominant `workmanager` plugin spins up a **full Flutter Engine per backgroun
 | Built-in image workers | ❌ | ✅ (resize, crop, convert, thumbnail — EXIF-aware) |
 | Built-in crypto workers | ❌ | ✅ (AES-256-GCM, SHA-256/512, HMAC) |
 | Task chains (A→B→C) | ❌ | ✅ (persist across reboots) |
+| FGS Bypass (Android) | ❌ | ✅ (Bypass Doze/Standby with custom notifications) |
 | Per-task progress stream | ❌ | ✅ |
 | Survives device reboot | ✅ | ✅ |
 | Remote Trigger (Push) | ❌ | ✅ (FCM/APNs + HMAC Security) |

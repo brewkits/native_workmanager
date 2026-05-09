@@ -57,6 +57,16 @@ void main() async {
 
 ---
 
+### iOS: Swift Concurrency Deadlock (v1.2.5 regression)
+
+**Symptom:** App or background task hangs indefinitely on iOS when accessing local storage (OfflineQueue, TaskGraph).
+
+**Cause:** Concurrent access to SQLite via concurrent DispatchQueue caused deadlocks in Swift Concurrency. Fixed in v1.2.6.
+
+**Fix:** Update to `native_workmanager >= 1.2.6`. The plugin now uses serial queues for all database operations on iOS.
+
+---
+
 ## 2. Tasks Not Executing
 
 ### Task stays in `enqueued` state forever

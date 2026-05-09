@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'foreground_notification_config.dart';
 
 /// Backoff policy for retry behavior when task fails.
 ///
@@ -377,8 +378,8 @@ enum SystemConstraint {
 /// ```xml
 /// <key>BGTaskSchedulerPermittedIdentifiers</key>
 /// <array>
-///   <string>dev.brewkits.kmpworkmanager.refresh</string>
-///   <string>dev.brewkits.kmpworkmanager.processing</string>
+///   <string>dev.brewkits.native_workmanager.refresh</string>
+///   <string>dev.brewkits.native_workmanager.task</string>
 /// </array>
 /// ```
 ///
@@ -848,7 +849,17 @@ class Constraints {
     this.systemConstraints = const {},
     this.bgTaskType,
     this.foregroundServiceType,
+    this.foregroundNotificationConfig,
   });
+
+  /// Configuration for the Foreground Service notification (Android only).
+  ///
+  /// If provided, the task will run as a Foreground Service on Android,
+  /// guaranteeing execution even if the app is killed or the device enters Doze mode.
+  /// This requires the appropriate FOREGROUND_SERVICE permissions in your manifest.
+  ///
+  /// Ignored on iOS.
+  final ForegroundNotificationConfig? foregroundNotificationConfig;
 
   /// Task requires any network connection.
   final bool requiresNetwork;
@@ -868,7 +879,14 @@ class Constraints {
   /// Task requires storage to not be low. (Android only)
   final bool requiresStorageNotLow;
 
-  /// Allow task to run during Doze mode. (Android only)
+  /// Allow task to run during Doze mode (Android only).
+  ///
+  /// **Android**: If true, the task is scheduled as **Expedited Work**.
+  /// - Can run even when the device is locked or in Doze mode.
+  /// - Has higher priority and is less likely to be deferred by the system.
+  /// - Only applicable to OneTime tasks.
+  ///
+  /// **iOS**: Ignored (use [requiresCharging] or [bgTaskType] for similar control).
   final bool allowWhileIdle;
 
   /// Indicates this is a long-running or heavy task requiring special handling.
@@ -1059,6 +1077,13 @@ class Constraints {
   /// <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
   /// ```
   ///
+  /// **Android 14+ (API 34) Compliance**:
+  /// You must specify a service type that accurately reflects your task's activity.
+  /// If not provided, it defaults to `dataSync`.
+  ///
+  /// Ensure you have added the corresponding permission to your `AndroidManifest.xml`
+  /// (e.g., `android.permission.FOREGROUND_SERVICE_DATA_SYNC`).
+  ///
   /// Default: null (uses dataSync)
   final ForegroundServiceType? foregroundServiceType;
 
@@ -1163,6 +1188,8 @@ class Constraints {
         'systemConstraints': systemConstraints.map((c) => c.name).toList(),
         'bgTaskType': bgTaskType?.name,
         'foregroundServiceType': foregroundServiceType?.name,
+        if (foregroundNotificationConfig != null)
+          'foregroundNotificationConfig': foregroundNotificationConfig!.toMap(),
       };
 
   /// Create from map.
@@ -1213,6 +1240,11 @@ class Constraints {
                 )
                 .firstOrNull
             : null,
+        foregroundNotificationConfig: map['foregroundNotificationConfig'] !=
+                null
+            ? ForegroundNotificationConfig.fromMap(Map<String, dynamic>.from(
+                map['foregroundNotificationConfig'] as Map))
+            : null,
       );
 
   /// Create a copy with updated values.
@@ -1233,6 +1265,7 @@ class Constraints {
     Set<SystemConstraint>? systemConstraints,
     BGTaskType? bgTaskType,
     ForegroundServiceType? foregroundServiceType,
+    ForegroundNotificationConfig? foregroundNotificationConfig,
   }) =>
       Constraints(
         requiresNetwork: requiresNetwork ?? this.requiresNetwork,
@@ -1256,6 +1289,8 @@ class Constraints {
         bgTaskType: bgTaskType ?? this.bgTaskType,
         foregroundServiceType:
             foregroundServiceType ?? this.foregroundServiceType,
+        foregroundNotificationConfig:
+            foregroundNotificationConfig ?? this.foregroundNotificationConfig,
       );
 
   @override
@@ -1277,7 +1312,8 @@ class Constraints {
           maxRetries == other.maxRetries &&
           setEquals(systemConstraints, other.systemConstraints) &&
           bgTaskType == other.bgTaskType &&
-          foregroundServiceType == other.foregroundServiceType;
+          foregroundServiceType == other.foregroundServiceType &&
+          foregroundNotificationConfig == other.foregroundNotificationConfig;
 
   @override
   int get hashCode => Object.hash(
@@ -1312,5 +1348,6 @@ class Constraints {
       'qos: ${qos.name}, '
       'iosAlarm: ${exactAlarmIOSBehavior.name}, '
       'backoff: ${backoffPolicy.name}, '
-      'backoffDelay: ${backoffDelayMs}ms)';
+      'backoffDelay: ${backoffDelayMs}ms, '
+      'fgs: ${foregroundNotificationConfig != null})';
 }

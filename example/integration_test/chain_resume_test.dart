@@ -40,7 +40,7 @@ Future<TaskEvent?> _waitEvent(
   final completer = Completer<TaskEvent?>();
   late StreamSubscription<TaskEvent> sub;
   sub = NativeWorkManager.events.listen((event) {
-    if (event.taskId == taskId && !completer.isCompleted) {
+    if (event.taskId == taskId && !event.isStarted && !completer.isCompleted) {
       completer.complete(event);
       sub.cancel();
     }
@@ -72,7 +72,7 @@ Future<Map<String, TaskEvent>> _waitAllEvents(
   }
 
   sub = NativeWorkManager.events.listen((event) {
-    if (taskIds.contains(event.taskId)) {
+    if (!event.isStarted && taskIds.contains(event.taskId)) {
       results[event.taskId] = event;
       if (results.length == taskIds.length) finish();
     }

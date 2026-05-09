@@ -18,7 +18,7 @@ final class GraphStore {
     }
 
     private var db: OpaquePointer?
-    private let queue = DispatchQueue(label: "dev.brewkits.graphstore", attributes: .concurrent)
+    private let queue = DispatchQueue(label: "dev.brewkits.graphstore")
 
     private init() {
         openDatabase()
@@ -100,6 +100,16 @@ final class GraphStore {
     func getAllNodes() -> [NodeRecord] {
         return queue.sync {
             readRecords("SELECT * FROM graph_nodes", params: [])
+        }
+    }
+    
+    func clearAll() {
+        queue.sync {
+            let sql = "DELETE FROM graph_nodes"
+            if let stmt = self.prepare(sql) {
+                sqlite3_step(stmt)
+                sqlite3_finalize(stmt)
+            }
         }
     }
     

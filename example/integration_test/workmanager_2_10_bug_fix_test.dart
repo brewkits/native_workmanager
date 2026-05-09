@@ -95,7 +95,7 @@ void main() {
       StreamSubscription? eventsSub;
 
       eventsSub = NativeWorkManager.events.listen((event) {
-        if (taskIds.contains(event.taskId) && event.success) {
+        if (!event.isStarted && taskIds.contains(event.taskId) && event.success) {
           completedTasks.add(event.taskId);
         }
       });
@@ -173,7 +173,7 @@ void main() {
       StreamSubscription? eventsSub;
 
       eventsSub = NativeWorkManager.events.listen((event) {
-        if (event.taskId == task3 && event.success) {
+        if (!event.isStarted && event.taskId == task3 && event.success) {
           chainCompleted = true;
         }
       });
@@ -260,7 +260,7 @@ void main() {
       StreamSubscription? eventsSub;
 
       eventsSub = NativeWorkManager.events.listen((event) {
-        if (event.taskId == taskId && event.success) {
+        if (!event.isStarted && event.taskId == taskId && event.success) {
           taskCompleted = true;
         }
       });

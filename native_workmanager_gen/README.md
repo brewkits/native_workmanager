@@ -8,7 +8,7 @@ Generates type-safe Dart callback IDs and a worker registry from `@WorkerCallbac
 
 ```yaml
 dev_dependencies:
-  native_workmanager_gen: ^1.2.5
+  native_workmanager_gen: ^1.2.6
   build_runner: ^2.4.0
 ```
 

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.2.6] - 2026-05-08
+
+- Synchronized version bump with `native_workmanager` 1.2.6.
+
 ## [1.2.5] - 2026-05-06
 
 ### Changed

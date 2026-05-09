@@ -3,9 +3,15 @@
 Our mission is to provide the most robust, efficient, and secure background execution engine for Flutter.
 
 ---
-
 ## ✅ Completed (v1.2.x)
+- **v1.2.6 Industrial Reliability & FGS Bypass:**
+  - **Foreground Service (FGS) Support (Android)**: Bypass Android 12+ background restrictions for heavy tasks with prioritized notifications.
+  - **Locked Device Support (Android)**: Optimized task execution during Doze mode via Expedited Work mapping.
+  - **Swift Concurrency Stability (iOS)**: Eliminated database deadlocks by migrating to serial dispatch queues.
+  - **iOS Scheduling Reliability**: Tuned internal delays to ensure consistent `BGTaskScheduler` enqueuing.
+  - **Platform-Aware Test Suite**: Comprehensive integration tests with automatic simulator detection and isolation.
 - **v1.2.3 Critical Core Stability:** 
+...
   - Bypassed Android's 10KB WorkManager payload limit via automated secure file spilling (`wm_spill_*.json`).
   - Fixed iOS URLSession background file loss with synchronous blocking moves.
   - Eliminated iOS `BGTaskScheduler` starvation and race conditions via `TaskCompletionGuard`.

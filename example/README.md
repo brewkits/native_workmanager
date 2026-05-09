@@ -1,6 +1,6 @@
 # Native WorkManager Example App
 
-Comprehensive demonstration of all Native WorkManager features including v1.2.0 additions.
+Comprehensive demonstration of all Native Workmanager features including v1.2.6 additions.
 
 ## Overview
 
@@ -12,8 +12,16 @@ This example app showcases the complete Native WorkManager API through an intera
 4. **Advanced Constraints** - isHeavyTask & QoS
 5. **Task Chains** - Sequential & parallel workflows
 6. **Scheduled Tasks** - Periodic, exact, and windowed scheduling
+7. **FGS Bypass** - High-priority tasks with custom notifications (Android)
 
 ## Features Demonstrated
+
+### ✅ v1.2.6 Features
+
+- **FGS Bypass** - Industrial-grade Foreground Service support for Android
+- **Expedited Work** - Support for tasks firing on locked devices
+- **iOS Stability** - Fixed concurrency deadlocks and scheduling reliability
+- **Android 14 Compliance** - Automated service type mapping
 
 ### ✅ v1.1.1 Features
 
@@ -621,5 +629,5 @@ For issues, questions, or feedback:
 ---
 
 **Last Updated:** 2026-04-20
-**Version:** 1.2.2
+**Version:** 1.2.6+1
 **Platform Compatibility:** Android 8.0+, iOS 14+

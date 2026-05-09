@@ -131,6 +131,23 @@ constraints: Constraints(
 
 ---
 
+### Q: Why do tasks only trigger immediately AFTER the screen is turned on (when locked)?
+
+**A:** This is a strict OS-level battery saving feature, not a plugin bug. 
+
+**Android (Doze Mode & Manufacturer Optimizations):**
+When the app is killed and the screen is locked/off, Android enters **Doze mode** (or manufacturer-specific deep sleep, especially on Xiaomi, Huawei, Oppo, Vivo). In this state, the OS suspends all `WorkManager` tasks, network access, and WakeLocks to save battery. As soon as the user turns the screen on or unlocks the device, the OS exits Doze mode and all deferred tasks trigger immediately.
+
+**To mitigate this:**
+1. Guide users to device Settings and set your app's Battery usage to **Unrestricted**.
+2. On aggressive ROMs (Xiaomi/Oppo/Vivo), users must enable **Auto-start** for your app.
+3. You can prompt users for the `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` permission if your app's core functionality requires it.
+
+**iOS:**
+iOS `BGTaskScheduler` is strictly opportunistic. While iOS *can* execute tasks while locked, it may heavily defer them if the app was swiped away (killed) or if the device is in Low Power Mode.
+
+---
+
 ### Q: Can I schedule exact-time tasks (e.g., alarm at 7:00 AM)?
 
 **A:** No, native_workmanager is for **flexible background tasks**, not exact alarms.

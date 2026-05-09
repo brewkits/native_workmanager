@@ -21,7 +21,7 @@ This guide shows how to use Hive with native_workmanager for background data syn
 
 ```yaml
 dependencies:
-  native_workmanager: ^1.2.2
+  native_workmanager: ^1.2.6
   hive: ^2.2.3
   hive_flutter: ^1.2.1
 

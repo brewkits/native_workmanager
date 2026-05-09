@@ -14,7 +14,7 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:native_workmanager/src/task_trigger.dart';
+import 'package:native_workmanager/native_workmanager.dart';
 
 void main() {
   group('Bridge Parameter Passthrough', () {
@@ -162,6 +162,73 @@ void main() {
             map['earliestMs'], equals(const Duration(hours: 1).inMilliseconds));
         expect(
             map['latestMs'], equals(const Duration(hours: 3).inMilliseconds));
+      });
+    });
+
+    group('Constraints map keys and types', () {
+      test('basic boolean fields use correct keys', () {
+        final map = Constraints(
+          requiresNetwork: true,
+          requiresUnmeteredNetwork: true,
+          requiresCharging: true,
+          requiresDeviceIdle: true,
+          requiresBatteryNotLow: true,
+          requiresStorageNotLow: true,
+          allowWhileIdle: true,
+          isHeavyTask: true,
+        ).toMap();
+
+        expect(map['requiresNetwork'], isTrue);
+        expect(map['requiresUnmeteredNetwork'], isTrue);
+        expect(map['requiresCharging'], isTrue);
+        expect(map['requiresDeviceIdle'], isTrue);
+        expect(map['requiresBatteryNotLow'], isTrue);
+        expect(map['requiresStorageNotLow'], isTrue);
+        expect(map['allowWhileIdle'], isTrue);
+        expect(map['isHeavyTask'], isTrue);
+      });
+
+      test('enum fields use raw name strings', () {
+        final map = Constraints(
+          qos: QoS.userInitiated,
+          backoffPolicy: BackoffPolicy.linear,
+          bgTaskType: BGTaskType.processing,
+          foregroundServiceType: ForegroundServiceType.location,
+        ).toMap();
+
+        expect(map['qos'], equals('userInitiated'));
+        expect(map['backoffPolicy'], equals('linear'));
+        expect(map['bgTaskType'], equals('processing'));
+        expect(map['foregroundServiceType'], equals('location'));
+      });
+
+      test('backoffDelayMs is int', () {
+        final map = Constraints(backoffDelayMs: 45000).toMap();
+        expect(map['backoffDelayMs'], equals(45000));
+      });
+
+      test('systemConstraints is list of strings', () {
+        final map = Constraints(
+          systemConstraints: {SystemConstraint.deviceIdle},
+        ).toMap();
+        expect(map['systemConstraints'], isA<List>());
+        expect((map['systemConstraints'] as List).first, equals('deviceIdle'));
+      });
+
+      test('foregroundNotificationConfig is a nested map', () {
+        const config = ForegroundNotificationConfig(
+          title: 'T',
+          body: 'B',
+          showCancelButton: true,
+          cancelText: 'Cancel',
+        );
+        final map = Constraints(foregroundNotificationConfig: config).toMap();
+
+        final fgsMap = map['foregroundNotificationConfig'] as Map;
+        expect(fgsMap['title'], equals('T'));
+        expect(fgsMap['body'], equals('B'));
+        expect(fgsMap['showCancelButton'], isTrue);
+        expect(fgsMap['cancelText'], equals('Cancel'));
       });
     });
   });

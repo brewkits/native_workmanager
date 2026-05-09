@@ -53,16 +53,23 @@ android {
 
 ### 2. Android 14+ (API 34) Compatibility
 
-Starting with Android 14 (API 34), you **must** declare a `foregroundServiceType` for any service that runs in the foreground. The plugin defaults to `dataSync`.
+Starting with Android 14 (API 34), all Foreground Services must declare a `foregroundServiceType`. 
 
-If your background tasks involve operations other than data synchronization (e.g., location tracking, media playback), you must override the service declaration in your app's `android/app/src/main/AndroidManifest.xml`:
+**`native_workmanager` handles this for you.** The plugin manifest already declares all common service types (dataSync, location, media, etc.) to support diverse use cases.
 
-```xml
-<service
-    android:name="androidx.work.impl.foreground.SystemForegroundService"
-    android:foregroundServiceType="yourTypeHere"
-    tools:node="replace" />
+When scheduling a task that requires FGS bypass, simply specify the appropriate `foregroundServiceType` in your `Constraints`:
+
+```dart
+constraints: Constraints(
+  foregroundServiceType: ForegroundServiceType.location,
+  foregroundNotificationConfig: ForegroundNotificationConfig(
+    title: "Tracking Location",
+    body: "GPS is active in background",
+  ),
+)
 ```
+
+No manual `AndroidManifest.xml` changes are required for standard usage. If you need a custom type not included in the plugin, you can still override the declaration using `tools:node="replace"`.
 
 ---
 
@@ -74,7 +81,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  native_workmanager: ^1.2.2
+  native_workmanager: ^1.2.6
 ```
 
 Run:
@@ -606,4 +613,4 @@ if (handler.scheduleResult == ScheduleResult.rejectedOsPolicy) {
 
 ---
 
-**Last Updated:** April 2026 (v1.2.2)
+**Last Updated:** May 2026 (v1.2.6)

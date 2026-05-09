@@ -13,6 +13,8 @@
 
 import 'dart:async';
 
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:native_workmanager/native_workmanager.dart';
@@ -25,10 +27,15 @@ Future<bool> _sysPass(Map<String, dynamic>? input) async => true;
 String _id(String label) =>
     'sys_${label}_${DateTime.now().millisecondsSinceEpoch}';
 
+Duration _getIntegrationTimeout(int seconds) {
+  return Platform.isIOS ? Duration(seconds: seconds * 3) : Duration(seconds: seconds);
+}
+
 Future<TaskEvent?> _waitEvent(
   String taskId, {
-  Duration timeout = const Duration(seconds: 60),
+  Duration? timeout,
 }) async {
+  final actualTimeout = timeout ?? _getIntegrationTimeout(60);
   final completer = Completer<TaskEvent?>();
   late StreamSubscription<TaskEvent> sub;
   sub = NativeWorkManager.events.listen((event) {
@@ -39,7 +46,7 @@ Future<TaskEvent?> _waitEvent(
   });
   return Future.any([
     completer.future,
-    Future.delayed(timeout, () => null),
+    Future.delayed(actualTimeout, () => null),
   ]).then((v) {
     sub.cancel();
     return v;

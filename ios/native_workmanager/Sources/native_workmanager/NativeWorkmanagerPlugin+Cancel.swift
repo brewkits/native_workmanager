@@ -25,6 +25,10 @@ extension NativeWorkmanagerPlugin {
                 taskStore?.updateStatus(taskId: record.taskId, status: "cancelled")
             }
             BGTaskSchedulerManager.shared.cancelAllTasks()
+            
+            taskStore?.clearAll()
+            OfflineQueueStore.shared.clearAll()
+            GraphStore.shared.clearAll()
         }
         result(nil)
     }

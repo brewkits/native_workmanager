@@ -70,8 +70,9 @@ void main() {
     // ──────────────────────────────────────────────────────────
     // Baseline: minimum valid periodic task (15-min interval only)
     // ──────────────────────────────────────────────────────────
-    testWidgets('periodic – minimum interval (15 min) is accepted',
-        (tester) async {
+    testWidgets('periodic – minimum interval (15 min) is accepted', (
+      tester,
+    ) async {
       final id = _id('min_interval');
 
       final result = await NativeWorkManager.enqueue(
@@ -142,8 +143,9 @@ void main() {
     // ──────────────────────────────────────────────────────────
     // runImmediately: true (explicit, should behave same as default)
     // ──────────────────────────────────────────────────────────
-    testWidgets('periodic – with runImmediately:true is accepted',
-        (tester) async {
+    testWidgets('periodic – with runImmediately:true is accepted', (
+      tester,
+    ) async {
       final id = _id('run_immediately');
 
       final result = await NativeWorkManager.enqueue(
@@ -192,8 +194,11 @@ void main() {
         );
 
         final status = await NativeWorkManager.getTaskStatus(taskId: id);
-        expect(status, isNotNull,
-            reason: 'Task must be tracked after full-param enqueue');
+        expect(
+          status,
+          isNotNull,
+          reason: 'Task must be tracked after full-param enqueue',
+        );
 
         await NativeWorkManager.cancel(taskId: id);
       },
@@ -228,8 +233,9 @@ void main() {
     // ──────────────────────────────────────────────────────────
     // ExistingPolicy.replace: re-enqueueing the same ID replaces it.
     // ──────────────────────────────────────────────────────────
-    testWidgets('periodic – REPLACE policy updates existing task',
-        (tester) async {
+    testWidgets('periodic – REPLACE policy updates existing task', (
+      tester,
+    ) async {
       final id = _id('policy_replace');
 
       // First enqueue

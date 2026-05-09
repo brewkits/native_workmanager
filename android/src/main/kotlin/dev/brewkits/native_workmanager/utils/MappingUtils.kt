@@ -2,6 +2,7 @@ package dev.brewkits.native_workmanager.utils
 
 import dev.brewkits.kmpworkmanager.background.domain.BackoffPolicy
 import dev.brewkits.kmpworkmanager.background.domain.Constraints
+import dev.brewkits.kmpworkmanager.background.domain.Qos
 import dev.brewkits.kmpworkmanager.background.domain.SystemConstraint
 import org.json.JSONArray
 import org.json.JSONObject
@@ -26,6 +27,13 @@ object MappingUtils {
             else -> BackoffPolicy.EXPONENTIAL
         }
 
+        val qos = when ((map["qos"] as? String)?.lowercase()) {
+            "background" -> Qos.Background
+            "userinitiated" -> Qos.UserInitiated
+            "userinteractive" -> Qos.UserInteractive
+            else -> Qos.Utility
+        }
+
         val systemConstraintNames = map["systemConstraints"] as? List<*> ?: emptyList<Any>()
         val systemConstraints: MutableSet<SystemConstraint> = systemConstraintNames
             .filterIsInstance<String>()
@@ -42,15 +50,30 @@ object MappingUtils {
         if (map["requiresDeviceIdle"] as? Boolean == true) systemConstraints.add(SystemConstraint.DEVICE_IDLE)
         if (map["requiresBatteryNotLow"] as? Boolean == true) systemConstraints.add(SystemConstraint.REQUIRE_BATTERY_NOT_LOW)
 
+        // Extract FGS config and store in extras to preserve across reloads/resumes
+        val extras = mutableMapOf<String, String>()
+        val fgsConfigMap = map["foregroundNotificationConfig"] as? Map<*, *>
+        if (fgsConfigMap != null) {
+            extras["fgsConfig"] = toJson(fgsConfigMap)
+        }
+        
+        // Map foregroundServiceType name to extras for ForegroundNativeWorker usage
+        val fgsType = map["foregroundServiceType"] as? String
+        if (fgsType != null) {
+            extras["fgsType"] = fgsType
+        }
+
         return Constraints(
             requiresNetwork = requiresNetwork,
             requiresUnmeteredNetwork = requiresUnmeteredNetwork,
             requiresCharging = requiresCharging,
             allowWhileIdle = allowWhileIdle,
+            qos = qos,
             isHeavyTask = isHeavyTask,
             backoffPolicy = backoffPolicy,
             backoffDelayMs = backoffDelayMs,
-            systemConstraints = systemConstraints
+            systemConstraints = systemConstraints,
+            extras = extras
         )
     }
 

@@ -323,17 +323,20 @@ class _GraphExecutor {
 
   void _onEvent(TaskEvent event) {
     final taskId = event.taskId;
-    // Strip the graph namespace prefix to get the node ID.
     final prefix = '${_graph.id}__';
     if (!taskId.startsWith(prefix)) return;
     final nodeId = taskId.substring(prefix.length);
 
-    if (!_inFlight.contains(nodeId)) return;
+    // ignore: avoid_print
+    print(
+        '[_GraphExecutor] Received event for $nodeId: success=${event.success}, isStarted=${event.isStarted}, inFlight=$_inFlight');
 
-    // Lifecycle 'started' events must NOT remove nodes from _inFlight.
-    // Proceed only if this is a completion event (success or failure).
-    // Removing the node here for a 'started' event would cause the actual
-    // completion event to be ignored later, hanging the graph.
+    if (!_inFlight.contains(nodeId)) {
+      // ignore: avoid_print
+      print('[_GraphExecutor] Ignored event for $nodeId (not in flight)');
+      return;
+    }
+
     if (event.isStarted) return;
 
     _inFlight.remove(nodeId);
@@ -369,9 +372,14 @@ class _GraphExecutor {
   Future<void> _scheduleNode(TaskNode node) async {
     _inFlight.add(node.id);
     try {
+      // iOS BGTaskScheduler needs a short delay to reliably queue/launch.
+      final trigger = defaultTargetPlatform == TargetPlatform.iOS
+          ? TaskTrigger.oneTime(const Duration(seconds: 1))
+          : TaskTrigger.oneTime();
+
       await NativeWorkManager.enqueue(
         taskId: '${_graph.id}__${node.id}',
-        trigger: TaskTrigger.oneTime(),
+        trigger: trigger,
         worker: node.worker,
         constraints: node.constraints,
       );
@@ -412,19 +420,29 @@ class _GraphExecutor {
   void _checkDone() {
     final total = _graph._nodes.length;
     final resolved = _completed.length + _failed.length + _cancelled.length;
+
+    // ignore: avoid_print
+    print(
+        '[_GraphExecutor] _checkDone: resolved=$resolved/$total, inFlight=$_inFlight');
+
     if (resolved < total) return;
     if (_inFlight.isNotEmpty) return;
+
+    // ignore: avoid_print
+    print('[_GraphExecutor] Graph complete! Completing future.');
 
     _eventSub?.cancel();
     _eventSub = null;
 
-    _completer.complete(GraphResult(
-      graphId: _graph.id,
-      success: _failed.isEmpty && _cancelled.isEmpty,
-      completedCount: _completed.length,
-      failedNodes: _failed.toList(),
-      cancelledNodes: _cancelled.toList(),
-    ));
+    if (!_completer.isCompleted) {
+      _completer.complete(GraphResult(
+        graphId: _graph.id,
+        success: _failed.isEmpty && _cancelled.isEmpty,
+        completedCount: _completed.length,
+        failedNodes: _failed.toList(),
+        cancelledNodes: _cancelled.toList(),
+      ));
+    }
   }
 }
 

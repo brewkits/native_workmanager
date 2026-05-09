@@ -31,10 +31,15 @@ import 'package:native_workmanager/native_workmanager.dart';
 String _id(String label) =>
     'nwt_${label}_${DateTime.now().millisecondsSinceEpoch}';
 
+Duration _getIntegrationTimeout(int seconds) {
+  return Platform.isIOS ? Duration(seconds: seconds * 3) : Duration(seconds: seconds);
+}
+
 Future<TaskEvent?> _waitEvent(
   String taskId, {
-  Duration timeout = const Duration(seconds: 120),
+  Duration? timeout,
 }) async {
+  final actualTimeout = timeout ?? _getIntegrationTimeout(120);
   final completer = Completer<TaskEvent?>();
   late StreamSubscription<TaskEvent> sub;
   sub = NativeWorkManager.events.listen((event) {
@@ -54,7 +59,7 @@ Future<TaskEvent?> _waitEvent(
   });
 
   try {
-    return await completer.future.timeout(timeout);
+    return await completer.future.timeout(actualTimeout);
   } catch (e) {
     sub.cancel();
     // Small delay to allow native side to finish DB write if event was missed

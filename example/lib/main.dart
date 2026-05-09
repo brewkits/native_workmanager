@@ -11,6 +11,7 @@ import 'pages/performance_page.dart';
 import 'pages/case_study_page.dart';
 import 'pages/progress_tracking_demo_page.dart';
 import 'pages/cold_start_demo_page.dart';
+import 'pages/fgs_bypass_demo_page.dart';
 import 'examples/chain_resilience_test.dart';
 import 'examples/chain_data_flow_demo.dart';
 import 'screens/bug_fix_demo_screen.dart';
@@ -275,6 +276,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
     'Resilience',
     'Data Flow',
     'Cold-Start Persistence',
+    'FGS Bypass',
   ];
 
   @override
@@ -310,7 +312,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
       });
     });
 
-    _addLog('🚀 NativeWorkManager v1.2.0 — High-Performance Background Engine');
+    _addLog('🚀 NativeWorkManager v1.2.6 — Industrial Reliability & FGS Bypass');
   }
 
   String _formatTime(DateTime dt) {
@@ -502,6 +504,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
                           const ChainResilienceTest(), // 14
                           const ChainDataFlowDemo(), // 15
                           const ColdStartDemoPage(), // 16
+                          const FgsBypassDemoPage(), // 17
                         ],
                       ),
                     ),
@@ -653,6 +656,10 @@ class _DemoHomePageState extends State<DemoHomePage> {
           const NavigationDrawerDestination(
             icon: Icon(Icons.power_settings_new_outlined),
             label: Text('Cold-Start Persistence'),
+          ),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.notification_important_outlined),
+            label: Text('FGS Bypass'),
           ),
         ],
       ),

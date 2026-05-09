@@ -12,10 +12,10 @@
     <application>
         <!-- Declare foreground service type for WorkManager's SystemForegroundService.
              Required on Android 14+ (API 34+) when using isHeavyTask=true.
-             If your app needs a different type, override with tools:node="replace". -->
+             Includes all common types to support diverse user needs. -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
-            android:foregroundServiceType="dataSync"
+            android:foregroundServiceType="dataSync|location|mediaPlayback|connectedDevice|mediaProjection|health|remoteMessaging|specialUse|systemExempted"
             tools:node="merge" />
 
         <!-- BroadcastReceiver for the Cancel button in download progress notifications. -->

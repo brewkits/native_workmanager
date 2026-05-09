@@ -29,7 +29,7 @@ void main() {
       final completer = Completer<TaskEvent?>();
       late StreamSubscription sub;
       sub = NativeWorkManager.events.listen((event) {
-        if (event.taskId == taskId) {
+        if (!event.isStarted && event.taskId == taskId) {
           completer.complete(event);
           sub.cancel();
         }

@@ -175,8 +175,10 @@ Never read it outside these two lifecycle methods.
 
 ┌─────────────────────────────────────────────────────────────┐
 │  dbQueue (serial, QoS: .utility)                           │
-│  Owns: SQLite TaskStore, ChainStateManager                  │
-│  All reads AND writes go through this serial queue         │
+│  Owns: SQLite stores (Task, Chain, Graph, OfflineQueue,    │
+│  Middleware, RemoteTrigger).                               │
+│  All SQLite reads AND writes MUST be serial to prevent     │
+│  deadlocks in Swift Concurrency.                           │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -561,4 +563,4 @@ test('service cancels all on logout', () async {
 
 ---
 
-*Last updated: 2026-04-16 — applies to native_workmanager v1.2.0*
+*Last updated: 2026-05-08 — applies to native_workmanager v1.2.6*

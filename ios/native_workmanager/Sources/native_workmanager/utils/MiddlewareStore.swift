@@ -15,7 +15,7 @@ final class MiddlewareStore {
     }
 
     private var db: OpaquePointer?
-    private let queue = DispatchQueue(label: "dev.brewkits.middlewarestore", attributes: .concurrent)
+    private let queue = DispatchQueue(label: "dev.brewkits.middlewarestore")
 
     private init() {
         openDatabase()

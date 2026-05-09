@@ -367,9 +367,9 @@ internal fun NativeWorkmanagerPlugin.handleEnqueue(call: MethodCall, result: Res
                 // Check if expedited mode is requested for download workers (Task 6 / UIDT)
                 val isDownloadWorker = workerClassName.contains("HttpDownloadWorker") ||
                     workerClassName.contains("ParallelHttpDownloadWorker")
-                val isExpedited = isDownloadWorker &&
-                    (workerConfig?.get("expedited") == true || workerConfig?.get("priority") == "high")
-                NativeLogger.d("Scheduling '$taskId': OneTime(delay=${delayMs}ms, expedited=$isExpedited) → direct WorkManager")
+                val isExpedited = constraints.allowWhileIdle || (isDownloadWorker &&
+                    (workerConfig?.get("expedited") == true || workerConfig?.get("priority") == "high"))
+                NativeLogger.d("Scheduling '$taskId': OneTime(delay=${delayMs}ms, expedited=$isExpedited, fgs=${constraints.extras["fgsConfig"] != null}) → direct WorkManager")
                 enqueueOneTimeWorkDirect(taskId, workerClassName, inputJson, tag, constraints, delayMs, policy, isExpedited)
                 taskStatuses[taskId] = "pending"
                 observeWorkCompletion(taskId, false)
@@ -378,7 +378,7 @@ internal fun NativeWorkmanagerPlugin.handleEnqueue(call: MethodCall, result: Res
             }
 
             if (trigger is TaskTrigger.Periodic) {
-                NativeLogger.d("Scheduling '$taskId': Periodic → direct WorkManager")
+                NativeLogger.d("Scheduling '$taskId': Periodic(fgs=${constraints.extras["fgsConfig"] != null}) → direct WorkManager")
                 enqueuePeriodicWorkDirect(taskId, workerClassName, inputJson, tag, constraints, policy, trigger)
                 taskStatuses[taskId] = "pending"
                 observeWorkCompletion(taskId, true)
@@ -684,9 +684,22 @@ internal fun NativeWorkmanagerPlugin.enqueueOneTimeWorkDirect(
     policy: ExistingPolicy,
     expedited: Boolean = false,
 ) {
-    val workerClass = if (constraints.isHeavyTask) KmpHeavyWorker::class.java else KmpWorker::class.java
+    val fgsConfigJson = constraints.extras["fgsConfig"]
+    val workerClass = if (fgsConfigJson != null) {
+        dev.brewkits.native_workmanager.workers.ForegroundNativeWorker::class.java
+    } else if (constraints.isHeavyTask) {
+        KmpHeavyWorker::class.java
+    } else {
+        KmpWorker::class.java
+    }
 
-    val dataBuilder = Data.Builder().putString("workerClassName", workerClassName)
+    val dataBuilder = Data.Builder()
+        .putString("workerClassName", workerClassName)
+        .putString("taskId", taskId)
+
+    if (fgsConfigJson != null) {
+        dataBuilder.putString("fgsConfigJson", fgsConfigJson)
+    }
 
     // Apply middleware to inputJson before enqueuing (Phase 2)
     val effectiveInputJson = if (inputJson != null) {
@@ -769,11 +782,24 @@ internal fun NativeWorkmanagerPlugin.enqueuePeriodicWorkDirect(
     tag: String?,
     constraints: Constraints,
     policy: ExistingPolicy,
-    trigger: TaskTrigger.Periodic
+    trigger: TaskTrigger.Periodic,
 ) {
-    val workerClass = if (constraints.isHeavyTask) KmpHeavyWorker::class.java else KmpWorker::class.java
+    val fgsConfigJson = constraints.extras["fgsConfig"]
+    val workerClass = if (fgsConfigJson != null) {
+        dev.brewkits.native_workmanager.workers.ForegroundNativeWorker::class.java
+    } else if (constraints.isHeavyTask) {
+        KmpHeavyWorker::class.java
+    } else {
+        KmpWorker::class.java
+    }
 
-    val dataBuilder = Data.Builder().putString("workerClassName", workerClassName)
+    val dataBuilder = Data.Builder()
+        .putString("workerClassName", workerClassName)
+        .putString("taskId", taskId)
+
+    if (fgsConfigJson != null) {
+        dataBuilder.putString("fgsConfigJson", fgsConfigJson)
+    }
 
     val effectiveInputJson = if (inputJson != null) {
         NativeWorkmanagerPlugin.applyMiddleware(context, workerClassName, inputJson)

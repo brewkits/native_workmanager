@@ -56,7 +56,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Native WorkManager v1.2.0 Demo',
+      title: 'Native WorkManager v1.2.6 Demo',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
@@ -98,7 +98,7 @@ class _DemoHomePageState extends State<DemoHomePage>
       });
     });
 
-    _addLog('🚀 Native WorkManager v1.2.4 initialized (kmpworkmanager v2.4.3)');
+    _addLog('🚀 Native WorkManager v1.2.6 initialized');
   }
 
   @override
@@ -473,7 +473,7 @@ class _DemoHomePageState extends State<DemoHomePage>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Native WorkManager v1.2.0'),
+        title: const Text('Native WorkManager v1.2.6'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         bottom: TabBar(
           controller: _tabController,

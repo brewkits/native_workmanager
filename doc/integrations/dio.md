@@ -21,7 +21,7 @@ This guide shows how to use Dio with native_workmanager for background HTTP task
 
 ```yaml
 dependencies:
-  native_workmanager: ^1.2.2
+  native_workmanager: ^1.2.6
   dio: ^5.4.0
 ```
 

@@ -1,6 +1,6 @@
 # API Reference
 
-> Complete API documentation for native_workmanager v1.2.2
+> Complete API documentation for native_workmanager v1.2.6
 
 ## Core Classes
 
@@ -565,17 +565,26 @@ Constraints({
   int backoffDelayMs = 30000,
   int maxAttempts = 3,
   bool isHeavyTask = false,
+  bool allowWhileIdle = false,
+  ForegroundServiceType? foregroundServiceType,
+  ForegroundNotificationConfig? foregroundNotificationConfig,
 })
 ```
+
+- `allowWhileIdle`: (Android only) If true, uses **Expedited Work**. Guaranteed to run even when the device is locked or in Doze mode.
+
+**Note on FGS Bypass**: Providing a `foregroundNotificationConfig` automatically promotes the task to an Android Foreground Service. This is the recommended way to bypass battery optimizations for critical, long-running tasks.
 
 **Example:**
 ```dart
 Constraints(
   requiresNetwork: true,
-  requiresUnmeteredNetwork: true,  // WiFi only
-  requiresCharging: true,
-  backoffPolicy: BackoffPolicy.exponential,
-  maxAttempts: 5,
+  foregroundServiceType: ForegroundServiceType.dataSync,
+  foregroundNotificationConfig: ForegroundNotificationConfig(
+    title: "Syncing Data",
+    body: "Please wait...",
+    showCancelButton: true,
+  ),
 )
 ```
 
@@ -642,6 +651,55 @@ enum BackoffPolicy {
   exponential,
 }
 ```
+
+---
+
+### ForegroundServiceType
+
+Used to specify the type of Foreground Service for Android 14+ compliance.
+
+```dart
+enum ForegroundServiceType {
+  dataSync,
+  location,
+  mediaPlayback,
+  phoneCall,
+  connectedDevice,
+  mediaProjection,
+  health,
+  remoteMessaging,
+  shortService,
+  specialUse,
+  systemExemption,
+}
+```
+
+---
+
+## Classes
+
+### ForegroundNotificationConfig
+
+Configuration for the mandatory notification shown when a task runs as a Foreground Service on Android.
+
+```dart
+const ForegroundNotificationConfig({
+  required String title,
+  required String body,
+  String? iconName,
+  String? colorHex,
+  bool showCancelButton = true,
+  String cancelText = "Cancel",
+})
+```
+
+**Parameters:**
+- `title` - The primary title of the notification.
+- `body` - The description text shown under the title.
+- `iconName` - Name of the drawable resource to use as small icon (e.g., "ic_notification"). Defaults to app icon.
+- `colorHex` - Hex color code for the notification (e.g., "#FF5722").
+- `showCancelButton` - Whether to show a "Cancel" action button in the notification.
+- `cancelText` - Label for the cancel button.
 
 ---
 

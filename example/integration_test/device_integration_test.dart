@@ -1,6 +1,6 @@
 // ignore_for_file: avoid_print
 // ============================================================
-// Native WorkManager v1.2.0 – DEVICE INTEGRATION TESTS
+// Native WorkManager v1.2.6 – DEVICE INTEGRATION TESTS
 // ============================================================
 //
 // Run on a real device or emulator (NOT unit/mock tests):

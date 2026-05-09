@@ -60,10 +60,15 @@ Future<bool> _echoCallback(Map<String, dynamic>? input) async {
 String _id(String name) =>
     'init_${name}_${DateTime.now().millisecondsSinceEpoch}';
 
+Duration _getIntegrationTimeout(int seconds) {
+  return Platform.isIOS ? Duration(seconds: seconds * 3) : Duration(seconds: seconds);
+}
+
 Future<TaskEvent?> _waitEvent(
   String taskId, {
-  Duration timeout = const Duration(seconds: 60),
+  Duration? timeout,
 }) async {
+  final actualTimeout = timeout ?? _getIntegrationTimeout(60);
   final completer = Completer<TaskEvent?>();
   late StreamSubscription<TaskEvent> sub;
   sub = NativeWorkManager.events.listen((event) {
@@ -72,7 +77,7 @@ Future<TaskEvent?> _waitEvent(
       sub.cancel();
     }
   });
-  Future.delayed(timeout, () {
+  Future.delayed(actualTimeout, () {
     if (!completer.isCompleted) {
       sub.cancel();
       completer.complete(null);

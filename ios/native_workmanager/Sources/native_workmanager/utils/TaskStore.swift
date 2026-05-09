@@ -146,6 +146,11 @@ class TaskStore {
         sqlite.execute(sql: "DELETE FROM tasks WHERE task_id = ?;", params: [taskId])
     }
 
+    func clearAll() {
+        sqlite.execute(sql: "DELETE FROM tasks;")
+        sqlite.execute(sql: "DELETE FROM background_registry;")
+    }
+
     func deleteCompleted(olderThanMs: Int64) {
         let threshold = Int64(Date().timeIntervalSince1970 * 1000) - olderThanMs
         let thresholdSec = Int(threshold / 1000)
