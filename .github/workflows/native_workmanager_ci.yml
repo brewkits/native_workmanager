@@ -2,9 +2,9 @@ name: Native WorkManager CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, develop, 'release/*' ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main, develop, 'release/*' ]
 
 jobs:
   test_dart:
