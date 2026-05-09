@@ -294,12 +294,15 @@ class _DemoHomePageState extends State<DemoHomePage>
       // 1. Schedule a Native Worker (Lightweight, 2MB RAM)
       await NativeWorkManager.enqueue(
         taskId: taskId,
-        trigger: TaskTrigger.oneTime(initialDelayMs: 5000), // Delay 5s to allow OOM to happen first
-        worker: NativeWorker(workerId: 'LoggingWorker'),
+        trigger: TaskTrigger.oneTime(const Duration(seconds: 5)), // Delay 5s to allow OOM to happen first
+        worker: HttpRequestWorker(url: 'https://jsonplaceholder.typicode.com/posts/1'),
         constraints: const Constraints(
           isHeavyTask: true, // Bypass Doze mode and keep it prioritized
+          foregroundNotificationConfig: ForegroundNotificationConfig(
+            title: 'OOM Survivor',
+            body: 'I survived the Memory Kill!',
+          ),
         ),
-        inputData: {'message': 'Survived OOM Kill!'},
       );
       _addLog('📤 Scheduled: OOM Resilient Task ($taskId)');
       _addLog('⚙️ Task will trigger in 5s. Triggering OOM now...');
