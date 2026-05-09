@@ -328,7 +328,8 @@ class _GraphExecutor {
     final nodeId = taskId.substring(prefix.length);
 
     // ignore: avoid_print
-    print('[_GraphExecutor] Received event for $nodeId: success=${event.success}, isStarted=${event.isStarted}, inFlight=$_inFlight');
+    print(
+        '[_GraphExecutor] Received event for $nodeId: success=${event.success}, isStarted=${event.isStarted}, inFlight=$_inFlight');
 
     if (!_inFlight.contains(nodeId)) {
       // ignore: avoid_print
@@ -419,9 +420,10 @@ class _GraphExecutor {
   void _checkDone() {
     final total = _graph._nodes.length;
     final resolved = _completed.length + _failed.length + _cancelled.length;
-    
+
     // ignore: avoid_print
-    print('[_GraphExecutor] _checkDone: resolved=$resolved/$total, inFlight=$_inFlight');
+    print(
+        '[_GraphExecutor] _checkDone: resolved=$resolved/$total, inFlight=$_inFlight');
 
     if (resolved < total) return;
     if (_inFlight.isNotEmpty) return;

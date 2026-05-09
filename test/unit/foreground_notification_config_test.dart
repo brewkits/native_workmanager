@@ -3,7 +3,8 @@ import 'package:native_workmanager/native_workmanager.dart';
 
 void main() {
   group('ForegroundNotificationConfig - Rigorous Unit Tests', () {
-    test('Constructor: should enforce default values for optional parameters', () {
+    test('Constructor: should enforce default values for optional parameters',
+        () {
       const config = ForegroundNotificationConfig(
         title: 'Title',
         body: 'Body',
@@ -37,7 +38,9 @@ void main() {
       expect(restored.cancelText, original.cancelText);
     });
 
-    test('Resiliency: fromMap should handle partial or malformed maps without crashing', () {
+    test(
+        'Resiliency: fromMap should handle partial or malformed maps without crashing',
+        () {
       // Case 1: Minimal map
       final minMap = {'title': 'T', 'body': 'B'};
       final config1 = ForegroundNotificationConfig.fromMap(minMap);
@@ -61,21 +64,30 @@ void main() {
         'cancelText': null,
       };
       final config3 = ForegroundNotificationConfig.fromMap(nullMap);
-      expect(config3.showCancelButton, isTrue, reason: 'Null in map should trigger default');
+      expect(config3.showCancelButton, isTrue,
+          reason: 'Null in map should trigger default');
       expect(config3.cancelText, 'Cancel');
     });
 
     test('Equality: should differentiate even small changes', () {
       const base = ForegroundNotificationConfig(title: 'A', body: 'B');
-      
-      expect(base, equals(const ForegroundNotificationConfig(title: 'A', body: 'B')));
-      expect(base, isNot(equals(const ForegroundNotificationConfig(title: 'A ', body: 'B'))));
-      expect(base, isNot(equals(const ForegroundNotificationConfig(title: 'A', body: 'B', showCancelButton: false))));
+
+      expect(base,
+          equals(const ForegroundNotificationConfig(title: 'A', body: 'B')));
+      expect(
+          base,
+          isNot(equals(
+              const ForegroundNotificationConfig(title: 'A ', body: 'B'))));
+      expect(
+          base,
+          isNot(equals(const ForegroundNotificationConfig(
+              title: 'A', body: 'B', showCancelButton: false))));
     });
   });
 
   group('Constraints Integration - Rigorous Regression Tests', () {
-    test('Backward Compatibility: fromMap MUST handle absence of FGS config', () {
+    test('Backward Compatibility: fromMap MUST handle absence of FGS config',
+        () {
       final legacyMap = {
         'requiresNetwork': true,
         'isHeavyTask': true,
@@ -86,7 +98,7 @@ void main() {
       // This test ensures that when an older version of the app (or persisted task)
       // is loaded, it doesn't crash or behave unexpectedly.
       final constraints = Constraints.fromMap(legacyMap);
-      
+
       expect(constraints.requiresNetwork, isTrue);
       expect(constraints.foregroundNotificationConfig, isNull);
     });
@@ -94,12 +106,14 @@ void main() {
     test('Data Integrity: toMap should NOT include null fgsConfig key', () {
       final constraints = Constraints(requiresNetwork: true);
       final map = constraints.toMap();
-      
-      expect(map.containsKey('foregroundNotificationConfig'), isFalse, 
+
+      expect(map.containsKey('foregroundNotificationConfig'), isFalse,
           reason: 'Map should be lean and not contain null keys for FGS');
     });
 
-    test('Identity: copyWith should preserve FGS config when changing other fields', () {
+    test(
+        'Identity: copyWith should preserve FGS config when changing other fields',
+        () {
       const fgs = ForegroundNotificationConfig(title: 'T', body: 'B');
       final original = Constraints(
         requiresNetwork: false,
@@ -107,18 +121,18 @@ void main() {
       );
 
       final updated = original.copyWith(requiresNetwork: true);
-      
+
       expect(updated.requiresNetwork, isTrue);
-      expect(updated.foregroundNotificationConfig, equals(fgs), 
+      expect(updated.foregroundNotificationConfig, equals(fgs),
           reason: 'FGS config should be carried over during copyWith');
     });
 
     test('Identity: copyWith should allow updating only the FGS config', () {
       final original = Constraints(requiresNetwork: true);
       const newFgs = ForegroundNotificationConfig(title: 'New', body: 'New');
-      
+
       final updated = original.copyWith(foregroundNotificationConfig: newFgs);
-      
+
       expect(updated.requiresNetwork, isTrue);
       expect(updated.foregroundNotificationConfig, equals(newFgs));
     });

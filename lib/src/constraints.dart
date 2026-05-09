@@ -1240,10 +1240,10 @@ class Constraints {
                 )
                 .firstOrNull
             : null,
-        foregroundNotificationConfig: map['foregroundNotificationConfig'] != null
-            ? ForegroundNotificationConfig.fromMap(
-                Map<String, dynamic>.from(
-                    map['foregroundNotificationConfig'] as Map))
+        foregroundNotificationConfig: map['foregroundNotificationConfig'] !=
+                null
+            ? ForegroundNotificationConfig.fromMap(Map<String, dynamic>.from(
+                map['foregroundNotificationConfig'] as Map))
             : null,
       );
 
