@@ -886,7 +886,7 @@ class Constraints {
   /// - Has higher priority but is strictly regulated by Android App Standby quotas.
   /// - WorkManager may reject this if combined with constraints like [requiresCharging].
   ///
-  /// ⚠️ **WARNING**: Do NOT use this if `isHeavyTask` is true. `isHeavyTask` 
+  /// ⚠️ **WARNING**: Do NOT use this if `isHeavyTask` is true. `isHeavyTask`
   /// (Foreground Service) inherently bypasses Doze mode. Adding `allowWhileIdle: true`
   /// is redundant and may cause Android to reject the task schedule.
   ///

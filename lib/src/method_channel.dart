@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import 'constraints.dart';
 import 'events.dart';
+import 'native_work_manager.dart' show resolveDispatcherTimeout;
 import 'platform_interface.dart';
 import 'remote_trigger.dart';
 import 'task_trigger.dart';
@@ -186,7 +187,24 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
       }
     }
 
-    return _callbackExecutor!(callbackId, input);
+    // Issue #30: enforce the user-supplied DartWorker.timeoutMs on the
+    // foreground / simulator / test path too. Previously this path applied
+    // no timeout at all, so a hung callback could only be killed by the
+    // native-side BGTask deadline (release on a real device) — in tests it
+    // ran to completion regardless of timeoutMs. Mirrors the dispatcher.
+    final timeoutDuration = resolveDispatcherTimeout(args);
+    return _callbackExecutor!(callbackId, input).timeout(
+      timeoutDuration,
+      onTimeout: () {
+        developer.log(
+          '[NativeWorkManager] DartWorker callback "$callbackId" timed out '
+          'after ${timeoutDuration.inSeconds} s on the main method channel. '
+          'Increase DartWorker.timeoutMs or split the work.',
+          level: 900,
+        );
+        return false;
+      },
+    );
   }
 
   @override

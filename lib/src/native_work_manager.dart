@@ -79,6 +79,34 @@ import 'worker.dart';
 /// **Startup Time**: 1000ms - 2000ms.
 /// Includes **Isolate Caching**: The engine stays "warm" for 5 minutes after
 /// completion to speed up consecutive tasks.
+/// Resolves the timeout for a DartWorker callback from native-bridge args.
+///
+/// The native bridge forwards `args['timeoutMs']` (set from `DartWorker.timeoutMs`).
+/// When absent — either because the user did not set `timeoutMs`, or because an
+/// older native side has not been rebuilt — we fall back to 25 s, which leaves
+/// a 5 s safety buffer within the iOS BGAppRefreshTask 30 s budget.
+///
+/// Issue #30 regression guard: a previous version hardcoded 25 s here, so the
+/// user-supplied `DartWorker.timeoutMs` was silently ignored. Do **not** revert
+/// to a hardcoded duration — extend this helper instead.
+///
+/// Used by both Dart callback paths:
+///   * The headless-engine `_callbackDispatcher` (background / killed-app).
+///   * The main method channel `_executeDartCallback` in
+///     `MethodChannelNativeWorkManager` (foreground / simulator / test).
+Duration resolveDispatcherTimeout(Map args) {
+  const fallbackMs = 25000;
+  final raw = args['timeoutMs'];
+  // Accept only finite numeric values. `num.isFinite` rejects NaN and ±Infinity
+  // (which would throw from `.toInt()`); the `is num` test rejects strings,
+  // bools, lists, maps and nulls — all of which must fall back to the safe
+  // default rather than crash the dispatcher.
+  if (raw is num && raw.isFinite) {
+    return Duration(milliseconds: raw.toInt());
+  }
+  return const Duration(milliseconds: fallbackMs);
+}
+
 /// Top-level callback dispatcher for background Dart execution.
 ///
 /// This function is invoked by the native side when initializing
@@ -178,14 +206,17 @@ Future<void> _callbackDispatcher() async {
         }
 
         // Execute the callback with a hard timeout to prevent indefinite hangs.
-        // 25 s leaves a 5 s safety buffer within iOS BGAppRefreshTask's 30 s budget.
-        // For longer work use Constraints(bgTaskType: BGTaskType.processing).
+        // The timeout is passed from the native side (which respects DartWorker.timeoutMs)
+        // or defaults to 25s for iOS BGAppRefreshTask safety buffer (Issue #30).
+        final timeoutDuration = resolveDispatcherTimeout(args);
+
         final result = await callback(input).timeout(
-          const Duration(seconds: 25),
+          timeoutDuration,
           onTimeout: () {
             developer.log(
               '[NativeWorkManager] DartWorker callback "$callbackId" timed out '
-              'after 25 s. Consider:\n'
+              'after ${timeoutDuration.inSeconds} s. Consider:\n'
+              '  • Passing a custom `timeoutMs` to DartWorker.\n'
               '  • Breaking the work into smaller tasks.\n'
               '  • Using Constraints(bgTaskType: BGTaskType.processing) for '
               'tasks that need up to 10 minutes (iOS).',

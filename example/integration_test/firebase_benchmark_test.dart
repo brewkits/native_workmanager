@@ -195,10 +195,14 @@ void main() {
       expect(elapsed, lessThan(5000));
     });
 
-    testWidgets('FGS Memory Footprint Benchmark: Native Worker vs Dart Worker', (tester) async {
+    testWidgets('FGS Memory Footprint Benchmark: Native Worker vs Dart Worker', (
+      tester,
+    ) async {
       final tmpDir = Directory.systemTemp.createTempSync('bm_fgs_native_');
       final file = File('${tmpDir.path}/data.bin')
-        ..writeAsBytesSync(List.generate(10, (i) => i % 256)); // Tiny file just to trigger the worker
+        ..writeAsBytesSync(
+          List.generate(10, (i) => i % 256),
+        ); // Tiny file just to trigger the worker
 
       // 1. Measure Native Worker (FGS)
       final nativeTaskId = _id('fgs_native');
@@ -217,7 +221,9 @@ void main() {
         dartTaskId,
         () => NativeWorkManager.enqueue(
           taskId: dartTaskId,
-          worker: DartWorker(callbackId: 'fgs_pass'), // Use existing dummy worker
+          worker: DartWorker(
+            callbackId: 'fgs_pass',
+          ), // Use existing dummy worker
           constraints: const Constraints(isHeavyTask: true), // Force FGS
         ),
       );
@@ -227,13 +233,16 @@ void main() {
       print('--- BENCHMARK RESULTS ---');
       print('Native Worker (Zero-Engine) FGS Latency: ${nativeElapsed}ms');
       print('Dart Worker (Full Engine) FGS Latency: ${dartElapsed}ms');
-      
+
       _emitResult({
         'benchmark': 'fgs_native_worker_latency_ms',
         'value': nativeElapsed,
         'unit': 'ms',
         'platform': Platform.operatingSystem,
-        'passed': nativeElapsed >= 0 && nativeElapsed < 5000, // Android WorkManager scheduling can take 1-3s
+        'passed':
+            nativeElapsed >= 0 &&
+            nativeElapsed <
+                5000, // Android WorkManager scheduling can take 1-3s
       });
 
       _emitResult({
@@ -246,7 +255,12 @@ void main() {
 
       // Assert that Native is much faster than Dart engine booting
       if (Platform.isAndroid) {
-        expect(nativeElapsed, lessThan(dartElapsed), reason: 'Native worker must be faster than Dart worker because of zero-engine overhead');
+        expect(
+          nativeElapsed,
+          lessThan(dartElapsed),
+          reason:
+              'Native worker must be faster than Dart worker because of zero-engine overhead',
+        );
       }
     });
   });

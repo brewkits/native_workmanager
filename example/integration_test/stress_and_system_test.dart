@@ -13,7 +13,9 @@ import 'package:native_workmanager/native_workmanager.dart';
 final bool _isFlakyOnSimulator = Platform.isIOS;
 
 Duration _getIntegrationTimeout(int seconds) {
-  return Platform.isIOS ? Duration(seconds: seconds * 3) : Duration(seconds: seconds);
+  return Platform.isIOS
+      ? Duration(seconds: seconds * 3)
+      : Duration(seconds: seconds);
 }
 
 String _id(String name) =>
@@ -35,10 +37,7 @@ class TaskEventTracker {
     });
   }
 
-  Future<TaskEvent> waitFor(
-    String taskId, {
-    Duration? timeout,
-  }) {
+  Future<TaskEvent> waitFor(String taskId, {Duration? timeout}) {
     final actualTimeout = timeout ?? _getIntegrationTimeout(120);
     final completer = _completers.putIfAbsent(
       taskId,
@@ -84,6 +83,18 @@ Future<bool> _largePayloadWorker(Map<String, dynamic>? input) async {
   return len > 0;
 }
 
+/// Issue #30 stress callback: sleeps the requested delay then succeeds.
+/// Used to verify per-task timeoutMs is honored across many concurrent workers.
+@pragma('vm:entry-point')
+Future<bool> _timeoutStressWorker(Map<String, dynamic>? input) async {
+  final delayMs = (input?['delayMs'] as int?) ?? 100;
+  final tag = input?['tag'] as String? ?? '?';
+  print('[TimeoutStress] $tag starting (delay ${delayMs}ms)');
+  await Future.delayed(Duration(milliseconds: delayMs));
+  print('[TimeoutStress] $tag completed');
+  return true;
+}
+
 // ──────────────────────────────────────────────────────────────
 // main
 // ──────────────────────────────────────────────────────────────
@@ -98,6 +109,7 @@ void main() {
         'stress_worker': _stressWorker,
         'media_processor': _mediaProcessor,
         'large_payload': _largePayloadWorker,
+        'timeout_stress_worker': _timeoutStressWorker,
       },
     );
     tracker.start();
@@ -210,6 +222,94 @@ void main() {
       }
       expect(successCount, equals(iterations));
     });
+
+    // Issue #30 stress: enqueue many DartWorkers with mixed timeoutMs values
+    // and verify each respects its own budget. Pre-fix every callback shared
+    // a single 25 s ceiling regardless of timeoutMs, so a single broken path
+    // would silently fail all of them. This test runs heterogeneous timeouts
+    // concurrently so a regression manifests as wrong-bucket completion.
+    testWidgets(
+      'issue_30 stress: 12 concurrent DartWorkers honor per-task timeoutMs',
+      (tester) async {
+        // Each entry: (delayMs, timeoutMs, expectedSuccess)
+        // Mix of "finishes under budget" and "killed by budget".
+        final cases = <List<int>>[
+          [500, 5000, 1], //   well under budget
+          [500, 5000, 1], //   well under budget
+          [1500, 5000, 1], //  under budget
+          [1500, 5000, 1], //  under budget
+          [2000, 1000, 0], //  exceeds budget → fail
+          [2000, 1000, 0], //  exceeds budget → fail
+          [300, 30000, 1], //  large budget, quick task
+          [300, 30000, 1], //  large budget, quick task
+          [4000, 2000, 0], //  exceeds budget → fail
+          [800, 2000, 1], //   under budget
+          [10000, 500, 0], //  way over budget → fail fast
+          [200, 800, 1], //    quick, plenty of headroom
+        ];
+
+        // Register all event completers BEFORE enqueueing, otherwise an
+        // event for an early-finishing task can fire before its waitFor() is
+        // called and be dropped by the tracker.
+        final ids = List.generate(
+          cases.length,
+          (i) => _id('issue_30_stress_$i'),
+        );
+        final waits = <Future<TaskEvent>>[];
+        for (var i = 0; i < cases.length; i++) {
+          final waitMs = (cases[i][1] * 1.5).toInt() + 5000;
+          waits.add(
+            tracker.waitFor(ids[i], timeout: Duration(milliseconds: waitMs)),
+          );
+        }
+
+        for (var i = 0; i < cases.length; i++) {
+          final delayMs = cases[i][0];
+          final timeoutMs = cases[i][1];
+          await NativeWorkManager.enqueue(
+            taskId: ids[i],
+            trigger: const TaskTrigger.oneTime(),
+            worker: DartWorker(
+              callbackId: 'timeout_stress_worker',
+              input: {'delayMs': delayMs, 'tag': '#$i'},
+              timeoutMs: timeoutMs,
+            ),
+          );
+        }
+
+        final actuals = <int>[];
+        for (var i = 0; i < waits.length; i++) {
+          try {
+            final event = await waits[i];
+            actuals.add(event.success ? 1 : 0);
+          } catch (_) {
+            actuals.add(0); // timed out waiting → treat as fail
+          }
+        }
+
+        final expected = cases.map((c) => c[2]).toList();
+        // Print on mismatch so simulator output points at the wrong case.
+        for (var i = 0; i < cases.length; i++) {
+          if (actuals[i] != expected[i]) {
+            print(
+              'issue_30 stress mismatch at #$i: delay=${cases[i][0]}ms, '
+              'timeoutMs=${cases[i][1]}ms, expected success=${expected[i]}, '
+              'actual=${actuals[i]}',
+            );
+          }
+        }
+
+        expect(
+          actuals,
+          equals(expected),
+          reason:
+              'Each DartWorker must succeed/fail per its own timeoutMs vs delay. '
+              'A regression here means timeoutMs is being ignored, clamped, or '
+              'leaked between concurrent tasks.',
+        );
+      },
+      timeout: const Timeout(Duration(minutes: 2)),
+    );
 
     testWidgets('Large Data Payload: 8KB input map', (tester) async {
       final taskId = _id('large_payload');

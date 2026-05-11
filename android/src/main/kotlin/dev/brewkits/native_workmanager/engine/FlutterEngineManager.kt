@@ -103,7 +103,11 @@ object FlutterEngineManager {
             }
 
             val resultDeferred = CompletableDeferred<Boolean>()
-            val args = mapOf("callbackHandle" to callbackHandle, "input" to input)
+            val args = mapOf(
+                "callbackHandle" to callbackHandle,
+                "input" to input,
+                "timeoutMs" to timeoutMs
+            )
 
             channel.invokeMethod("executeCallback", args, object : MethodChannel.Result {
                 override fun success(result: Any?) {

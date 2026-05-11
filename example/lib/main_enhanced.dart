@@ -56,7 +56,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Native WorkManager v1.2.6 Demo',
+      title: 'Native WorkManager v1.2.7 Demo',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
@@ -98,7 +98,7 @@ class _DemoHomePageState extends State<DemoHomePage>
       });
     });
 
-    _addLog('🚀 Native WorkManager v1.2.6 initialized');
+    _addLog('🚀 Native WorkManager v1.2.7 initialized');
   }
 
   @override
@@ -294,8 +294,12 @@ class _DemoHomePageState extends State<DemoHomePage>
       // 1. Schedule a Native Worker (Lightweight, 2MB RAM)
       await NativeWorkManager.enqueue(
         taskId: taskId,
-        trigger: TaskTrigger.oneTime(const Duration(seconds: 5)), // Delay 5s to allow OOM to happen first
-        worker: HttpRequestWorker(url: 'https://jsonplaceholder.typicode.com/posts/1'),
+        trigger: TaskTrigger.oneTime(
+          const Duration(seconds: 5),
+        ), // Delay 5s to allow OOM to happen first
+        worker: HttpRequestWorker(
+          url: 'https://jsonplaceholder.typicode.com/posts/1',
+        ),
         constraints: const Constraints(
           isHeavyTask: true, // Bypass Doze mode and keep it prioritized
           foregroundNotificationConfig: ForegroundNotificationConfig(
@@ -306,20 +310,21 @@ class _DemoHomePageState extends State<DemoHomePage>
       );
       _addLog('📤 Scheduled: OOM Resilient Task ($taskId)');
       _addLog('⚙️ Task will trigger in 5s. Triggering OOM now...');
-      
+
       // 2. Simulate extreme memory pressure (OOM)
       // This will quickly consume memory until the OS kills the app.
       Future.delayed(const Duration(seconds: 1), () {
         List<List<int>> memoryHog = [];
         try {
           while (true) {
-            memoryHog.add(List.filled(1000000, 0)); // Allocate ~8MB chunks rapidly
+            memoryHog.add(
+              List.filled(1000000, 0),
+            ); // Allocate ~8MB chunks rapidly
           }
         } catch (e) {
           _addLog('❌ Out of memory caught in Dart, but OS might kill soon.');
         }
       });
-      
     } catch (e) {
       _addLog('❌ Error: $e');
     }
@@ -510,7 +515,7 @@ class _DemoHomePageState extends State<DemoHomePage>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Native WorkManager v1.2.6'),
+        title: const Text('Native WorkManager v1.2.7'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         bottom: TabBar(
           controller: _tabController,

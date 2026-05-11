@@ -18,20 +18,12 @@ import native_workmanager  // For IosWorkerFactory and BackgroundSessionManager
 
     GeneratedPluginRegistrant.register(with: self)
 
-    // Setup metrics channel.
-    // At didFinishLaunchingWithOptions time, UIWindowScenes are not yet foregroundActive,
-    // so activeRootViewController (scene-traversal) returns nil. Use self.window directly
-    // which is already populated by GeneratedPluginRegistrant.register(with: self) above.
-    guard let controller = (self.window?.rootViewController
-                              ?? UIApplication.shared.activeRootViewController)
-                              as? FlutterViewController else {
-      NSLog("AppDelegate: Failed to get FlutterViewController")
-      return super.application(application, didFinishLaunchingWithOptions: launchOptions)
-    }
-
+    // Setup metrics channel using registrar to avoid deprecated window/rootViewController usage
+    // in didFinishLaunchingWithOptions.
+    let registrar = self.registrar(forPlugin: "dev.brewkits.native_workmanager.example.MetricsPlugin")!
     let metricsChannel = FlutterMethodChannel(
       name: "dev.brewkits.native_workmanager.example/metrics",
-      binaryMessenger: controller.binaryMessenger
+      binaryMessenger: registrar.messenger()
     )
 
     metricsChannel.setMethodCallHandler { [weak self] (call, result) in

@@ -107,6 +107,7 @@ void main() async {
     dartWorkers: {
       'customTask': customTaskCallback,
       'heavyTask': heavyTaskCallback,
+      'longRunningTask': longRunningTaskCallback,
       'benchHeavyCompute': benchHeavyComputeCallback,
       // Stress & System Test Workers
       'stress_worker': stressWorkerCallback,
@@ -136,6 +137,18 @@ Future<bool> customTaskCallback(Map<String, dynamic>? input) async {
   debugPrint('📱 Dart Worker: Executing custom task with input: $input');
   await Future.delayed(const Duration(seconds: 2));
   debugPrint('📱 Dart Worker: Task completed successfully');
+  return true;
+}
+
+/// Issue #30 demo callback: sleeps `delayMs` (default 30 s) then returns true.
+/// Used by the "Custom timeoutMs (Issue #30)" demo card to prove that
+/// `DartWorker.timeoutMs` lifts the dispatcher's 25 s safety default.
+@pragma('vm:entry-point')
+Future<bool> longRunningTaskCallback(Map<String, dynamic>? input) async {
+  final delayMs = (input?['delayMs'] as int?) ?? 30000;
+  debugPrint('📱 Long-running Dart Worker: starting (delay ${delayMs}ms)');
+  await Future.delayed(Duration(milliseconds: delayMs));
+  debugPrint('📱 Long-running Dart Worker: completed after ${delayMs}ms');
   return true;
 }
 
@@ -312,7 +325,9 @@ class _DemoHomePageState extends State<DemoHomePage> {
       });
     });
 
-    _addLog('🚀 NativeWorkManager v1.2.6 — Industrial Reliability & FGS Bypass');
+    _addLog(
+      '🚀 NativeWorkManager v1.2.7 — Industrial Reliability & FGS Bypass',
+    );
   }
 
   String _formatTime(DateTime dt) {

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.7] - 2026-05-11
+
+### Fixed
+- **Core**: Enforced `DartWorker.timeoutMs` end-to-end (Issue #30).
+  - Android and iOS bridges now correctly forward `timeoutMs` to the Dart callback dispatcher.
+  - Added `resolveDispatcherTimeout` helper in Dart to securely parse the timeout, protecting against `NaN`, `Infinity`, and invalid types.
+  - Enforced `timeoutMs` in both the background dispatcher and the foreground `MethodChannel` (`_executeDartCallback`).
+  - Added comprehensive unit, integration, performance, and security test coverage.
+
 ## [1.2.6] - 2026-05-08
 
 ### Added

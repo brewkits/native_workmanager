@@ -1,6 +1,6 @@
 // ignore_for_file: avoid_print
 // ============================================================
-// Native WorkManager v1.2.6 – DEVICE INTEGRATION TESTS
+// Native WorkManager v1.2.7 – DEVICE INTEGRATION TESTS
 // ============================================================
 //
 // Run on a real device or emulator (NOT unit/mock tests):
@@ -124,6 +124,18 @@ Future<bool> _chainC(Map<String, dynamic>? input) async {
   return true;
 }
 
+/// Issue #30 regression: a long-running callback that exceeds the pre-fix
+/// 25 s hardcoded timeout. Pairs with `DartWorker(timeoutMs: 40000)` to prove
+/// the user-supplied value actually reaches the Dart dispatcher.
+@pragma('vm:entry-point')
+Future<bool> _ditLongRunning(Map<String, dynamic>? input) async {
+  final delayMs = (input?['delayMs'] as int?) ?? 30000;
+  print('[DartWorker] dit_long_running starting (delay ${delayMs}ms)');
+  await Future<void>.delayed(Duration(milliseconds: delayMs));
+  print('[DartWorker] dit_long_running completed');
+  return true;
+}
+
 @pragma('vm:entry-point')
 Future<bool> _workflowFinalizer(Map<String, dynamic>? input) async {
   print('[DartWorker] _workflowFinalizer starting...');
@@ -159,6 +171,7 @@ void main() {
       dartWorkers: {
         'dit_pass': _ditPass,
         'dit_fail': _ditFail,
+        'dit_long_running': _ditLongRunning,
         'chain_a': _chainA,
         'chain_b': _chainB,
         'chain_c': _chainC,
@@ -921,6 +934,75 @@ void main() {
         reason: 'DartWorker returning false must emit a failure event',
       );
     });
+
+    // ── Issue #30 regression: timeoutMs is honored end-to-end ────
+    //
+    // Pre-fix the Dart dispatcher hardcoded a 25 s timeout and the native
+    // bridges never forwarded the user-supplied `DartWorker.timeoutMs`,
+    // so any callback running longer than 25 s was always killed.
+    //
+    // This test schedules a callback that sleeps 30 s with timeoutMs=45000.
+    // If the bug regresses, the callback is killed at 25 s and the event is
+    // a failure — caught here.
+
+    testWidgets(
+      'issue_30: DartWorker honors user-supplied timeoutMs (>25 s default)',
+      (tester) async {
+        final id = _id('issue_30_timeout_honored');
+        final future = _waitEvent(id, timeout: const Duration(seconds: 90));
+
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: DartWorker(
+            callbackId: 'dit_long_running',
+            input: {'delayMs': 30000},
+            timeoutMs: 45000,
+          ),
+        );
+
+        final event = await future;
+        expect(
+          event?.success,
+          isTrue,
+          reason:
+              'Issue #30 regression: callback that sleeps 30 s with timeoutMs=45 s '
+              'must complete. A failure here means the Dart dispatcher is back to '
+              'the hardcoded 25 s timeout (or the native bridge stopped forwarding '
+              'timeoutMs to the Dart side).',
+        );
+      },
+    );
+
+    testWidgets(
+      'issue_30: DartWorker timeoutMs can shrink below 25 s default for fail-fast',
+      (tester) async {
+        // Verifies the inverse direction — pre-fix, a small timeoutMs was also
+        // ignored (always 25 s), so this hung path also caught the bug.
+        final id = _id('issue_30_fail_fast');
+        final future = _waitEvent(id, timeout: const Duration(seconds: 30));
+
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: DartWorker(
+            callbackId: 'dit_long_running',
+            input: {'delayMs': 20000},
+            timeoutMs: 3000,
+          ),
+        );
+
+        final event = await future;
+        expect(
+          event?.success,
+          isFalse,
+          reason:
+              'Issue #30 regression: callback that sleeps 20 s with timeoutMs=3 s '
+              'must be killed and emit failure. Success here means timeoutMs is '
+              'still ignored on the Dart side.',
+        );
+      },
+    );
   });
 
   // ════════════════════════════════════════════════════════════

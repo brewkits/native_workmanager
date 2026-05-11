@@ -147,7 +147,8 @@ class FlutterEngineManager {
             let result = try await withThrowingTaskGroup(of: Bool.self) { group in
                 // Task 1: Execute callback
                 group.addTask {
-                    try await self.invokeCallback(callbackHandle: callbackHandle, input: input)
+                    let timeoutMs = Int64(timeoutSeconds * 1000)
+                    return try await self.invokeCallback(callbackHandle: callbackHandle, input: input, timeoutMs: timeoutMs)
                 }
 
                 // Task 2: Timeout
@@ -403,7 +404,7 @@ class FlutterEngineManager {
     /// Calls are serialised through `callbackQueue` — only one `invokeMethod` is
     /// in-flight on the main thread at a time, preventing UI jank from concurrent
     /// chains with multiple DartCallbackWorker steps.
-    private func invokeCallback(callbackHandle: Int64, input: String?) async throws -> Bool {
+    private func invokeCallback(callbackHandle: Int64, input: String?, timeoutMs: Int64) async throws -> Bool {
         guard let channel = methodChannel else {
             throw FlutterEngineError.engineNotInitialized
         }
@@ -412,7 +413,8 @@ class FlutterEngineManager {
             DispatchQueue.main.async {
                 let args: [String: Any?] = [
                     "callbackHandle": callbackHandle,
-                    "input": input
+                    "input": input,
+                    "timeoutMs": timeoutMs
                 ]
                 channel.invokeMethod("executeCallback", arguments: args) { result in
                     if let error = result as? FlutterError {
