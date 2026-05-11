@@ -535,6 +535,12 @@ extension NativeWorkmanagerPlugin {
         }
         let input = workerConfig["input"] as? String
 
+        // Honor user-configured DartWorker.timeoutMs across both execution paths
+        // (foreground main-channel and killed-app FlutterEngineManager fallback).
+        // Issue #30: timeoutMs was previously ignored, so callbacks were always cut at 25 s.
+        let timeoutMsValue = (workerConfig["timeoutMs"] as? NSNumber)?.int64Value
+                          ?? (workerConfig["timeoutMs"] as? Int64)
+
         guard let channel = methodChannel else {
             let handleValue = workerConfig["callbackHandle"]
             guard let callbackHandle = (handleValue as? NSNumber)?.int64Value
@@ -543,8 +549,15 @@ extension NativeWorkmanagerPlugin {
             }
             NativeLogger.d("DartCallbackWorker: No main channel — using FlutterEngineManager for '\(callbackId)'")
             do {
-                let success = try await FlutterEngineManager.shared.executeDartCallback(
-                    callbackHandle: callbackHandle, input: input)
+                let success: Bool
+                if let timeoutMs = timeoutMsValue {
+                    let timeoutSeconds = TimeInterval(timeoutMs) / 1000.0
+                    success = try await FlutterEngineManager.shared.executeDartCallback(
+                        callbackHandle: callbackHandle, input: input, timeoutSeconds: timeoutSeconds)
+                } else {
+                    success = try await FlutterEngineManager.shared.executeDartCallback(
+                        callbackHandle: callbackHandle, input: input)
+                }
                 return success ? .success(message: "Callback returned true")
                                : .failure(message: "Callback returned false")
             } catch {
@@ -555,10 +568,14 @@ extension NativeWorkmanagerPlugin {
         NativeLogger.d("DartCallbackWorker: Executing '\(callbackId)' via main method channel")
         return await withCheckedContinuation { continuation in
             DispatchQueue.main.async {
-                channel.invokeMethod("executeDartCallback", arguments: [
+                var args: [String: Any?] = [
                     "callbackId": callbackId,
-                    "input": input as Any
-                ]) { result in
+                    "input": input
+                ]
+                if let timeoutMs = timeoutMsValue {
+                    args["timeoutMs"] = timeoutMs
+                }
+                channel.invokeMethod("executeDartCallback", arguments: args) { result in
                     if let success = result as? Bool {
                         continuation.resume(returning: success
                             ? .success(message: "Callback returned true")

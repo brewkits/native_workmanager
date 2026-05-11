@@ -1,7 +1,7 @@
 name: native_workmanager_devtools_extension
 description: DevTools extension for native_workmanager.
 publish_to: 'none'
-version: 1.0.0
+version: 1.2.7
 
 environment:
   sdk: '>=3.2.0 <4.0.0'

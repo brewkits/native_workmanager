@@ -95,7 +95,9 @@ void main() {
       StreamSubscription? eventsSub;
 
       eventsSub = NativeWorkManager.events.listen((event) {
-        if (!event.isStarted && taskIds.contains(event.taskId) && event.success) {
+        if (!event.isStarted &&
+            taskIds.contains(event.taskId) &&
+            event.success) {
           completedTasks.add(event.taskId);
         }
       });

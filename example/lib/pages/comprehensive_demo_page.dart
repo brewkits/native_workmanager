@@ -1365,6 +1365,38 @@ DartWorker(
         ),
 
         _DemoCard(
+          title: '1b. Dart Worker — Custom timeoutMs (Issue #30)',
+          description:
+              'Run a 30 s Dart callback with timeoutMs: 45 000. Pre-fix the '
+              'Dart dispatcher capped every callback at 25 s regardless of '
+              'DartWorker.timeoutMs — this card runs the exact reproduction.',
+          icon: Icons.hourglass_bottom,
+          code: '''
+DartWorker(
+  callbackId: 'longRunningTask',
+  input: {'delayMs': 30000},
+  timeoutMs: 45000, // lifts the 25 s default
+)''',
+          onRun: () async {
+            final taskId =
+                'issue-30-timeout-${DateTime.now().millisecondsSinceEpoch}';
+            await NativeWorkManager.enqueue(
+              taskId: taskId,
+              trigger: const TaskTrigger.oneTime(),
+              worker: DartWorker(
+                callbackId: 'longRunningTask',
+                input: {'delayMs': 30000},
+                timeoutMs: 45000,
+              ),
+            );
+            onResult(
+              '⏱️ Issue #30 demo: scheduled 30 s callback with timeoutMs=45 s. '
+              'Watch logs/events — must complete successfully (pre-fix would fail at 25 s).',
+            );
+          },
+        ),
+
+        _DemoCard(
           title: '2. Custom Native Worker (Kotlin)',
           description:
               'ImageCompressWorker registered in MainActivity.kt — runs real Kotlin code',

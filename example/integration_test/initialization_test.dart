@@ -61,13 +61,12 @@ String _id(String name) =>
     'init_${name}_${DateTime.now().millisecondsSinceEpoch}';
 
 Duration _getIntegrationTimeout(int seconds) {
-  return Platform.isIOS ? Duration(seconds: seconds * 3) : Duration(seconds: seconds);
+  return Platform.isIOS
+      ? Duration(seconds: seconds * 3)
+      : Duration(seconds: seconds);
 }
 
-Future<TaskEvent?> _waitEvent(
-  String taskId, {
-  Duration? timeout,
-}) async {
+Future<TaskEvent?> _waitEvent(String taskId, {Duration? timeout}) async {
   final actualTimeout = timeout ?? _getIntegrationTimeout(60);
   final completer = Completer<TaskEvent?>();
   late StreamSubscription<TaskEvent> sub;

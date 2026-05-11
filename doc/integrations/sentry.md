@@ -21,7 +21,7 @@ This guide shows how to integrate Sentry with native_workmanager for background 
 
 ```yaml
 dependencies:
-  native_workmanager: ^1.2.6
+  native_workmanager: ^1.2.7
   sentry_flutter: ^7.14.0
 ```
 

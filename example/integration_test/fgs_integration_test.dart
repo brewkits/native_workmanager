@@ -24,9 +24,15 @@ void main() {
     late StreamSubscription<TaskEvent> sub;
     print('[_waitEvent] Listening for events for taskId: $taskId');
     sub = NativeWorkManager.events.listen((event) {
-      print('[_waitEvent] Received event: taskId=${event.taskId}, success=${event.success}, isStarted=${event.isStarted}, message=${event.message}');
-      if (event.taskId == taskId && !event.isStarted && !completer.isCompleted) {
-        print('[_waitEvent] Completing for $taskId with success=${event.success}');
+      print(
+        '[_waitEvent] Received event: taskId=${event.taskId}, success=${event.success}, isStarted=${event.isStarted}, message=${event.message}',
+      );
+      if (event.taskId == taskId &&
+          !event.isStarted &&
+          !completer.isCompleted) {
+        print(
+          '[_waitEvent] Completing for $taskId with success=${event.success}',
+        );
         completer.complete(event);
         sub.cancel();
       }
@@ -44,13 +50,13 @@ void main() {
   group('Foreground Service (FGS) Integration Tests', () {
     setUpAll(() async {
       await NativeWorkManager.initialize(
-        dartWorkers: {
-          'fgs_pass': _fgsPassWorker,
-        },
+        dartWorkers: {'fgs_pass': _fgsPassWorker},
       );
     });
 
-    testWidgets('Android FGS - HttpRequestWorker with FGS Config', (tester) async {
+    testWidgets('Android FGS - HttpRequestWorker with FGS Config', (
+      tester,
+    ) async {
       final id = _id('http_fgs');
       final future = _waitEvent(id, timeout: const Duration(seconds: 60));
 
@@ -76,7 +82,11 @@ void main() {
 
       final event = await future;
       expect(event, isNotNull, reason: 'FGS task must emit event');
-      expect(event!.success, isTrue, reason: 'FGS task must complete successfully. Error: ${event.message}');
+      expect(
+        event!.success,
+        isTrue,
+        reason: 'FGS task must complete successfully. Error: ${event.message}',
+      );
       print('Task $id completed successfully in FGS mode');
     });
 

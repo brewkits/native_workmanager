@@ -1,6 +1,6 @@
 name: native_workmanager_example
 description: "Demonstrates how to use the native_workmanager plugin."
-version: 1.2.6+1
+version: 1.2.7+1
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -31,7 +31,7 @@ dependencies:
   cupertino_icons: ^1.0.8
 
   # For real-time metrics charts in A/B testing
-  fl_chart: ^0.69.0
+  fl_chart: ^1.2.0
 
   # Competitor library (used only for A/B benchmark comparison in demo)
   workmanager: ^0.9.0+3

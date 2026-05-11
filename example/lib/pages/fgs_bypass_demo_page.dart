@@ -15,14 +15,17 @@ class _FgsBypassDemoPageState extends State<FgsBypassDemoPage> {
 
   void _addLog(String message) {
     setState(() {
-      _logs.insert(0, "[${DateTime.now().toString().split(' ').last.split('.').first}] $message");
+      _logs.insert(
+        0,
+        "[${DateTime.now().toString().split(' ').last.split('.').first}] $message",
+      );
     });
   }
 
   Future<void> _runFgsTask() async {
     setState(() => _isScheduling = true);
     final taskId = "fgs_task_${Random().nextInt(1000)}";
-    
+
     _addLog("Scheduling FGS Task: $taskId");
     _addLog("Check your notification tray!");
 
@@ -30,7 +33,8 @@ class _FgsBypassDemoPageState extends State<FgsBypassDemoPage> {
       await NativeWorkManager.enqueue(
         taskId: taskId,
         worker: HttpRequestWorker(
-          url: "https://hub.dummyapis.com/delay?seconds=10", // Artificial 10s delay
+          url:
+              "https://hub.dummyapis.com/delay?seconds=10", // Artificial 10s delay
           method: HttpMethod.get,
         ),
         constraints: Constraints(
@@ -75,7 +79,10 @@ class _FgsBypassDemoPageState extends State<FgsBypassDemoPage> {
                   children: [
                     Text(
                       "Foreground Service (FGS) Mode",
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
                     ),
                     SizedBox(height: 8),
                     Text(
@@ -94,13 +101,23 @@ class _FgsBypassDemoPageState extends State<FgsBypassDemoPage> {
                 backgroundColor: Colors.orange.shade700,
                 foregroundColor: Colors.white,
               ),
-              icon: _isScheduling 
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.bolt),
+              icon: _isScheduling
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.bolt),
               label: const Text("RUN HIGH-PRIORITY FGS TASK"),
             ),
             const SizedBox(height: 20),
-            const Text("Execution Logs:", style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text(
+              "Execution Logs:",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
             Expanded(
               child: Container(
@@ -113,7 +130,11 @@ class _FgsBypassDemoPageState extends State<FgsBypassDemoPage> {
                   itemCount: _logs.length,
                   itemBuilder: (context, index) => Text(
                     _logs[index],
-                    style: const TextStyle(color: Colors.greenAccent, fontFamily: 'monospace', fontSize: 12),
+                    style: const TextStyle(
+                      color: Colors.greenAccent,
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               ),

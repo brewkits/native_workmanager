@@ -35,15 +35,14 @@ String _id(String name) =>
     'aft_${name}_${DateTime.now().millisecondsSinceEpoch}';
 
 Duration _getIntegrationTimeout(int seconds) {
-  return Platform.isIOS ? Duration(seconds: seconds * 3) : Duration(seconds: seconds);
+  return Platform.isIOS
+      ? Duration(seconds: seconds * 3)
+      : Duration(seconds: seconds);
 }
 
 final bool _isFlakyOnSimulator = Platform.isIOS;
 
-Future<TaskEvent?> _waitEvent(
-  String taskId, {
-  Duration? timeout,
-}) async {
+Future<TaskEvent?> _waitEvent(String taskId, {Duration? timeout}) async {
   final actualTimeout = timeout ?? _getIntegrationTimeout(90);
   final completer = Completer<TaskEvent?>();
   late StreamSubscription<TaskEvent> sub;
@@ -144,7 +143,9 @@ void main() {
       final result = await exec.result.timeout(
         _getIntegrationTimeout(120),
         onTimeout: () {
-          fail('Linear graph did not finish within 120s (adjusted for platform)');
+          fail(
+            'Linear graph did not finish within 120s (adjusted for platform)',
+          );
         },
       );
 
