@@ -261,6 +261,8 @@ class FileDecompressionWorker : AndroidWorker {
                 }
             )
 
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error during extraction: ${e.message}", e)
             // Clean up partially extracted files on error

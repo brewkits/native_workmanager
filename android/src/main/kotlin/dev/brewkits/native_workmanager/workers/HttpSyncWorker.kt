@@ -157,6 +157,8 @@ class HttpSyncWorker : AndroidWorker {
                     )
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error - ${e.message}", e)
             WorkerResult.Failure(

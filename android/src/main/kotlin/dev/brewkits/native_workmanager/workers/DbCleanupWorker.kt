@@ -39,6 +39,8 @@ internal class DbCleanupWorker : AndroidWorker {
             store.deleteCompleted(olderThanMs = RETENTION_MS)
             NativeLogger.d("🗑️ DbCleanupWorker: pruned task records older than 30 days")
             WorkerResult.Success()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             NativeLogger.e("DbCleanupWorker error", e)
             // Don't fail permanently — WorkManager will retry on next schedule cycle.

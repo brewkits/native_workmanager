@@ -248,6 +248,8 @@ class ParallelHttpDownloadWorker : AndroidWorker {
                         Log.d(TAG, "Chunk $chunkIndex done: $downloadedSize bytes")
                         true
                     }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Log.e(TAG, "Chunk $chunkIndex error: ${e.message}", e)
                     false
@@ -439,6 +441,8 @@ class ParallelHttpDownloadWorker : AndroidWorker {
                     }
                 )
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             WorkerResult.Failure(e.message ?: "Unknown error", shouldRetry = true)
         }
