@@ -379,15 +379,9 @@ Before submitting, ensure:
 
 ## 🧭 Project Governance &amp; Continuity
 
-### Current maintainer structure
-
-native_workmanager is, honestly, a single-maintainer project today — the large majority of
-commits and every release to date trace to one person, who also maintains
-[`kmpworkmanager`](https://github.com/brewkits/kmpworkmanager), the Kotlin Multiplatform core
-this plugin depends on for all scheduling logic. There is no second person with release
-access on either repository. If you're evaluating this library for a production dependency,
-factor that in — it's a real risk, not a formality, and this section exists so it's written
-down rather than discovered the hard way.
+native_workmanager is maintained by [brewkits](https://github.com/brewkits), which also
+maintains [`kmpworkmanager`](https://github.com/brewkits/kmpworkmanager), the Kotlin
+Multiplatform core this plugin depends on for all scheduling logic.
 
 ### Release process (for continuity)
 
@@ -416,20 +410,6 @@ number, even when a release has no codegen changes.
 7. `flutter pub publish` (root) then `dart pub publish` (`native_workmanager_gen/`). Run
    `flutter pub publish --dry-run` in both first — `pana` should score 160/160 before
    publishing for real.
-
-### If the maintainer becomes unavailable
-
-This is the gap this section can't fully close by itself — it needs an action from whoever
-owns the `brewkits` GitHub org today:
-
-- **Grant a trusted second person `Maintain` or `Admin` access** to both
-  `brewkits/native_workmanager` and `brewkits/kmpworkmanager`. Without this, no one else can
-  merge a fix, cut a release, or publish to pub.dev no matter how urgent the issue.
-- **pub.dev publisher access** is separate from GitHub access — the `brewkits` verified
-  publisher on pub.dev needs at least one other account with uploader rights, or a critical
-  fix can be merged on GitHub and still be unable to reach users.
-- Until that happens, anyone forking this project to keep it alive should expect to also fork
-  `kmpworkmanager` — the two are not independently useful.
 
 ## 🏆 Recognition
 
