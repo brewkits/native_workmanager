@@ -7,9 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [1.4.1] - 2026-07-16
 
 ### Fixed
+
+- **iOS Swift Package Manager builds failed for pub.dev consumers — Issue #49.**
+  `Package.swift` declared `KMPWorkManager` as a **local** `.binaryTarget`
+  (`path: "../Frameworks/KMPWorkManager.xcframework"`), but that xcframework is
+  stripped from the published package by `.pubignore` and only re-created by the
+  CocoaPods `prepare_command` at install time. SwiftPM has no equivalent install
+  hook, so with Flutter's SwiftPM integration enabled the local binary target
+  resolved to nothing and `xcodebuild` aborted with *"local binary target
+  'KMPWorkManager' … does not contain a binary artifact"* — and because Flutter
+  routes a plugin through SwiftPM whenever a `Package.swift` exists (excluding it
+  from CocoaPods), there was no fallback. Replaced the local target with a
+  **remote, checksummed** `.binaryTarget` pointing at the same GitHub-release zip
+  the podspec already downloads, so SwiftPM fetches the identical versioned
+  artifact CocoaPods does. Verified end-to-end: SwiftPM downloads the asset,
+  validates the checksum, and builds. Thanks @zaqwery for the precise root-cause
+  report.
 
 - **`CancellationException` swallowed by generic exception handling in 11 Android
   workers.** A worker cancelled mid-run (user calls `cancel()`/`cancelAll()`, or

@@ -34,7 +34,7 @@ Or manually:
 
 ```yaml
 dependencies:
-  native_workmanager: ^1.4.0
+  native_workmanager: ^1.4.1
 ```
 
 Then run:
