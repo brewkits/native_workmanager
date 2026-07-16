@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **Intermittent "Failed host lookup" on Android 15/16.** Bumped
+  `androidx.work:work-runtime-ktx` 2.10.1 → 2.11.2, which fixes an upstream
+  AndroidX WorkManager bug where a background `WorkRequest` could start
+  running before the device's network/connectivity state was fully attached,
+  causing spurious `SocketException: Failed host lookup` failures on HTTP
+  calls made from background tasks. Found by auditing `flutter_workmanager`'s
+  issue tracker (still pinned to 2.10.2 at the time of writing, with an open
+  unresolved report) — see [issuetracker.google.com/issues/445324855](https://issuetracker.google.com/issues/445324855).
+  `kmpworkmanager` pulls in `work-runtime-ktx` 2.9.1 transitively; the direct
+  `api` declaration here wins Gradle's highest-version resolution (verified:
+  `./gradlew :native_workmanager:dependencies` resolves `2.9.1 -> 2.11.2`).
+
+---
+
 ## [1.4.0] - 2026-07-16
 
 ### Changed

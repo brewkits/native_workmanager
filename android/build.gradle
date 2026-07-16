@@ -47,9 +47,13 @@ android {
         // androidx.startup — auto-initializes the plugin before Application.onCreate()
         // so DartWorker works out-of-the-box without a custom Application class.
         implementation("androidx.startup:startup-runtime:1.1.1")
-        // Android WorkManager — safe to use 2.10.0+ with kmpworkmanager 2.4.0+
-        // (getForegroundInfo() override added in kmpworkmanager 2.3.3)
-        api("androidx.work:work-runtime-ktx:2.10.1")
+        // Android WorkManager. 2.11.2 (was 2.10.1) fixes an upstream work-runtime bug where a
+        // background WorkRequest could run before connectivity state was fully attached,
+        // causing intermittent "Failed host lookup" SocketExceptions on Android 15/16
+        // (https://issuetracker.google.com/issues/445324855). kmpworkmanager pulls in
+        // work-runtime-ktx 2.9.1 transitively; this `api` declaration is the higher request and
+        // wins Gradle's default highest-version resolution.
+        api("androidx.work:work-runtime-ktx:2.11.2")
 
         // JSON serialization (required for WorkerResult.Success.data: JsonObject?)
         implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
