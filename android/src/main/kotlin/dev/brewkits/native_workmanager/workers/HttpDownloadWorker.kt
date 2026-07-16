@@ -682,6 +682,8 @@ class HttpDownloadWorker : AndroidWorker {
                     }
                 )
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error - ${e.message}", e)
             // Do NOT delete tempFile — preserve partial download so next retry can resume.

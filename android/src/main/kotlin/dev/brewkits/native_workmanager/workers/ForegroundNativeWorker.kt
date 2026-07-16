@@ -42,6 +42,8 @@ class ForegroundNativeWorker(
 
         try {
             setForeground(getForegroundInfo())
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             NativeLogger.e("ForegroundNativeWorker: Failed to set foreground status. This might be due to background-start restrictions on Android 12+.", e)
             // We continue as background work if possible, but the OS might kill us.
@@ -94,6 +96,8 @@ class ForegroundNativeWorker(
                     }
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             NativeLogger.e("ForegroundNativeWorker: Error executing worker", e)
             emitToBus(false, e.message ?: "Unknown execution error")

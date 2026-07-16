@@ -290,6 +290,8 @@ class FileCompressionWorker : AndroidWorker {
                 }
             )
 
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "File compression failed", e)
             // MEDIA-004: clean up partial output so caller never sees a corrupt archive.

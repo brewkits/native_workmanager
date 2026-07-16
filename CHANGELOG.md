@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`CancellationException` swallowed by generic exception handling in 11 Android
+  workers.** A worker cancelled mid-run (user calls `cancel()`/`cancelAll()`, or
+  WorkManager stops the worker because constraints are no longer met) could have
+  its `CancellationException` caught by the worker's own `catch (e: Exception)`
+  and converted into a normal `WorkerResult.Failure` — in `HttpDownloadWorker`'s
+  case with `shouldRetry: true`, meaning a task the user explicitly cancelled
+  could reschedule itself. `ForegroundNativeWorker` was the most exposed case: it
+  bypasses `BaseKmpWorker`, so nothing else catches cancellation correctly for
+  the FGS-bypass path. Fixed by adding `catch (e: CancellationException) { throw
+  e }` before the generic catch in every worker where the wrapped scope contains
+  a real suspension point (network I/O awaited via child coroutines, `delay()`,
+  `setForeground()`). Affected: `DbCleanupWorker`, `FileCompressionWorker`,
+  `FileDecompressionWorker`, `FileSystemWorker`, `ForegroundNativeWorker` (two
+  sites), `HttpDownloadWorker`, `HttpRequestWorker`, `HttpSyncWorker`,
+  `HttpUploadWorker`, `ImageProcessWorker`, `ParallelHttpDownloadWorker` (two
+  sites). Five workers audited and confirmed already safe without changes
+  (`CryptoWorker`, `MoveToSharedStorageWorker`, `ParallelHttpUploadWorker`,
+  `PdfWorker` rely on `BaseKmpWorker`'s outer `CancellationException` handling
+  since they have no local catch around their dispatch; `WebSocketWorker`
+  already used `try`/`finally` instead of `try`/`catch` around its
+  cancellation-sensitive section).
+
 - **Intermittent "Failed host lookup" on Android 15/16.** Bumped
   `androidx.work:work-runtime-ktx` 2.10.1 → 2.11.2, which fixes an upstream
   AndroidX WorkManager bug where a background `WorkRequest` could start

@@ -83,6 +83,8 @@ class FileSystemWorker : AndroidWorker {
                 "mkdir" -> handleMkdir(json)
                 else -> WorkerResult.Failure("Unknown operation: $operation")
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             WorkerResult.Failure("FileSystem operation failed: ${e.message}")
         }

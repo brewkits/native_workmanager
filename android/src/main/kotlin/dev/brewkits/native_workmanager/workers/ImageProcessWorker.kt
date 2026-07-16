@@ -306,6 +306,8 @@ class ImageProcessWorker : AndroidWorker {
                     put("format", format.name)
                 }
             )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: OutOfMemoryError) {
             Log.e(TAG, "Out of memory during image processing", e)
             WorkerResult.Failure("Out of memory: Image too large", shouldRetry = false)
