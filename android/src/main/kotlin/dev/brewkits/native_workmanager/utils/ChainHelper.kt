@@ -108,6 +108,10 @@ object ChainHelper {
 
         val dataBuilder = Data.Builder().putString("workerClassName", workerClassName)
         if (inputJson != null) dataBuilder.putString("inputJson", inputJson)
+        // Retry ceiling for kmpworkmanager BaseKmpWorker (3.1.0+). -1 = uncapped.
+        if (constraints.maxRetries >= 0) {
+            dataBuilder.putInt(NativeTaskScheduler.KEY_MAX_RETRIES, constraints.maxRetries)
+        }
 
         val networkType = when {
             constraints.requiresUnmeteredNetwork -> NetworkType.UNMETERED

@@ -67,6 +67,10 @@ object GraphHelper {
             val dataBuilder = androidx.work.Data.Builder()
                 .putString("workerClassName", workerClassName)
             if (inputJson != null) dataBuilder.putString("inputJson", inputJson)
+            // Retry ceiling for kmpworkmanager BaseKmpWorker (3.1.0+). -1 = uncapped.
+            if (constraints.maxRetries >= 0) {
+                dataBuilder.putInt(NativeTaskScheduler.KEY_MAX_RETRIES, constraints.maxRetries)
+            }
 
             val wmConstraints = androidx.work.Constraints.Builder()
                 .setRequiredNetworkType(when {

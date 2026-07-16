@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.0] - 2026-07-16
+
+### Changed
+
+- **Bumped `kmpworkmanager` core to 3.1.0** (was 3.0.1). 3.1.0 enforces
+  `Constraints.maxRetries` inside `BaseKmpWorker`: it reads the `maxRetries`
+  key off the WorkRequest input data and caps `Failure(shouldRetry=true)` /
+  `Retry` at `N + 1` total runs (WorkManager itself has no max-retry API — a
+  raw `Result.retry()` reschedules forever). The bundled iOS
+  `KMPWorkManager.xcframework` was rebuilt from 3.1.0.
+
+### Fixed
+
+- **DartWorker `return false` never retried — permanent `Result.failure()`.**
+  Android `DartCallbackWorker` and iOS Dart callback paths mapped a `false`
+  callback result to `WorkerResult.Failure` / `.failure` without
+  `shouldRetry: true`. Because `Failure.shouldRetry` defaults to `false`,
+  WorkManager received `Result.failure()` (`reschedule = false`) and
+  `Constraints.maxRetries` / `backoffDelayMs` were ignored despite docs
+  promising retry-on-false. Native engine/setup exceptions still use
+  `shouldRetry = false` so broken engine configuration does not loop forever.
+
+- **Android `Constraints.maxRetries` was silently ignored.** Even once a task
+  asked to retry, WorkManager's `Result.retry()` is unbounded, so a callback
+  that kept returning `false` looped forever. `maxRetries` is now forwarded
+  from the Dart constraints map onto the KMP `Constraints` (so
+  `NativeTaskScheduler`-scheduled triggers cap via core) and stamped onto the
+  WorkRequest input data for every direct-enqueue path (one-time, chain,
+  graph) so `BaseKmpWorker` can enforce the `N + 1` ceiling. Periodic work is
+  intentionally excluded — its `runAttemptCount` only resets on success, so a
+  per-run cap would permanently disable retries after the first cap hit.
+  `ForegroundNativeWorker` (which maps results itself, bypassing
+  `BaseKmpWorker`) enforces the same cap inline. iOS `RetryConfig` now reads
+  `maxRetries` via `NSNumber` (MethodChannel integers were silently dropped to
+  `0` = no retry) and defaults to `3` to match the Dart contract.
+
+---
+
 ## [1.3.3] - 2026-07-14
 
 ### Fixed

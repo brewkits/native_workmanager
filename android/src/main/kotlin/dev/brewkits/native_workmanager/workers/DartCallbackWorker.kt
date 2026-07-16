@@ -129,7 +129,14 @@ class DartCallbackWorkerWrapper(
             if (result) {
                 WorkerResult.Success(message = "Dart callback executed: $callbackId")
             } else {
-                WorkerResult.Failure("Dart callback returned false: $callbackId")
+                // shouldRetry = true: honor Constraints.maxRetries / backoffCriteria.
+                // Docs and Dart API promise return false retries; Failure defaults to
+                // shouldRetry=false which mapped to WorkManager Result.failure()
+                // (reschedule=false) and skipped backoff entirely.
+                WorkerResult.Failure(
+                    "Dart callback returned false: $callbackId",
+                    shouldRetry = true
+                )
             }
 
         } catch (e: kotlinx.coroutines.CancellationException) {

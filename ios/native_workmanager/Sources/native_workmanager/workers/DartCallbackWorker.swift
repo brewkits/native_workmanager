@@ -104,7 +104,11 @@ class DartCallbackWorker: IosWorker {
                 return WorkerResult.success(message: "Callback returned true")
             } else {
                 NativeLogger.e("DartCallbackWorker: Failed - Callback returned false")
-                return WorkerResult.failure(message: "Callback returned false")
+                // shouldRetry: true — match Android and Constraints.maxRetries / backoff.
+                return WorkerResult.failure(
+                    message: "Callback returned false",
+                    shouldRetry: true
+                )
             }
         } catch {
             let executionTime = Date().timeIntervalSince(startTime)

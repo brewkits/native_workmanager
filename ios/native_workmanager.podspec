@@ -41,15 +41,20 @@ Features:
   }
   s.swift_version = '5.0'
 
-  # KMP WorkManager Framework (kmpworkmanager v3.0.1)
+  # KMP WorkManager Framework (kmpworkmanager v3.1.0)
   # Downloaded from GitHub Releases to stay under the pub.dev 100 MB package limit.
+  # RELEASE STEP: attach the rebuilt 3.1.0 KMPWorkManager.xcframework.zip to the v1.4.0
+  # release (the framework changed 3.0.1 -> 3.1.0, so the asset must be re-uploaded — earlier
+  # releases reused the v1.3.2 asset). The git-tracked copy under ios/Frameworks/ is already
+  # 3.1.0 for local/CI builds; this download only fires for pub.dev installs where
+  # .pubignore strips ios/Frameworks/.
   s.prepare_command = <<-CMD
     set -e
     if [ ! -d "Frameworks/KMPWorkManager.xcframework" ]; then
-      echo "Downloading KMPWorkManager.xcframework v3.0.1..."
+      echo "Downloading KMPWorkManager.xcframework v3.1.0..."
       mkdir -p Frameworks
       curl -L --retry 3 -o /tmp/KMPWorkManager.xcframework.zip \
-        "https://github.com/brewkits/native_workmanager/releases/download/v1.3.2/KMPWorkManager.xcframework.zip"
+        "https://github.com/brewkits/native_workmanager/releases/download/v1.4.0/KMPWorkManager.xcframework.zip"
       rm -rf /tmp/kmpwm_extract
       unzip -o /tmp/KMPWorkManager.xcframework.zip -d /tmp/kmpwm_extract
       # Release zip may be flat or wrapped in a Frameworks/ dir - handle both.

@@ -3,8 +3,8 @@ import 'foreground_notification_config.dart';
 
 /// Backoff policy for retry behavior when task fails.
 ///
-/// **Android**: Determines retry behavior for failed WorkManager tasks.
-/// **iOS**: Not applicable (manual retry required).
+/// **Android**: Sets WorkManager's `setBackoffCriteria` for failed tasks.
+/// **iOS**: Drives the plugin's retry loop for foreground / direct tasks.
 enum BackoffPolicy {
   /// Exponential backoff - Delay doubles after each retry.
   ///
@@ -925,24 +925,23 @@ class Constraints {
   /// Default: [ExactAlarmIOSBehavior.showNotification]
   final ExactAlarmIOSBehavior exactAlarmIOSBehavior;
 
-  /// Backoff policy when task fails and needs retry (Android only).
+  /// Backoff policy when task fails and needs retry.
   ///
-  /// **Android**: Determines retry behavior for failed WorkManager tasks.
   /// - [BackoffPolicy.exponential]: Delay doubles after each retry (30s, 60s, 120s, ...)
   /// - [BackoffPolicy.linear]: Constant delay between retries
   ///
-  /// **iOS**: Not applicable (manual retry required).
+  /// **Android**: WorkManager `setBackoffCriteria`.
+  /// **iOS**: Applied by the plugin's retry loop for foreground / direct tasks
+  /// (BGTaskScheduler cannot control exact backoff for killed-app runs).
   ///
   /// Default: [BackoffPolicy.exponential]
   final BackoffPolicy backoffPolicy;
 
-  /// Initial backoff delay in milliseconds when task fails (Android only).
+  /// Initial backoff delay in milliseconds when a task fails.
   ///
-  /// **Android**: Starting delay before first retry.
-  /// - Minimum: 10,000ms (10 seconds)
-  /// - Subsequent retries follow [backoffPolicy]
-  ///
-  /// **iOS**: Not applicable.
+  /// **Android**: Starting delay before the first retry (WorkManager floor:
+  /// 10,000ms). Subsequent retries follow [backoffPolicy].
+  /// **iOS**: Used by the plugin's retry loop for foreground / direct tasks.
   ///
   /// **Example**:
   /// ```dart
@@ -957,11 +956,18 @@ class Constraints {
 
   /// Maximum number of retry attempts when a task fails.
   ///
-  /// **Android**: Maps to WorkManager's `setInputMerger` / run-attempt cap.
-  /// Retries follow [backoffPolicy] and [backoffDelayMs].
+  /// A failing worker asks to retry either by returning `false` from a
+  /// [DartWorker] callback or via `WorkerResult.failure(shouldRetry: true)` /
+  /// `retry` from a native worker. `maxRetries` is the ceiling on those retries;
+  /// once it is hit the task fails permanently. Retries follow [backoffPolicy]
+  /// and [backoffDelayMs].
   ///
-  /// **iOS**: Implemented natively in the plugin's execution layer.
-  /// Each retry respects [backoffPolicy] and [backoffDelayMs].
+  /// **Android**: WorkManager has no native max-retry API (`Result.retry()`
+  /// reschedules forever), so the value is carried on the WorkRequest and the
+  /// `kmpworkmanager` worker enforces the ceiling. Applies to one-time, chained,
+  /// and graph tasks — **not** periodic (a periodic run's attempt count only
+  /// resets on success, so a per-run cap would disable retries permanently).
+  /// **iOS**: Enforced by the plugin's execution-layer retry loop.
   ///
   /// - `0` — no retry (fail immediately on first failure)
   /// - `1` — try once, retry once = up to 2 total attempts
