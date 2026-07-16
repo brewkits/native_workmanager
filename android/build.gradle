@@ -38,7 +38,11 @@ android {
         // v3.0.1 fixes expedited-task crash on Android 8-11 (missing getForegroundInfo,
         // regressed v2.3.8..v3.0.0). Ktor HTTP workers moved to kmpworkmanager-http in
         // v3.0.0 — NOT needed here (plugin ships its own native workers).
-        api("dev.brewkits:kmpworkmanager:3.0.1")
+        // v3.1.0 enforces Constraints.maxRetries in BaseKmpWorker.doWorkInternal: reads the
+        // "maxRetries" key (NativeTaskScheduler.KEY_MAX_RETRIES) off WorkRequest Data and caps
+        // Failure(shouldRetry=true)/Retry at N+1 total runs. Direct-enqueue paths in this plugin
+        // must stamp that key themselves (see enqueueOneTimeWorkDirect / ChainHelper / GraphHelper).
+        api("dev.brewkits:kmpworkmanager:3.1.0")
 
         // androidx.startup — auto-initializes the plugin before Application.onCreate()
         // so DartWorker works out-of-the-box without a custom Application class.

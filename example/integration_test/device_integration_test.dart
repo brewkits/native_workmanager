@@ -194,6 +194,23 @@ Future<bool> _ditProgress(Map<String, dynamic>? input) async {
   return true;
 }
 
+/// issue_46 regression: a callback that records each invocation to a shared
+/// counter file (same app sandbox as the test isolate) and returns `false`.
+/// Used to prove (a) `return false` actually retries — the primary bug — and
+/// (b) `Constraints.maxRetries` caps the retries at N+1 total runs instead of
+/// looping forever (WorkManager has no native max-retry API).
+@pragma('vm:entry-point')
+Future<bool> _ditRetryCounter(Map<String, dynamic>? input) async {
+  final path = input?['counterFile'] as String?;
+  if (path != null) {
+    final f = File(path);
+    final n = f.existsSync() ? (int.tryParse(f.readAsStringSync().trim()) ?? 0) : 0;
+    f.writeAsStringSync('${n + 1}');
+    print('[DartWorker] dit_retry_counter run #${n + 1}');
+  }
+  return false; // fail → should retry under maxRetries, then abandon
+}
+
 @pragma('vm:entry-point')
 Future<bool> _workflowFinalizer(Map<String, dynamic>? input) async {
   print('[DartWorker] _workflowFinalizer starting...');
@@ -234,6 +251,7 @@ void main() {
         'chain_b': _chainB,
         'chain_c': _chainC,
         'dit_progress': _ditProgress,
+        'dit_retry_counter': _ditRetryCounter,
         'workflow_finalizer': _workflowFinalizer,
       },
     );
@@ -1071,6 +1089,79 @@ void main() {
               'Issue #30 regression: callback that sleeps 20 s with timeoutMs=3 s '
               'must be killed and emit failure. Success here means timeoutMs is '
               'still ignored on the Dart side.',
+        );
+      },
+    );
+
+    // ── issue_46: return false retries, and maxRetries caps the retries ──
+    //
+    // Two bugs in one runtime test (varies maxRetries, observes behavior — the
+    // "wired" bar from the Issue #30 rule):
+    //   1. Pre-fix, a DartWorker returning false mapped to a permanent
+    //      Result.failure() and NEVER retried.
+    //   2. Once it retried, Android had no cap — WorkManager Result.retry() is
+    //      unbounded, so maxRetries was ignored and it looped forever.
+    // The callback bumps a shared counter file each run. With maxRetries=2 the
+    // task must run exactly 3 times (1 initial + 2 retries), then abandon.
+    // A count of 1 means retry regressed; a count > 3 means the cap regressed.
+    testWidgets(
+      'issue_46: DartWorker return false retries up to maxRetries then abandons',
+      (tester) async {
+        final id = _id('issue_46_retry_cap');
+        final counterFile = '${tmpDir.path}/$id.count';
+        // Fresh counter for this run.
+        final f = File(counterFile);
+        if (f.existsSync()) f.deleteSync();
+
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: DartWorker(
+            callbackId: 'dit_retry_counter',
+            input: {'counterFile': counterFile},
+          ),
+          // maxRetries=2 → 3 total runs. Linear/min backoff (WM floor is 10 s)
+          // keeps the three attempts inside the poll window below.
+          constraints: const Constraints(
+            maxRetries: 2,
+            backoffPolicy: BackoffPolicy.linear,
+            backoffDelayMs: 10000,
+          ),
+        );
+
+        // Poll until the count stabilizes (no new run for two consecutive checks)
+        // or we hit the ceiling. Backoff means runs land ~10 s apart.
+        int last = 0;
+        int stable = 0;
+        for (var i = 0; i < 24; i++) {
+          await Future<void>.delayed(const Duration(seconds: 5));
+          final n = f.existsSync()
+              ? (int.tryParse(f.readAsStringSync().trim()) ?? 0)
+              : 0;
+          if (n == last) {
+            stable++;
+            if (n >= 3 && stable >= 3) break; // settled at the cap
+          } else {
+            stable = 0;
+            last = n;
+          }
+          if (n > 3) break; // cap regressed — fail fast
+        }
+
+        expect(
+          last,
+          greaterThanOrEqualTo(2),
+          reason:
+              'issue_46: return false must retry (>=2 runs). A count of 1 means '
+              'the callback failure mapped to a permanent Result.failure() again.',
+        );
+        expect(
+          last,
+          equals(3),
+          reason:
+              'issue_46: maxRetries=2 must cap at exactly 3 total runs. A higher '
+              'count means the Android retry cap (kmpworkmanager 3.1.0 + the '
+              'maxRetries key stamping) is not being honored — unbounded retry.',
         );
       },
     );

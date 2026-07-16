@@ -150,6 +150,11 @@ class KMPSchedulerBridge {
                            "BGTaskScheduler only supports binary network connectivity — the task " +
                            "will run on any available network including cellular.")
         }
+        // Retry ceiling for the iOS BGTask path (kmpworkmanager 3.1.0+ resolves this into the
+        // chain-level retry budget / one-time retry ceiling). Plain int32_t in the generated
+        // header — NOT a boxed KotlinInt?, so pass the value directly. Absent → -1 replicates
+        // the Kotlin `Constraints(maxRetries = -1)` default (uncapped); Dart always sends it.
+        let maxRetries = (map?["maxRetries"] as? NSNumber)?.int32Value ?? -1
         // systemConstraints, allowWhileIdle, backoffPolicy, backoffDelayMs are Android-only.
         return Constraints(
             requiresNetwork: requiresNetwork,
@@ -160,6 +165,7 @@ class KMPSchedulerBridge {
             isHeavyTask: isHeavyTask,
             backoffPolicy: .exponential,
             backoffDelayMs: 30000,
+            maxRetries: maxRetries,
             systemConstraints: [],
             exactAlarmIOSBehavior: exactAlarmBehavior,
             extras: [:]

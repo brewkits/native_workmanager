@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import dev.brewkits.kmpworkmanager.background.data.KmpWorker
+import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import dev.brewkits.native_workmanager.store.OfflineQueueStore
 import dev.brewkits.native_workmanager.utils.CommandProcessor.scheduleOfflineQueueProcessor
 import kotlinx.coroutines.Dispatchers
@@ -63,7 +64,12 @@ class OfflineQueueProcessor(
         
         val dataBuilder = androidx.work.Data.Builder()
             .putString("workerClassName", entry.workerClassName)
-        
+            // The offline queue owns retry accounting / dead-lettering: it re-enqueues
+            // failed entries on its own schedule. Cap WorkManager at maxRetries=0 so
+            // BaseKmpWorker (3.1.0+) does not ALSO retry on Failure(shouldRetry=true),
+            // which would double-count attempts against the queue's policy.
+            .putInt(NativeTaskScheduler.KEY_MAX_RETRIES, 0)
+
         if (entry.workerConfig != null) {
             val payloadBytes = entry.workerConfig.toByteArray(Charsets.UTF_8)
             if (payloadBytes.size > 10 * 1024) {

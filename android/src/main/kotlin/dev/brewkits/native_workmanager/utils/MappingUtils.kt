@@ -21,6 +21,11 @@ object MappingUtils {
         val allowWhileIdle = map["allowWhileIdle"] as? Boolean ?: false
         val isHeavyTask = map["isHeavyTask"] as? Boolean ?: false
         val backoffDelayMs = (map["backoffDelayMs"] as? Number)?.toLong() ?: 30_000L
+        // Retry ceiling. Dart always serializes maxRetries (default 3); absent → -1 (uncapped)
+        // so restored/legacy paths that omit it keep the pre-3.1.0 behavior. kmpworkmanager
+        // BaseKmpWorker reads this back off the WorkRequest Data (KEY_MAX_RETRIES) to cap
+        // Failure(shouldRetry=true)/Retry at N+1 total runs.
+        val maxRetries = (map["maxRetries"] as? Number)?.toInt()?.coerceAtLeast(-1) ?: -1
 
         val backoffPolicy = when ((map["backoffPolicy"] as? String)?.lowercase()) {
             "linear" -> BackoffPolicy.LINEAR
@@ -72,6 +77,7 @@ object MappingUtils {
             isHeavyTask = isHeavyTask,
             backoffPolicy = backoffPolicy,
             backoffDelayMs = backoffDelayMs,
+            maxRetries = maxRetries,
             systemConstraints = systemConstraints,
             extras = extras
         )

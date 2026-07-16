@@ -207,6 +207,21 @@ void main() {
         expect(map['backoffDelayMs'], equals(45000));
       });
 
+      // issue_46: the native bridges (Android MappingUtils / iOS RetryConfig +
+      // KMPSchedulerBridge) read this exact key to cap retries under
+      // kmpworkmanager 3.1.0. If the key name or type drifts, the cap silently
+      // stops engaging — this guards the passthrough.
+      test('maxRetries uses the "maxRetries" key and is an int', () {
+        final map = Constraints(maxRetries: 5).toMap();
+        expect(map['maxRetries'], equals(5));
+        expect(map['maxRetries'], isA<int>());
+      });
+
+      test('maxRetries default is present (3) so the bridge always caps', () {
+        final map = Constraints().toMap();
+        expect(map['maxRetries'], equals(3));
+      });
+
       test('systemConstraints is list of strings', () {
         final map = Constraints(
           systemConstraints: {SystemConstraint.deviceIdle},

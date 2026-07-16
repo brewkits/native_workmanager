@@ -703,6 +703,15 @@ internal fun NativeWorkmanagerPlugin.enqueueOneTimeWorkDirect(
         .putString("workerClassName", workerClassName)
         .putString("taskId", taskId)
 
+    // Stamp the retry ceiling so kmpworkmanager BaseKmpWorker (3.1.0+) caps
+    // Failure(shouldRetry=true)/Retry at maxRetries+1 total runs. This direct path bypasses
+    // NativeTaskScheduler.enqueue (which stamps it for us), so we stamp it here. -1 = uncapped.
+    // NOT applied to periodic work — a periodic task's WorkManager runAttemptCount only resets
+    // on success, so a per-run cap would permanently disable retries after the first cap hit.
+    if (constraints.maxRetries >= 0) {
+        dataBuilder.putInt(NativeTaskScheduler.KEY_MAX_RETRIES, constraints.maxRetries)
+    }
+
     if (fgsConfigJson != null) {
         dataBuilder.putString("fgsConfigJson", fgsConfigJson)
     }
