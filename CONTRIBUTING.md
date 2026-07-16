@@ -389,6 +389,14 @@ Documented here so a fix can still ship if the usual maintainer is unavailable. 
 `native_workmanager` and `native_workmanager_gen` are kept in lockstep on the same version
 number, even when a release has no codegen changes.
 
+0. **Before a minor release**, mine competitor issue trackers for failure classes this
+   project might share, and cross-check each against this codebase (don't fix what's already
+   handled). Repeat periodically — a scan only ever covers a point in time, and both this
+   project and the trackers below keep moving:
+   - [`fluttercommunity/flutter_workmanager`](https://github.com/fluttercommunity/flutter_workmanager/issues) — closest direct competitor.
+   - [`ekasetiawans/flutter_background_service`](https://github.com/ekasetiawans/flutter_background_service/issues) — different execution model (long-running service vs. scheduled task), but shares the Android foreground-service / `MissingPluginException` / OEM battery-killer failure surface.
+   - [`transistorsoft/flutter_background_fetch`](https://github.com/transistorsoft/flutter_background_fetch/issues) — closest proxy for raw `BGTaskScheduler` pitfalls (Apple's framework has no issue tracker of its own).
+   `gh issue list --repo <owner>/<repo> --state closed --limit 150 --json number,title,labels,comments` (and `--state open --limit 100`), sorted by comment count, is the fast way to surface the failure classes that actually hurt users rather than every issue filed.
 1. Bump `version:` in `pubspec.yaml` (root) and `native_workmanager_gen/pubspec.yaml`
    together — same number, always.
 2. Add a `CHANGELOG.md` entry (root; add a version-sync entry to
