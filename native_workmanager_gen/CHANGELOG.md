@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.1] - 2026-07-16
+
+- Version bump synchronized with `native_workmanager` 1.4.1. No codegen changes — the
+  1.4.1 fixes (iOS Swift Package Manager remote binary target #49, Android
+  `CancellationException` handling, `work-runtime-ktx` 2.11.2) are runtime/build-only and
+  do not affect `@WorkerCallback` code generation.
+
 ## [1.4.0] - 2026-07-16
 
 - Version bump synchronized with `native_workmanager` 1.4.0. No codegen changes — the
