@@ -429,7 +429,7 @@ await NativeWorkManager.enqueue(
 );
 ```
 
-> **New in v1.2.3**: `initialDelay` support for periodic tasks ensures your background work doesn't start immediately upon registration, saving resources when the app is first launched.
+> `initialDelay` on periodic tasks defers the first run instead of firing immediately on registration, saving resources when the app is first launched.
 </details>
 
 <details>
