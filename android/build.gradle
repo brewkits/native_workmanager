@@ -76,6 +76,11 @@ android {
         testImplementation("org.mockito:mockito-core:5.0.0")
         testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
         testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0")
+        // Real org.json on the unit-test classpath. With `returnDefaultValues = true`,
+        // android.jar's stubbed org.json returns null from JSONObject.toString(), which
+        // NPEs any worker/reporter that builds JSON in a plain (non-Robolectric) host
+        // test (e.g. ProgressReporterTest). The real implementation shadows the stub.
+        testImplementation("org.json:json:20240303")
         // Robolectric + androidx.test for tests that need an Android runtime
         // (NativeWorkManagerInitializerTest). Without these the unit-test source
         // set fails to compile (unresolved RobolectricTestRunner / ApplicationProvider).
