@@ -6,8 +6,7 @@ void main() {
   // Absolute path to the CLI entrypoint. The tests run the CLI with
   // workingDirectory set to a temp mock project, so a relative 'bin/setup.dart'
   // would resolve against the temp dir and fail with "Could not find file".
-  final setupScript =
-      path.join(Directory.current.path, 'bin', 'setup.dart');
+  final setupScript = path.join(Directory.current.path, 'bin', 'setup.dart');
 
   late Directory tempDir;
   late File infoPlist;

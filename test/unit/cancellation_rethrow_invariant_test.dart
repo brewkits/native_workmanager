@@ -83,7 +83,8 @@ void main() {
       });
     }
 
-    test('the invariant list matches the workers directory (no new worker '
+    test(
+        'the invariant list matches the workers directory (no new worker '
         'silently skips the check)', () {
       // Not every worker needs the rethrow — some have no local catch and
       // correctly rely on BaseKmpWorker, and WebSocketWorker uses try/finally.
