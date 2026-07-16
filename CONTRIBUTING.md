@@ -258,8 +258,8 @@ native_workmanager/
 ├── android/src/main/kotlin/  # Android implementation
 │   ├── NativeWorkmanagerPlugin.kt
 │   └── workers/                  # Android workers
-├── ios/Classes/              # iOS implementation
-│   ├── NativeWorkmanagerPlugin.swift
+├── ios/native_workmanager/Sources/native_workmanager/  # iOS implementation
+│   ├── NativeWorkmanagerPlugin.swift (+ extension files)
 │   └── workers/                  # iOS workers
 ├── test/                     # Dart tests
 ├── doc/                      # Documentation
@@ -376,6 +376,60 @@ Before submitting, ensure:
 - [ ] No merge conflicts
 
 ---
+
+## 🧭 Project Governance &amp; Continuity
+
+### Current maintainer structure
+
+native_workmanager is, honestly, a single-maintainer project today — the large majority of
+commits and every release to date trace to one person, who also maintains
+[`kmpworkmanager`](https://github.com/brewkits/kmpworkmanager), the Kotlin Multiplatform core
+this plugin depends on for all scheduling logic. There is no second person with release
+access on either repository. If you're evaluating this library for a production dependency,
+factor that in — it's a real risk, not a formality, and this section exists so it's written
+down rather than discovered the hard way.
+
+### Release process (for continuity)
+
+Documented here so a fix can still ship if the usual maintainer is unavailable. Both
+`native_workmanager` and `native_workmanager_gen` are kept in lockstep on the same version
+number, even when a release has no codegen changes.
+
+1. Bump `version:` in `pubspec.yaml` (root) and `native_workmanager_gen/pubspec.yaml`
+   together — same number, always.
+2. Add a `CHANGELOG.md` entry (root; add a version-sync entry to
+   `native_workmanager_gen/CHANGELOG.md` too — pub.dev's `pana` score requires it).
+3. If `kmpworkmanager` changed: bump the version in `android/build.gradle`
+   (`api("dev.brewkits:kmpworkmanager:X.Y.Z")`), then rebuild the bundled iOS framework from
+   that version's source (`./gradlew :kmpworker:linkReleaseFrameworkIos{Arm64,SimulatorArm64,X64}`
+   in the `kmpworkmanager` repo, then assemble with `xcodebuild -create-xcframework` — device
+   arm64 slice + a `lipo`-merged fat simulator slice — and swap the result into
+   `ios/Frameworks/KMPWorkManager.xcframework` here).
+4. `flutter analyze` (0 issues) and the full test suite
+   (`./scripts/run_all_tests.sh`, plus `flutter build ios --simulator` and an Android APK
+   build as a smoke test) must be clean before tagging.
+5. Commit, tag `vX.Y.Z`, push.
+6. Cut a GitHub release on the tag. If the iOS xcframework changed, attach
+   `KMPWorkManager.xcframework.zip` as a release asset **named exactly that** — GitHub's
+   `#Label` syntax on `gh release create` only renames the *display* label, not the actual
+   download filename the podspec's `prepare_command` expects.
+7. `flutter pub publish` (root) then `dart pub publish` (`native_workmanager_gen/`). Run
+   `flutter pub publish --dry-run` in both first — `pana` should score 160/160 before
+   publishing for real.
+
+### If the maintainer becomes unavailable
+
+This is the gap this section can't fully close by itself — it needs an action from whoever
+owns the `brewkits` GitHub org today:
+
+- **Grant a trusted second person `Maintain` or `Admin` access** to both
+  `brewkits/native_workmanager` and `brewkits/kmpworkmanager`. Without this, no one else can
+  merge a fix, cut a release, or publish to pub.dev no matter how urgent the issue.
+- **pub.dev publisher access** is separate from GitHub access — the `brewkits` verified
+  publisher on pub.dev needs at least one other account with uploader rights, or a critical
+  fix can be merged on GitHub and still be unable to reach users.
+- Until that happens, anyone forking this project to keep it alive should expect to also fork
+  `kmpworkmanager` — the two are not independently useful.
 
 ## 🏆 Recognition
 
