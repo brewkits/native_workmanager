@@ -2,12 +2,14 @@
 
 ## Supported Versions
 
+This project releases frequently (roughly weekly) and does not backport fixes to older
+minor versions — a security fix ships in the next release, and the fix is only guaranteed
+against the latest published version.
+
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.2.x   | :white_check_mark: |
-| 1.1.x   | :white_check_mark: |
-| 1.0.x   | :white_check_mark: |
-| < 1.0   | :x:                |
+| 1.4.x   | :white_check_mark: |
+| < 1.4   | :x: (upgrade to latest) |
 
 ## Reporting a Vulnerability
 
@@ -17,18 +19,18 @@ We take security seriously. If you discover a security vulnerability, please fol
 
 Security vulnerabilities should **never** be reported via public GitHub issues, as this could put users at risk.
 
-### 2. Report Privately
+### 2. Report Privately via GitHub
 
-**Email:** security@example.com
-
-**Subject:** `[SECURITY] native_workmanager - Brief Description`
+Use **[GitHub Private Vulnerability Reporting](https://github.com/brewkits/native_workmanager/security/advisories/new)**
+— this opens a private draft security advisory visible only to the maintainer and
+GitHub, with no public disclosure until a fix is ready. This is the preferred and
+fastest channel.
 
 **Include:**
 - Description of the vulnerability
 - Steps to reproduce
 - Potential impact
 - Suggested fix (if any)
-- Your contact information
 
 ### 3. What to Expect
 
@@ -123,18 +125,18 @@ const apiKey = 'sk_live_1234567890';  // NEVER do this!
 
 | ID | Severity | Status | Affected Versions |
 |----|----------|--------|-------------------|
-| None | - | - | - |
+| None known | - | - | - |
 
 ### Fixed Vulnerabilities
 
 | ID | Severity | Fixed In | Description |
 |----|----------|----------|-------------|
-| None yet | - | - | - |
+| [PR #44](https://github.com/brewkits/native_workmanager/pull/44) | Medium | 1.3.3 | `RemoteTrigger` HMAC signature comparison used a non-constant-time equality check, creating a timing side-channel. Fixed with `MessageDigest.isEqual` (Android) / `HMAC.isValidAuthenticationCode` (iOS). |
 
 ## Security Updates
 
 Subscribe to security advisories:
-- Watch this repository
+- Watch this repository (Custom → Security alerts)
 - Check [GitHub Security Advisories](https://github.com/brewkits/native_workmanager/security/advisories)
 
 ## Responsible Disclosure
@@ -155,8 +157,10 @@ We recognize security researchers who help make native_workmanager more secure:
 
 ## Contact
 
-**Security Team:** security@example.com
-**PGP Key:** [Download](https://example.com/pgp-key.asc)
+Use [GitHub Private Vulnerability Reporting](https://github.com/brewkits/native_workmanager/security/advisories/new)
+for anything security-sensitive — it reaches the maintainer directly and privately.
+For non-sensitive questions, open a [GitHub Discussion](https://github.com/brewkits/native_workmanager/discussions)
+or a regular issue.
 
 ## Additional Resources
 
@@ -165,4 +169,4 @@ We recognize security researchers who help make native_workmanager more secure:
 
 ---
 
-**Last Updated:** 2026-01-31
+**Last Updated:** 2026-07-16
