@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.0] - 2026-07-16
+
+- Version bump synchronized with `native_workmanager` 1.4.0. No codegen changes — the
+  1.4.0 changes (DartWorker retry-on-false and `Constraints.maxRetries` enforcement via
+  kmpworkmanager 3.1.0) are runtime-only and do not affect `@WorkerCallback` code generation.
+
 ## [1.3.3] - 2026-07-14
 
 - Version bump synchronized with `native_workmanager` 1.3.3. No codegen changes — the

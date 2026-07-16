@@ -21,6 +21,7 @@ import dev.brewkits.kmpworkmanager.background.data.NativeTaskScheduler
 import dev.brewkits.native_workmanager.SimpleAndroidWorkerFactory
 import dev.brewkits.native_workmanager.engine.TaskEventBus
 import dev.brewkits.native_workmanager.utils.MappingUtils.toJson
+import dev.brewkits.native_workmanager.utils.RetryCeiling
 import org.json.JSONObject
 
 class ForegroundNativeWorker(
@@ -35,9 +36,6 @@ class ForegroundNativeWorker(
     // WorkerResult itself (it does NOT run through BaseKmpWorker), so kmpworkmanager's
     // maxRetries cap does not reach it — we enforce the same N+1-total-runs cap inline.
     private val maxRetries = inputData.getInt(NativeTaskScheduler.KEY_MAX_RETRIES, -1)
-
-    /** true once WorkManager's 0-based runAttemptCount has consumed the retry budget. */
-    private fun retriesExhausted(): Boolean = maxRetries in 0..runAttemptCount
 
     override suspend fun doWork(): Result {
         NativeLogger.d("ForegroundNativeWorker: starting doWork for $taskId ($workerClassName)")
@@ -79,7 +77,9 @@ class ForegroundNativeWorker(
                 }
                 is WorkerResult.Failure -> {
                     emitToBus(false, result.message, null)
-                    if (result.shouldRetry && !retriesExhausted()) {
+                    if (result.shouldRetry &&
+                        !RetryCeiling.failureExhausted(runAttemptCount, maxRetries)
+                    ) {
                         Result.retry()
                     } else {
                         Result.failure()
@@ -87,9 +87,7 @@ class ForegroundNativeWorker(
                 }
                 is WorkerResult.Retry -> {
                     emitToBus(false, result.reason, null)
-                    // Honor an explicit attemptCap first, else fall back to maxRetries.
-                    val cap = result.attemptCap ?: if (maxRetries >= 0) maxRetries + 1 else null
-                    if (cap != null && runAttemptCount + 1 >= cap) {
+                    if (RetryCeiling.retryExhausted(runAttemptCount, result.attemptCap, maxRetries)) {
                         Result.failure()
                     } else {
                         Result.retry()
