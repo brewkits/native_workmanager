@@ -100,6 +100,7 @@ The dominant `workmanager` plugin spins up a **full Flutter Engine per backgroun
 | Task chains (A→B→C) | ❌ | ✅ (persist across reboots) |
 | FGS Bypass (Android) | ❌ | ✅ (Bypass Doze/Standby with custom notifications) |
 | Per-task progress stream | ❌ | ✅ |
+| Retry ceiling (`maxRetries`) | ❌ (unbounded `Result.retry()`) | ✅ (capped on both platforms) |
 | Survives device reboot | ✅ | ✅ |
 | Remote Trigger (Push) | ❌ | ✅ (FCM/APNs + HMAC Security) |
 | Custom Dart workers | ✅ | ✅ (opt-in via `DartWorker`) |
@@ -230,6 +231,24 @@ await NativeWorkManager.enqueue(
 ```
 
 Dart workers boot a headless Flutter isolate (~50 MB, 1–2 s cold start). The isolate is cached for 5 minutes so back-to-back tasks pay the boot cost only once. For HTTP and file tasks, use native workers instead.
+
+**Retry on failure** — return `false` (or throw) and the task retries under
+`Constraints.maxRetries` and `backoffPolicy`/`backoffDelayMs`, then fails
+permanently once the ceiling is hit (`maxRetries: 3` by default → up to 4 total
+runs, enforced on both platforms since v1.4.0). Use `Constraints(maxRetries: 0)`
+for fail-fast tasks that must never re-run:
+
+```dart
+await NativeWorkManager.enqueue(
+  taskId: 'sync-user-42',
+  worker: DartWorker(callbackId: 'health-sync', input: {'userId': '42'}),
+  constraints: const Constraints(
+    maxRetries: 2,                        // 1 initial run + 2 retries max
+    backoffPolicy: BackoffPolicy.linear,
+    backoffDelayMs: 30000,
+  ),
+);
+```
 
 Report progress from inside a `DartWorker` and it streams to `NativeWorkManager.progress` / `handler.progress` just like a native worker (Android and iOS):
 
