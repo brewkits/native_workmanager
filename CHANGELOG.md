@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.3] - 2026-07-17
+
+### Fixed
+
+- **iOS SwiftPM: manifest rejected by stricter SwiftPM toolchains.**
+  `Package.swift` declared a test target with `path: "../Tests"`, which escapes
+  the package root. Newer SwiftPM (Xcode 26.x) tolerates the escape, but stricter
+  toolchains reject the **entire manifest** at load time with *"target
+  'NativeWorkManagerTests' in package 'native_workmanager' is outside the package
+  root"* — which breaks dependency resolution for every SPM-enabled consumer app
+  on those toolchains, the same failure mode as #49/#52. The test target is
+  removed from the consumer-facing manifest (nothing ever executed it — no
+  workflow or script invokes `swift test` — so no coverage is lost; the Swift
+  test sources remain in the repo). Root cause confirmed by a controlled
+  experiment: the CI job that reproduced the failure on the stricter toolchain
+  goes green with the target removed.
+
+  This closes the last known gap in the SwiftPM install path. All four layers
+  are now verified automatically on every PR: remote binary target resolution,
+  hyphenated product-name resolution, a full `flutter build` of a consuming app
+  with SwiftPM enabled, and compile under SPM's strict module isolation.
+
+---
+
 ## [1.4.2] - 2026-07-17
 
 ### Fixed
