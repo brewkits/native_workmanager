@@ -410,6 +410,16 @@ number, even when a release has no codegen changes.
 4. `flutter analyze` (0 issues) and the full test suite
    (`./scripts/run_all_tests.sh`, plus `flutter build ios --simulator` and an Android APK
    build as a smoke test) must be clean before tagging.
+   **Also build a scratch Flutter app with SwiftPM enabled** — both #49 and #52 escaped
+   because the plugin was only built in isolation or via CocoaPods:
+   `flutter create /tmp/spmtest && cd /tmp/spmtest` → add this plugin as a `path:`
+   dependency → raise the app's `IPHONEOS_DEPLOYMENT_TARGET` to 14.0 →
+   `flutter config --enable-swift-package-manager && flutter build ios --simulator --debug`
+   (restore with `flutter config --no-enable-swift-package-manager` after). This exercises
+   Flutter's generated SwiftPM manifest, which references the plugin by the **hyphenated**
+   library product name (`native-workmanager`) — that product name in `Package.swift` must
+   never be renamed back to underscores, and iOS sources must compile under SPM's stricter
+   module isolation (no transitive `import UIKit`).
 5. Commit, tag `vX.Y.Z`, push.
 6. Cut a GitHub release on the tag. If the iOS xcframework changed, attach
    `KMPWorkManager.xcframework.zip` as a release asset **named exactly that** — GitHub's

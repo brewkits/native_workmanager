@@ -1,5 +1,9 @@
 import Foundation
 import KMPWorkManager
+// Explicit UIKit import: required for UIApplication (background task API).
+// CocoaPods builds compiled without it because another module re-exported
+// UIKit; SwiftPM builds do not (issue #52 E2E verification caught this).
+import UIKit
 
 /// Built-in worker: File system operations
 ///

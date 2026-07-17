@@ -2,6 +2,10 @@ import Foundation
 import KMPWorkManager
 import CryptoKit
 import CommonCrypto
+// Explicit UIKit import: required for UIApplication (background task API).
+// CocoaPods builds compiled without it because another module re-exported
+// UIKit; SwiftPM builds do not (issue #52 E2E verification caught this).
+import UIKit
 
 /// Native cryptographic operations worker for iOS.
 ///
