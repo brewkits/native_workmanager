@@ -43,10 +43,10 @@ class WorkerCallback {
   /// Builds the asset map for a `lib/workers.dart` source, plus the virtual
   /// `native_workmanager` annotation package every fixture imports.
   Map<String, String> assets(String workersSource) => {
-        'native_workmanager|lib/src/worker_callback_generator_annotation.dart':
-            _annotationSource,
-        'a|lib/workers.dart': '$_import\n\n$workersSource',
-      };
+    'native_workmanager|lib/src/worker_callback_generator_annotation.dart':
+        _annotationSource,
+    'a|lib/workers.dart': '$_import\n\n$workersSource',
+  };
 
   const outputAsset = 'a|lib/workers.worker_callback.g.part';
 
@@ -201,7 +201,8 @@ Future<bool> syncContacts(Map<String, dynamic>? input) async => true;
       expect(
         logs,
         anyElement(contains(messageContains)),
-        reason: 'Expected a SEVERE log containing "$messageContains", '
+        reason:
+            'Expected a SEVERE log containing "$messageContains", '
             'got: $logs',
       );
     }
@@ -250,12 +251,15 @@ Future<bool> twoParams(Map<String, dynamic>? input, String extra) async => true;
 ''', messageContains: 'has 2 parameters');
     });
 
-    test('rejects a parameter type that is not Map<String, dynamic>?', () async {
-      await expectRejected('''
+    test(
+      'rejects a parameter type that is not Map<String, dynamic>?',
+      () async {
+        await expectRejected('''
 @WorkerCallback('bad')
 Future<bool> wrongParamType(String? input) async => true;
 ''', messageContains: 'Map<String, dynamic>?');
-    });
+      },
+    );
 
     test('rejects an empty id', () async {
       await expectRejected('''

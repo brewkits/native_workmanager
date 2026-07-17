@@ -204,7 +204,9 @@ Future<bool> _ditRetryCounter(Map<String, dynamic>? input) async {
   final path = input?['counterFile'] as String?;
   if (path != null) {
     final f = File(path);
-    final n = f.existsSync() ? (int.tryParse(f.readAsStringSync().trim()) ?? 0) : 0;
+    final n = f.existsSync()
+        ? (int.tryParse(f.readAsStringSync().trim()) ?? 0)
+        : 0;
     f.writeAsStringSync('${n + 1}');
     print('[DartWorker] dit_retry_counter run #${n + 1}');
   }
@@ -2960,7 +2962,10 @@ void main() {
           }
         });
 
-        final eventFuture = _waitEvent(id, timeout: const Duration(seconds: 45));
+        final eventFuture = _waitEvent(
+          id,
+          timeout: const Duration(seconds: 45),
+        );
 
         await NativeWorkManager.enqueue(
           taskId: id,
@@ -2996,7 +3001,10 @@ void main() {
       'issue_39: DartWorker status becomes terminal in allTasks() after success',
       (tester) async {
         final id = _id('issue39_status');
-        final eventFuture = _waitEvent(id, timeout: const Duration(seconds: 45));
+        final eventFuture = _waitEvent(
+          id,
+          timeout: const Duration(seconds: 45),
+        );
 
         await NativeWorkManager.enqueue(
           taskId: id,
