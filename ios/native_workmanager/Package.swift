@@ -71,10 +71,15 @@ let package = Package(
                 .process("PrivacyInfo.xcprivacy"),
             ]
         ),
-        .testTarget(
-            name: "NativeWorkManagerTests",
-            dependencies: ["native_workmanager"],
-            path: "../Tests"
-        ),
+        // NOTE: no .testTarget here — deliberately. The Swift unit tests live in
+        // ios/Tests/ (outside this package root) and a testTarget with
+        // path: "../Tests" makes some SwiftPM toolchains reject the ENTIRE
+        // manifest at load time with "target 'NativeWorkManagerTests' in package
+        // 'native_workmanager' is outside the package root" — which breaks
+        // dependency resolution for every SPM-enabled consumer app on those
+        // toolchains (newer SwiftPM tolerates it, so local builds can pass while
+        // consumers fail). Consumer-facing plugin manifests must not declare test
+        // targets; run the Swift tests through the example app's Xcode workspace
+        // (RunnerTests) or a dev-only manifest instead.
     ]
 )
