@@ -20,9 +20,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Check PR title format
+        # Title through env, never inline ${{ }} — same injection vector as the
+        # description check below ($(…) in a PR title would execute here).
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          PR_TITLE="${{ github.event.pull_request.title }}"
-
           # Valid formats: feat: / fix: / docs: / test: / refactor: / chore:
           if ! echo "$PR_TITLE" | grep -qE '^(feat|fix|docs|test|refactor|chore|ci|perf|style): .+'; then
             echo "❌ Invalid PR title format!"
@@ -44,8 +46,13 @@ jobs:
           echo "✅ PR title format is valid"
 
       - name: Check for description
+        # PR body goes through env, NEVER inline ${{ }} into the script: inlined
+        # bodies both break the shell on quotes/parens and allow command
+        # injection ($(…) in a PR description would execute on the runner).
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          BODY_LENGTH=$(echo '${{ github.event.pull_request.body }}' | wc -c)
+          BODY_LENGTH=$(printf '%s' "$PR_BODY" | wc -c)
           if [ "$BODY_LENGTH" -lt 20 ]; then
             echo "⚠️ Warning: PR description is very short or empty"
             echo "Consider adding more context about the changes"

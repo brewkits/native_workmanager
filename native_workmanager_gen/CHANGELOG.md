@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.3] - 2026-07-17
+
+- Version bump synchronized with `native_workmanager` 1.4.3. No codegen changes —
+  the 1.4.3 fix (iOS SwiftPM manifest: test target outside the package root) is
+  entirely in the main package's `Package.swift`.
+
+---
+
 ## [1.4.2] - 2026-07-17
 
 - Version bump synchronized with `native_workmanager` 1.4.2. No codegen changes — the
