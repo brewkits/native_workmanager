@@ -10,7 +10,14 @@ let package = Package(
         .iOS("14.0"),
     ],
     products: [
-        .library(name: "native_workmanager", targets: ["native_workmanager"]),
+        // The library PRODUCT must be the hyphenated plugin name (issue #52).
+        // Flutter's generated FlutterGeneratedPluginSwiftPackage references
+        // plugins as .product(name: plugin.name.replaceAll('_', '-'),
+        // package: plugin.name) — see flutter_tools swift_package_manager.dart.
+        // SPM uses the product name as CFBundleIdentifier when linked
+        // dynamically, and CFBundleIdentifier cannot contain underscores.
+        // Package name and target names keep their underscores.
+        .library(name: "native-workmanager", targets: ["native_workmanager"]),
     ],
     dependencies: [
         // No third-party dependencies. Uses Apple Archive for ZIP operations.

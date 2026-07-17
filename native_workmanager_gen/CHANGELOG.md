@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.2] - 2026-07-17
+
+- Version bump synchronized with `native_workmanager` 1.4.2. No codegen changes — the
+  1.4.2 fixes (iOS SwiftPM hyphenated library product #52, explicit UIKit imports)
+  are entirely in the main package's iOS build configuration and Swift sources.
+
+---
+
 ## [1.4.1] - 2026-07-16
 
 - Version bump synchronized with `native_workmanager` 1.4.1. No codegen changes — the

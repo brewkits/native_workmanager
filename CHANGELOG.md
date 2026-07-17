@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.2] - 2026-07-17
+
+### Fixed
+
+- **iOS SwiftPM resolution failed one layer above the 1.4.1 fix — Issue #52.**
+  Flutter's generated `FlutterGeneratedPluginSwiftPackage` references every
+  plugin by the **hyphenated** library product name
+  (`plugin.name.replaceAll('_', '-')` in `flutter_tools` — SwiftPM uses the
+  product name as `CFBundleIdentifier` when linking dynamically, and bundle
+  identifiers cannot contain underscores). `Package.swift` exported the product
+  as `native_workmanager`, so SPM-enabled apps failed dependency resolution with
+  *"product 'native-workmanager' … not found in package 'native_workmanager'"*.
+  The library product is now `native-workmanager`; the package and target names
+  keep their underscores. Thanks @zaqwery for the precise diagnosis — again.
+
+- **iOS: two workers did not compile under SwiftPM.** `CryptoWorker` and
+  `FileSystemWorker` use `UIApplication` (background-task API) without an
+  explicit `import UIKit`; CocoaPods builds compiled anyway via transitive
+  module re-export, SwiftPM builds do not. Surfaced by the new end-to-end
+  verification below; explicit imports added.
+
+### Changed
+
+- **Release verification now includes a real SwiftPM app build.** Both #49 and
+  #52 escaped because the plugin package was only ever built in isolation or
+  consumed via CocoaPods. The SPM check now builds a scratch Flutter app with
+  `--enable-swift-package-manager` depending on the plugin, which exercises
+  Flutter's generated manifest (hyphenated product reference, platform minimums,
+  full plugin compile under SPM).
+
+---
+
 ## [1.4.1] - 2026-07-16
 
 ### Fixed
