@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.4] - 2026-07-26
+
+### Fixed
+
+- **DevTools Extension Loading Error (#55):** Fixed extension failure where DevTools failed with `could not read file as String: devtools_extensions/.../index.html`. Bundled compiled web assets into package root `extension/devtools/build/` and removed `extension/devtools/build/` from `.pubignore` so compiled DevTools extension assets are included in `pub.dev` releases.
+
 ---
 
 ## [1.4.3] - 2026-07-17

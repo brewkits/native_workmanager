@@ -82,7 +82,7 @@ class _NativeWorkmanagerDashboardState
 
   Future<void> _fetchMetrics() async {
     try {
-      if (!serviceManager.hasConnection) {
+      if (!serviceManager.connectedState.value.connected) {
         setState(() => _isConnected = false);
         return;
       }
@@ -288,7 +288,7 @@ class _NativeWorkmanagerDashboardState
 
   Future<void> _syncQueue() async {
     try {
-      if (!serviceManager.hasConnection) {
+      if (!serviceManager.connectedState.value.connected) {
         return;
       }
       await serviceManager.service!.callServiceExtension(

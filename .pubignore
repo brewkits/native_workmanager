@@ -14,7 +14,7 @@ assets/
 coverage/
 test_results.txt
 doc/internal/
-extension/devtools/build/
+# extension/devtools/build/ MUST be published to pub.dev for DevTools extension loading
 extension/devtools/.dart_tool/
 example/build/
 example/.dart_tool/

@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.4.4] - 2026-07-26
+
+- Version bump synchronized with `native_workmanager` 1.4.4 (Fix DevTools extension packaging #55).
+
 ---
 
 ## [1.4.3] - 2026-07-17
