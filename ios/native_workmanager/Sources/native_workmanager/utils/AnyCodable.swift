@@ -19,6 +19,11 @@ public struct AnyCodable: Codable {
             value = bool
         } else if let int = try? container.decode(Int.self) {
             value = int
+        } else if let int64 = try? container.decode(Int64.self) {
+            // issue_57: reached only when the value overflows Int (32-bit platforms) —
+            // on arm64 Int is already 64-bit so Int decodes first and this is unused
+            // in practice. Kept for platform completeness alongside the Int64 encode case.
+            value = int64
         } else if let double = try? container.decode(Double.self) {
             value = double
         } else if let string = try? container.decode(String.self) {
@@ -43,6 +48,19 @@ public struct AnyCodable: Codable {
             try container.encode(bool)
         case let int as Int:
             try container.encode(int)
+        case let int32 as Int32:
+            // issue_57: without this, any worker whose result data includes an
+            // Int32/Int64 field (e.g. ImageProcessWorker's originalSize/processedSize)
+            // fails JSONEncoder().encode(state) silently — saveStepResult is called via
+            // `try?`, so the whole chain-step result never persists and later
+            // {{taskId.key}} substitution sees an empty data dict instead of failing loudly.
+            try container.encode(int32)
+        case let int64 as Int64:
+            try container.encode(int64)
+        case let uint64 as UInt64:
+            try container.encode(uint64)
+        case let float as Float:
+            try container.encode(float)
         case let double as Double:
             try container.encode(double)
         case let string as String:

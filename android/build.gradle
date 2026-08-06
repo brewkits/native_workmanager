@@ -42,7 +42,17 @@ android {
         // "maxRetries" key (NativeTaskScheduler.KEY_MAX_RETRIES) off WorkRequest Data and caps
         // Failure(shouldRetry=true)/Retry at N+1 total runs. Direct-enqueue paths in this plugin
         // must stamp that key themselves (see enqueueOneTimeWorkDirect / ChainHelper / GraphHelper).
-        api("dev.brewkits:kmpworkmanager:3.1.0")
+        // v3.2.0 (Fixes upstream #64): removed the FOREGROUND_SERVICE / FOREGROUND_SERVICE_DATA_SYNC
+        // permissions and the SystemForegroundService <service> merge from kmpworkmanager's OWN
+        // internal manifest — those were unconditionally merged into every consumer app regardless
+        // of whether it used KmpHeavyWorker, causing Play Store rejections for apps that never
+        // touched foreground services. This plugin declares the SAME two permissions in its own
+        // android/src/main/AndroidManifest.xml (unconditionally, independently of kmpworkmanager) —
+        // see that file's comments for the matching fix here. iOS sources are unaffected by 3.2.0's
+        // FGS fix; the FileCompressionWorker.ios.kt rewrite (real ZIP via platform.zlib, replacing
+        // the previous uncompressed-copy stub) and new IosLiveActivityBridge in the same release are
+        // unrelated additions the bundled KMPWorkManager.xcframework now also carries.
+        api("dev.brewkits:kmpworkmanager:3.2.0")
 
         // androidx.startup — auto-initializes the plugin before Application.onCreate()
         // so DartWorker works out-of-the-box without a custom Application class.

@@ -13,7 +13,7 @@ internal class DatabaseHelper(context: Context) :
 
     companion object {
         const val DATABASE_NAME = "native_workmanager_v2.db"
-        const val DATABASE_VERSION = 3
+        const val DATABASE_VERSION = 4
 
         @Volatile
         private var instance: DatabaseHelper? = null
@@ -98,12 +98,13 @@ internal class DatabaseHelper(context: Context) :
         
         db.execSQL("""
             CREATE TABLE IF NOT EXISTS chain_steps (
-                chain_id    TEXT NOT NULL,
-                step_index  INTEGER NOT NULL,
-                task_id     TEXT NOT NULL,
-                status      TEXT NOT NULL DEFAULT 'pending',
-                result_json TEXT,
-                updated_at  INTEGER NOT NULL,
+                chain_id       TEXT NOT NULL,
+                step_index     INTEGER NOT NULL,
+                task_id        TEXT NOT NULL,
+                status         TEXT NOT NULL DEFAULT 'pending',
+                result_json    TEXT,
+                task_data_json TEXT,
+                updated_at     INTEGER NOT NULL,
                 PRIMARY KEY (chain_id, task_id)
             )
         """.trimIndent())
@@ -118,6 +119,15 @@ internal class DatabaseHelper(context: Context) :
         if (old < 3) {
             try {
                 db.execSQL("ALTER TABLE remote_triggers ADD COLUMN secret_key TEXT")
+            } catch (_: Exception) {}
+        }
+        if (old < 4) {
+            // issue_57: dynamic per-step enqueue needs each task's unsanitized raw config
+            // (workerClassName/workerConfig/constraints) available at advance-time, not just
+            // at initial enqueue-time — TaskStore's copy is sanitized (secrets redacted) and
+            // unsuitable for rebuilding a real WorkRequest later.
+            try {
+                db.execSQL("ALTER TABLE chain_steps ADD COLUMN task_data_json TEXT")
             } catch (_: Exception) {}
         }
         onCreate(db)

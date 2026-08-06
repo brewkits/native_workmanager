@@ -385,6 +385,57 @@ class _ChainCard extends StatelessWidget {
 
 ---
 
+## Data Flow Between Steps
+
+A later step can reference an earlier step's *output* using a `{{task_id.output_key}}`
+placeholder anywhere in its worker config — not just file paths. `task_id` is the `id`
+you gave the earlier `TaskRequest`; `output_key` is a key from that worker's *result*
+data, which is not always the same name as its input config. Check each worker's doc
+comment for its exact output keys (e.g. `NativeWorker.httpDownload` is configured with
+`savePath` but reports its result under `filePath`).
+
+```dart
+await NativeWorkManager.beginWith(
+  TaskRequest(
+    id: 'download-source',
+    worker: NativeWorker.httpDownload(
+      url: 'https://api.example.com/source.zip',
+      savePath: '/tmp/source.zip',
+    ),
+  ),
+)
+    .then(
+  TaskRequest(
+    id: 'extract',
+    worker: NativeWorker.fileDecompress(
+      zipPath: '{{download-source.filePath}}', // ← download's reported output path
+      targetDir: '/tmp/extracted/',
+    ),
+  ),
+)
+    .enqueue();
+```
+
+Two resolution modes, depending on where the placeholder sits in the string:
+
+- **Whole-match** — a config value that is *entirely* one placeholder (optionally
+  padded with whitespace, e.g. `'{{resize.width}}'`) resolves to the previous step's
+  original **typed** value: an `int` stays an `int`, a `bool` stays a `bool`. This is
+  what lets a placeholder target a numeric or boolean config field, such as feeding an
+  image worker's `originalWidth` output straight into the next step's `maxWidth` input.
+- **Partial-match** — a placeholder embedded inside a larger string (e.g.
+  `'/tmp/{{download-source.filePath}}.bak'`) is interpolated as a string, same as
+  before.
+
+If a step has multiple parallel tasks, each task's output is namespaced under its own
+`task_id` — `{{task-a.key}}` and `{{task-b.key}}` never collide, even when both tasks
+report a same-named `key`. An unresolved placeholder (unknown `task_id` or
+`output_key`) is left untouched as the literal `{{...}}` string rather than failing the
+step — check for that literal string showing up in a later step's failure message as a
+sign of a typo.
+
+---
+
 ## Chain Execution Flow
 
 ### Sequential (A → B → C)

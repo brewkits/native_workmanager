@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.5] - 2026-08-06
+
+### Fixed
+
+- **Task chain `{{taskId.outputKey}}` data-flow placeholders (#57):** the documented syntax for passing one chain step's output into a later step's config never actually worked on either platform.
+  - **iOS:** step results were stored under flat, unprefixed keys, but substitution looked up the whole `"taskId.key"` string as one key — the two never matched, so placeholders always stayed literal text. A parallel step's tasks also overwrote each other's stored result (only the last task to finish survived). Separately, `AnyCodable`'s `Codable` conformance had no `Int32`/`Int64`/`Float`/`UInt64` cases, so any worker result containing one of those types (e.g. `ImageProcessWorker`'s `originalSize`/`processedSize`) silently failed to persist — the next step's substitution data came back empty with no error surfaced.
+  - **Android:** had no substitution mechanism at all. Chains were built by enqueuing every step's `WorkRequest` upfront via WorkManager's native `.then()` chaining, which freezes each step's config before any earlier step has even run — there was no point in time a later step could see a real predecessor output. Fixed by moving to a dynamic per-step enqueue (`ChainHelper.buildAndEnqueueStep`) driven by `WorkInfo` completion, with output captured via a new `ChainResultCapturingWorker` decorator and resumed idempotently via `enqueueUniqueWork(..., KEEP)`.
+  - Both platforms now namespace each task's result under `"<taskId>.<key>"`, merge (not overwrite) across parallel tasks, and resolve a whole-match placeholder (the entire config value is one `{{...}}`) to the original typed value rather than a stringified one, so substitution can target numeric/bool config fields, not just strings.
+- **Android: Foreground-service permissions no longer bundled unconditionally.** `android/src/main/AndroidManifest.xml` used to declare `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_DATA_SYNC` and a hardcoded `SystemForegroundService` type override, merging them into every consumer app's APK regardless of whether it used `isHeavyTask`/`ForegroundNativeWorker` — Google Play flags apps carrying foreground-service permissions they never exercise. These permissions are now consumer-app opt-in; see `doc/ANDROID_SETUP.md`'s "Android 14+ Foreground Services" section if you use `isHeavyTask: true`. Enforced going forward by a new `ManifestGuardTest`.
+
+### Changed
+
+- **kmpworkmanager core bumped 3.1.0 → 3.2.0**, bringing the Android FGS-permission fix above (same root cause, fixed independently in this plugin's own manifest too — kmpworkmanager's manifest and this plugin's manifest are separate merge sources) plus two iOS-only changes bundled in the same upstream release: `FileCompressionWorker` on iOS now produces a real PKZIP archive via `platform.zlib` (previously an uncompressed-copy stub gated behind `allowIosUncompressedFallback`), and a new `IosLiveActivityBridge` API for relaying worker progress to Live Activities/Dynamic Island (not yet wired into this plugin's public Dart API). Bundled `KMPWorkManager.xcframework` rebuilt from kmpworkmanager v3.2.0 source and re-verified through the full 4-layer SwiftPM check.
+
+---
+
 ## [1.4.4] - 2026-07-26
 
 ### Fixed

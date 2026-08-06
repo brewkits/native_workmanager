@@ -38,6 +38,9 @@ internal class ChainStore(context: Context) {
         val taskId: String,
         val status: String,          // pending | running | completed | failed
         val resultJson: String?,     // output from this step (passed to next step as input)
+        val taskDataJson: String?,   // raw {id, workerClassName, workerConfig, constraints} —
+                                      // unsanitized, used to dynamically build this step's
+                                      // WorkRequest once the previous step completes (issue_57)
         val updatedAt: Long,
     )
 
@@ -70,13 +73,20 @@ internal class ChainStore(context: Context) {
         db.update("chains", updateCv, "chain_id = ?", arrayOf(chainId))
     }
 
-    fun addChainStep(chainId: String, stepIndex: Int, taskId: String, status: String = "pending") {
+    fun addChainStep(
+        chainId: String,
+        stepIndex: Int,
+        taskId: String,
+        status: String = "pending",
+        taskDataJson: String? = null,
+    ) {
         val now = System.currentTimeMillis()
         val cv = ContentValues().apply {
             put("chain_id", chainId)
             put("step_index", stepIndex)
             put("task_id", taskId)
             put("status", status)
+            if (taskDataJson != null) put("task_data_json", taskDataJson)
             put("updated_at", now)
         }
         dbHelper.writableDatabase.insertWithOnConflict("chain_steps", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
@@ -141,15 +151,6 @@ internal class ChainStore(context: Context) {
                 list
             }
 
-    /** Returns the result JSON from the last completed step before [stepIndex]. */
-    fun getPreviousStepResult(chainId: String, beforeStepIndex: Int): String? =
-        dbHelper.readableDatabase.rawQuery(
-            """SELECT result_json FROM chain_steps
-               WHERE chain_id = ? AND step_index < ? AND status = 'completed'
-               ORDER BY step_index DESC LIMIT 1""",
-            arrayOf(chainId, beforeStepIndex.toString())
-        ).use { c -> if (c.moveToFirst()) c.getString(0) else null }
-
     /** Auto-prune completed/failed chains older than [olderThanMs] milliseconds. */
     fun deleteOldChains(olderThanMs: Long) {
         val threshold = System.currentTimeMillis() - olderThanMs
@@ -180,11 +181,12 @@ internal class ChainStore(context: Context) {
     )
 
     private fun android.database.Cursor.toStepRecord() = ChainStepRecord(
-        chainId    = getString(getColumnIndexOrThrow("chain_id")),
-        stepIndex  = getInt(getColumnIndexOrThrow("step_index")),
-        taskId     = getString(getColumnIndexOrThrow("task_id")),
-        status     = getString(getColumnIndexOrThrow("status")),
-        resultJson = getString(getColumnIndexOrThrow("result_json")),
-        updatedAt  = getLong(getColumnIndexOrThrow("updated_at")),
+        chainId      = getString(getColumnIndexOrThrow("chain_id")),
+        stepIndex    = getInt(getColumnIndexOrThrow("step_index")),
+        taskId       = getString(getColumnIndexOrThrow("task_id")),
+        status       = getString(getColumnIndexOrThrow("status")),
+        resultJson   = getString(getColumnIndexOrThrow("result_json")),
+        taskDataJson = getString(getColumnIndexOrThrow("task_data_json")),
+        updatedAt    = getLong(getColumnIndexOrThrow("updated_at")),
     )
 }
