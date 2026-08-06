@@ -198,13 +198,17 @@ internal fun NativeWorkmanagerPlugin.observeChainStepCompletion(taskId: String, 
                         WorkInfo.State.SUCCEEDED -> {
                             taskStatuses[taskId] = "completed"
                             NativeLogger.d("✅ Chain step SUCCEEDED: $taskId")
-                            // Persist step result and update ChainStore
-                            val outputJson = workInfo.outputData.keyValueMap
-                                .takeIf { it.isNotEmpty() }
-                                ?.let { toJson(it) }
                             if (chainId != null) {
                                 withContext(Dispatchers.IO) {
-                                    chainStore.updateStepStatus(chainId, taskId, "completed", outputJson)
+                                    // issue_57: WorkInfo.outputData is always empty here —
+                                    // BaseKmpWorker hands back a bare Result.success(). Real
+                                    // output data (if any) was already written by
+                                    // ChainResultCapturingWorker synchronously inside doWork(),
+                                    // before this WorkInfo transition could even be observed.
+                                    // Passing null is intentionally a no-op on that column —
+                                    // updateStepStatus only touches result_json when non-null.
+                                    chainStore.updateStepStatus(chainId, taskId, "completed")
+                                    advanceChainIfStepComplete(chainId, taskId)
                                 }
                             }
                             eventSink?.success(mapOf(
@@ -244,6 +248,71 @@ internal fun NativeWorkmanagerPlugin.observeChainStepCompletion(taskId: String, 
             NativeLogger.e("Error observing chain step $taskId", e)
         }
     }
+}
+
+/**
+ * After a chain step's task reaches SUCCEEDED, check whether every task in that step has
+ * now completed; if so, enqueue the next step — substituting `{{taskId.outputKey}}`
+ * placeholders against the merged, namespaced ("<taskId>.<key>") output of the step that
+ * just finished — or mark the whole chain "completed" if it was the last step. issue_57.
+ *
+ * A no-op if the chain isn't in "running" state (e.g. cancelled) or if sibling parallel
+ * tasks in the same step haven't finished yet — this function re-fires once per completed
+ * task, so the "advance" branch only actually runs once, on whichever task finishes last.
+ */
+internal suspend fun NativeWorkmanagerPlugin.advanceChainIfStepComplete(chainId: String, completedTaskId: String) {
+    val chain = chainStore.getChain(chainId) ?: return
+    if (chain.status != "running") return
+
+    val steps = chainStore.getStepsForChain(chainId)
+    val completedStep = steps.find { it.taskId == completedTaskId } ?: return
+    val stepIndex = completedStep.stepIndex
+    val stepTasks = steps.filter { it.stepIndex == stepIndex }
+
+    if (stepTasks.any { it.status == "failed" }) return // FAILED branch already marks the chain
+    if (stepTasks.any { it.status != "completed" }) return // still waiting on sibling parallel tasks
+
+    val nextStepIndex = stepIndex + 1
+    if (nextStepIndex >= chain.totalSteps) {
+        chainStore.updateChainStatus(chainId, "completed", currentStep = nextStepIndex)
+        NativeLogger.d("✅ Chain completed: $chainId")
+        return
+    }
+
+    chainStore.updateChainStatus(chainId, "running", currentStep = nextStepIndex)
+    val enqueued = dev.brewkits.native_workmanager.utils.ChainHelper.buildAndEnqueueStep(
+        context = context,
+        chainStore = chainStore,
+        chainId = chainId,
+        stepIndex = nextStepIndex,
+        substitutionData = substitutionDataFromStep(chainId, stepIndex),
+        onObserveTaskId = { taskId -> taskStatuses[taskId] = "pending" },
+    )
+    enqueued.forEach { taskId -> observeChainStepCompletion(taskId, chainId) }
+}
+
+/**
+ * Merge one completed step's per-task `result_json` into a single map, namespaced
+ * `"<taskId>.<key>"` — the same key space iOS's `mergeStepResult` produces, so a chain
+ * built once behaves identically on both platforms. This is the substitution data available
+ * to the step that follows [stepIndex]. Returns an empty map if [stepIndex] is out of range
+ * (e.g. step 0 has no predecessor) or has no persisted results.
+ */
+internal fun NativeWorkmanagerPlugin.substitutionDataFromStep(chainId: String, stepIndex: Int): Map<String, Any?> {
+    if (stepIndex < 0) return emptyMap()
+    val stepTasks = chainStore.getStepsForChain(chainId).filter { it.stepIndex == stepIndex }
+    val merged = mutableMapOf<String, Any?>()
+    for (task in stepTasks) {
+        val json = task.resultJson ?: continue
+        val map = try {
+            dev.brewkits.native_workmanager.utils.CommandProcessor.jsonToMap(org.json.JSONObject(json))
+        } catch (e: Exception) {
+            NativeLogger.e("substitutionDataFromStep: failed to parse result_json for '${task.taskId}'", e)
+            null
+        }
+        map?.forEach { (key, value) -> merged["${task.taskId}.$key"] = value }
+    }
+    return merged
 }
 
 /**

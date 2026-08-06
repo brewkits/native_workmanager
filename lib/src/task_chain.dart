@@ -54,7 +54,16 @@ import 'worker.dart';
 /// ## Data Flow between Tasks
 ///
 /// Tasks in a chain can pass data to subsequent tasks using placeholders in their
-/// configuration paths. Use the format `{{task_id.output_key}}`.
+/// configuration. Use the format `{{task_id.output_key}}`, where `output_key` is a
+/// key from the *result* data the previous task's worker reported — not one of its
+/// input config keys. `NativeWorker.httpDownload`, for example, is configured with
+/// `savePath` but reports its result under `filePath`; check each worker's doc
+/// comment for the exact output keys it emits.
+///
+/// A placeholder that is the *entire* config value (e.g. `zipPath: '{{downloader.filePath}}'`)
+/// resolves to the original typed value (String, int, double, bool) from the previous
+/// step's output — not a stringified copy. A placeholder embedded inside a larger
+/// string (e.g. `'/tmp/{{downloader.filePath}}.bak'`) is interpolated as a string.
 ///
 /// ```dart
 /// await NativeWorkManager.beginWith(
@@ -66,7 +75,7 @@ import 'worker.dart';
 /// .then(TaskRequest(
 ///   id: 'processor',
 ///   worker: NativeWorker.fileDecompress(
-///     zipPath: '{{downloader.savePath}}', // Use output from previous task
+///     zipPath: '{{downloader.filePath}}', // Use output from previous task
 ///     targetDir: '/data/',
 ///   ),
 /// ))

@@ -125,6 +125,24 @@ Uint8List get _minimalPng => Uint8List.fromList([
   0x44, 0xAE, 0x42, 0x60, 0x82, // IEND CRC
 ]);
 
+/// Sends an arbitrary raw config map to a native worker, bypassing the typed
+/// Dart constructors (e.g. `ImageProcessWorker`'s `int? maxWidth`). Used to
+/// exercise native-bridge behavior — like chain placeholder substitution
+/// into a numeric field — that no typed public API currently exposes a way
+/// to trigger (see issue_57 test group).
+class _RawConfigWorker extends Worker {
+  const _RawConfigWorker(this._className, this._config);
+
+  final String _className;
+  final Map<String, dynamic> _config;
+
+  @override
+  String get workerClassName => _className;
+
+  @override
+  Map<String, dynamic> toMap() => _config;
+}
+
 // ──────────────────────────────────────────────────────────────
 // Top-level DartWorker callbacks (must NOT be anonymous/closures)
 // PluginUtilities.getCallbackHandle() requires top-level or static functions.
@@ -3031,6 +3049,212 @@ void main() {
                 'success (WorkInfo fallback never called taskStore.updateStatus)',
           );
         }
+      },
+    );
+  });
+
+  // ════════════════════════════════════════════════════════════
+  // GROUP – Issue #57: chain step data flow ({{taskId.outputKey}} placeholders)
+  //
+  // task_chain.dart documents `{{task_id.output_key}}` for passing one step's
+  // output into the next step's config. It never actually worked on either
+  // platform: step results were stored under flat, unprefixed keys
+  // (e.g. "savePath"), but substitution looked up the *whole* placeholder
+  // string as one key (e.g. "downloader.savePath") — the two never matched,
+  // so the literal "{{...}}" text always reached the next worker untouched.
+  // A parallel step's tasks also overwrote each other's stored result, so
+  // only the last-to-finish task's data ever survived even by accident.
+  // Android had no substitution mechanism at all — chains there are built by
+  // enqueuing every step's WorkRequest upfront via WorkManager's native
+  // .then() chaining, which freezes each step's config before any earlier
+  // step has run.
+  //
+  // Fixed by namespacing step results "<taskId>.<key>" (iOS: merged in
+  // NativeWorkmanagerPlugin+Execution.swift; Android: per-task rows in
+  // ChainStore, merged at read time) and, on Android, moving to a dynamic
+  // per-step enqueue driven by ChainResultCapturingWorker + WorkInfo
+  // completion (NativeWorkmanagerPlugin+EventChannel.kt).
+  // ════════════════════════════════════════════════════════════
+  group('Issue #57 – chain placeholder data flow', () {
+    testWidgets(
+      'issue_57: {{taskId.key}} resolves into the next step\'s config (partial match)',
+      (tester) async {
+        final step1Id = _id('issue57_mkdir1');
+        final step2Id = _id('issue57_mkdir2');
+        final baseDir = '${tmpDir.path}/issue57_${step1Id}_base';
+        final expectedNestedDir = '$baseDir/nested';
+
+        final step2Future = _waitEvent(
+          step2Id,
+          timeout: const Duration(seconds: 45),
+        );
+
+        await NativeWorkManager.beginWith(
+              TaskRequest(
+                id: step1Id,
+                worker: NativeWorker.fileMkdir(path: baseDir),
+              ),
+            )
+            .then(
+              TaskRequest(
+                id: step2Id,
+                // Partial match: the placeholder is embedded in a larger
+                // string, so this exercises string interpolation, not the
+                // whole-match typed-value path.
+                worker: NativeWorker.fileMkdir(
+                  path: '{{$step1Id.path}}/nested',
+                ),
+              ),
+            )
+            .enqueue();
+
+        final step2Event = await step2Future;
+        expect(
+          step2Event?.success,
+          isTrue,
+          reason: 'issue_57: step 2 mkdir must succeed',
+        );
+        expect(
+          Directory(expectedNestedDir).existsSync(),
+          isTrue,
+          reason:
+              'issue_57: {{$step1Id.path}} must resolve to the real step-1 '
+              'output path — if the placeholder stayed literal, mkdir would '
+              'have created a differently-named (or failed) directory '
+              'instead of $expectedNestedDir',
+        );
+      },
+    );
+
+    testWidgets(
+      'issue_57: parallel step tasks do not overwrite each other\'s data',
+      (tester) async {
+        final taskAId = _id('issue57_par_a');
+        final taskBId = _id('issue57_par_b');
+        final step2AId = _id('issue57_par_step2a');
+        final step2BId = _id('issue57_par_step2b');
+        final dirA = '${tmpDir.path}/issue57_${taskAId}_a';
+        final dirB = '${tmpDir.path}/issue57_${taskBId}_b';
+
+        final step2AFuture = _waitEvent(
+          step2AId,
+          timeout: const Duration(seconds: 45),
+        );
+        final step2BFuture = _waitEvent(
+          step2BId,
+          timeout: const Duration(seconds: 45),
+        );
+
+        await NativeWorkManager.beginWithAll([
+              TaskRequest(
+                id: taskAId,
+                worker: NativeWorker.fileMkdir(path: dirA),
+              ),
+              TaskRequest(
+                id: taskBId,
+                worker: NativeWorker.fileMkdir(path: dirB),
+              ),
+            ])
+            .thenAll([
+              TaskRequest(
+                id: step2AId,
+                worker: NativeWorker.fileMkdir(
+                  path: '{{$taskAId.path}}/nested',
+                ),
+              ),
+              TaskRequest(
+                id: step2BId,
+                worker: NativeWorker.fileMkdir(
+                  path: '{{$taskBId.path}}/nested',
+                ),
+              ),
+            ])
+            .enqueue();
+
+        final results = await Future.wait([step2AFuture, step2BFuture]);
+        expect(
+          results.every((e) => e?.success == true),
+          isTrue,
+          reason: 'issue_57: both parallel step-2 tasks must succeed',
+        );
+        expect(
+          Directory('$dirA/nested').existsSync(),
+          isTrue,
+          reason:
+              "issue_57: task A's result must survive task B finishing "
+              'alongside it in the same step (previously the last task to '
+              'complete silently overwrote the others\' stored data)',
+        );
+        expect(
+          Directory('$dirB/nested').existsSync(),
+          isTrue,
+          reason: "issue_57: task B's result must independently survive too",
+        );
+      },
+    );
+
+    testWidgets(
+      'issue_57: a whole-match placeholder resolves to a typed value, not a string',
+      (tester) async {
+        final step1Id = _id('issue57_dim_probe');
+        final step2Id = _id('issue57_dim_crop');
+        final inputPath = '${tmpDir.path}/issue57_${step1Id}_input.png';
+        final midPath = '${tmpDir.path}/issue57_${step1Id}_mid.png';
+        final outputPath = '${tmpDir.path}/issue57_${step1Id}_out.png';
+        File(inputPath).writeAsBytesSync(_minimalPng);
+
+        final step2Future = _waitEvent(
+          step2Id,
+          timeout: const Duration(seconds: 45),
+        );
+
+        await NativeWorkManager.beginWith(
+              TaskRequest(
+                id: step1Id,
+                worker: ImageProcessWorker(
+                  inputPath: inputPath,
+                  outputPath: midPath,
+                  maxWidth: 100,
+                  maxHeight: 100,
+                ),
+              ),
+            )
+            .then(
+              TaskRequest(
+                id: step2Id,
+                // ImageProcessWorker.maxWidth/maxHeight are typed `int?` in
+                // the public Dart API, so there is no supported way to pass
+                // a placeholder through the typed constructor (that gap is
+                // tracked separately, see discussion #56's cropAspectRatio
+                // suggestion). _RawConfigWorker bypasses the typed API to
+                // exercise the native substitution mechanism itself: the
+                // whole-match path must hand the native decoder a real Int
+                // (originalWidth/Height from step 1, both 1 for a 1x1 PNG),
+                // not the stringified "1" the old code always produced. A
+                // typed field getting a JSON string instead of a number is
+                // exactly the failure mode this proves absence of — Swift's
+                // Codable rejects the type mismatch outright.
+                worker: _RawConfigWorker('ImageProcessWorker', {
+                  'inputPath': midPath,
+                  'outputPath': outputPath,
+                  'maxWidth': '{{$step1Id.originalWidth}}',
+                  'maxHeight': '{{$step1Id.originalHeight}}',
+                }),
+              ),
+            )
+            .enqueue();
+
+        final step2Event = await step2Future;
+        expect(
+          step2Event?.success,
+          isTrue,
+          reason:
+              'issue_57: step 2 must decode maxWidth/maxHeight as real '
+              'numbers substituted from step 1\'s output — a stringified '
+              'placeholder value would fail native config decoding '
+              '(message: ${step2Event?.message})',
+        );
+        expect(File(outputPath).existsSync(), isTrue);
       },
     );
   });

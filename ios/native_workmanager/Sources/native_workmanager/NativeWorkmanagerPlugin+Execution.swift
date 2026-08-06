@@ -71,7 +71,10 @@ extension NativeWorkmanagerPlugin {
 
             // Execute tasks in the step
             var stepSucceeded = false
-            var stepResultData: [String: Any]? = nil
+            // issue_57: namespaced "<taskId>.<key>" and merged across parallel tasks — see
+            // mergeStepResult() for why (flat unprefixed keys never matched the documented
+            // {{taskId.outputKey}} syntax, and parallel tasks used to overwrite each other).
+            var stepResultData: [String: Any] = [:]
 
             // iOS 15 (Swift 5.5) compat: DartCallbackWorker tasks must run
             // sequentially (see executeChain for rationale).
@@ -97,12 +100,12 @@ extension NativeWorkmanagerPlugin {
                     if !taskResult.success {
                         allSucceeded = false
                     } else if let data = taskResult.data {
-                        stepResultData = data
+                        mergeStepResult(&stepResultData, taskId: taskId, data: data)
                     }
                 }
                 stepSucceeded = allSucceeded
             } else {
-                await withTaskGroup(of: WorkerResult.self) { group in
+                await withTaskGroup(of: (String, WorkerResult).self) { group in
                     for task in stepTasks {
                         let taskId = task.taskId
                         let workerClassName = task.workerClassName
@@ -111,20 +114,21 @@ extension NativeWorkmanagerPlugin {
                             workerConfig = substitutePlaceholders(config: workerConfig, data: previousData)
                         }
                         group.addTask {
-                            await self.executeWorkerSync(
+                            let result = await self.executeWorkerSync(
                                 taskId: taskId,
                                 workerClassName: workerClassName,
                                 workerConfig: workerConfig,
                                 qos: "background"
                             )
+                            return (taskId, result)
                         }
                     }
                     var allSucceeded = true
-                    for await taskResult in group {
+                    for await (taskId, taskResult) in group {
                         if !taskResult.success {
                             allSucceeded = false
                         } else if let data = taskResult.data {
-                            stepResultData = data
+                            mergeStepResult(&stepResultData, taskId: taskId, data: data)
                         }
                     }
                     stepSucceeded = allSucceeded
@@ -143,7 +147,7 @@ extension NativeWorkmanagerPlugin {
                 try await chainStateManager.saveStepResult(
                     chainId: chainId,
                     stepIndex: stepIndex,
-                    resultData: stepResultData
+                    resultData: stepResultData.isEmpty ? nil : stepResultData
                 )
                 try await chainStateManager.advanceToNextStep(chainId: chainId)
             } catch {
@@ -224,9 +228,11 @@ extension NativeWorkmanagerPlugin {
                 chainId: chainId,
                 currentStepIndex: stepIndex
             )
-
             var stepSucceeded = false
-            var stepResultData: [String: Any]? = nil
+            // issue_57: namespaced "<taskId>.<key>" and merged across parallel tasks — see
+            // mergeStepResult() for why (flat unprefixed keys never matched the documented
+            // {{taskId.outputKey}} syntax, and parallel tasks used to overwrite each other).
+            var stepResultData: [String: Any] = [:]
 
             // iOS 15 (Swift 5.5) compat: DartCallbackWorker tasks must run
             // sequentially because two concurrent withCheckedContinuation +
@@ -257,13 +263,13 @@ extension NativeWorkmanagerPlugin {
                     if !taskResult.success {
                         allSucceeded = false
                     } else if let data = taskResult.data {
-                        stepResultData = data
+                        mergeStepResult(&stepResultData, taskId: taskId, data: data)
                     }
                 }
                 stepSucceeded = allSucceeded
             } else {
                 // Parallel path: native workers can run concurrently.
-                await withTaskGroup(of: WorkerResult.self) { group in
+                await withTaskGroup(of: (String, WorkerResult).self) { group in
                     for taskData in stepTasks {
                         guard let taskId = taskData["id"] as? String,
                               let workerClassName = taskData["workerClassName"] as? String,
@@ -272,20 +278,21 @@ extension NativeWorkmanagerPlugin {
                         }
                         let workerConfig = substitutePlaceholders(config: originalConfig, data: previousStepData ?? [:])
                         group.addTask {
-                            await self.executeWorkerSync(
+                            let result = await self.executeWorkerSync(
                                 taskId: taskId,
                                 workerClassName: workerClassName,
                                 workerConfig: workerConfig,
                                 qos: qos
                             )
+                            return (taskId, result)
                         }
                     }
                     var allSucceeded = true
-                    for await taskResult in group {
+                    for await (taskId, taskResult) in group {
                         if !taskResult.success {
                             allSucceeded = false
                         } else if let data = taskResult.data {
-                            stepResultData = data
+                            mergeStepResult(&stepResultData, taskId: taskId, data: data)
                         }
                     }
                     stepSucceeded = allSucceeded
@@ -303,7 +310,7 @@ extension NativeWorkmanagerPlugin {
             }
 
             // Save progress
-            try? await chainStateManager.saveStepResult(chainId: chainId, stepIndex: stepIndex, resultData: stepResultData)
+            try? await chainStateManager.saveStepResult(chainId: chainId, stepIndex: stepIndex, resultData: stepResultData.isEmpty ? nil : stepResultData)
             try? await chainStateManager.advanceToNextStep(chainId: chainId)
         }
 
@@ -318,34 +325,66 @@ extension NativeWorkmanagerPlugin {
 
     // MARK: - Security Helpers
 
+    /// Merge a completed task's output data into a step's accumulated result set,
+    /// namespacing keys as "<taskId>.<key>". issue_57: results used to be stored flat
+    /// (unprefixed) which never matched the documented {{taskId.outputKey}} placeholder
+    /// syntax, and a parallel step's tasks overwrote each other's data (only the
+    /// last-to-finish task's data survived). Namespacing fixes both at once.
+    private func mergeStepResult(_ accumulated: inout [String: Any], taskId: String, data: [String: Any]) {
+        for (key, value) in data {
+            accumulated["\(taskId).\(key)"] = value
+        }
+    }
+
     /// Replace placeholders like {{taskId.key}} with values from previous chain steps.
     private func substitutePlaceholders(config: [String: Any], data: [String: Any]) -> [String: Any] {
         var result = config
-        
+
         for (key, value) in config {
             if let strValue = value as? String {
-                result[key] = performSubstitution(in: strValue, with: data)
+                result[key] = resolveConfigValue(strValue, with: data)
             } else if let dictValue = value as? [String: Any] {
                 result[key] = substitutePlaceholders(config: dictValue, data: data)
             } else if let arrayValue = value as? [[String: Any]] {
                 result[key] = arrayValue.map { substitutePlaceholders(config: $0, data: data) }
             }
         }
-        
+
         return result
+    }
+
+    /// Resolve a single config string value against previous-step data.
+    ///
+    /// issue_57: a config value that is *entirely* one placeholder (e.g. `"{{probe.width}}"`,
+    /// optionally padded with whitespace) returns the original typed value from `data` — Int,
+    /// Double, Bool, etc. — instead of always stringifying it. That lets chain substitution
+    /// target numeric/bool config fields (e.g. `cropRect.x`), not just String ones. A
+    /// placeholder embedded in a larger string (e.g. `"/tmp/{{downloader.id}}.zip"`) still
+    /// goes through the old string-interpolation path, since there's no single typed value
+    /// to return for a partial match.
+    private func resolveConfigValue(_ text: String, with data: [String: Any]) -> Any {
+        if let wholeMatchRegex = try? NSRegularExpression(pattern: "^\\s*\\{\\{([^\\}]+)\\}\\}\\s*$"),
+           let match = wholeMatchRegex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+           let keyRange = Range(match.range(at: 1), in: text) {
+            let placeholderKey = String(text[keyRange]).trimmingCharacters(in: .whitespaces)
+            // Unresolved key: leave the literal placeholder untouched rather than
+            // failing the step — the same behavior as the partial-match string path below.
+            return data[placeholderKey] ?? text
+        }
+        return performSubstitution(in: text, with: data)
     }
 
     private func performSubstitution(in text: String, with data: [String: Any]) -> String {
         var substituted = text
         let pattern = "\\{\\{([^\\}]+)\\}\\}"
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
-        
+
         let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
-        
+
         for match in matches.reversed() {
             guard let keyRange = Range(match.range(at: 1), in: text) else { continue }
             let placeholderKey = String(text[keyRange]).trimmingCharacters(in: .whitespaces)
-            
+
             if let replacementValue = data[placeholderKey] {
                 let stringReplacement = "\(replacementValue)"
                 if let fullRange = Range(match.range, in: substituted) {
@@ -353,7 +392,7 @@ extension NativeWorkmanagerPlugin {
                 }
             }
         }
-        
+
         return substituted
     }
 

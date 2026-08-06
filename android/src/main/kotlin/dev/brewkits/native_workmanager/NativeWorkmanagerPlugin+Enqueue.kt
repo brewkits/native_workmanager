@@ -491,9 +491,12 @@ internal fun NativeWorkmanagerPlugin.handleCancel(call: MethodCall, result: Resu
                 return@launch
             }
 
-            // Use cancelAllWorkByTag instead of cancelUniqueWork so that both standalone
-            // tasks (unique work) AND chain steps (non-unique work tagged with taskId) are
-            // correctly cancelled. All tasks are tagged with their taskId via addTag(taskId).
+            // Use cancelAllWorkByTag instead of cancelUniqueWork(taskId) so this one call
+            // works regardless of how the work was enqueued. issue_57: chain steps are now
+            // enqueued via enqueueUniqueWork(taskId, ...) too (previously non-unique), but
+            // cancelUniqueWork requires knowing the exact unique-work name ahead of time —
+            // cancelAllWorkByTag doesn't, since every task is tagged with its taskId via
+            // addTag(taskId) regardless of enqueue method.
             withContext(Dispatchers.IO) {
                 WorkManager.getInstance(context).cancelAllWorkByTag(taskId).await()
                 taskStore.updateStatus(taskId = taskId, status = "cancelled")
