@@ -46,7 +46,7 @@ No boilerplate. No native code to write. No `AndroidManifest.xml` changes. Each 
 
 ```yaml
 dependencies:
-  native_workmanager: ^1.4.3
+  native_workmanager: ^1.4.5
 ```
 
 **2. Initialize once in `main()`:**

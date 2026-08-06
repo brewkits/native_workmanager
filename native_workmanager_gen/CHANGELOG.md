@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.4.5] - 2026-08-06
+
+- Version bump synchronized with `native_workmanager` 1.4.5. No codegen changes — the
+  1.4.5 fixes (issue #57 chain placeholder data flow, Android FGS-permission opt-in,
+  kmpworkmanager 3.1.0 → 3.2.0) are entirely in the main package's Dart/Kotlin/Swift
+  sources and manifests.
+- Widened `analyzer` constraint from `>=10.0.0 <14.0.0` to `>=10.0.0 <15.0.0` — the
+  upper bound was stale (blocked the now-current 14.x line for no documented reason;
+  the `TopLevelFunctionElement` API this generator relies on is unaffected). Verified
+  against analyzer 14.1.0: all 15 generator tests pass, `pana` scores 160/160.
+
+---
+
 ## [1.4.4] - 2026-07-26
 
 - Version bump synchronized with `native_workmanager` 1.4.4 (Fix DevTools extension packaging #55).

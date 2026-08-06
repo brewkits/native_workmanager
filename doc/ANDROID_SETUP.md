@@ -51,16 +51,48 @@ android {
 
 ---
 
-### 2. Android 14+ (API 34) Compatibility
+### 2. Android 14+ (API 34) Compatibility — Foreground Services
 
-Starting with Android 14 (API 34), all Foreground Services must declare a `foregroundServiceType`. 
+Starting with Android 14 (API 34), all Foreground Services must declare a `foregroundServiceType`.
 
-**`native_workmanager` handles this for you.** The plugin manifest already declares all common service types (dataSync, location, media, etc.) to support diverse use cases.
+**As of v1.4.5, `native_workmanager` does NOT declare `FOREGROUND_SERVICE` /
+`FOREGROUND_SERVICE_DATA_SYNC` or the `SystemForegroundService` type override in its own
+manifest anymore.** Earlier versions did this unconditionally, which merged those
+permissions into every consumer app regardless of whether it used foreground services —
+Google Play flags apps that carry foreground-service permissions they never actually use,
+so plain `httpDownload`/`fileMkdir`/etc.-only apps were getting rejected for something they
+didn't need.
 
-When scheduling a task that requires FGS bypass, simply specify the appropriate `foregroundServiceType` in your `Constraints`:
+**If your app uses `isHeavyTask: true` (or `KmpHeavyWorker`/`ForegroundNativeWorker`
+directly)**, add these to your OWN `android/app/src/main/AndroidManifest.xml`:
+
+```xml
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <application>
+        <!-- Override WorkManager's SystemForegroundService to declare the type(s)
+             your app actually uses. "dataSync" covers most background-sync use cases;
+             see doc/API_REFERENCE.md's ForegroundServiceType enum for the full list
+             (location, mediaPlayback, camera, microphone, health, etc.) — each
+             non-dataSync type needs its own matching permission too, e.g.
+             android.permission.FOREGROUND_SERVICE_LOCATION for `location`. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+    </application>
+</manifest>
+```
+
+Then specify the matching `foregroundServiceType` in your `Constraints`:
 
 ```dart
 constraints: Constraints(
+  isHeavyTask: true,
   foregroundServiceType: ForegroundServiceType.location,
   foregroundNotificationConfig: ForegroundNotificationConfig(
     title: "Tracking Location",
@@ -69,7 +101,13 @@ constraints: Constraints(
 )
 ```
 
-No manual `AndroidManifest.xml` changes are required for standard usage. If you need a custom type not included in the plugin, you can still override the declaration using `tools:node="replace"`.
+**If you never use `isHeavyTask`**, you need none of the above — the plugin works
+entirely without foreground-service permissions for standard `enqueue`/`beginWith` tasks.
+
+Without the manifest entries, `setForeground()` throws `SecurityException` on Android
+14+ — the plugin catches and logs this internally rather than crashing, so the task
+still runs, just as regular (non-prioritized) background work instead of a foreground
+service. See `example/android/app/src/main/AndroidManifest.xml` for a working reference.
 
 ---
 
@@ -81,7 +119,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  native_workmanager: ^1.4.3
+  native_workmanager: ^1.4.5
 ```
 
 Run:

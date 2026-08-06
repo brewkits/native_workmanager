@@ -819,6 +819,26 @@ void main() {
         isTrue,
         reason: 'Zip file must exist after compression',
       );
+
+      // kmpworkmanager v3.2.0: iOS FileCompressionWorker used to be an
+      // uncompressed-copy stub (gated behind allowIosUncompressedFallback,
+      // and NOT a real ZIP at all) — it now writes a real PKZIP archive via
+      // platform.zlib. Verify the output actually starts with the PKZIP
+      // local-file-header magic bytes (0x50 0x4B 0x03 0x04 = "PK\x03\x04"),
+      // not just "some file exists" — a stub copy would also pass that.
+      final outputBytes = File(outputPath).readAsBytesSync();
+      expect(
+        outputBytes.length >= 4 &&
+            outputBytes[0] == 0x50 &&
+            outputBytes[1] == 0x4B &&
+            outputBytes[2] == 0x03 &&
+            outputBytes[3] == 0x04,
+        isTrue,
+        reason:
+            'Output must be a real PKZIP archive (magic bytes 50 4B 03 04), '
+            'not an uncompressed file copy — got '
+            '${outputBytes.take(4).map((b) => b.toRadixString(16)).join(" ")}',
+      );
     });
 
     testWidgets('FileDecompressionWorker – extracts zip correctly', (
@@ -3146,30 +3166,24 @@ void main() {
         );
 
         await NativeWorkManager.beginWithAll([
-              TaskRequest(
-                id: taskAId,
-                worker: NativeWorker.fileMkdir(path: dirA),
-              ),
-              TaskRequest(
-                id: taskBId,
-                worker: NativeWorker.fileMkdir(path: dirB),
-              ),
-            ])
-            .thenAll([
-              TaskRequest(
-                id: step2AId,
-                worker: NativeWorker.fileMkdir(
-                  path: '{{$taskAId.path}}/nested',
-                ),
-              ),
-              TaskRequest(
-                id: step2BId,
-                worker: NativeWorker.fileMkdir(
-                  path: '{{$taskBId.path}}/nested',
-                ),
-              ),
-            ])
-            .enqueue();
+          TaskRequest(
+            id: taskAId,
+            worker: NativeWorker.fileMkdir(path: dirA),
+          ),
+          TaskRequest(
+            id: taskBId,
+            worker: NativeWorker.fileMkdir(path: dirB),
+          ),
+        ]).thenAll([
+          TaskRequest(
+            id: step2AId,
+            worker: NativeWorker.fileMkdir(path: '{{$taskAId.path}}/nested'),
+          ),
+          TaskRequest(
+            id: step2BId,
+            worker: NativeWorker.fileMkdir(path: '{{$taskBId.path}}/nested'),
+          ),
+        ]).enqueue();
 
         final results = await Future.wait([step2AFuture, step2BFuture]);
         expect(

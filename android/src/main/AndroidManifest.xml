@@ -2,22 +2,34 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="dev.brewkits.native_workmanager">
 
-    <!-- Required for isHeavyTask=true (KmpHeavyWorker foreground service) -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <!-- Required on Android 14+ (API 34+) for typed foreground services -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- Required on Android 13+ (API 33+) to show notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <application>
-        <!-- Declare foreground service type for WorkManager's SystemForegroundService.
-             Required on Android 14+ (API 34+) when using isHeavyTask=true.
-             Includes all common types to support diverse user needs. -->
-        <service
-            android:name="androidx.work.impl.foreground.SystemForegroundService"
-            android:foregroundServiceType="dataSync|location|mediaPlayback|connectedDevice|mediaProjection|health|remoteMessaging|specialUse|systemExempted"
-            tools:node="merge" />
+    <!--
+        The foreground-service permissions and the SystemForegroundService type override
+        that isHeavyTask=true (ForegroundNativeWorker / KmpHeavyWorker) needs are
+        intentionally NOT declared here.
 
+        Fixes a Play Store rejection for apps that never use isHeavyTask: declaring those
+        unconditionally in the plugin's own manifest merged them into every consumer app's
+        final APK regardless of whether that app ever calls ForegroundNativeWorker —
+        Google Play flags apps carrying foreground-service permissions they never
+        exercise. Mirrors the same fix kmpworkmanager v3.2.0 made to its own manifest for
+        the identical reason (upstream issue #64). Enforced by ManifestGuardTest so this
+        can't silently regress.
+
+        If your app DOES use isHeavyTask=true, add the required permissions and service
+        type override to YOUR OWN AndroidManifest.xml — see the "Android 14+ Foreground
+        Services" section of doc/ANDROID_SETUP.md for the exact snippet, or
+        example/android/app/src/main/AndroidManifest.xml for a working reference.
+
+        Without them, ForegroundNativeWorker's setForeground() call throws
+        SecurityException on Android 14+ (already caught and logged, not fatal — see
+        ForegroundNativeWorker.kt's doWork(), which falls back to running as regular
+        background work).
+    -->
+
+    <application>
         <!-- BroadcastReceiver for the Cancel button in download progress notifications. -->
         <receiver
             android:name="dev.brewkits.native_workmanager.notification.NotificationCancelReceiver"
