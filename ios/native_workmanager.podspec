@@ -4,7 +4,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'native_workmanager'
-  s.version          = '1.4.5'
+  s.version          = '1.5.0'
   s.summary          = 'Background task manager for Flutter using platform-native APIs.'
   s.description      = <<-DESC
 Native WorkManager is a Flutter plugin that provides native background task scheduling
@@ -41,22 +41,19 @@ Features:
   }
   s.swift_version = '5.0'
 
-  # KMP WorkManager Framework (kmpworkmanager v3.2.0)
+  # KMP WorkManager Framework (kmpworkmanager v3.3.1)
   # Downloaded from GitHub Releases to stay under the pub.dev 100 MB package limit.
-  # RELEASE STEP: attach the rebuilt 3.2.0 KMPWorkManager.xcframework.zip to the v1.4.5
-  # release (the framework changed 3.1.0 -> 3.2.0 — upstream fix for Play Store FGS
-  # permission rejection (#64) + iOS FileCompressionWorker real-ZIP rewrite via
-  # platform.zlib, replacing the previous uncompressed-copy stub — so the asset must be
-  # re-uploaded; earlier releases reused the v1.4.0 asset). The git-tracked copy under
-  # ios/Frameworks/ is already 3.2.0 for local/CI builds; this download only fires for
-  # pub.dev installs where .pubignore strips ios/Frameworks/.
+  # RELEASE STEP: attach the rebuilt 3.3.1 KMPWorkManager.xcframework.zip to the v1.5.0
+  # release. The git-tracked copy under ios/Frameworks/ is already 3.3.1 for local/CI
+  # builds; this download only fires for pub.dev installs where .pubignore strips
+  # ios/Frameworks/.
   s.prepare_command = <<-CMD
     set -e
     if [ ! -d "Frameworks/KMPWorkManager.xcframework" ]; then
-      echo "Downloading KMPWorkManager.xcframework v3.2.0..."
+      echo "Downloading KMPWorkManager.xcframework v3.3.1..."
       mkdir -p Frameworks
       curl -L --retry 3 -o /tmp/KMPWorkManager.xcframework.zip \
-        "https://github.com/brewkits/native_workmanager/releases/download/v1.4.5/KMPWorkManager.xcframework.zip"
+        "https://github.com/brewkits/native_workmanager/releases/download/v1.5.0/KMPWorkManager.xcframework.zip"
       rm -rf /tmp/kmpwm_extract
       unzip -o /tmp/KMPWorkManager.xcframework.zip -d /tmp/kmpwm_extract
       # Release zip may be flat or wrapped in a Frameworks/ dir - handle both.

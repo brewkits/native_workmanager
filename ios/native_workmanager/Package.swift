@@ -23,7 +23,7 @@ let package = Package(
         // No third-party dependencies. Uses Apple Archive for ZIP operations.
     ],
     targets: [
-        // KMPWorkManager (kmpworkmanager v3.2.0) as a REMOTE binary target.
+        // KMPWorkManager (kmpworkmanager v3.3.1) as a REMOTE binary target.
         //
         // Must be remote, not a local `path:`, for Swift Package Manager: on a
         // pub.dev install `.pubignore` strips `ios/Frameworks/`, and SPM has no
@@ -42,15 +42,12 @@ let package = Package(
         // release asset: it invalidates this checksum. Keep this URL and the
         // podspec's `prepare_command` URL pointing at the same asset.
         //
-        // RELEASE STEP (bumped 3.1.0 -> 3.2.0, upstream fix for Play Store FGS
-        // permission rejection + iOS FileCompressionWorker real-ZIP rewrite):
-        // attach the rebuilt KMPWorkManager.xcframework.zip to the v1.4.5 release —
-        // the framework changed, so a fresh asset must be uploaded (earlier releases
-        // reused the v1.4.0 asset since the framework was unchanged 1.4.0..1.4.4).
+        // RELEASE STEP (bumped to 3.3.1):
+        // attach the rebuilt KMPWorkManager.xcframework.zip to the v1.5.0 release.
         .binaryTarget(
             name: "KMPWorkManager",
-            url: "https://github.com/brewkits/native_workmanager/releases/download/v1.4.5/KMPWorkManager.xcframework.zip",
-            checksum: "17931c8d3bdc41823b8a54a2e3774ab9eeca527140f628e9bd5701aeb8f4a3c4"
+            url: "https://github.com/brewkits/native_workmanager/releases/download/v1.5.0/KMPWorkManager.xcframework.zip",
+            checksum: "d4cfa4f32d164d8b3bbd2aa080936c31008db5c7777f66f0bcd5ef7c5d6dc57d"
         ),
         // Issue #36: ObjC target that registers BGTask launch handlers in +load,
         // before the app finishes launching. Required because on the Flutter 3.38+

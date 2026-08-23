@@ -12,7 +12,11 @@ repositories {
 android {
     namespace = "dev.brewkits.native_workmanager"
 
-    compileSdk = 35
+    // Must be >= 36: kmpworkmanager 3.3.0 dropped koin-android and began declaring
+    // androidx.core directly, which resolves androidx.core:core-ktx to 1.17.0 — and
+    // that artifact's AAR metadata requires consumers to compile against API 36+.
+    // Staying on 35 fails :native_workmanager:checkDebugAarMetadata outright.
+    compileSdk = 36
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -49,10 +53,11 @@ android {
         // touched foreground services. This plugin declares the SAME two permissions in its own
         // android/src/main/AndroidManifest.xml (unconditionally, independently of kmpworkmanager) —
         // see that file's comments for the matching fix here. iOS sources are unaffected by 3.2.0's
-        // FGS fix; the FileCompressionWorker.ios.kt rewrite (real ZIP via platform.zlib, replacing
-        // the previous uncompressed-copy stub) and new IosLiveActivityBridge in the same release are
-        // unrelated additions the bundled KMPWorkManager.xcframework now also carries.
-        api("dev.brewkits:kmpworkmanager:3.2.0")
+        // FGS fix. Bumped again 3.2.0 -> 3.3.1 for v1.5.0: that span covers TWO upstream
+        // releases — 3.3.0 (BREAKING: Koin dropped; iOS execution history no longer silently
+        // dropped) and 3.3.1 (iOS single-task persistence, monotonic durations, KSP duplicate-
+        // worker-key build failure, iOS filename path-traversal fix). See CHANGELOG 1.5.0.
+        api("dev.brewkits:kmpworkmanager:3.3.1")
 
         // androidx.startup — auto-initializes the plugin before Application.onCreate()
         // so DartWorker works out-of-the-box without a custom Application class.
