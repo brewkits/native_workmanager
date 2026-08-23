@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.5.0] - 2026-08-23
+
+- Version bump synchronized with `native_workmanager` 1.5.0 (`taskId`-scoped progress filter for
+  iOS Live Activities, SwiftUI `@main` setup detection, kmpworkmanager 3.3.1 upgrade, Pub score
+  160/160 fix). No codegen changes.
+
+---
+
 ## [1.4.5] - 2026-08-06
 
 - Version bump synchronized with `native_workmanager` 1.4.5. No codegen changes — the

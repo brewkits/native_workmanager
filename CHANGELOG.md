@@ -5,6 +5,146 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-08-23
+
+### Added
+
+- **`NativeWorkManager.iosLiveActivity` — a `taskId`-scoped progress filter for iOS Live
+  Activities.** `iosLiveActivity.onProgress(taskId: ...)` returns just one task's slice of the
+  existing progress stream, so a Live Activity / Dynamic Island can subscribe to the task it
+  renders without filtering by hand.
+
+  Read the scope carefully: this is a **Dart-side convenience filter over the progress
+  EventChannel** that `NativeWorkManager.progress` already exposes. It does **not** call
+  ActivityKit, and it does **not** wrap the KMP `IosLiveActivityBridge` in the bundled
+  `KMPWorkManager.xcframework`. Starting, updating and ending the `Activity<Attributes>` remains
+  your app's job — the `ActivityAttributes` type lives in your target, not in this plugin. On
+  non-iOS platforms `onProgress` returns an already-closed stream; use
+  `NativeWorkManager.progress` for cross-platform progress.
+
+  If progress never needs to reach Dart, observe the KMP bridge directly from Swift instead —
+  `IosLiveActivityBridge.companion.shared.startObserving(taskId:onProgress:)` runs with no Flutter
+  engine attached, which suits a killed-app background download better. Both routes are documented
+  on `IosLiveActivityBridge`.
+- **Public `GraphExecution` constructor.** `GraphExecution(graphId, result)` is now public API;
+  `GraphExecution.internal(...)` is deprecated and forwards to it. This is what lets
+  `FakeWorkManager` build a graph handle without tripping the analyzer (see *Fixed* below).
+- **CLI SwiftUI `@main` detection.** `dart run native_workmanager:setup` (and
+  `native_workmanager:setup_ios`) now inspect `ios/Runner` for a SwiftUI `@main` App and report
+  whether `@UIApplicationDelegateAdaptor(AppDelegate.self)` is wired — without it the AppDelegate
+  lifecycle never runs, so BGTask launch handlers registered in `+load` never attach.
+
+### Fixed
+
+- **Pub.dev static analysis back to 160/160.** `FakeWorkManager` called
+  `GraphExecution.internal`, a `@visibleForTesting` member, from `lib/` — an
+  `invalid_use_of_visible_for_testing_member` warning that cost analysis points. The constructor
+  is public now and the annotation is gone.
+- **Analyzer guardrail:** `invalid_use_of_visible_for_testing_member: error` added to
+  `analysis_options.yaml` so the same class of violation fails CI instead of quietly costing pub
+  points.
+- **`setup`'s iOS checks no longer stop at the first Info.plist problem.** The SwiftUI `@main`
+  check now runs even when `ios/Runner/Info.plist` is missing or malformed — a non-standard
+  plist layout is exactly what a SwiftUI-lifecycle project is likely to have.
+- **`OfflineQueue` could lose a queued task or crash when a task was cancelled mid-flight**
+  (pre-existing). `_processHead()` captured the head slot, then awaited the task's completion event
+  for up to an hour. `cancel()` is synchronous and mutates the pending list directly, so it could
+  land inside that window — after which the failure path still wrote back **positionally**
+  (`_pending[0] = …` / `removeAt(0)`). If the cancel emptied the queue the retry write threw
+  `RangeError (index): Valid value range is empty: 0`; if another entry had become the head, that
+  entry was silently overwritten by the cancelled task's retry slot and never ran. Both branches
+  now resolve the slot by identity — matching the success path, which already did. A cancelled
+  in-flight task is dropped rather than retried or dead-lettered. Covered by
+  `test/unit/offline_queue_cancel_race_test.dart`, which reproduces both failures.
+- **Flutter engine could leak on Android after a channel error** (pre-existing).
+  `FlutterEngineManager.executeDartCallback` incremented `activeTaskCount` before the try whose
+  `finally` decremented it, so anything thrown in between — `channel.invokeMethod` hitting a
+  detached engine, for instance — leaked the counter permanently. `activeTaskCount.get() <= 0`
+  then never held, so the engine was never auto-disposed (~50 MB retained for the process
+  lifetime). The count is now released exactly once on every exit path, still before the
+  timeout/dispose checks that read it.
+- **iOS Dart-callback continuation leaked on timeout** (pre-existing). `invokeCallback` suspended
+  on a bare `withCheckedThrowingContinuation` with no cancellation handling. When the enclosing
+  task group's timeout won — the hung-isolate case, where the method-channel reply never
+  arrives — the continuation was never resumed: Swift logged `SWIFT TASK CONTINUATION MISUSE:
+  continuation was leaked` and the child task stayed suspended holding the channel. It now runs
+  under `withTaskCancellationHandler` with a single-resume guard, so cancellation settles it.
+- **DartWorker cancellation was swallowed on Android** (pre-existing, not a 1.5.0 regression).
+  `FlutterEngineManager.executeDartCallback` wrapped `withTimeout { resultDeferred.await() }` in a
+  generic `catch (e: Exception)`. `CancellationException` **is-a** `Exception`, so cancelling a
+  DartWorker — or cancelling its parent Job — was reported as an ordinary `false` result instead
+  of propagating, breaking structured concurrency. It is now rethrown ahead of the generic catch.
+  The timeout path is unchanged: `TimeoutCancellationException` is caught at the `withTimeout`
+  call site and converted to `timedOut`, so it never reaches the new guard.
+- **`OfflineQueue` class doc contradicted the implementation** (pre-existing). The class-level
+  docs said `enqueue` throws a `StateError` when the queue is full; it has always dropped the
+  entry silently and returned normally (as `enqueue`'s own doc correctly stated). A caller
+  following the class doc would have written a `try/catch (StateError)` that never fires. The
+  class doc now matches the behaviour and points at `pendingCount`.
+- **Swift snippet in `IosLiveActivityBridge` docs did not compile.** It showed
+  `IosLiveActivityBridge.shared`, but Kotlin/Native exposes the singleton through the Companion
+  object — the generated header declares only a `companion` class property on the bridge. The
+  example now uses `IosLiveActivityBridge.companion.shared`.
+
+### Changed
+
+- **The iOS graph-node delay is no longer inline in DAG logic.** `TaskGraph._scheduleNode` hard-coded
+  a 1-second `TaskTrigger` delay for iOS to work around BGTaskScheduler dropping back-to-back
+  submissions. The workaround stays (removing it needs a per-submission hook in the KMP scheduler —
+  tracked in ROADMAP), but it is now a named `_iosNodeSubmissionStagger` constant behind
+  `_nodeTrigger()`, documented as a platform quirk rather than domain logic. Downstream scheduling
+  also marks its fire-and-forget call explicitly with `unawaited()`.
+- **The cancellation-rethrow invariant guard is now checked per function, not per file.**
+  `test/unit/cancellation_rethrow_invariant_test.dart` used to regex the whole worker source for
+  a single `catch (e: CancellationException) { throw e }`. `HttpUploadWorker.kt` has two suspend
+  functions, and the one rethrow in `doWork()` made the file pass while `handleRawBodyUpload()`
+  had no guard at all — the test built to catch this bug class could not see it. It now parses
+  each `suspend fun` body by brace depth and requires either a rethrow or an explicit exemption
+  carrying a written reason. `handleRawBodyUpload()` gained the matching rethrow (uniformity: its
+  guarded region is blocking OkHttp with no suspension point, so there was no live bug — but the
+  two upload paths must not diverge).
+- **⚠️ Android `compileSdk` raised 35 → 36, and consuming apps now need `compileSdk 36` or
+  higher.** This is forced by the kmpworkmanager bump, not a choice: 3.3.0 dropped `koin-android`
+  and began declaring `androidx.core` directly, which resolves `androidx.core:core-ktx` to
+  **1.17.0**, and that artifact's AAR metadata requires everything depending on it to compile
+  against API 36+. Verified by a controlled A/B on this repo — with kmpworkmanager 3.2.0
+  `:native_workmanager:testDebugUnitTest` exits 0 and no `core-ktx:1.17.0` appears on the
+  classpath; with 3.3.1 it exits 1 with *"requires libraries and applications that depend on it to
+  compile against version 36 or later"*. Apps already on Flutter's current default `compileSdk`
+  are unaffected; apps pinned to 35 must raise it.
+- **`extension/devtools`** version bumped 1.3.0 → 1.5.0 to match the monorepo (`publish_to: none`,
+  so this affects nothing published).
+- **kmpworkmanager core bumped 3.2.0 → 3.3.1** — this spans **two** upstream releases (3.3.0 and
+  3.3.1). Both are pulled in by this bump:
+
+  **From 3.3.0 — ⚠️ BREAKING for apps that used Koin transitively:** kmpworkmanager no longer
+  depends on Koin, and `kmpWorkerModule()` / `kmpWorkerCoreModule()` are removed upstream. This
+  plugin is unaffected — it has always called `KmpWorkManager.initialize()` directly and never
+  referenced Koin — but if your app was relying on `koin-core` arriving transitively through this
+  plugin's dependency tree, it no longer does; declare it yourself. Also from 3.3.0: iOS execution
+  history and task events were being silently dropped (`EventStore` / `ExecutionHistoryStore` were
+  lazy bindings nothing ever resolved, so `getExecutionHistory()` returned an empty list on iOS),
+  and `shutdown()` left stale global registrations behind so a `shutdown()` → `initialize()` cycle
+  pointed the event store at a dead registry.
+
+  **From 3.3.1:** iOS single (non-chained) tasks never persisted their completion event or
+  execution history — only chain executions showed up in `getExecutionHistory()` on iOS; iOS
+  `SingleTaskExecutor` used a wall-clock diff for `ExecutionRecord.durationMs`, which an NTP sync
+  mid-task could corrupt, now `TimeSource.Monotonic`; and the KSP processor now fails the build on
+  two `@Worker` classes claiming the same name or alias instead of silently making one
+  unreachable.
+
+### Security
+
+- **iOS path traversal in task-metadata filenames (via kmpworkmanager 3.3.1).** Caller-supplied
+  task and chain ids were used unsanitized as filenames at 13 call sites in `IosFileStorage`; ids
+  containing `/`, or equal to `.` / `..`, could escape the intended directory. They are now
+  percent-encoded. The escaping is deliberately narrow — only `/`, a bare `.`/`..`, and a literal
+  `%` — so ordinary ids (`"nightly-sync"`, `"com.example.sync"`, UUIDs) map to the same on-disk
+  filename as before and tasks scheduled before the upgrade keep resolving.
+
+---
+
 ## [1.4.5] - 2026-08-06
 
 ### Fixed
