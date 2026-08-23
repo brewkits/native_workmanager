@@ -3272,4 +3272,149 @@ void main() {
       },
     );
   });
+
+  // ── v1.5.0: iOS Live Activity progress filter ───────────────────────────────
+  //
+  // NativeWorkManager.iosLiveActivity.onProgress(taskId:) is a taskId-scoped
+  // filter over the same progress EventChannel NativeWorkManager.progress uses.
+  // These run on iOS only: on other platforms the API contractually returns an
+  // already-closed stream (asserted in the last test here, and on the host in
+  // test/unit/ios_live_activity_bridge_test.dart).
+  group('v1_5_0 – iOS Live Activity progress filter', () {
+    testWidgets(
+      'v1_5_0: iosLiveActivity.onProgress(taskId:) receives only that task',
+      (tester) async {
+        if (!Platform.isIOS) {
+          markTestSkipped('iOS-only: onProgress returns an empty stream '
+              'on ${Platform.operatingSystem}');
+          return;
+        }
+
+        final targetId = _id('la_target');
+        final otherId = _id('la_other');
+
+        final targetProgress = <int>[];
+        final leakedTaskIds = <String>{};
+
+        final sub = NativeWorkManager.iosLiveActivity
+            .onProgress(taskId: targetId)
+            .listen((p) {
+          targetProgress.add(p.progress);
+          if (p.taskId != targetId) leakedTaskIds.add(p.taskId);
+        });
+
+        final targetFuture =
+            _waitEvent(targetId, timeout: const Duration(seconds: 60));
+        final otherFuture =
+            _waitEvent(otherId, timeout: const Duration(seconds: 60));
+
+        // Two concurrent downloads: only `targetId` may reach the subscription.
+        await NativeWorkManager.enqueue(
+          taskId: targetId,
+          trigger: const TaskTrigger.oneTime(),
+          worker: HttpDownloadWorker(
+            url: 'https://jsonplaceholder.typicode.com/posts',
+            savePath: '${tmpDir.path}/la_target.json',
+          ),
+          constraints: const Constraints(requiresNetwork: true),
+        );
+        await NativeWorkManager.enqueue(
+          taskId: otherId,
+          trigger: const TaskTrigger.oneTime(),
+          worker: HttpDownloadWorker(
+            url: 'https://jsonplaceholder.typicode.com/comments',
+            savePath: '${tmpDir.path}/la_other.json',
+          ),
+          constraints: const Constraints(requiresNetwork: true),
+        );
+
+        final targetEvent = await targetFuture;
+        await otherFuture;
+        await sub.cancel();
+
+        expect(targetEvent?.success, isTrue,
+            reason: 'target download must succeed');
+        expect(
+          leakedTaskIds,
+          isEmpty,
+          reason: 'v1_5_0: onProgress(taskId: $targetId) must not deliver '
+              'progress for other tasks — leaked: $leakedTaskIds',
+        );
+        for (final v in targetProgress) {
+          expect(v, inInclusiveRange(0, 100));
+        }
+      },
+    );
+
+    testWidgets(
+      'v1_5_0: iosLiveActivity.onProgress mirrors NativeWorkManager.progress '
+      'for the same task',
+      (tester) async {
+        if (!Platform.isIOS) {
+          markTestSkipped('iOS-only');
+          return;
+        }
+
+        final id = _id('la_mirror');
+        final viaBridge = <int>[];
+        final viaGlobal = <int>[];
+
+        final bridgeSub = NativeWorkManager.iosLiveActivity
+            .onProgress(taskId: id)
+            .listen((p) => viaBridge.add(p.progress));
+        final globalSub = NativeWorkManager.progress.listen((p) {
+          if (p.taskId == id) viaGlobal.add(p.progress);
+        });
+
+        final future = _waitEvent(id, timeout: const Duration(seconds: 60));
+
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: HttpDownloadWorker(
+            url: 'https://jsonplaceholder.typicode.com/photos',
+            savePath: '${tmpDir.path}/la_mirror.json',
+          ),
+          constraints: const Constraints(requiresNetwork: true),
+        );
+
+        final event = await future;
+        await bridgeSub.cancel();
+        await globalSub.cancel();
+
+        expect(event?.success, isTrue);
+        expect(
+          viaBridge,
+          equals(viaGlobal),
+          reason: 'v1_5_0: the filtered stream must carry exactly the same '
+              'progress events the global stream carries for this task — '
+              'a dropped or duplicated event means the filter is rewriting '
+              'the stream rather than narrowing it',
+        );
+      },
+    );
+
+    testWidgets(
+      'v1_5_0: onProgress returns a closed stream on non-iOS platforms',
+      (tester) async {
+        if (Platform.isIOS) {
+          markTestSkipped('non-iOS contract check');
+          return;
+        }
+
+        var done = false;
+        final received = <TaskProgress>[];
+        final sub = NativeWorkManager.iosLiveActivity
+            .onProgress(taskId: _id('la_android'))
+            .listen(received.add, onDone: () => done = true);
+
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await sub.cancel();
+
+        expect(done, isTrue,
+            reason: 'v1_5_0: non-iOS onProgress must close immediately');
+        expect(received, isEmpty);
+      },
+    );
+  });
 }

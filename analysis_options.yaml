@@ -4,6 +4,7 @@ analyzer:
   errors:
     missing_required_param: error
     missing_return: error
+    invalid_use_of_visible_for_testing_member: error
   exclude:
     - example/**
     - test/**

@@ -255,12 +255,14 @@ class GraphResult {
 /// Exposes a [result] future that resolves when the entire graph finishes
 /// (all nodes complete or any node fails).
 class GraphExecution {
-  GraphExecution._(this.graphId, this._result);
+  /// Creates a [GraphExecution] handle for the given [graphId] and [result] future.
+  const GraphExecution(this.graphId, Future<GraphResult> result)
+      : _result = result;
 
-  /// Internal constructor for testing.
-  @visibleForTesting
+  /// Internal constructor for backward compatibility.
+  @Deprecated('Use GraphExecution(graphId, result) instead')
   factory GraphExecution.internal(String graphId, Future<GraphResult> result) =>
-      GraphExecution._(graphId, result);
+      GraphExecution(graphId, result);
 
   final String graphId;
   final Future<GraphResult> _result;
@@ -358,18 +360,36 @@ class _GraphExecutor {
       // All dependencies satisfied?
       final ready = node.dependsOn.every(_completed.contains);
       if (ready) {
-        _scheduleNode(node);
+        // Intentionally not awaited: this runs from a synchronous event
+        // callback and ready nodes must be scheduled concurrently, not
+        // serialised. _scheduleNode handles its own failures internally and
+        // reports them through the graph's completer.
+        unawaited(_scheduleNode(node));
       }
     }
   }
 
+  /// Delay applied to each graph node on iOS.
+  ///
+  /// **Platform workaround, not domain logic.** BGTaskScheduler drops or defers
+  /// submissions made back-to-back within the same run loop turn, so each node
+  /// is nudged onto the next second. It lives here rather than in the iOS
+  /// bridge only because the bridge schedules through KMP, which has no hook
+  /// for a per-submission stagger; pushing it down is tracked in ROADMAP.
+  ///
+  /// Android has no such constraint and pays no delay.
+  static const Duration _iosNodeSubmissionStagger = Duration(seconds: 1);
+
+  /// Trigger for a graph node, carrying [_iosNodeSubmissionStagger] on iOS.
+  static TaskTrigger _nodeTrigger() =>
+      defaultTargetPlatform == TargetPlatform.iOS
+          ? TaskTrigger.oneTime(_iosNodeSubmissionStagger)
+          : TaskTrigger.oneTime();
+
   Future<void> _scheduleNode(TaskNode node) async {
     _inFlight.add(node.id);
     try {
-      // iOS BGTaskScheduler needs a short delay to reliably queue/launch.
-      final trigger = defaultTargetPlatform == TargetPlatform.iOS
-          ? TaskTrigger.oneTime(const Duration(seconds: 1))
-          : TaskTrigger.oneTime();
+      final trigger = _nodeTrigger();
 
       await NativeWorkManager.enqueue(
         taskId: '${_graph.id}__${node.id}',
@@ -449,5 +469,5 @@ Future<GraphExecution> enqueueTaskGraph(TaskGraph graph) async {
   final executor = _GraphExecutor(graph);
   final resultFuture = executor.execute(isAlreadyEnqueued: true);
 
-  return GraphExecution._(graph.id, resultFuture);
+  return GraphExecution(graph.id, resultFuture);
 }

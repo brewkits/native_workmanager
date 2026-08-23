@@ -25,7 +25,7 @@ if [ $? -eq 0 ]; then echo -e "${GREEN}Security Tests Passed${NC}"; else echo -e
 
 # 4. Performance Tests
 echo -e "\n${BLUE}[4/6] Running Performance Tests...${NC}"
-flutter test test/performance/scheduling_performance_test.dart --reporter expanded
+flutter test test/performance/ --reporter expanded
 if [ $? -eq 0 ]; then echo -e "${GREEN}Performance Tests Passed${NC}"; else echo -e "${RED}Performance Tests Failed${NC}"; exit 1; fi
 
 # 5. Device Integration Tests (Requires connected device/emulator)

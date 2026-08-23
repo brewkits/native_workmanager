@@ -496,5 +496,54 @@ void main() {
       },
       timeout: const Timeout(Duration(minutes: 4)),
     );
+
+    testWidgets(
+      'v1.5.0 Stress: Concurrent batch burst with LiveActivity observer isolation',
+      (tester) async {
+        if (_isFlakyOnSimulator) {
+          print('Skipping on simulator/emulator due to OS background scheduling constraints');
+          return;
+        }
+
+        final tracker = TaskEventTracker();
+        tracker.start();
+
+        const burstSize = 10;
+        final requests = <EnqueueRequest>[];
+        final taskIds = <String>[];
+        final futures = <Future<TaskEvent>>[];
+
+        for (int i = 0; i < burstSize; i++) {
+          final id = _id('burst_$i');
+          taskIds.add(id);
+          requests.add(
+            EnqueueRequest(
+              taskId: id,
+              trigger: const TaskTrigger.oneTime(),
+              worker: NativeWorker.httpRequest(
+                url: 'https://httpbin.org/get',
+                method: HttpMethod.get,
+              ),
+              constraints: const Constraints(requiresNetwork: true),
+            ),
+          );
+          futures.add(tracker.waitFor(id));
+        }
+
+        final sw = Stopwatch()..start();
+        final handlers = await NativeWorkManager.enqueueAll(requests);
+        expect(handlers, hasLength(burstSize));
+
+        final results = await Future.wait(futures);
+        sw.stop();
+        tracker.stop();
+
+        print('Burst $burstSize tasks completed in ${sw.elapsedMilliseconds}ms');
+        for (final r in results) {
+          expect(r.success, isTrue);
+        }
+      },
+      timeout: const Timeout(Duration(minutes: 4)),
+    );
   });
 }

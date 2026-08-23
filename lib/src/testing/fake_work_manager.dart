@@ -270,7 +270,7 @@ class FakeWorkManager implements IWorkManager {
 
     // In a fake, we don't actually run the DAG logic unless requested.
     // For now just return a handle that never completes automatically.
-    return GraphExecution.internal(graph.id, Completer<GraphResult>().future);
+    return GraphExecution(graph.id, Completer<GraphResult>().future);
   }
 
   @override
