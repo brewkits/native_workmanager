@@ -9,7 +9,7 @@ import 'dart:io';
 ///   dart run native_workmanager:setup --ios     # iOS only
 ///   dart run native_workmanager:setup --check   # validate only, no writes
 ///   dart run native_workmanager:setup --help
-void main(List<String> args) async {
+Future<void> main(List<String> args) async {
   if (args.contains('--help') || args.contains('-h')) {
     _printHelp();
     return;
@@ -145,7 +145,10 @@ File? _findMainActivity() {
 Future<bool> _setupIos({required bool checkOnly}) async {
   final infoPlistFile = File('ios/Runner/Info.plist');
   if (!infoPlistFile.existsSync()) {
-    print('  ℹ️  No ios/Runner/Info.plist found — skipping.');
+    print('  ℹ️  No ios/Runner/Info.plist found — skipping plist checks.');
+    // The SwiftUI lifecycle check is independent of the plist — a project with
+    // a non-standard plist path is exactly the kind that may use SwiftUI @main.
+    _checkSwiftUiMain();
     return true;
   }
 
@@ -154,6 +157,7 @@ Future<bool> _setupIos({required bool checkOnly}) async {
   if (!content.contains('</dict>')) {
     print(
         '  ❌ Info.plist appears malformed (no closing </dict> tag). Fix the file manually.');
+    _checkSwiftUiMain();
     return false;
   }
 
@@ -223,25 +227,77 @@ $idStr
     }
   }
 
-  if (patches.isEmpty) {
-    print('  ✅ Info.plist already configured correctly.');
-    return true;
-  }
-
-  if (checkOnly) {
-    for (final p in patches) {
-      print('  ⚠️  Missing: $p');
+  var success = true;
+  if (patches.isNotEmpty) {
+    if (checkOnly) {
+      for (final p in patches) {
+        print('  ⚠️  Missing: $p');
+      }
+      print('  Run without --check to apply these changes.');
+      success = false;
+    } else {
+      await infoPlistFile.writeAsString(content);
+      for (final p in patches) {
+        print('  ➕ $p');
+      }
+      print('  ✅ Info.plist updated.');
     }
-    print('  Run without --check to apply these changes.');
-    return false;
+  } else {
+    print('  ✅ Info.plist already configured correctly.');
   }
 
-  await infoPlistFile.writeAsString(content);
-  for (final p in patches) {
-    print('  ➕ $p');
+  // 3. Check SwiftUI @main app structure
+  _checkSwiftUiMain();
+
+  return success;
+}
+
+/// Matches a SwiftUI app declaration: `struct Foo: App {` / `: SwiftUI.App {`,
+/// optionally with other protocols in the conformance list.
+///
+/// Anchored on `struct <Name>:` so a stray `: Application` or a mention inside
+/// a comment doesn't count — the loose `contains(': App')` this replaced would
+/// match both.
+final _swiftUiAppPattern = RegExp(
+  r'struct\s+\w+\s*:\s*[^{]*\b(SwiftUI\.)?App\b',
+);
+
+void _checkSwiftUiMain() {
+  final runnerDir = Directory('ios/Runner');
+  if (!runnerDir.existsSync()) return;
+
+  final List<File> swiftFiles;
+  try {
+    swiftFiles = runnerDir
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.swift'))
+        .toList();
+  } on FileSystemException catch (e) {
+    print('  ⚠️  Could not scan ios/Runner for SwiftUI @main: ${e.message}');
+    return;
   }
-  print('  ✅ Info.plist updated.');
-  return true;
+
+  for (final file in swiftFiles) {
+    final String text;
+    try {
+      text = file.readAsStringSync();
+    } on FileSystemException {
+      continue; // Unreadable file — keep scanning the rest.
+    }
+
+    if (!text.contains('@main') || !_swiftUiAppPattern.hasMatch(text)) continue;
+
+    if (text.contains('UIApplicationDelegateAdaptor')) {
+      print('  ✅ SwiftUI @main detected with @UIApplicationDelegateAdaptor.');
+    } else {
+      print('  ℹ️  SwiftUI @main App detected in ${file.path}.\n'
+          '     Without an AppDelegate the BGTask launch handlers registered in\n'
+          '     NWMBGTaskRegistrar (+load) never attach, so background tasks stay dormant.\n'
+          '     Add: @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate');
+    }
+    return;
+  }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
