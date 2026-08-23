@@ -47,7 +47,7 @@ let package = Package(
         .binaryTarget(
             name: "KMPWorkManager",
             url: "https://github.com/brewkits/native_workmanager/releases/download/v1.5.0/KMPWorkManager.xcframework.zip",
-            checksum: "d4cfa4f32d164d8b3bbd2aa080936c31008db5c7777f66f0bcd5ef7c5d6dc57d"
+            checksum: "c66d6e07a686cc78439e05f93ff5940a6f942d8a35d37459e4cd0b9224f7115a"
         ),
         // Issue #36: ObjC target that registers BGTask launch handlers in +load,
         // before the app finishes launching. Required because on the Flutter 3.38+
