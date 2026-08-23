@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:native_workmanager/native_workmanager.dart';
+import 'package:path_provider/path_provider.dart';
 
 class ProgressTrackingDemoPage extends StatefulWidget {
   const ProgressTrackingDemoPage({super.key});
@@ -32,12 +33,15 @@ class _ProgressTrackingDemoPageState extends State<ProgressTrackingDemoPage> {
     setState(() => _isDownloading = true);
 
     try {
+      final dir = await getApplicationDocumentsDirectory();
+      final savePath = '${dir.path}/demo_file.bin';
+
       // 1. Enqueue and get the handler
       final handler = await NativeWorkManager.enqueue(
         taskId: 'demo-download-${DateTime.now().millisecondsSinceEpoch}',
         worker: NativeWorker.httpDownload(
           url: 'https://httpbin.org/bytes/1024000', // 1MB random bytes
-          savePath: 'demo_file.bin',
+          savePath: savePath,
         ),
       );
 
