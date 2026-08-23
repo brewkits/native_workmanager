@@ -3285,8 +3285,10 @@ void main() {
       'v1_5_0: iosLiveActivity.onProgress(taskId:) receives only that task',
       (tester) async {
         if (!Platform.isIOS) {
-          markTestSkipped('iOS-only: onProgress returns an empty stream '
-              'on ${Platform.operatingSystem}');
+          markTestSkipped(
+            'iOS-only: onProgress returns an empty stream '
+            'on ${Platform.operatingSystem}',
+          );
           return;
         }
 
@@ -3299,14 +3301,18 @@ void main() {
         final sub = NativeWorkManager.iosLiveActivity
             .onProgress(taskId: targetId)
             .listen((p) {
-          targetProgress.add(p.progress);
-          if (p.taskId != targetId) leakedTaskIds.add(p.taskId);
-        });
+              targetProgress.add(p.progress);
+              if (p.taskId != targetId) leakedTaskIds.add(p.taskId);
+            });
 
-        final targetFuture =
-            _waitEvent(targetId, timeout: const Duration(seconds: 60));
-        final otherFuture =
-            _waitEvent(otherId, timeout: const Duration(seconds: 60));
+        final targetFuture = _waitEvent(
+          targetId,
+          timeout: const Duration(seconds: 60),
+        );
+        final otherFuture = _waitEvent(
+          otherId,
+          timeout: const Duration(seconds: 60),
+        );
 
         // Two concurrent downloads: only `targetId` may reach the subscription.
         await NativeWorkManager.enqueue(
@@ -3332,12 +3338,16 @@ void main() {
         await otherFuture;
         await sub.cancel();
 
-        expect(targetEvent?.success, isTrue,
-            reason: 'target download must succeed');
+        expect(
+          targetEvent?.success,
+          isTrue,
+          reason: 'target download must succeed',
+        );
         expect(
           leakedTaskIds,
           isEmpty,
-          reason: 'v1_5_0: onProgress(taskId: $targetId) must not deliver '
+          reason:
+              'v1_5_0: onProgress(taskId: $targetId) must not deliver '
               'progress for other tasks — leaked: $leakedTaskIds',
         );
         for (final v in targetProgress) {
@@ -3386,7 +3396,8 @@ void main() {
         expect(
           viaBridge,
           equals(viaGlobal),
-          reason: 'v1_5_0: the filtered stream must carry exactly the same '
+          reason:
+              'v1_5_0: the filtered stream must carry exactly the same '
               'progress events the global stream carries for this task — '
               'a dropped or duplicated event means the filter is rewriting '
               'the stream rather than narrowing it',
@@ -3411,8 +3422,11 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 200));
         await sub.cancel();
 
-        expect(done, isTrue,
-            reason: 'v1_5_0: non-iOS onProgress must close immediately');
+        expect(
+          done,
+          isTrue,
+          reason: 'v1_5_0: non-iOS onProgress must close immediately',
+        );
         expect(received, isEmpty);
       },
     );

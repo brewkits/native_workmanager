@@ -501,7 +501,9 @@ void main() {
       'v1.5.0 Stress: Concurrent batch burst with LiveActivity observer isolation',
       (tester) async {
         if (_isFlakyOnSimulator) {
-          print('Skipping on simulator/emulator due to OS background scheduling constraints');
+          print(
+            'Skipping on simulator/emulator due to OS background scheduling constraints',
+          );
           return;
         }
 
@@ -538,7 +540,9 @@ void main() {
         sw.stop();
         tracker.stop();
 
-        print('Burst $burstSize tasks completed in ${sw.elapsedMilliseconds}ms');
+        print(
+          'Burst $burstSize tasks completed in ${sw.elapsedMilliseconds}ms',
+        );
         for (final r in results) {
           expect(r.success, isTrue);
         }
