@@ -409,24 +409,47 @@ class FlutterEngineManager {
             throw FlutterEngineError.engineNotInitialized
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.main.async {
-                let args: [String: Any?] = [
-                    "callbackHandle": callbackHandle,
-                    "input": input,
-                    "timeoutMs": timeoutMs
-                ]
-                channel.invokeMethod("executeCallback", arguments: args) { result in
-                    if let error = result as? FlutterError {
-                        NativeLogger.e("FlutterEngineManager: Callback error: \(error.message ?? "unknown")")
-                        continuation.resume(returning: false)
-                    } else if let success = result as? Bool {
-                        continuation.resume(returning: success)
-                    } else {
-                        continuation.resume(returning: true)
+        // The continuation must be resumed exactly once, and two paths race to
+        // do it: the Flutter method-channel reply, and cancellation.
+        //
+        // _executeDartCallbackInternal runs this inside a withThrowingTaskGroup
+        // alongside a Task.sleep timeout. When the timeout wins, the group
+        // throws and cancels this child — but a bare withCheckedThrowingContinuation
+        // cannot observe cancellation, and in exactly that scenario (hung Dart
+        // isolate) the channel reply never arrives. The continuation is then
+        // never resumed: Swift logs "SWIFT TASK CONTINUATION MISUSE: continuation
+        // was leaked" and this child task stays suspended forever, retaining the
+        // channel and its captured context.
+        //
+        // ContinuationBox makes the resume idempotent and order-independent, and
+        // withTaskCancellationHandler gives cancellation a way to settle it.
+        let box = _ContinuationBox()
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
+                // If cancellation already fired, the box resumes immediately.
+                guard box.install(continuation) else { return }
+
+                DispatchQueue.main.async {
+                    let args: [String: Any?] = [
+                        "callbackHandle": callbackHandle,
+                        "input": input,
+                        "timeoutMs": timeoutMs
+                    ]
+                    channel.invokeMethod("executeCallback", arguments: args) { result in
+                        if let error = result as? FlutterError {
+                            NativeLogger.e("FlutterEngineManager: Callback error: \(error.message ?? "unknown")")
+                            box.finish(.success(false))
+                        } else if let success = result as? Bool {
+                            box.finish(.success(success))
+                        } else {
+                            box.finish(.success(true))
+                        }
                     }
                 }
             }
+        } onCancel: {
+            box.finish(.failure(CancellationError()))
         }
     }
 
@@ -520,5 +543,51 @@ enum FlutterEngineError: LocalizedError {
         case .unknown:
             return "Unknown error."
         }
+    }
+}
+
+/// Single-resume guard for a `CheckedContinuation` that can be settled either by
+/// an asynchronous callback or by task cancellation, in either order.
+///
+/// `finish` is idempotent: the first caller wins and every later call is a no-op,
+/// so the continuation is resumed exactly once. If cancellation settles the box
+/// before the continuation is installed, the result is held in `pending` and
+/// delivered by `install`.
+private final class _ContinuationBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Bool, Error>?
+    private var pending: Result<Bool, Error>?
+    private var done = false
+
+    /// Returns `false` when the box was already settled — the caller must not
+    /// use the continuation further, it has been resumed here.
+    func install(_ continuation: CheckedContinuation<Bool, Error>) -> Bool {
+        lock.lock()
+        if done {
+            let result = pending ?? .failure(CancellationError())
+            pending = nil
+            lock.unlock()
+            continuation.resume(with: result)
+            return false
+        }
+        self.continuation = continuation
+        lock.unlock()
+        return true
+    }
+
+    func finish(_ result: Result<Bool, Error>) {
+        lock.lock()
+        if done {
+            lock.unlock()
+            return
+        }
+        done = true
+        let continuation = self.continuation
+        self.continuation = nil
+        if continuation == nil {
+            pending = result
+        }
+        lock.unlock()
+        continuation?.resume(with: result)
     }
 }

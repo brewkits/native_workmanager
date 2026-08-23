@@ -1,7 +1,61 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:native_workmanager/native_workmanager.dart';
+import 'package:native_workmanager/src/method_channel.dart';
+import 'package:native_workmanager/src/platform_interface.dart';
+
+class _FakeQueuePlatform extends MethodChannelNativeWorkManager {
+  final eventsController = StreamController<TaskEvent>.broadcast();
+  final progressController = StreamController<TaskProgress>.broadcast();
+
+  final List<String> enqueuedIds = [];
+  final List<String> cancelledIds = [];
+
+  @override
+  Stream<TaskEvent> get events => eventsController.stream;
+
+  @override
+  Stream<TaskProgress> get progress => progressController.stream;
+
+  @override
+  Future<void> initialize({
+    int? callbackHandle,
+    bool debugMode = false,
+    int maxConcurrentTasks = 4,
+    int diskSpaceBufferMB = 20,
+    int cleanupAfterDays = 30,
+    bool enforceHttps = false,
+    bool blockPrivateIPs = false,
+    bool registerPlugins = false,
+  }) async {}
+
+  @override
+  Future<ScheduleResult> enqueue({
+    required String taskId,
+    required TaskTrigger trigger,
+    required Worker worker,
+    Constraints constraints = const Constraints(),
+    ExistingTaskPolicy existingPolicy = ExistingTaskPolicy.replace,
+    String? tag,
+  }) async {
+    enqueuedIds.add(taskId);
+    return ScheduleResult.accepted;
+  }
+
+  @override
+  Future<void> cancel({required String taskId}) async {
+    cancelledIds.add(taskId);
+  }
+
+  Future<void> dispose() async {
+    await eventsController.close();
+    await progressController.close();
+  }
+}
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('OfflineRetryPolicy', () {
     test('default values', () {
       const policy = OfflineRetryPolicy();
@@ -106,9 +160,18 @@ void main() {
 
   group('OfflineQueue', () {
     late OfflineQueue queue;
+    late _FakeQueuePlatform platform;
 
-    setUp(() {
+    setUp(() async {
+      platform = _FakeQueuePlatform();
+      NativeWorkManagerPlatform.instance = platform;
+      await NativeWorkManager.initialize();
       queue = OfflineQueue(id: 'test-queue', maxSize: 3);
+    });
+
+    tearDown(() async {
+      queue.stop();
+      await platform.dispose();
     });
 
     test('initial state', () {
@@ -170,6 +233,76 @@ void main() {
     });
 
     test('clearDeadLetter empties deadLetter list', () {
+      queue.clearDeadLetter();
+      expect(queue.deadLetterCount, 0);
+    });
+
+    test('processes head task and completes on success event', () async {
+      final worker = NativeWorker.httpRequest(url: 'https://example.com');
+      await queue.enqueue(QueueEntry(
+        taskId: 'success_task',
+        worker: worker,
+        retryPolicy: const OfflineRetryPolicy(
+          maxRetries: 1,
+          initialDelay: Duration.zero,
+        ),
+      ));
+
+      queue.start();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(platform.enqueuedIds, contains('test-queue__success_task__0'));
+
+      platform.eventsController.add(TaskEvent(
+        taskId: 'test-queue__success_task__0',
+        success: true,
+        isStarted: false,
+        timestamp: DateTime.now(),
+      ));
+
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(queue.pendingCount, 0);
+      expect(queue.deadLetterCount, 0);
+    });
+
+    test('retries on failure and moves to dead letter when exhausted',
+        () async {
+      final worker = NativeWorker.httpRequest(url: 'https://example.com');
+      await queue.enqueue(QueueEntry(
+        taskId: 'fail_task',
+        worker: worker,
+        retryPolicy: const OfflineRetryPolicy(
+          maxRetries: 1,
+          initialDelay: Duration.zero,
+        ),
+      ));
+
+      queue.start();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      // Attempt 0 fails
+      platform.eventsController.add(TaskEvent(
+        taskId: 'test-queue__fail_task__0',
+        success: false,
+        isStarted: false,
+        timestamp: DateTime.now(),
+      ));
+
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(platform.enqueuedIds, contains('test-queue__fail_task__1'));
+
+      // Attempt 1 fails (exhausts maxRetries: 1)
+      platform.eventsController.add(TaskEvent(
+        taskId: 'test-queue__fail_task__1',
+        success: false,
+        isStarted: false,
+        timestamp: DateTime.now(),
+      ));
+
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(queue.pendingCount, 0);
+      expect(queue.deadLetterCount, 1);
+
       queue.clearDeadLetter();
       expect(queue.deadLetterCount, 0);
     });

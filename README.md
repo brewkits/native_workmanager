@@ -46,7 +46,7 @@ No boilerplate. No native code to write. No `AndroidManifest.xml` changes. Each 
 
 ```yaml
 dependencies:
-  native_workmanager: ^1.4.5
+  native_workmanager: ^1.5.0
 ```
 
 **2. Initialize once in `main()`:**
@@ -106,6 +106,8 @@ The dominant `workmanager` plugin spins up a **full Flutter Engine per backgroun
 | Custom Dart workers | ✅ | ✅ (opt-in via `DartWorker`) |
 
 > **If you only do HTTP syncs and file ops, you probably don't need Dart workers at all.** Use the native workers directly — they're production-hardened and need zero engine overhead.
+> 
+> 📖 **Deep Dive:** Read the [Architecture & Best Practices Guide](doc/BEST_PRACTICES.md) for detailed benchmarks, dual-mode decision trees, and enterprise reliability patterns.
 
 ---
 
@@ -482,6 +484,7 @@ NativeWorkManager.events.listen((event) {
 
 | Guide | Description |
 |---|---|
+| [Architecture & Best Practices](doc/BEST_PRACTICES.md) | **Zero-Engine architecture, decision matrix, resilient patterns & competitor benchmarks** |
 | [Getting Started](doc/GETTING_STARTED.md) | Full setup walkthrough |
 | [API Reference](doc/API_REFERENCE.md) | All public types and methods |
 | [Android Setup Guide](doc/ANDROID_SETUP.md) | DartWorker killed-app persistence |

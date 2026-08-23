@@ -1,77 +1,21 @@
-import 'dart:io';
+// ignore_for_file: avoid_print
+import 'setup.dart' as unified;
 
-void main() async {
-  print('🚀 native_workmanager: Configuring iOS Info.plist...');
+/// Legacy iOS-only entrypoint, kept for backward compatibility.
+///
+/// This used to carry its own copy of the Info.plist patching logic, which
+/// meant every improvement to `setup` had to be written twice and, in practice,
+/// wasn't — `setup_ios` silently lagged behind (it never gained `--check`, nor
+/// the SwiftUI `@main` lifecycle check added in 1.5.0). It now delegates to the
+/// unified tool so the two can no longer drift.
+///
+/// Prefer:
+///   dart run native_workmanager:setup --ios
+void main(List<String> args) async {
+  print('ℹ️  native_workmanager:setup_ios is a legacy alias.\n'
+      '   Prefer: dart run native_workmanager:setup --ios\n');
 
-  final infoPlistFile = File('ios/Runner/Info.plist');
-  if (!await infoPlistFile.exists()) {
-    print('❌ Error: ios/Runner/Info.plist not found.');
-    exit(1);
-  }
-
-  String content = await infoPlistFile.readAsString();
-
-  // 1. Check for Background Modes
-  if (!content.contains('<key>UIBackgroundModes</key>')) {
-    print('➕ Adding UIBackgroundModes (fetch, processing)...');
-    content = content.replaceFirst(
-      '</dict>',
-      '''
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>fetch</string>
-		<string>processing</string>
-	</array>
-</dict>''',
-    );
-  } else {
-    if (!content.contains('<string>fetch</string>')) {
-      print('➕ Adding "fetch" to UIBackgroundModes...');
-      content = content.replaceFirst(
-        '<key>UIBackgroundModes</key>\n\t<array>',
-        '<key>UIBackgroundModes</key>\n\t<array>\n\t\t<string>fetch</string>',
-      );
-    }
-    if (!content.contains('<string>processing</string>')) {
-      print('➕ Adding "processing" to UIBackgroundModes...');
-      content = content.replaceFirst(
-        '<key>UIBackgroundModes</key>\n\t<array>',
-        '<key>UIBackgroundModes</key>\n\t<array>\n\t\t<string>processing</string>',
-      );
-    }
-  }
-
-  // 2. Check for BGTaskSchedulerPermittedIdentifiers
-  final identifiers = [
-    'dev.brewkits.native_workmanager.task',
-    'dev.brewkits.native_workmanager.refresh',
-  ];
-
-  if (!content.contains('<key>BGTaskSchedulerPermittedIdentifiers</key>')) {
-    print('➕ Adding BGTaskSchedulerPermittedIdentifiers...');
-    final idString =
-        identifiers.map((id) => '\t\t<string>$id</string>').join('\n');
-    content = content.replaceFirst(
-      '</dict>',
-      '''
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-$idString
-	</array>
-</dict>''',
-    );
-  } else {
-    for (final id in identifiers) {
-      if (!content.contains('<string>$id</string>')) {
-        print('➕ Adding missing identifier: $id');
-        content = content.replaceFirst(
-          '<key>BGTaskSchedulerPermittedIdentifiers</key>\n\t<array>',
-          '<key>BGTaskSchedulerPermittedIdentifiers</key>\n\t<array>\n\t\t<string>$id</string>',
-        );
-      }
-    }
-  }
-
-  await infoPlistFile.writeAsString(content);
-  print('✅ Info.plist updated successfully!');
+  // Forward user flags (--check, --help, …) and force the iOS-only path.
+  final forwarded = <String>['--ios', ...args.where((a) => a != '--ios')];
+  await unified.main(forwarded);
 }

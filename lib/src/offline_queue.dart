@@ -167,8 +167,9 @@ class QueueEntry {
 ///   [OfflineRetryPolicy.maxRetries] times.
 /// - After all retries are exhausted the task is moved to a **dead-letter**
 ///   state (accessible via [deadLetterCount]).
-/// - Calling [enqueue] when the queue is full (> [maxSize]) throws a
-///   [StateError].
+/// - Calling [enqueue] when the queue is already at [maxSize] **drops the entry
+///   silently** — it returns normally without enqueuing and without throwing.
+///   Check [pendingCount] against [maxSize] first if you need to know.
 ///
 /// ## Limitations
 ///
@@ -191,7 +192,10 @@ class OfflineQueue {
   /// Unique queue identifier.
   final String id;
 
-  /// Maximum number of pending entries. [enqueue] throws [StateError] if full.
+  /// Maximum number of pending entries.
+  ///
+  /// [enqueue] drops the entry silently once this many are pending — it does
+  /// not throw. Compare [pendingCount] against this first if you need to know.
   final int maxSize;
 
   /// Default retry policy for entries that do not specify their own.
@@ -326,17 +330,34 @@ class OfflineQueue {
       // enqueue itself failed — treat as task failure
     }
 
-    // Task failed — retry or dead-letter
+    // Task failed — retry or dead-letter.
+    //
+    // Re-resolve this slot's position by identity. `cancel()` is synchronous
+    // and mutates `_pending` directly, so it can run while we were awaiting
+    // `_awaitEvent` above (up to an hour) or the retry backoff. Index 0 is
+    // therefore not guaranteed to still be this slot — or to exist at all:
+    //   - queue emptied by cancel  → `_pending[0] = …` threw RangeError
+    //   - head replaced by another → that entry was silently overwritten
+    // The success path above already used identity (`_pending.remove(slot)`);
+    // these two branches now match it.
+    final index = _pending.indexOf(slot);
+    if (index == -1) {
+      // Cancelled while in flight — do not retry it and do not dead-letter it.
+      _processing = false;
+      _scheduleNext();
+      return;
+    }
+
     if (slot.attempt < policy.maxRetries) {
       // Update attempt counter in-place
-      _pending[0] = _QueueSlot(
+      _pending[index] = _QueueSlot(
         entry: entry,
         policy: policy,
         attempt: slot.attempt + 1,
       );
     } else {
       // Exhausted retries → dead-letter
-      _pending.removeAt(0);
+      _pending.removeAt(index);
       _deadLetter.add(slot);
     }
 

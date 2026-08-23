@@ -2,7 +2,39 @@
 
 Our mission is to provide the most robust, efficient, and secure background execution engine for Flutter.
 
+## 🔜 Planned (v1.6.0)
+
+- **OEM battery-optimisation helpers (Android).** WorkManager persists tasks in the OS database,
+  but Xiaomi (MIUI/HyperOS), Samsung ("App put to sleep") and similar OEM layers stretch a 15-minute
+  periodic task out to 6–12 hours unless the app is whitelisted. There is no way to detect or
+  request that today. Planned: `NativeWorkManager.isIgnoringBatteryOptimizations()` and
+  `requestIgnoreBatteryOptimizations()` so apps that need punctual periodic work can prompt the
+  user. Note `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` is a Play-policy-restricted permission — the
+  API must document the eligible use cases so apps do not risk a listing rejection.
+- **Push the iOS graph-node stagger into the bridge.** `TaskGraph` currently adds a 1-second delay
+  to each node on iOS to work around BGTaskScheduler dropping back-to-back submissions
+  (`_iosNodeSubmissionStagger`). It is a platform detail sitting in Dart domain logic; it belongs
+  in the iOS scheduling layer, which needs a per-submission hook in KMP first.
+- **SwiftUI `@main` app support** — shipped in v1.5.0; the Phase 2 checklist entry below is stale
+  and should be ticked off.
+
 ---
+
+## ✅ Completed (v1.5.x)
+- **v1.5.0 Live Activity progress filter, SwiftUI @main detection & kmpworkmanager 3.3.1:**
+  - **`NativeWorkManager.iosLiveActivity`:** a `taskId`-scoped filter over the existing progress
+    stream, so an iOS Live Activity can subscribe to just the task it renders. A Dart-side
+    convenience helper — it does not call ActivityKit and does not wrap the KMP
+    `IosLiveActivityBridge`; driving the `Activity<Attributes>` stays app-side.
+  - **SwiftUI `@main` Detection:** `dart run native_workmanager:setup` validates SwiftUI `@main` lifecycle and `@UIApplicationDelegateAdaptor` configuration.
+  - **Pub Score 160/160:** Fixed `@visibleForTesting` member exposure in testing library, restoring 160/160 pub points.
+  - **kmpworkmanager core upgraded 3.2.0 → 3.3.1:** spans two upstream releases — 3.3.0 drops Koin
+    (breaking for apps relying on it transitively) and fixes silently-dropped iOS execution
+    history; 3.3.1 fixes iOS single-task persistence, a wall-clock duration bug, and an iOS
+    filename path-traversal gap.
+
+---
+
 ## ✅ Completed (v1.3.x)
 - **v1.3.2 iOS UIScene Lifecycle Compatibility (Issue #36):**
   - Fixed a startup crash (`NSInternalInconsistencyException`) on apps using the Flutter 3.38+ UIScene template, where plugin registration runs after `didFinishLaunching` — too late for `BGTaskScheduler.register`.

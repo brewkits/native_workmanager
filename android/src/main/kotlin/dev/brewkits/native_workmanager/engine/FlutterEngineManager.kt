@@ -96,63 +96,99 @@ object FlutterEngineManager {
             ensureEngineInitialized(context)
             activeTaskCount.incrementAndGet()
 
-            val channel = methodChannel
-            if (channel == null) {
-                activeTaskCount.decrementAndGet()
-                return@withContext false
+            // Every exit path from here on must release the count exactly once.
+            // Previously the only decrement lived in the withTimeout block's
+            // `finally` below, so anything that threw between the increment and
+            // that try — channel.invokeMethod raising a JNI/engine-detached
+            // error, for instance — leaked the counter permanently. A stuck
+            // count >= 1 makes `activeTaskCount.get() <= 0` never true, so the
+            // engine is never auto-disposed (~50 MB held forever).
+            //
+            // The release must still happen BEFORE the timedOut/disposeImmediately
+            // checks below, which read the count to decide whether this is the
+            // last in-flight task — hence the guarded helper rather than simply
+            // wrapping everything in one outer finally.
+            var released = false
+            fun releaseTaskCount() {
+                if (!released) {
+                    released = true
+                    activeTaskCount.decrementAndGet()
+                }
             }
 
-            val resultDeferred = CompletableDeferred<Boolean>()
-            val args = mapOf(
-                "callbackHandle" to callbackHandle,
-                "input" to input,
-                "timeoutMs" to timeoutMs
-            )
+            try {
+                val channel = methodChannel
+                if (channel == null) {
+                    return@withContext false
+                }
 
-            channel.invokeMethod("executeCallback", args, object : MethodChannel.Result {
-                override fun success(result: Any?) {
-                    resultDeferred.complete((result as? Boolean) ?: false)
-                }
-                override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
-                    resultDeferred.complete(false)
-                }
-                override fun notImplemented() {
-                    resultDeferred.complete(false)
-                }
-            })
+                val resultDeferred = CompletableDeferred<Boolean>()
+                val args = mapOf(
+                    "callbackHandle" to callbackHandle,
+                    "input" to input,
+                    "timeoutMs" to timeoutMs
+                )
 
-            var timedOut = false
-            val result = try {
-                withTimeout(timeoutMs) { resultDeferred.await() }
-            } catch (e: TimeoutCancellationException) {
-                // Dart isolate is hung (infinite loop / deadlock). Force-dispose the engine
-                // immediately regardless of autoDispose or other in-flight tasks — a hung
-                // isolate leaks ~50 MB RAM and burns CPU until the OS kills the process.
-                timedOut = true
-                false
+                channel.invokeMethod("executeCallback", args, object : MethodChannel.Result {
+                    override fun success(result: Any?) {
+                        resultDeferred.complete((result as? Boolean) ?: false)
+                    }
+                    override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
+                        resultDeferred.complete(false)
+                    }
+                    override fun notImplemented() {
+                        resultDeferred.complete(false)
+                    }
+                })
+
+                var timedOut = false
+                val result = try {
+                    withTimeout(timeoutMs) { resultDeferred.await() }
+                } catch (e: TimeoutCancellationException) {
+                    // Dart isolate is hung (infinite loop / deadlock). Force-dispose the engine
+                    // immediately regardless of autoDispose or other in-flight tasks — a hung
+                    // isolate leaks ~50 MB RAM and burns CPU until the OS kills the process.
+                    timedOut = true
+                    false
+                } finally {
+                    releaseTaskCount()
+                }
+
+                if (timedOut) {
+                    NativeLogger.e("DartWorker timed out after ${timeoutMs}ms — force-disposing engine to free hung isolate")
+                    // Only destroy the engine if this is the sole in-flight task.
+                    // Destroying while other tasks hold a methodChannel reference causes
+                    // a JNI crash (access to freed C++ FlutterJNI memory).
+                    if (activeTaskCount.get() <= 0) {
+                        try { dispose() } catch (_: Exception) {}
+                    }
+                    return@withContext false
+                }
+
+                if (disposeImmediately && activeTaskCount.get() <= 0) {
+                    dispose()
+                } else {
+                    lastUsedTimestamp = System.currentTimeMillis()
+                    scheduleDisposalCheck()
+                }
+
+                result
             } finally {
-                activeTaskCount.decrementAndGet()
+                // Covers every path that never reached the withTimeout block:
+                // the null-channel early return, and anything thrown by
+                // invokeMethod or the argument marshalling above.
+                releaseTaskCount()
             }
-
-            if (timedOut) {
-                NativeLogger.e("DartWorker timed out after ${timeoutMs}ms — force-disposing engine to free hung isolate")
-                // Only destroy the engine if this is the sole in-flight task.
-                // Destroying while other tasks hold a methodChannel reference causes
-                // a JNI crash (access to freed C++ FlutterJNI memory).
-                if (activeTaskCount.get() <= 0) {
-                    try { dispose() } catch (_: Exception) {}
-                }
-                return@withContext false
-            }
-
-            if (disposeImmediately && activeTaskCount.get() <= 0) {
-                dispose()
-            } else {
-                lastUsedTimestamp = System.currentTimeMillis()
-                scheduleDisposalCheck()
-            }
-
-            result
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // CancellationException is-a Exception, so the generic catch below
+            // would swallow a real cancellation (parent Job cancelled, task
+            // cancelled via WorkManager) and report it as a plain `false`
+            // failure. Rethrow so structured concurrency is preserved.
+            //
+            // The withTimeout above is unaffected: TimeoutCancellationException
+            // is caught locally at its call site and converted to `timedOut`,
+            // so the DartWorker timeout path never reaches here.
+            throw e
         } catch (e: Exception) {
             NativeLogger.e("Error executing Dart callback", e)
             if (activeTaskCount.get() <= 0) {

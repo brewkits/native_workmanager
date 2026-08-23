@@ -500,6 +500,14 @@ class HttpUploadWorker : AndroidWorker {
                     )
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Mirrors doWork()'s guard. The block above is blocking OkHttp with
+            // no suspension point, so this is uniformity rather than a live bug
+            // — but the two upload paths must not diverge: a future edit that
+            // introduces a suspending call here would otherwise silently
+            // convert cancellation into `shouldRetry = true`, rescheduling a
+            // task the user cancelled.
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error - ${e.message}", e)
             WorkerResult.Failure(

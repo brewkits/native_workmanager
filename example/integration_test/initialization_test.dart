@@ -187,6 +187,7 @@ void main() {
           callbackId: 'echo',
           input: {}, // no 'key' → callback returns false
         ),
+        constraints: const Constraints(maxRetries: 0),
         trigger: const TaskTrigger.oneTime(),
       );
 
