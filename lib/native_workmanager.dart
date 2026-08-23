@@ -39,6 +39,7 @@ export 'src/foreground_notification_config.dart';
 export 'src/task_id.dart';
 export 'src/enqueue_request.dart';
 export 'src/events.dart';
+export 'src/ios_live_activity_bridge.dart';
 export 'src/native_work_manager.dart';
 export 'src/observability.dart';
 export 'src/offline_queue.dart';

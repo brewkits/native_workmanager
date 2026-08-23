@@ -19,6 +19,7 @@ import 'task_graph.dart';
 import 'task_handler.dart';
 import 'task_trigger.dart';
 
+import 'ios_live_activity_bridge.dart';
 import 'worker.dart';
 
 /// Main entry point for scheduling native background tasks.
@@ -2033,6 +2034,14 @@ class NativeWorkManager {
     _checkInitialized();
     return NativeWorkManagerPlatform.instance.progress;
   }
+
+  /// Dart-side helper for feeding task progress into an iOS Live Activity /
+  /// Dynamic Island.
+  ///
+  /// A `taskId`-scoped filter over [progress]; it does not call ActivityKit and
+  /// does not wrap the KMP `IosLiveActivityBridge`. Returns an empty stream on
+  /// non-iOS platforms — see [IosLiveActivityBridge] for the full contract.
+  static const IosLiveActivityBridge iosLiveActivity = IosLiveActivityBridge();
 
   // ═══════════════════════════════════════════════════════════════════════════
   // DART WORKER REGISTRATION
