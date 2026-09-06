@@ -169,6 +169,23 @@ every performance number the project could not reproduce.
   Committing it — or a `pubspec.lock` resolved with it in place — drags the Flutter SDK's pinned
   `meta` into the generator and forces `analyzer` below the version it targets, which is exactly
   what that package's pubspec comment warns against.
+- **`TaskEvent.resultData` now actually carries a worker's result on Android — the
+  `worker_results.dart` helpers have never returned data there before.** Measured on a Pixel
+  6 Pro with a SHA-256 hash task:
+
+  | | `resultData` |
+  | :--- | :--- |
+  | kmpworkmanager 3.3.1 (v1.5.0) | `null` |
+  | 3.4.1, before this fix | `{kmp_step_output: "{\"hash\":\"2cf2…\"}"}` |
+  | 3.4.1, after this fix | `{hash: 2cf2…, algorithm: SHA-256, fileSize: 5}` |
+
+  kmpworkmanager 3.4.0's InputMerger change serialises `WorkerResult.Success.data` into
+  WorkManager's output `Data` under a single `kmp_step_output` key as a JSON string, so the next
+  chain step can merge it. But `WorkInfo.outputData` is also what this plugin forwards to Dart,
+  so `CryptoResult.from(...)`, `ImageResult.from(...)` and every sibling helper were reading a
+  map whose only key was the envelope and returning all-null fields. The plugin now flattens the
+  envelope before forwarding. Maps without it pass through untouched, and a malformed payload
+  degrades to the raw map rather than failing a worker that genuinely succeeded.
 - **iOS offline-queue enqueue had never worked.** Dart invokes the channel method
   `offlineQueueEnqueue` and Android registers that name, but iOS registered
   `enqueueOfflineQueue` — the same two words the other way round — so every call fell through
