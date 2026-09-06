@@ -24,7 +24,7 @@
 ///
 /// ## Features
 ///
-/// - **Native Workers**: Run background tasks without Flutter Engine (~2MB vs ~50MB RAM)
+/// - **Native Workers**: Run background tasks without booting a Flutter Engine at all
 /// - **Task Chains**: Complex workflows (A → B → C)
 /// - **Auto iOS Config**: Reads Info.plist automatically
 /// - **Built-in Workers**: HTTP (request, upload, download, sync), Files (compress, decompress,

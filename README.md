@@ -85,15 +85,20 @@ dart run native_workmanager:setup_ios
 
 ## Why developers switch from `workmanager`
 
-The dominant `workmanager` plugin spins up a **full Flutter Engine per background task**: ~50–100 MB RAM, up to 3 seconds cold start, a Dart isolate the OS kills the moment memory gets tight. On Xiaomi/Samsung/Huawei devices with aggressive battery optimization, the engine never even starts.
+The dominant `workmanager` plugin spins up a **full Flutter Engine per background task** — a Dart isolate that costs memory and cold-start time, and that the OS targets first when memory gets tight.
 
 `native_workmanager` runs tasks as pure Kotlin coroutines and Swift async functions — **no engine, no isolate, no cold-start penalty**.
 
+The table below lists capability differences only. It carries no RAM or latency figures:
+those were previously quoted here without a reproducible measurement behind them, so they
+were removed rather than restated. See [§5.2 of the Best Practices guide](doc/BEST_PRACTICES.md)
+for how to measure them on your own hardware.
+
 | | `workmanager` | `native_workmanager` |
 |---|:---:|:---:|
-| Memory per task | ~50–100 MB | **~2–5 MB** |
-| Task startup | 1,500–3,000 ms | **< 50 ms** |
-| OOM Resilience | ❌ (Killed by OS) | ✅ (Survives system purge) |
+| Boots a Flutter engine per task | ✅ Always | ❌ Never (Mode 1) |
+| Task restored after process death | ⚠️ Partial | ✅ (WorkManager/SQLite + BGTaskScheduler persistence) |
+| Battery-restriction diagnostics | ❌ | ✅ (`batteryRestriction()`) |
 | Built-in HTTP workers | ❌ | ✅ (resumable download, chunked upload, parallel) |
 | Built-in image workers | ❌ | ✅ (resize, crop, convert, thumbnail — EXIF-aware) |
 | Built-in crypto workers | ❌ | ✅ (AES-256-GCM, SHA-256/512, HMAC) |
@@ -107,15 +112,17 @@ The dominant `workmanager` plugin spins up a **full Flutter Engine per backgroun
 
 > **If you only do HTTP syncs and file ops, you probably don't need Dart workers at all.** Use the native workers directly — they're production-hardened and need zero engine overhead.
 > 
-> 📖 **Deep Dive:** Read the [Architecture & Best Practices Guide](doc/BEST_PRACTICES.md) for detailed benchmarks, dual-mode decision trees, and enterprise reliability patterns.
+> 📖 **Deep Dive:** Read the [Architecture & Best Practices Guide](doc/BEST_PRACTICES.md) for the dual-mode decision tree, reliability patterns, and the current state of performance measurement.
 
 ---
 
 ## Industrial-Grade OOM Resilience
 
-Most Flutter background libraries fail because they boot a full Flutter Engine (50MB+ RAM) for every task. Under memory pressure, Android/iOS will kill these heavy processes first.
+Most Flutter background libraries boot a full Flutter Engine for every task. Under memory pressure, the OS kills the heaviest processes first.
 
-`native_workmanager` uses a **Zero-Engine Architecture**. Our Native Workers run in pure Kotlin/Swift, consuming only **~2MB of RAM**. This makes them "invisible" to the OS's memory killer.
+`native_workmanager` uses a **Zero-Engine Architecture**: Native Workers run in pure Kotlin/Swift and never start an engine at all, so there is no engine to be killed. That is a structural difference you can verify by reading `NativeWorker` — no Dart isolate is created on the Mode 1 path.
+
+> **On numbers:** this README used to quote "~2 MB vs 50 MB+". Those figures were not produced by a run anyone could reproduce, so they have been removed rather than restated. See [§5.2 of the Best Practices guide](doc/BEST_PRACTICES.md) for what will replace them and how to measure it yourself today.
 
 ### The OOM Survival Test
 Even if the system is under extreme pressure and kills your app while a task is running, **your work is not lost**.
@@ -282,7 +289,7 @@ Future<bool> syncHealthData(Map<String, dynamic>? input) async { ... }
 
 ## 🔌 Selective Plugin Registration (Recommended)
 
-By default, `native_workmanager` runs with `registerPlugins: false`. This follows our **Zero-Engine I/O** principle to save RAM (~50MB+) and prevent hardware side-effects (like Bluetooth or Audio disconnects when a background task finishes).
+By default, `native_workmanager` runs with `registerPlugins: false`. This follows our **Zero-Engine I/O** principle to avoid loading plugins the background task never uses, and to prevent hardware side-effects (like Bluetooth or Audio disconnects when a background task finishes).
 
 If your `DartWorker` needs to use other plugins (e.g., `flutter_local_notifications`, `shared_preferences`), you should register them **selectively** on the native side. This is more efficient and stable than registering all plugins.
 
