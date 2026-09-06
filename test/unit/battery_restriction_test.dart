@@ -61,7 +61,8 @@ void main() {
     });
 
     test('canOpenSettings defaults to false when the platform omits it', () {
-      final report = BatteryRestrictionReport.fromMap(const {'isExempt': false});
+      final report =
+          BatteryRestrictionReport.fromMap(const {'isExempt': false});
       expect(report.canOpenSettings, isFalse);
     });
 
@@ -133,7 +134,8 @@ void main() {
 
     test('a null platform answer is false, not an exception', () async {
       installHandler({'openBatteryOptimizationSettings': null});
-      expect(await NativeWorkManager.openBatteryOptimizationSettings(), isFalse);
+      expect(
+          await NativeWorkManager.openBatteryOptimizationSettings(), isFalse);
     });
   });
 
