@@ -2,7 +2,7 @@
 
 Our mission is to provide the most robust, efficient, and secure background execution engine for Flutter.
 
-## 🔜 Planned (v1.6.0)
+## 🔜 Planned (v1.7.0)
 
 - **OEM battery-optimisation helpers (Android).** WorkManager persists tasks in the OS database,
   but Xiaomi (MIUI/HyperOS), Samsung ("App put to sleep") and similar OEM layers stretch a 15-minute
@@ -15,8 +15,6 @@ Our mission is to provide the most robust, efficient, and secure background exec
   to each node on iOS to work around BGTaskScheduler dropping back-to-back submissions
   (`_iosNodeSubmissionStagger`). It is a platform detail sitting in Dart domain logic; it belongs
   in the iOS scheduling layer, which needs a per-submission hook in KMP first.
-- **SwiftUI `@main` app support** — shipped in v1.5.0; the Phase 2 checklist entry below is stale
-  and should be ticked off.
 
 ---
 
@@ -117,7 +115,7 @@ To capture mindshare from legacy libraries, we must provide "Plug & Play" soluti
 - [ ] **"Plug & Play" Templates Repository:**
   - Provide ready-to-use Dart templates for common use cases: *Auto Photo Backup to S3*, *Offline Chat Queue*, *Netflix-style Large Video Download*.
 - [ ] **Native Offline Queue Engine:** Built-in declarative pattern for queuing tasks while offline with automatic file/database-backed retry.
-- [ ] **SwiftUI `@main` App Support:** CLI tool detects SwiftUI apps and generates `AppDelegate` adoption shims.
+- [x] **SwiftUI `@main` App Support** — shipped in v1.5.0. `dart run native_workmanager:setup` detects a SwiftUI `@main` App and reports whether `@UIApplicationDelegateAdaptor(AppDelegate.self)` is wired.
 
 ---
 
