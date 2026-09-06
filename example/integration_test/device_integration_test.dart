@@ -2725,16 +2725,30 @@ void main() {
       await NativeWorkManager.cancel(taskId: probeId);
     });
 
-    testWidgets('exact trigger – accepted', (tester) async {
+    testWidgets('exact trigger – accepted on Android, refused on iOS', (
+      tester,
+    ) async {
       final id = _id('exact_trigger');
 
-      final result = await NativeWorkManager.enqueue(
+      Future<TaskHandler> enqueueExact() => NativeWorkManager.enqueue(
         taskId: id,
         trigger: TaskTrigger.exact(
           DateTime.now().add(const Duration(minutes: 5)),
         ),
         worker: DartWorker(callbackId: 'dit_pass'),
       );
+
+      if (Platform.isIOS) {
+        // ExactTrigger has been rejected in Dart on iOS since v1.2.1:
+        // BGTaskScheduler cannot honour an exact time, so the API refuses rather
+        // than accepting a request it would silently miss by hours. This test
+        // used to call enqueue unconditionally and therefore failed on every iOS
+        // run — it was asserting a contract the library deliberately does not have.
+        await expectLater(enqueueExact(), throwsUnsupportedError);
+        return;
+      }
+
+      final result = await enqueueExact();
 
       expect(
         result.scheduleResult,

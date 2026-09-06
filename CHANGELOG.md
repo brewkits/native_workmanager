@@ -137,6 +137,11 @@ every performance number the project could not reproduce.
   kills the app there; Android passes either way, because its existing guarded parse already
   turns upstream's own exception into `ENQUEUE_ERROR`.
 
+- **The `exact trigger` device test failed on every iOS run.** `ExactTrigger` has been rejected
+  in Dart on iOS since v1.2.1 — BGTaskScheduler cannot honour an exact time, so the API refuses
+  rather than accepting a request it would miss by hours — but the test called `enqueue`
+  unconditionally and asserted a contract the library deliberately does not have. It now asserts
+  `throwsUnsupportedError` on iOS and keeps the accepted/rejected assertion on Android.
 - `doc/ANDROID_SETUP.md` told readers to hand-roll a `MethodChannel` calling
   `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` with **no mention of the Play-policy
   restriction**. Replaced with the new API and the warning. Also corrected a "see §3 above"
