@@ -5,6 +5,81 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-09-06
+
+### Changed
+
+- **kmpworkmanager core upgraded 3.3.1 → 3.4.1** (spans two upstream releases). No Dart API
+  change — this release is the engine bump plus the one bridge fix it forced. The parts that
+  reach plugin users without any code change on their side:
+
+  - **Android: `TaskTrigger.exact` actually runs its worker now.** The default `AlarmReceiver`
+    registered by `KmpWorkManager.initialize()` — the one this plugin uses — logged the fired
+    alarm and finished the broadcast without ever resolving or invoking the scheduled worker.
+    Every exact-alarm task fired on time and did nothing. Fixed upstream in 3.4.0.
+  - **Android: exact-alarm tasks survive a process kill mid-execution.** Alarm metadata was
+    removed from `AlarmStore` *before* the work ran; a kill in that window lost the task with
+    no trace and no reboot recovery. Removal now happens after a definitive outcome.
+  - **Android: expedited work is now gated on task priority.** Previously every eligible task
+    (no delay, not heavy, no charging/unmetered requirement) was requested as expedited work
+    regardless of priority. Standalone `enqueue()` has no priority parameter, so plugin tasks
+    are `NORMAL` and are **no longer blanket-expedited** — expect slightly later scheduling for
+    them under WorkManager quota pressure. Chain steps marked `CRITICAL`/`HIGH` are unaffected.
+  - **Android: `KmpHeavyWorker` retries instead of discarding on a transient foreground-service
+    denial.** A `SecurityException`/`IllegalStateException` from OS background-start policy
+    (battery saver, OEM restriction) returned a permanent failure and dropped the task.
+  - **Android: file leaks closed** — the large-input overflow file for a task rescheduled under
+    `ExistingPolicy.replace` is now deleted rather than orphaned until the 24 h janitor sweep,
+    and chain-step overflow files are cleaned up when a chain is cancelled before the step runs.
+  - **Android: `getExecutionHistory()` records the real failure reason.** `ExecutionRecord.errorMessage`
+    was always persisted as `null`, so persisted history lost every diagnostic detail (live
+    completion events were unaffected).
+  - **iOS: `ExistingPolicy.keep` no longer behaves like `replace`.** For a task id not declared
+    in `Info.plist` — the normal case, since ids are usually per-instance — the KEEP check
+    queried `BGTaskScheduler` for an identifier that is never submitted under its own name, so
+    it always missed. A repeat `enqueue(policy: keep)` therefore discarded the first call's
+    metadata and could duplicate the task.
+  - **iOS: chain progress can no longer regress.** A failed progress flush unconditionally
+    re-buffered its pre-failure snapshot, which could clobber a newer in-memory value; a
+    process kill after that made a resumed chain re-run an already-completed step.
+  - **iOS: a dynamic task is no longer silently dropped** when a host app's `WorkerFactory`
+    throws something other than `IllegalArgumentException` — the case that permanently stopped
+    a periodic task's recurring schedule.
+  - **iOS: standalone tasks now honour `requiresUnmeteredNetwork`, `requiresCharging` and the
+    battery-not-low constraint**, and `Constraints.backoffPolicy`/`backoffDelayMs` affect retry
+    timing when explicitly set. Previously only chain steps enforced any of these.
+  - **iOS: metadata, chain definitions and chain progress are written atomically**
+    (temp file + `replaceItemAtURL`) instead of via `NSString.writeToFile(atomically:)`, and a
+    completed background download is moved without the previous delete-then-move window.
+
+  Upstream 3.4.0 carries one breaking change — `AlarmReceiver.onReceive()` no longer removes
+  `AlarmStore` metadata before dispatch — that affects only apps subclassing `AlarmReceiver`
+  **directly**. This plugin subclasses neither it nor `BaseAlarmReceiver`, so no host-app
+  migration is required.
+
+### Fixed
+
+- **An inverted `TaskTrigger.windowed(earliest:, latest:)` window (`latest < earliest`) is
+  rejected with a normal Dart-visible error instead of taking the app down on iOS.**
+  kmpworkmanager 3.4.1 added construction-time validation to `TaskTrigger.Windowed`; a Kotlin
+  `IllegalArgumentException` thrown from a constructor exported to Swift cannot be caught and
+  terminates the process. `KMPSchedulerBridge` now rejects the inverted window before
+  constructing the trigger, which flows into the existing "Invalid trigger configuration" error
+  path. Android already parsed the trigger inside a guarded block and surfaces `ENQUEUE_ERROR`.
+  No Dart-side `assert` was added — the Dart API still accepts the combination and lets the
+  platform answer. Covered by `kmp_341: inverted windowed trigger errors instead of crashing`
+  in `device_integration_test.dart`, which fails (by killing the app) if the guard is removed.
+
+### Notes
+
+- `BackgroundTaskScheduler.enqueue()` gained defaulted `tags` and `deadlineMs` parameters
+  upstream. Kotlin defaults keep Android source-compatible, but they are **not** exported to
+  Swift, so the ObjC selector changed and `KMPSchedulerBridge.swift` now passes both explicitly
+  at their Kotlin defaults (empty set / `nil`) — behaviour is identical to 3.3.1.
+- The new upstream API surface — task tags with `cancelByTag`, per-task deadlines, the chain
+  `InputMerger` (`mergeOutputFromPreviousStep`) and `ExistingPolicy.UPDATE` — is **not** exposed
+  through the Dart API in this release. Wiring it is tracked separately.
+
 ## [1.5.0] - 2026-08-23
 
 ### Added

@@ -2660,6 +2660,68 @@ void main() {
       await NativeWorkManager.cancel(taskId: id);
     });
 
+    // kmpworkmanager 3.4.1 made TaskTrigger.Windowed throw IllegalArgumentException
+    // for latest < earliest. Before the bump an inverted window was accepted and the
+    // task silently skipped as deadline-exceeded; after it, the native constructor
+    // throws. On iOS that exception crosses the Kotlin/Native → Swift boundary from a
+    // constructor, where it is NOT catchable and terminates the process — so both
+    // bridges must reject the inverted window before constructing the trigger.
+    // This test fails (by killing the app / hanging the run) if that guard is removed.
+    testWidgets('kmp_341: inverted windowed trigger errors instead of crashing', (
+      tester,
+    ) async {
+      final id = _id('windowed_inverted');
+
+      var threw = false;
+      ScheduleResult? scheduleResult;
+      try {
+        final result = await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.windowed(
+            earliest: Duration(minutes: 10),
+            latest: Duration(minutes: 1),
+          ),
+          worker: DartWorker(callbackId: 'dit_pass'),
+        );
+        scheduleResult = result.scheduleResult;
+      } catch (_) {
+        // A PlatformException from the native bridge is the expected outcome on
+        // the platforms that surface the rejection as an error rather than a
+        // non-accepted ScheduleResult. Either shape is fine — a crash is not.
+        threw = true;
+      }
+
+      expect(
+        threw || scheduleResult != null,
+        isTrue,
+        reason:
+            'kmp_341: an inverted window must resolve to a Dart-visible error or '
+            'result, never an unhandled native exception',
+      );
+
+      await NativeWorkManager.cancel(taskId: id);
+
+      // The real assertion: the process survived and the channel still works.
+      // If the native guard is removed, iOS terminates above and this never runs.
+      final probeId = _id('windowed_inverted_probe');
+      final probe = await NativeWorkManager.enqueue(
+        taskId: probeId,
+        trigger: const TaskTrigger.windowed(
+          earliest: Duration(seconds: 0),
+          latest: Duration(minutes: 5),
+        ),
+        worker: DartWorker(callbackId: 'dit_pass'),
+      );
+      expect(
+        probe.scheduleResult,
+        ScheduleResult.accepted,
+        reason:
+            'kmp_341: the plugin must still be usable after rejecting an '
+            'inverted window',
+      );
+      await NativeWorkManager.cancel(taskId: probeId);
+    });
+
     testWidgets('exact trigger – accepted', (tester) async {
       final id = _id('exact_trigger');
 

@@ -20,6 +20,42 @@ Our mission is to provide the most robust, efficient, and secure background exec
 
 ---
 
+## ✅ Completed (v1.6.x)
+- **v1.6.0 kmpworkmanager 3.4.1 engine bump:** no Dart API change; the value is entirely in the
+  core. Android exact alarms actually execute their worker for the first time (the default
+  `AlarmReceiver` used to log the alarm and stop), exact-alarm tasks survive a mid-run process
+  kill, `KmpHeavyWorker` retries a transient foreground-service denial instead of dropping the
+  task, and two overflow-file leaks are closed. iOS gets `ExistingPolicy.keep` working for
+  dynamic task ids, no more chain-progress regression on a failed flush, constraint enforcement
+  (`requiresUnmeteredNetwork` / charging / battery-not-low) and backoff timing for *standalone*
+  tasks rather than chain steps only, and atomic metadata writes. One behaviour regression to
+  watch for: expedited work is now gated on `TaskPriority`, so plugin `enqueue()` tasks (always
+  `NORMAL`) are no longer blanket-expedited on Android.
+  - Bridge fix forced by the bump: an inverted `TaskTrigger.windowed` window now throws at
+    construction upstream, which on iOS is an uncatchable Kotlin exception crossing into Swift.
+    `KMPSchedulerBridge` rejects it first — see `kmp_341:` in `device_integration_test.dart`.
+
+### Not yet exposed in Dart (follow-up)
+kmpworkmanager 3.4.0 shipped a WorkManager-parity API surface this plugin does not yet surface.
+Each is a full Dart → Android → iOS parity change with its own device coverage:
+- **Task tags + `cancelByTag(tag)` / `cancelByWorkerClass(name)`** — group cancellation by
+  business context (`cancelByTag("user-123")`) across mixed worker types. Not supported for
+  `TaskTrigger.Exact` on Android (AlarmManager is not tag-indexed).
+- **Per-task `deadlineMs`** — a task not started by its deadline is skipped rather than run with
+  stale data, and it finally gives `TaskTrigger.windowed`'s `latest` real teeth on iOS. Note the
+  Dart bridge would also need `ScheduleResult.DEADLINE_ALREADY_PASSED`, which the Android plugin
+  already forwards but `_parseScheduleResult` does not recognise (it logs and falls back to
+  `accepted`); the branch is unreachable today only because no deadline is ever set.
+- **Chain `InputMerger` (`mergeOutputFromPreviousStep`)** — a step opts in to receiving the
+  previous step's result data merged into its own input, removing the need for the
+  `{{taskId.outputKey}}` placeholder dance for whole-payload hand-off.
+- **`ExistingPolicy.UPDATE`** — change a periodic task's constraints/input without resetting its
+  interval timer.
+- **`kmpworker-http` HMAC request signing + token refresh on 401** — overlaps the v1.4.0 backlog
+  item on RemoteTrigger HMAC canonicalisation.
+
+---
+
 ## ✅ Completed (v1.5.x)
 - **v1.5.0 Live Activity progress filter, SwiftUI @main detection & kmpworkmanager 3.3.1:**
   - **`NativeWorkManager.iosLiveActivity`:** a `taskId`-scoped filter over the existing progress
