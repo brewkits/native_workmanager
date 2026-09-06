@@ -5,7 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.6.0] - 2026-09-06
+
+Engine bump, a new Android diagnostics API, and a documentation correction that removes
+every performance number the project could not reproduce.
 
 ### Added
 
@@ -42,43 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   On iOS all three report "not applicable" — `isExempt` is `null` so
   `BatteryRestrictionReport.isSupported` distinguishes "we asked and the answer is no" from
   "there is nothing to ask".
-
-### Changed
-
-- **Removed every unmeasured performance claim from the documentation.** The docs advertised a
-  `~2 MB` RAM footprint, `< 50 ms` task startup, and `100% Guaranteed` survival of process
-  death — for this package *and*, in the comparison table, for four competitors. None came from
-  a run anyone could reproduce, and `benchmark/results/` had been empty since the harness was
-  built in February.
-
-  Two of those were not merely unsourced but wrong. Nothing *guarantees* background execution
-  on either platform; the real property is that a task is **restored** after process death via
-  WorkManager/SQLite and BGTaskScheduler persistence, which is what the docs now say. And
-  `< 50 ms` is contradicted by this project's own harness, which reports 698 ms and 794 ms for
-  its two startup benchmarks.
-
-  Comparison tables now carry dated capability rows only. Numbers return when there are runs to
-  back them.
-
-- **`benchmark/README.md`** no longer claims the project provides independent community
-  verification. It provides transparent methodology and reproducibility; the third leg needs
-  published results, which do not exist yet.
-
-- **`ROADMAP.md`**: replaced the adoption-metric KPI table (pub.dev likes, stars, weekly
-  downloads, "Enterprise Users") — those targets predate the July 2026 decision that this is a
-  portfolio project, not a commercial one, and steering by them pushed prioritisation toward
-  breadth. Cross-integration adapters, the templates repository, desktop support, cloud
-  coordination and enterprise rate limiting moved to a **Deliberately deferred** section with
-  the reason for each recorded.
-
-### Fixed
-
-- `doc/ANDROID_SETUP.md` told readers to hand-roll a `MethodChannel` calling
-  `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` with **no mention of the Play-policy
-  restriction**. Replaced with the new API and the warning. Also corrected a "see §3 above"
-  pointer that aimed at Killed-App Support rather than the battery section.
-
-## [1.6.0] - 2026-09-06
 
 ### Changed
 
@@ -130,6 +96,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **directly**. This plugin subclasses neither it nor `BaseAlarmReceiver`, so no host-app
   migration is required.
 
+- **Removed every unmeasured performance claim from the documentation.** The docs advertised a
+  `~2 MB` RAM footprint, `< 50 ms` task startup, and `100% Guaranteed` survival of process
+  death — for this package *and*, in the comparison table, for four competitors. None came from
+  a run anyone could reproduce, and `benchmark/results/` had been empty since the harness was
+  built in February.
+
+  Two of those were not merely unsourced but wrong. Nothing *guarantees* background execution
+  on either platform; the real property is that a task is **restored** after process death via
+  WorkManager/SQLite and BGTaskScheduler persistence, which is what the docs now say. And
+  `< 50 ms` is contradicted by this project's own harness, which reports 698 ms and 794 ms for
+  its two startup benchmarks.
+
+  Comparison tables now carry dated capability rows only. Numbers return when there are runs to
+  back them.
+
+- **`benchmark/README.md`** no longer claims the project provides independent community
+  verification. It provides transparent methodology and reproducibility; the third leg needs
+  published results, which do not exist yet.
+
+- **`ROADMAP.md`**: replaced the adoption-metric KPI table (pub.dev likes, stars, weekly
+  downloads, "Enterprise Users") — those targets predate the July 2026 decision that this is a
+  portfolio project, not a commercial one, and steering by them pushed prioritisation toward
+  breadth. Cross-integration adapters, the templates repository, desktop support, cloud
+  coordination and enterprise rate limiting moved to a **Deliberately deferred** section with
+  the reason for each recorded.
+
 ### Fixed
 
 - **An inverted `TaskTrigger.windowed(earliest:, latest:)` window (`latest < earliest`) is
@@ -144,6 +136,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in `device_integration_test.dart`. That test is only meaningful on iOS — removing the guard
   kills the app there; Android passes either way, because its existing guarded parse already
   turns upstream's own exception into `ENQUEUE_ERROR`.
+
+- `doc/ANDROID_SETUP.md` told readers to hand-roll a `MethodChannel` calling
+  `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` with **no mention of the Play-policy
+  restriction**. Replaced with the new API and the warning. Also corrected a "see §3 above"
+  pointer that aimed at Killed-App Support rather than the battery section.
 
 ### Notes
 

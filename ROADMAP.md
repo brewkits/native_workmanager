@@ -16,11 +16,17 @@ Our mission is to provide the most robust, efficient, and secure background exec
 
 ---
 
-## 🚧 Unreleased (on branch, not merged)
-
-- **Battery-restriction diagnostics (Android)** — on branch
-  `feat/android-battery-restriction-helpers`. Which release it lands in is undecided:
-  it can ride along with the v1.6.0 engine bump, or be its own v1.7.0. `batteryRestriction()` reports the stock-Android
+## ✅ Completed (v1.6.x)
+- **v1.6.0 removed every unmeasured performance claim from the docs.** The comparison tables
+  carried a `~2 MB` RAM figure, a `< 50 ms` startup figure and a `100% Guaranteed` survival
+  claim — for this package *and* for four competitors — none produced by a run anyone could
+  reproduce. Running this project's own harness reports 698 ms and 794 ms against that
+  `< 50 ms`, which is the whole argument. Numbers removed rather than restated; tables now carry
+  dated capability rows only. First run recorded under `benchmark/results/`, labelled as a
+  simulator run and explicitly not a performance claim. See §5.2 of `doc/BEST_PRACTICES.md`.
+- **v1.6.0 battery-restriction diagnostics (Android):** the most common real-world reason a
+  periodic task runs late is the OS, or the OEM, deferring it, and there was no way to see
+  that from Dart. `batteryRestriction()` reports the stock-Android
   exemption state, `Build.MANUFACTURER`, and whether the settings screen actually resolves;
   `openBatteryOptimizationSettings()` is the no-permission route;
   `requestDisableBatteryOptimization()` is the direct dialog, which returns `missingPermission`
@@ -30,12 +36,8 @@ Our mission is to provide the most robust, efficient, and secure background exec
   app to act on. Verified on Pixel 6 Pro (Android 17) and iPhone 16 Pro simulator; the
   permission-present/absent branches are covered by Robolectric, which a single device cannot
   produce.
-
----
-
-## ✅ Completed (v1.6.x)
-- **v1.6.0 kmpworkmanager 3.4.1 engine bump:** no Dart API change; the value is entirely in the
-  core. Android exact alarms actually execute their worker for the first time (the default
+- **v1.6.0 kmpworkmanager 3.4.1 engine bump:** no Dart API change *from the bump itself* — its
+  value is entirely in the core. Android exact alarms actually execute their worker for the first time (the default
   `AlarmReceiver` used to log the alarm and stop), exact-alarm tasks survive a mid-run process
   kill, `KmpHeavyWorker` retries a transient foreground-service denial instead of dropping the
   task, and two overflow-file leaks are closed. iOS gets `ExistingPolicy.keep` working for
