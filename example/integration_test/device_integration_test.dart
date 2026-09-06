@@ -2666,7 +2666,10 @@ void main() {
     // throws. On iOS that exception crosses the Kotlin/Native → Swift boundary from a
     // constructor, where it is NOT catchable and terminates the process — so both
     // bridges must reject the inverted window before constructing the trigger.
-    // This test fails (by killing the app / hanging the run) if that guard is removed.
+    // PLATFORM SCOPE: only iOS actually exercises the guard. Android parses the trigger
+    // inside an already-guarded block, so upstream's own IllegalArgumentException is caught
+    // and surfaces as ENQUEUE_ERROR — Android passes this test with or without the bridge
+    // guard. On iOS, removing the guard kills the app here and the run never finishes.
     testWidgets('kmp_341: inverted windowed trigger errors instead of crashing', (
       tester,
     ) async {

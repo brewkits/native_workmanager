@@ -68,7 +68,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path. Android already parsed the trigger inside a guarded block and surfaces `ENQUEUE_ERROR`.
   No Dart-side `assert` was added — the Dart API still accepts the combination and lets the
   platform answer. Covered by `kmp_341: inverted windowed trigger errors instead of crashing`
-  in `device_integration_test.dart`, which fails (by killing the app) if the guard is removed.
+  in `device_integration_test.dart`. That test is only meaningful on iOS — removing the guard
+  kills the app there; Android passes either way, because its existing guarded parse already
+  turns upstream's own exception into `ENQUEUE_ERROR`.
 
 ### Notes
 
