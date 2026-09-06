@@ -52,6 +52,19 @@ jobs:
         working-directory: native_workmanager_gen
         run: dart analyze
 
+      # dart pub publish warns (and exits 65) if any checked-in file is dirty, but it
+      # only prints the file NAMES. On this runner analysis_options.yaml and
+      # example/analysis_options.yaml were reported dirty with no way to see why, so
+      # the job stayed red for months with nobody able to act on it. Print the actual
+      # diff first: a check that fails without saying what changed is not a usable check.
+      - name: Show any working-tree changes before dry-run
+        run: |
+          echo "── git status ──"
+          git status --porcelain
+          echo "── git diff ──"
+          git diff --stat
+          git diff
+
       - name: Pub publish dry-run (plugin)
         run: dart pub publish --dry-run
 
