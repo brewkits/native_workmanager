@@ -17,7 +17,9 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           flutter-version-file: .flutter-version
-          channel: stable
+          # No `channel:` here on purpose — subosito/flutter-action lets channel
+          # WIN over flutter-version-file, so having both meant .flutter-version was
+          # silently ignored and every job ran whatever stable happened to be latest.
           cache: true
 
       - name: Install dependencies
@@ -42,7 +44,9 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           flutter-version-file: .flutter-version
-          channel: stable
+          # No `channel:` here on purpose — subosito/flutter-action lets channel
+          # WIN over flutter-version-file, so having both meant .flutter-version was
+          # silently ignored and every job ran whatever stable happened to be latest.
           cache: true
 
       - uses: actions/setup-java@v4
@@ -71,7 +75,9 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           flutter-version-file: .flutter-version
-          channel: stable
+          # No `channel:` here on purpose — subosito/flutter-action lets channel
+          # WIN over flutter-version-file, so having both meant .flutter-version was
+          # silently ignored and every job ran whatever stable happened to be latest.
           cache: true
 
       - name: Install dependencies

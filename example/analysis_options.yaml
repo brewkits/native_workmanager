@@ -23,6 +23,13 @@ analyzer:
     avoid_print: ignore
     deprecated_member_use: ignore
     invalid_use_of_internal_member: ignore
+  # See the note in the root analysis_options.yaml: the Flutter tool appends these
+  # on newer stable channels, so they are declared up front to keep the working
+  # tree clean during CI.
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
 
 linter:
   # The lint rules applied to this project can be customized in the

@@ -137,6 +137,18 @@ every performance number the project could not reproduce.
   kills the app there; Android passes either way, because its existing guarded parse already
   turns upstream's own exception into `ENQUEUE_ERROR`.
 
+- **CI never honoured `.flutter-version` at all.** Every `subosito/flutter-action` step passed
+  both `flutter-version-file: .flutter-version` **and** `channel: stable`, and the channel wins —
+  so the pin was decorative and all 15 job setups ran whatever stable happened to be latest
+  (3.47.2 at time of writing). The `channel:` line is now removed wherever a version file is
+  given, so the pin actually takes effect.
+
+  This was also the real cause of the long-red `Analyze & Format` job, which the Flutter bump
+  below did *not* fix: newer stable Flutter appends `build/**`, `android/**` and `ios/**` to the
+  `analyzer.exclude` list in `analysis_options.yaml` and `example/analysis_options.yaml` when it
+  runs. That left the working tree dirty mid-job, and `dart pub publish --dry-run` exits 65 on a
+  dirty checked-in file. Both files now declare those excludes up front — they are correct
+  excludes in their own right — so nothing rewrites them.
 - **CI was validating against a Flutter the project no longer uses.** `.flutter-version` pinned
   **3.27.4** (Dart 3.6.2, released 2025-02-05) while development and the consuming app run
   **3.41.9** (Dart 3.11.5). Two concrete consequences, both now fixed by bumping the pin:
