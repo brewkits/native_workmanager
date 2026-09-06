@@ -286,22 +286,79 @@ Killed-app restart (WorkManager fires a task):
 On most Android devices users must **exempt your app from battery optimisation** for WorkManager
 to run tasks reliably after the app is killed. This is an OS constraint, not a plugin limitation.
 
-Prompt the user from your settings screen:
+The plugin reports what the OS actually says:
+
 ```dart
-import 'package:flutter/services.dart';
+final report = await NativeWorkManager.batteryRestriction();
 
-// Android-only — check and request battery optimisation exemption
-const _channel = MethodChannel('your_app/battery');
-await _channel.invokeMethod('requestIgnoreBatteryOptimizations');
-```
-
-On the Kotlin side:
-```kotlin
-val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-    data = Uri.parse("package:${packageName}")
+if (report.isExempt == false) {
+  // Periodic work on this device may be deferred well past its interval.
+  await NativeWorkManager.openBatteryOptimizationSettings();
 }
-startActivity(intent)
 ```
+
+`batteryRestriction()` is a pure diagnostic — it schedules nothing and does not require
+`initialize()`, so it is safe to call during startup.
+
+| Field | Meaning |
+| :--- | :--- |
+| `isExempt` | `true` if `PowerManager.isIgnoringBatteryOptimizations()` is set. `null` on iOS. |
+| `manufacturer` | `Build.MANUFACTURER`, lowercased. `null` on iOS. |
+| `canOpenSettings` | Whether the settings screen actually resolves on this device (checked, not assumed). |
+
+**Read `isExempt` honestly.** It reflects one stock-Android list. Xiaomi (MIUI/HyperOS),
+Samsung, Huawei, Oppo and Vivo run their own task killer on top of it, so a device can
+report `isExempt: true` and still stretch a 15-minute periodic task into hours. Clearing
+the stock list removes one known obstacle; it is not a guarantee, and this plugin does not
+claim to make it one.
+
+That is also why there is no `openXiaomiAutostartSettings()`. Those OEM screens are
+undocumented internal activities that get renamed between firmware builds, so a shipped
+table of them rots on devices we cannot test. `manufacturer` is passed through raw instead,
+so your app can word its own guidance:
+
+```dart
+final report = await NativeWorkManager.batteryRestriction();
+if (report.manufacturer == 'xiaomi') {
+  showDialog(/* "Also enable Autostart in Security → Permissions" */);
+}
+```
+
+##### The direct dialog is Play-policy restricted
+
+`requestDisableBatteryOptimization()` shows the system "allow" dialog in one tap instead of
+sending the user into a settings list. It needs this in **your** `AndroidManifest.xml`:
+
+```xml
+<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+```
+
+The plugin will never declare it for you. It is a
+[Play-policy restricted permission](https://support.google.com/googleplay/android-developer/answer/9888170),
+allowed only for a short list of app categories, and a *library* manifest merges into every
+consumer app — declaring it here would drag apps that never call this API into a policy
+review they did not ask for. (The foreground-service permissions were removed from this
+plugin's manifest for exactly that reason; `ManifestGuardTest` now guards both.)
+
+If you have not declared it, the call returns `BatteryOptimizationRequestResult.missingPermission`
+rather than throwing:
+
+```dart
+final result = await NativeWorkManager.requestDisableBatteryOptimization();
+switch (result) {
+  case BatteryOptimizationRequestResult.shown:
+    // Re-read batteryRestriction() after your app resumes to see the answer.
+  case BatteryOptimizationRequestResult.missingPermission:
+    // Not declared — fall back to the settings list, which needs no permission.
+    await NativeWorkManager.openBatteryOptimizationSettings();
+  default:
+    break;
+}
+```
+
+**Unless your app clearly falls into one of Google's eligible categories, use
+`openBatteryOptimizationSettings()`.** It reaches the same outcome with one more user tap
+and no policy exposure.
 
 ---
 
@@ -580,7 +637,8 @@ This was a known v1.0.7 bug (H-2). Fixed by resetting `isSchedulerInitialized = 
 
 ### Tasks not running in background
 
-1. **Battery optimisation** — request exemption (see §3 above)
+1. **Battery optimisation** — check with `NativeWorkManager.batteryRestriction()`, then
+   `openBatteryOptimizationSettings()` (see *Battery optimisation* under Killed-App Support)
 2. **Doze mode** — use `Constraints(requiresNetwork: true)` to let WorkManager reschedule
 3. **App standby** — use periodic intervals ≥ 15 minutes
 4. **Simulate Doze mode:**

@@ -34,6 +34,7 @@
 /// See [NativeWorkManager] for full documentation.
 library;
 
+export 'src/battery_restriction.dart';
 export 'src/constraints.dart';
 export 'src/foreground_notification_config.dart';
 export 'src/task_id.dart';

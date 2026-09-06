@@ -270,6 +270,11 @@ class NativeWorkmanagerPlugin : FlutterPlugin, MethodCallHandler,
                 "allTasks" -> handleAllTasks(safeResult)
                 "getServerFilename" -> handleGetServerFilename(call, safeResult)
                 "openFile" -> handleOpenFile(call, safeResult)
+                "batteryRestriction" -> handleBatteryRestriction(safeResult)
+                "openBatteryOptimizationSettings" ->
+                    handleOpenBatteryOptimizationSettings(safeResult)
+                "requestDisableBatteryOptimization" ->
+                    handleRequestDisableBatteryOptimization(safeResult)
                 "setMaxConcurrentPerHost" -> {
                     val max = call.argument<Int>("max") ?: 2
                     HostConcurrencyManager.maxConcurrentPerHost = max
