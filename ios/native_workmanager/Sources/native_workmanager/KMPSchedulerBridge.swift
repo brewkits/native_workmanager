@@ -34,13 +34,25 @@ class KMPSchedulerBridge {
 
         // Call KMP scheduler (async)
         // Note: KMP suspend functions are exposed as async callbacks in Swift
+        // kmpworkmanager 3.4.1 added `tags` and `deadlineMs` to
+        // BackgroundTaskScheduler.enqueue(). Kotlin default arguments are NOT exported to
+        // ObjC/Swift, so the selector itself changed and both must be passed explicitly.
+        // Passed at their Kotlin defaults (empty set / nil) to keep behaviour identical to
+        // 3.3.1 — this plugin does not expose task tags or deadlines through the Dart API
+        // yet. When it does, thread the Dart-provided values through here.
+        //
+        // ⚠️ KMP-BRIDGE-FROZEN: deadlineMs is Kotlin `Long?`, exported as `KotlinLong?`.
+        // If a value is ever wired in, it MUST be boxed with `KotlinLong(value:)` —
+        // `Int64? as? KotlinLong` silently yields nil (the v1.2.5 flexMs regression).
         scheduler.enqueue(
             id: taskId,
             trigger: trigger,
             workerClassName: workerClassName,
             constraints: constraints,
             inputJson: inputJson,
-            policy: policy
+            policy: policy,
+            tags: Set<String>(),
+            deadlineMs: nil
         ) { result, error in
             if let error = error {
                 completion(.failure(error))
@@ -102,6 +114,16 @@ class KMPSchedulerBridge {
             // iOS supports windowed via earliestBeginDate; `latest` is advisory only.
             guard let earliestMs = (map["earliestMs"] as? NSNumber)?.int64Value,
                   let latestMs = (map["latestMs"] as? NSNumber)?.int64Value else {
+                return nil
+            }
+            // kmpworkmanager 3.4.1 made TaskTrigger.Windowed throw
+            // IllegalArgumentException for latest < earliest (previously the task was
+            // just silently skipped as deadline-exceeded). A Kotlin exception thrown
+            // out of a constructor exported to Swift is NOT catchable — it terminates
+            // the process — so reject the inverted window here and let the caller
+            // surface "Invalid trigger configuration" to Dart instead.
+            guard latestMs >= earliestMs else {
+                NativeLogger.d("ERROR: windowed trigger has latest < earliest — rejecting.")
                 return nil
             }
             return TaskTriggerWindowed(earliest: earliestMs, latest: latestMs)

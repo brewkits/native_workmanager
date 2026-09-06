@@ -929,6 +929,58 @@ NativeWorker.httpDownload(
 - No time limits
 - Automatic retry on network failure
 
+### Android battery restrictions
+
+The most common real-world reason a periodic task runs late is the OS — or the device
+manufacturer — deferring it. These report what the OS actually says.
+
+```dart
+final report = await NativeWorkManager.batteryRestriction();
+
+if (report.isExempt == false) {
+  await NativeWorkManager.openBatteryOptimizationSettings();
+}
+```
+
+| Method | Returns | Notes |
+| :--- | :--- | :--- |
+| `batteryRestriction()` | `BatteryRestrictionReport` | Pure diagnostic. Does not require `initialize()`. |
+| `openBatteryOptimizationSettings()` | `Future<bool>` | Opens the system list. **No permission needed.** |
+| `requestDisableBatteryOptimization()` | `BatteryOptimizationRequestResult` | Direct dialog. Needs a host-app permission — see below. |
+
+**`BatteryRestrictionReport`**
+
+| Field | Type | Meaning |
+| :--- | :--- | :--- |
+| `isExempt` | `bool?` | `PowerManager.isIgnoringBatteryOptimizations()`. `null` = no answer (iOS, or an OEM build that threw). |
+| `manufacturer` | `String?` | `Build.MANUFACTURER`, lowercased. `null` on iOS. |
+| `canOpenSettings` | `bool` | Whether the settings screen resolves on this device — checked, not assumed. |
+| `isSupported` | `bool` | `false` whenever `isExempt` is `null`. |
+
+> **`isExempt: true` is not a guarantee.** It reflects one stock-Android list. Xiaomi
+> (MIUI/HyperOS), Samsung, Huawei, Oppo and Vivo run their own task killer on top of it, so a
+> device can report `true` and still stretch a 15-minute task into hours.
+
+There are deliberately **no per-manufacturer settings deep links** — those screens are
+undocumented internal activities that get renamed between firmware builds. Use `manufacturer`
+to word your own guidance.
+
+**`BatteryOptimizationRequestResult`**
+
+`shown` · `alreadyExempt` · `missingPermission` · `unavailable` · `notSupported`
+
+`requestDisableBatteryOptimization()` needs this in **your** manifest:
+
+```xml
+<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+```
+
+The plugin never declares it — it is Play-policy restricted and a library manifest merges into
+every consumer app. Without it the call returns `missingPermission` rather than throwing. Unless
+your app fits one of Google's eligible categories, prefer `openBatteryOptimizationSettings()`.
+
+See [ANDROID_SETUP.md](ANDROID_SETUP.md) for the full guidance.
+
 ---
 
 ## See Also
@@ -940,5 +992,5 @@ NativeWorker.httpDownload(
 
 ---
 
-**Version:** 1.3.3
-**Last Updated:** 2026-07-14
+**Version:** 1.6.0
+**Last Updated:** 2026-09-06

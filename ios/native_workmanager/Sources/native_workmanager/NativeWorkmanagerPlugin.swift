@@ -207,6 +207,21 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         case "syncOfflineQueue":        result(false) // stub
         case "getRunningProgress":      result(ProgressReporter.shared.getRunningProgress())
         case "openFile":                handleOpenFile(call: call, result: result)
+        // iOS has no battery-optimization exemption list. BGTaskScheduler grants background
+        // time from its own budget and there is nothing an app can ask to be excused from,
+        // so these report "not applicable" rather than a reassuring default. isExempt is
+        // nil (NSNull over the channel) so Dart can distinguish "no such concept" from
+        // "not exempt" — see BatteryRestrictionReport.isSupported.
+        case "batteryRestriction":
+            result([
+                "isExempt": NSNull(),
+                "manufacturer": NSNull(),
+                "canOpenSettings": false,
+            ])
+        case "openBatteryOptimizationSettings":
+            result(false)
+        case "requestDisableBatteryOptimization":
+            result("notSupported")
         case "debugBGTaskRegistration": // issue_36 regression probe (iOS-only, debug/testing)
             if #available(iOS 13.0, *) {
                 result(BGTaskSchedulerManager.shared.registrationDebugInfo())
@@ -440,7 +455,12 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         switch call.method {
         case "enqueueChain": handleEnqueueChain(call: call, result: result)
         case "enqueueGraph": handleEnqueueGraph(call: call, result: result)
-        case "enqueueOfflineQueue": handleOfflineQueueEnqueue(call: call, result: result)
+        // Name must match what Dart invokes ('offlineQueueEnqueue') and what Android
+        // registers. iOS spelled it "enqueueOfflineQueue" — the words the other way
+        // round — so every offline-queue enqueue fell through to
+        // FlutterMethodNotImplemented and threw MissingPluginException. The feature
+        // has never worked on iOS. Guarded by channel_method_parity_test.dart.
+        case "offlineQueueEnqueue": handleOfflineQueueEnqueue(call: call, result: result)
         case "registerRemoteTrigger": handleRegisterRemoteTrigger(call: call, result: result)
         case "registerMiddleware": handleRegisterMiddleware(call: call, result: result)
         default: result(FlutterMethodNotImplemented)

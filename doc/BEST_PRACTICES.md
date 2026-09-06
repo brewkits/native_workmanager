@@ -17,21 +17,21 @@ Traditional plugins (such as legacy `workmanager` or `flutter_background_service
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ Legacy Architecture (50-80MB RAM, >2s Startup)                   │
+│ Engine-per-task Architecture                                     │
 │ Background Task ➔ [Boot Flutter Engine] ➔ [Dart VM] ➔ [Execute]  │
-│                     └─► ⚠️ OOM Killer / OS Purge Kills Process   │
+│                     └─► ⚠️ A heavy process for the OOM killer    │
 └──────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────────┐
-│ native_workmanager Zero-Engine Architecture (~2MB RAM, <50ms)    │
+│ native_workmanager Zero-Engine Architecture (Mode 1)             │
 │ Background Task ➔ [Native Kotlin Coroutine / Swift Async]        │
-│                     └─► 🛡️ Invisible to OOM Killer, 100% Success │
+│                     └─► No engine started, so none to kill       │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
 ### The `native_workmanager` Paradigm
 `native_workmanager` solves this by introducing a **Dual Execution Architecture**:
-1. **Mode 1 (Native Workers - Recommended):** Runs in pure Kotlin (Android WorkManager) and Swift (`BGTaskScheduler`). Consumes only **~2MB RAM**, starts in **<50ms**, and is completely invisible to the OOM killer.
+1. **Mode 1 (Native Workers - Recommended):** Runs in pure Kotlin (Android WorkManager) and Swift (`BGTaskScheduler`). No Flutter engine and no Dart isolate is started, so the task carries none of that memory or startup cost — and there is no engine process for the OOM killer to target. (Figures for how much that saves are not published yet; see §5.2.)
 2. **Mode 2 (Dart Workers):** Boots a headless Flutter isolate on demand with engine pooling for complex Dart-only business logic.
 
 ---
@@ -264,19 +264,67 @@ uploadQueue.start();
 
 ## 5. Architectural Comparison Matrix
 
-| Capability / Benchmark | `native_workmanager` | `workmanager` | `flutter_downloader` | `background_fetch` | `flutter_background_service` |
+### 5.1 Capabilities
+
+Feature presence, checked against each package's public API. Verify any row yourself from
+the linked source before relying on it — capabilities move, and this table is a snapshot.
+
+*Last checked: 2026-09-06.*
+
+| Capability | `native_workmanager` | `workmanager` | `flutter_downloader` | `background_fetch` | `flutter_background_service` |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **RAM Footprint (Native Workers)** | **~2 MB** | 50–100 MB | ~15 MB | ~40 MB | >60 MB |
-| **Startup Latency** | **< 50 ms** | 1,500–3,000 ms | ~200 ms | ~1,000 ms | >2,000 ms |
-| **Zero-Engine Execution** | ✅ **Yes (Mode 1)** | ❌ No | ⚠️ Download only | ❌ No | ❌ No |
-| **Survives Process Death / App Kill** | ✅ **100% Guaranteed** | ⚠️ Unreliable | ⚠️ Partial | ⚠️ Partial | ❌ Requires 24/7 FGS |
-| **Task Graph (DAG) & Pipelines** | ✅ **Built-in** | ❌ No | ❌ No | ❌ No | ❌ No |
-| **Resumable HTTP + ETag Sidecar** | ✅ **Built-in** | ❌ No | ⚠️ Basic | ❌ No | ❌ No |
-| **Automatic 401 Token Refresh** | ✅ **Built-in** | ❌ No | ❌ No | ❌ No | ❌ No |
-| **iOS Live Activity / Dynamic Island** | ✅ **Built-in (v1.5.0)** | ❌ No | ❌ No | ❌ No | ❌ No |
-| **DevTools Real-Time Extension** | ✅ **Built-in** | ❌ No | ❌ No | ❌ No | ❌ No |
-| **Type-Safe Code Generator** | ✅ **`native_workmanager_gen`** | ❌ No | ❌ No | ❌ No | ❌ No |
-| **Pub.dev Pana Score** | **160 / 160** | Variable | Variable | Variable | Variable |
+| **Runs a task without booting a Flutter engine** | ✅ Yes (Mode 1) | ❌ No | ⚠️ Download only | ❌ No | ❌ No |
+| **Task Graph (DAG) & Pipelines** | ✅ Built-in | ❌ No | ❌ No | ❌ No | ❌ No |
+| **Resumable HTTP + ETag Sidecar** | ✅ Built-in | ❌ No | ⚠️ Basic | ❌ No | ❌ No |
+| **Automatic 401 Token Refresh** | ✅ Built-in | ❌ No | ❌ No | ❌ No | ❌ No |
+| **iOS Live Activity progress filter** | ✅ Built-in (v1.5.0) | ❌ No | ❌ No | ❌ No | ❌ No |
+| **DevTools Real-Time Extension** | ✅ Built-in | ❌ No | ❌ No | ❌ No | ❌ No |
+| **Type-Safe Code Generator** | ✅ `native_workmanager_gen` | ❌ No | ❌ No | ❌ No | ❌ No |
+| **Battery-restriction diagnostics** | ✅ Built-in (v1.6.0) | ❌ No | ❌ No | ❌ No | ❌ No |
+
+### 5.2 Performance — not yet published
+
+This section previously carried a RAM figure, a startup-latency figure, and a
+"100% Guaranteed" survival claim, for this package *and* for four others. **Those numbers
+have been removed because none of them were measured by a run anyone could reproduce.**
+
+That was the wrong thing to ship, for two reasons:
+
+1. **"100% Guaranteed" cannot be true.** Nothing guarantees background execution on Android
+   or iOS. The OS can defer, the OEM can kill, the user can force-stop. A library that
+   claims a guarantee is either not measuring or not telling you what it measured. What
+   this package actually does is persist through official WorkManager/SQLite and
+   BGTaskScheduler storage so a task is *restored* after process death — which is a
+   meaningful property, and a different claim.
+2. **Competitor numbers were asserted, not run.** Publishing an unmeasured figure for
+   someone else's package is worse than publishing none.
+
+`benchmark/README.md` states the standard this project holds itself to: a performance claim
+is credible only when the methodology is transparent, anyone can reproduce it, and the
+community can verify it independently. The harness exists
+(`example/integration_test/firebase_benchmark_test.dart` plus
+`scripts/firebase-benchmark.sh`), so the standard is reachable — it just has not been run
+across a published device matrix yet.
+
+Until it has, this table stays empty rather than carrying numbers that would not survive
+being checked. Results are published under `benchmark/results/` with the device, OS build,
+and date attached.
+
+The first recorded run —
+[`benchmark/results/2026-09-06-ios-simulator/`](../benchmark/results/2026-09-06-ios-simulator/README.md)
+— is a simulator run, and it is the clearest argument for having removed the old numbers:
+against a published claim of `< 50 ms` task startup, the project's own harness reports
+**698 ms** and **794 ms**. It also shows the Dart-worker path reporting *faster* than the
+native path, which is almost certainly a measurement artefact — and therefore something to
+audit before any figure from this harness is published as a result.
+
+If you need a figure today, run the harness on your own hardware — that answer is worth
+more than a table entry anyway:
+
+```bash
+flutter test example/integration_test/firebase_benchmark_test.dart \
+  --timeout=none -d <your-device-id>
+```
 
 ---
 

@@ -25,8 +25,12 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          # Valid formats: feat: / fix: / docs: / test: / refactor: / chore:
-          if ! echo "$PR_TITLE" | grep -qE '^(feat|fix|docs|test|refactor|chore|ci|perf|style): .+'; then
+          # Conventional Commits: <type>[optional scope][optional !]: <description>
+          # The scope and the breaking-change "!" are part of the spec and are used
+          # throughout this repo's own history (fix(ios):, chore(deps):,
+          # test(integration): …) — the previous pattern rejected all of them, so a PR
+          # titled the same way as the commits it contains could not pass.
+          if ! echo "$PR_TITLE" | grep -qE '^(feat|fix|docs|test|refactor|chore|ci|perf|style)(\([a-z0-9._/-]+\))?!?: .+'; then
             echo "❌ Invalid PR title format!"
             echo ""
             echo "PR title must follow conventional commits format:"
@@ -36,6 +40,10 @@ jobs:
             echo "  test: Add tests"
             echo "  refactor: Refactor code"
             echo "  chore: Maintenance tasks"
+            echo ""
+            echo "An optional scope and breaking-change marker are also accepted:"
+            echo "  fix(ios): Fix an iOS-only bug"
+            echo "  feat(android)!: Add a feature with a breaking change"
             echo "  ci: CI/CD changes"
             echo "  perf: Performance improvements"
             echo "  style: Code style changes"
@@ -81,7 +89,9 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           flutter-version-file: .flutter-version
-          channel: stable
+          # No `channel:` here on purpose — subosito/flutter-action lets channel
+          # WIN over flutter-version-file, so having both meant .flutter-version was
+          # silently ignored and every job ran whatever stable happened to be latest.
           cache: true
 
       - name: Get dependencies (plugin)

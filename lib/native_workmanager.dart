@@ -24,7 +24,7 @@
 ///
 /// ## Features
 ///
-/// - **Native Workers**: Run background tasks without Flutter Engine (~2MB vs ~50MB RAM)
+/// - **Native Workers**: Run background tasks without booting a Flutter Engine at all
 /// - **Task Chains**: Complex workflows (A → B → C)
 /// - **Auto iOS Config**: Reads Info.plist automatically
 /// - **Built-in Workers**: HTTP (request, upload, download, sync), Files (compress, decompress,
@@ -34,6 +34,7 @@
 /// See [NativeWorkManager] for full documentation.
 library;
 
+export 'src/battery_restriction.dart';
 export 'src/constraints.dart';
 export 'src/foreground_notification_config.dart';
 export 'src/task_id.dart';

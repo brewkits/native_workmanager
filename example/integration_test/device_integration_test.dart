@@ -1054,6 +1054,12 @@ void main() {
         taskId: id,
         trigger: const TaskTrigger.oneTime(),
         worker: DartWorker(callbackId: 'dit_fail'),
+        // maxRetries: 0 — since v1.4.0 (PR #46) a DartWorker returning false
+        // RETRIES instead of failing permanently, so with the default cap of 3
+        // the terminal failure event only arrives after the retries are spent
+        // and _waitEvent times out first. Same fix as 99eb627 applied to
+        // initialization_test.dart; this copy was missed.
+        constraints: const Constraints(maxRetries: 0),
       );
 
       final event = await future;
@@ -1119,6 +1125,11 @@ void main() {
             input: {'delayMs': 20000},
             timeoutMs: 3000,
           ),
+          // A timeout is a failure, and since v1.4.0 a failed DartWorker
+          // retries — three more 3 s attempts push the terminal event past this
+          // test's 30 s window. Disabling retries keeps the assertion about
+          // timeoutMs rather than about retry timing.
+          constraints: const Constraints(maxRetries: 0),
         );
 
         final event = await future;
@@ -2484,6 +2495,10 @@ void main() {
         taskId: id,
         trigger: const TaskTrigger.oneTime(),
         worker: DartWorker(callbackId: 'dit_fail'),
+        // See the note on the same fix in the "All Workers" group: a
+        // returning-false DartWorker retries since v1.4.0, so the terminal
+        // event outlives this timeout unless retries are disabled.
+        constraints: const Constraints(maxRetries: 0),
       );
 
       final event = await future;
@@ -2660,16 +2675,95 @@ void main() {
       await NativeWorkManager.cancel(taskId: id);
     });
 
-    testWidgets('exact trigger – accepted', (tester) async {
+    // kmpworkmanager 3.4.1 made TaskTrigger.Windowed throw IllegalArgumentException
+    // for latest < earliest. Before the bump an inverted window was accepted and the
+    // task silently skipped as deadline-exceeded; after it, the native constructor
+    // throws. On iOS that exception crosses the Kotlin/Native → Swift boundary from a
+    // constructor, where it is NOT catchable and terminates the process — so both
+    // bridges must reject the inverted window before constructing the trigger.
+    // PLATFORM SCOPE: only iOS actually exercises the guard. Android parses the trigger
+    // inside an already-guarded block, so upstream's own IllegalArgumentException is caught
+    // and surfaces as ENQUEUE_ERROR — Android passes this test with or without the bridge
+    // guard. On iOS, removing the guard kills the app here and the run never finishes.
+    testWidgets('kmp_341: inverted windowed trigger errors instead of crashing', (
+      tester,
+    ) async {
+      final id = _id('windowed_inverted');
+
+      var threw = false;
+      ScheduleResult? scheduleResult;
+      try {
+        final result = await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.windowed(
+            earliest: Duration(minutes: 10),
+            latest: Duration(minutes: 1),
+          ),
+          worker: DartWorker(callbackId: 'dit_pass'),
+        );
+        scheduleResult = result.scheduleResult;
+      } catch (_) {
+        // A PlatformException from the native bridge is the expected outcome on
+        // the platforms that surface the rejection as an error rather than a
+        // non-accepted ScheduleResult. Either shape is fine — a crash is not.
+        threw = true;
+      }
+
+      expect(
+        threw || scheduleResult != null,
+        isTrue,
+        reason:
+            'kmp_341: an inverted window must resolve to a Dart-visible error or '
+            'result, never an unhandled native exception',
+      );
+
+      await NativeWorkManager.cancel(taskId: id);
+
+      // The real assertion: the process survived and the channel still works.
+      // If the native guard is removed, iOS terminates above and this never runs.
+      final probeId = _id('windowed_inverted_probe');
+      final probe = await NativeWorkManager.enqueue(
+        taskId: probeId,
+        trigger: const TaskTrigger.windowed(
+          earliest: Duration(seconds: 0),
+          latest: Duration(minutes: 5),
+        ),
+        worker: DartWorker(callbackId: 'dit_pass'),
+      );
+      expect(
+        probe.scheduleResult,
+        ScheduleResult.accepted,
+        reason:
+            'kmp_341: the plugin must still be usable after rejecting an '
+            'inverted window',
+      );
+      await NativeWorkManager.cancel(taskId: probeId);
+    });
+
+    testWidgets('exact trigger – accepted on Android, refused on iOS', (
+      tester,
+    ) async {
       final id = _id('exact_trigger');
 
-      final result = await NativeWorkManager.enqueue(
+      Future<TaskHandler> enqueueExact() => NativeWorkManager.enqueue(
         taskId: id,
         trigger: TaskTrigger.exact(
           DateTime.now().add(const Duration(minutes: 5)),
         ),
         worker: DartWorker(callbackId: 'dit_pass'),
       );
+
+      if (Platform.isIOS) {
+        // ExactTrigger has been rejected in Dart on iOS since v1.2.1:
+        // BGTaskScheduler cannot honour an exact time, so the API refuses rather
+        // than accepting a request it would silently miss by hours. This test
+        // used to call enqueue unconditionally and therefore failed on every iOS
+        // run — it was asserting a contract the library deliberately does not have.
+        await expectLater(enqueueExact(), throwsUnsupportedError);
+        return;
+      }
+
+      final result = await enqueueExact();
 
       expect(
         result.scheduleResult,
@@ -2695,6 +2789,103 @@ void main() {
   // coverage). This test additionally asserts the +load registrar
   // did the OS-level registration in the launch window, exactly once.
   // ════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════
+  // GROUP – Battery restriction diagnostics (Android OEM deferral)
+  // ════════════════════════════════════════════════════════════
+  group('Battery restriction diagnostics', () {
+    testWidgets('batteryRestriction reports a platform-appropriate shape', (
+      tester,
+    ) async {
+      final report = await NativeWorkManager.batteryRestriction();
+
+      if (Platform.isAndroid) {
+        // isExempt may be true or false depending on the device's own settings —
+        // asserting either would make this test device-dependent. What must hold
+        // is that Android ANSWERS, rather than reporting "no such concept".
+        expect(
+          report.isSupported,
+          isTrue,
+          reason:
+              'Android must answer the exemption question, not report '
+              'unsupported — a null here means the PowerManager lookup failed',
+        );
+        expect(report.isExempt, isNotNull);
+        expect(
+          report.manufacturer,
+          isNotNull,
+          reason:
+              'Build.MANUFACTURER must be forwarded so an app can word its '
+              'own OEM guidance',
+        );
+        expect(
+          report.manufacturer,
+          equals(report.manufacturer!.toLowerCase()),
+          reason: 'manufacturer is normalised to lowercase by the bridge',
+        );
+      } else {
+        // iOS has no exemption list. The contract is that this is reported as
+        // "not applicable" rather than as a reassuring false.
+        expect(
+          report.isSupported,
+          isFalse,
+          reason: 'iOS has no battery-optimization exemption concept',
+        );
+        expect(report.isExempt, isNull);
+        expect(report.canOpenSettings, isFalse);
+      }
+    });
+
+    testWidgets('requestDisableBatteryOptimization never throws', (
+      tester,
+    ) async {
+      // The example app deliberately does NOT declare
+      // REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, so on Android this exercises the
+      // missingPermission path — the one an app hits when it has not opted in.
+      // It must be reported, not thrown, or the Play-policy opt-in becomes
+      // undiagnosable at runtime.
+      final result =
+          await NativeWorkManager.requestDisableBatteryOptimization();
+
+      if (Platform.isAndroid) {
+        expect(
+          result,
+          anyOf(
+            equals(BatteryOptimizationRequestResult.missingPermission),
+            equals(BatteryOptimizationRequestResult.alreadyExempt),
+          ),
+          reason:
+              'the example app does not declare the Play-restricted '
+              'permission, so it must report missingPermission (or be already '
+              'exempt on a device where the user granted it manually)',
+        );
+      } else {
+        expect(result, equals(BatteryOptimizationRequestResult.notSupported));
+      }
+    });
+
+    testWidgets('canOpenSettings agrees with what opening actually does', (
+      tester,
+    ) async {
+      // canOpenSettings is resolved with resolveActivity rather than assumed.
+      // On iOS both are false. On Android, if the report claims the screen is
+      // unreachable, opening it must not claim success.
+      final report = await NativeWorkManager.batteryRestriction();
+
+      if (!report.canOpenSettings) {
+        expect(
+          await NativeWorkManager.openBatteryOptimizationSettings(),
+          isFalse,
+          reason:
+              'openBatteryOptimizationSettings() must not report success '
+              'when batteryRestriction() said no activity handles it',
+        );
+      }
+      // The positive case deliberately does not run: it would launch a system
+      // settings Activity over the test harness and leave the suite parked on
+      // another app's UI.
+    });
+  });
+
   group('Issue #36 – BGTask launch handler registration', () {
     testWidgets(
       'issue_36: handlers registered in +load, before launch completed, exactly once',

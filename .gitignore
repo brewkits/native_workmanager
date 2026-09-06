@@ -93,3 +93,11 @@ SPM_ANALYSIS.md
 !ios/native_workmanager/Sources/native_workmanager/utils/HttpSecurityHelper.swift
 doc/internal/
 benchmark/
+
+# CI writes native_workmanager_gen/pubspec_overrides.yaml to point the generator at
+# the local plugin (see .github/workflows/ci.yml). It must never be committed: the
+# gen package deliberately does NOT depend on native_workmanager — doing so drags in
+# the Flutter SDK's pinned `meta`, which forces `analyzer` below the version the
+# generator targets. A committed overrides file (or a pubspec.lock resolved with one)
+# silently reintroduces exactly that.
+pubspec_overrides.yaml
