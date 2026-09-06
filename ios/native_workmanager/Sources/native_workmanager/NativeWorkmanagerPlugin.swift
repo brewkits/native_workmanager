@@ -455,7 +455,12 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         switch call.method {
         case "enqueueChain": handleEnqueueChain(call: call, result: result)
         case "enqueueGraph": handleEnqueueGraph(call: call, result: result)
-        case "enqueueOfflineQueue": handleOfflineQueueEnqueue(call: call, result: result)
+        // Name must match what Dart invokes ('offlineQueueEnqueue') and what Android
+        // registers. iOS spelled it "enqueueOfflineQueue" — the words the other way
+        // round — so every offline-queue enqueue fell through to
+        // FlutterMethodNotImplemented and threw MissingPluginException. The feature
+        // has never worked on iOS. Guarded by channel_method_parity_test.dart.
+        case "offlineQueueEnqueue": handleOfflineQueueEnqueue(call: call, result: result)
         case "registerRemoteTrigger": handleRegisterRemoteTrigger(call: call, result: result)
         case "registerMiddleware": handleRegisterMiddleware(call: call, result: result)
         default: result(FlutterMethodNotImplemented)

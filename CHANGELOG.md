@@ -137,6 +137,19 @@ every performance number the project could not reproduce.
   kills the app there; Android passes either way, because its existing guarded parse already
   turns upstream's own exception into `ENQUEUE_ERROR`.
 
+- **iOS offline-queue enqueue had never worked.** Dart invokes the channel method
+  `offlineQueueEnqueue` and Android registers that name, but iOS registered
+  `enqueueOfflineQueue` — the same two words the other way round — so every call fell through
+  to `FlutterMethodNotImplemented` and threw `MissingPluginException`. Found by auditing every
+  Dart call site against both native dispatch tables after the `getTasksByStatus` bug, which is
+  the same defect class.
+- **Added a method-channel parity guard** (`test/unit/channel_method_parity_test.dart`). It
+  reads the real dispatch tables in `NativeWorkmanagerPlugin.kt` and
+  `NativeWorkmanagerPlugin.swift` and asserts every method Dart invokes is registered on both,
+  the way `ManifestGuardTest` reads AndroidManifest.xml. This class of bug is invisible to
+  normal testing — a mock will happily answer a method no platform implements, so unit tests,
+  analysis and both native compilers all stay green while a public API is dead in production.
+  Verified to fail (naming the exact method) when either bug is re-introduced.
 - **The `exact trigger` device test failed on every iOS run.** `ExactTrigger` has been rejected
   in Dart on iOS since v1.2.1 — BGTaskScheduler cannot honour an exact time, so the API refuses
   rather than accepting a request it would miss by hours — but the test called `enqueue`
