@@ -5,6 +5,79 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Battery-restriction diagnostics (Android).** The most common real-world reason a periodic
+  task runs late is the OS — or the OEM — deferring it, and there was no way to see that from
+  Dart.
+
+  - `NativeWorkManager.batteryRestriction()` reports `isExempt`
+    (`PowerManager.isIgnoringBatteryOptimizations`), `manufacturer` (`Build.MANUFACTURER`,
+    lowercased) and `canOpenSettings` — the last resolved with `resolveActivity` on the actual
+    device rather than assumed. It is a pure diagnostic: it schedules nothing and does not
+    require `initialize()`, so it is safe to call during startup.
+  - `NativeWorkManager.openBatteryOptimizationSettings()` opens the system list. Needs no
+    permission.
+  - `NativeWorkManager.requestDisableBatteryOptimization()` shows the direct "allow" dialog.
+
+  **`isExempt` is not a guarantee.** It reflects one stock-Android list; Xiaomi, Samsung,
+  Huawei, Oppo and Vivo run their own task killer on top of it, so a device can report `true`
+  and still stretch a 15-minute task into hours. The API and the docs say so rather than
+  implying otherwise.
+
+  There are deliberately **no per-manufacturer settings deep links**. Those "autostart" and
+  "protected apps" screens are undocumented internal activities that get renamed between
+  firmware builds; a shipped table of them rots on devices this project cannot test.
+  `manufacturer` is passed up raw so an app can word its own guidance.
+
+  `requestDisableBatteryOptimization()` requires the **host app** to declare
+  `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`. This plugin will never declare it: it is Play-policy
+  restricted and a library manifest merges into every consumer app, so declaring it would drag
+  apps that never call this API into a policy review — the same mistake that got the
+  foreground-service permissions removed. Without it the call returns `missingPermission`
+  rather than throwing. `ManifestGuardTest` now guards both permissions.
+
+  On iOS all three report "not applicable" — `isExempt` is `null` so
+  `BatteryRestrictionReport.isSupported` distinguishes "we asked and the answer is no" from
+  "there is nothing to ask".
+
+### Changed
+
+- **Removed every unmeasured performance claim from the documentation.** The docs advertised a
+  `~2 MB` RAM footprint, `< 50 ms` task startup, and `100% Guaranteed` survival of process
+  death — for this package *and*, in the comparison table, for four competitors. None came from
+  a run anyone could reproduce, and `benchmark/results/` had been empty since the harness was
+  built in February.
+
+  Two of those were not merely unsourced but wrong. Nothing *guarantees* background execution
+  on either platform; the real property is that a task is **restored** after process death via
+  WorkManager/SQLite and BGTaskScheduler persistence, which is what the docs now say. And
+  `< 50 ms` is contradicted by this project's own harness, which reports 698 ms and 794 ms for
+  its two startup benchmarks.
+
+  Comparison tables now carry dated capability rows only. Numbers return when there are runs to
+  back them.
+
+- **`benchmark/README.md`** no longer claims the project provides independent community
+  verification. It provides transparent methodology and reproducibility; the third leg needs
+  published results, which do not exist yet.
+
+- **`ROADMAP.md`**: replaced the adoption-metric KPI table (pub.dev likes, stars, weekly
+  downloads, "Enterprise Users") — those targets predate the July 2026 decision that this is a
+  portfolio project, not a commercial one, and steering by them pushed prioritisation toward
+  breadth. Cross-integration adapters, the templates repository, desktop support, cloud
+  coordination and enterprise rate limiting moved to a **Deliberately deferred** section with
+  the reason for each recorded.
+
+### Fixed
+
+- `doc/ANDROID_SETUP.md` told readers to hand-roll a `MethodChannel` calling
+  `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` with **no mention of the Play-policy
+  restriction**. Replaced with the new API and the warning. Also corrected a "see §3 above"
+  pointer that aimed at Killed-App Support rather than the battery section.
+
 ## [1.6.0] - 2026-09-06
 
 ### Changed

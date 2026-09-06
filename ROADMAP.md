@@ -4,13 +4,20 @@ Our mission is to provide the most robust, efficient, and secure background exec
 
 ## 🔜 Planned (v1.7.0)
 
-- **OEM battery-optimisation helpers (Android).** WorkManager persists tasks in the OS database,
-  but Xiaomi (MIUI/HyperOS), Samsung ("App put to sleep") and similar OEM layers stretch a 15-minute
-  periodic task out to 6–12 hours unless the app is whitelisted. There is no way to detect or
-  request that today. Planned: `NativeWorkManager.isIgnoringBatteryOptimizations()` and
-  `requestIgnoreBatteryOptimizations()` so apps that need punctual periodic work can prompt the
-  user. Note `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` is a Play-policy-restricted permission — the
-  API must document the eligible use cases so apps do not risk a listing rejection.
+- [x] **Battery-restriction diagnostics (Android)** — implemented on
+  `feat/android-battery-restriction-helpers`. `batteryRestriction()` reports the stock-Android
+  exemption state, `Build.MANUFACTURER`, and whether the settings screen actually resolves;
+  `openBatteryOptimizationSettings()` is the no-permission route;
+  `requestDisableBatteryOptimization()` is the direct dialog, which returns `missingPermission`
+  unless the **host** app declares the Play-restricted permission itself (the plugin never
+  will — `ManifestGuardTest` guards it). No per-OEM settings deep links: those activities are
+  undocumented and rename between firmware builds, so `manufacturer` is passed up raw for the
+  app to act on. Android device verification still outstanding.
+- **Audit the benchmark harness before publishing any figure from it.** The first recorded run
+  (`benchmark/results/2026-09-06-ios-simulator/`) has the Dart-worker path reporting *faster*
+  than the native path, and `chain_3_steps_ms` returning the timeout sentinel. Both need
+  explaining — the two latency benchmarks do not appear to measure the same span. There is also
+  no RAM instrument at all, which is why the memory claim had nothing behind it.
 - **Push the iOS graph-node stagger into the bridge.** `TaskGraph` currently adds a 1-second delay
   to each node on iOS to work around BGTaskScheduler dropping back-to-back submissions
   (`_iosNodeSubmissionStagger`). It is a platform detail sitting in Dart domain logic; it belongs
@@ -104,35 +111,62 @@ Each is a full Dart → Android → iOS parity change with its own device covera
 
 ---
 
-## 🧩 Phase 2: Ecosystem, Templates & Integrations (v1.4.x - v1.5.x) — Current Priority
+## 🧩 Phase 2: Ecosystem, Templates & Integrations
 
-To capture mindshare from legacy libraries, we must provide "Plug & Play" solutions.
-
-- [ ] **Cross-Integrations (Adapters):**
-  - `NativeDioAdapter`: Use Dio configurations but execute via the Zero-Engine `HttpDownloadWorker`.
-  - `FirebaseStorage Native`: Upload directly via Native SDK without booting Flutter.
-  - `Hive/Isar Sync`: Auto-sync local DB to server via native workers.
-- [ ] **"Plug & Play" Templates Repository:**
-  - Provide ready-to-use Dart templates for common use cases: *Auto Photo Backup to S3*, *Offline Chat Queue*, *Netflix-style Large Video Download*.
-- [ ] **Native Offline Queue Engine:** Built-in declarative pattern for queuing tasks while offline with automatic file/database-backed retry.
 - [x] **SwiftUI `@main` App Support** — shipped in v1.5.0. `dart run native_workmanager:setup` detects a SwiftUI `@main` App and reports whether `@UIApplicationDelegateAdaptor(AppDelegate.self)` is wired.
+- [ ] **Native Offline Queue Engine:** Built-in declarative pattern for queuing tasks while
+  offline with automatic file/database-backed retry. Kept because it is engine work — it
+  belongs below the Dart API, where this project's advantage actually lives.
 
 ---
 
-## 🚀 Phase 3: Scale & Desktop (v2.0.x+)
-- [ ] **Cloud Coordination:** Synchronize task status and dependency resolution across multiple devices.
-- [ ] **Enterprise Rate Limiting:** Advanced bandwidth and concurrency control for multi-tenant apps.
-- [ ] **Desktop Support:** Expanding the native worker engine to Windows, macOS, and Linux.
+## 🧊 Deliberately deferred
+
+Not "someday" items — decisions, with the reason recorded so they do not quietly creep back
+in. All of them were previously listed as planned work.
+
+- **Cross-integration adapters** (`NativeDioAdapter`, FirebaseStorage, Hive/Isar sync).
+  A Dio adapter is a couple of hundred lines of glue: it is the most copyable thing this
+  project could build, and each adapter is a permanent maintenance obligation tracking
+  somebody else's API. Adapters belong in separate packages — ideally other people's.
+- **"Plug & Play" templates repository** (photo backup, offline chat queue, video download).
+  Same objection, plus templates rot faster than APIs do. The example app already
+  demonstrates the patterns; a template that silently goes stale is worse than none.
+- **Desktop support** (Windows, macOS, Linux). Roughly triples the platform surface for a
+  single maintainer, and the whole premise of this package — OS-level deferred execution
+  that survives process death — barely exists on desktop, where a plain background isolate
+  is usually the right answer.
+- **Cloud coordination** (cross-device task status and dependency resolution). Needs server
+  infrastructure and an operational commitment this project has explicitly decided not to
+  take on.
+- **Enterprise rate limiting** (multi-tenant bandwidth/concurrency control). No demand
+  signal: not one issue or discussion has asked for it.
+
+If someone opens an issue asking for one of these with a concrete use case, that is new
+evidence and the decision can be revisited. Absent that, breadth is the wrong bet here.
 
 ---
 
-## 📈 KPIs Target
-| Metric | 3 Months | 6 Months | 12 Months |
-|--------|---------|---------|----------|
-| pub.dev Likes | 100+ | 500+ | 2,000+ |
-| GitHub Stars | 200+ | 1,000+ | 3,000+ |
-| Weekly Downloads | 1k | 5k | 20k |
-| Enterprise Users | 1 | 3+ | 10+ |
-| pub.dev Score | 160 | 160 | 160 |
+## 📏 How this project measures itself
 
-*(Note: pub.dev score target increased to 160/160 following the v1.2.3 release).*
+An earlier version of this file tracked pub.dev likes, GitHub stars, weekly downloads and
+"Enterprise Users". Those targets were written before the July 2026 audit, which concluded
+that this is a **portfolio and personal-brand project, explicitly not a commercial one**.
+Steering by adoption metrics under that decision pushes every prioritisation the wrong way:
+it rewards breadth (adapters, templates, desktop) when what a portfolio is judged on is
+depth and rigour. So the targets are gone.
+
+What is worth holding this project to instead:
+
+| | Standard |
+| :--- | :--- |
+| **Claims** | Every quantitative claim in the docs is backed by a run in `benchmark/results/` with device, OS build and date attached — or it is not published. Nothing is asserted about another package that has not been measured here. |
+| **Evidence** | A published measurement history across a real device matrix, growing over time. This is the one asset a competitor cannot fork along with the MIT source. |
+| **Correctness** | Every bug fix that crosses a platform bridge carries a device test that fails if the bridge stops forwarding — see the Issue #30 and Issue #26 rules in `CLAUDE.md`. |
+| **Honesty about limits** | Known-broken and unmeasured things are written down (see §5.2 of `doc/BEST_PRACTICES.md`), not omitted. |
+| **pub.dev score** | 160/160 — kept, because it measures documentation and API hygiene rather than popularity. |
+
+The one number still worth watching is **bus factor**, currently 1. The July 2026 audit
+raised it and the governance section in `CONTRIBUTING.md` was written in response, but the
+action item it names — granting a second person repository access — is still open. It caps
+everything else on this list.
