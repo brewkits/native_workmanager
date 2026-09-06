@@ -1054,6 +1054,12 @@ void main() {
         taskId: id,
         trigger: const TaskTrigger.oneTime(),
         worker: DartWorker(callbackId: 'dit_fail'),
+        // maxRetries: 0 — since v1.4.0 (PR #46) a DartWorker returning false
+        // RETRIES instead of failing permanently, so with the default cap of 3
+        // the terminal failure event only arrives after the retries are spent
+        // and _waitEvent times out first. Same fix as 99eb627 applied to
+        // initialization_test.dart; this copy was missed.
+        constraints: const Constraints(maxRetries: 0),
       );
 
       final event = await future;
@@ -1119,6 +1125,11 @@ void main() {
             input: {'delayMs': 20000},
             timeoutMs: 3000,
           ),
+          // A timeout is a failure, and since v1.4.0 a failed DartWorker
+          // retries — three more 3 s attempts push the terminal event past this
+          // test's 30 s window. Disabling retries keeps the assertion about
+          // timeoutMs rather than about retry timing.
+          constraints: const Constraints(maxRetries: 0),
         );
 
         final event = await future;
@@ -2484,6 +2495,10 @@ void main() {
         taskId: id,
         trigger: const TaskTrigger.oneTime(),
         worker: DartWorker(callbackId: 'dit_fail'),
+        // See the note on the same fix in the "All Workers" group: a
+        // returning-false DartWorker retries since v1.4.0, so the terminal
+        // event outlives this timeout unless retries are disabled.
+        constraints: const Constraints(maxRetries: 0),
       );
 
       final event = await future;

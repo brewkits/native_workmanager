@@ -281,14 +281,19 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   @override
   Future<List<TaskRecord>> getTasksByStatus(
       {required TaskStatus status}) async {
-    final result = await methodChannel.invokeMethod<List<dynamic>>(
-      'getTasksByStatus',
-      {'status': status.name},
-    );
-    if (result == null) return [];
-    return result
-        .map((e) => TaskRecord.fromMap(Map<String, dynamic>.from(e as Map)))
-        .toList();
+    // Filtered in Dart over allTasks() rather than through a dedicated
+    // 'getTasksByStatus' channel method. That method was invoked here but
+    // implemented by NEITHER platform, so this call — and pauseAll() and
+    // resumeAll(), which both route through it — threw MissingPluginException
+    // on every invocation, on both Android and iOS.
+    //
+    // Filtering here rather than adding two native handlers is deliberate: the
+    // status strings are already the contract that allTasks() returns, so one
+    // implementation cannot drift from the other the way two SQL/Swift filters
+    // could. Task counts are small enough that the round trip is not the cost
+    // worth optimising.
+    final all = await allTasks();
+    return all.where((record) => record.status == status.name).toList();
   }
 
   @override
