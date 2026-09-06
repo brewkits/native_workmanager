@@ -137,6 +137,26 @@ every performance number the project could not reproduce.
   kills the app there; Android passes either way, because its existing guarded parse already
   turns upstream's own exception into `ENQUEUE_ERROR`.
 
+- **CI was validating against a Flutter the project no longer uses.** `.flutter-version` pinned
+  **3.27.4** (Dart 3.6.2, released 2025-02-05) while development and the consuming app run
+  **3.41.9** (Dart 3.11.5). Two concrete consequences, both now fixed by bumping the pin:
+
+  - `Analyze & Format` had been red on `main` since before v1.5.0. `dart pub publish --dry-run`
+    reported `analysis_options.yaml` and `example/analysis_options.yaml` as "modified in git"
+    during the run — an old-toolchain artefact that does not reproduce on 3.41.9 (0 warnings).
+  - `native_workmanager_gen` declares `sdk: '>=3.9.0'`, which **cannot resolve on Dart 3.6.2**,
+    so the generator package was never properly validated by CI. That is the source of the
+    `Failed to resolve package URI "package:flutter_lints/flutter.yaml"` warnings in the logs.
+
+  The published minimums are unchanged — the plugin still declares `flutter: '>=3.27.0'` /
+  `sdk: '>=3.6.0'`, so no consumer is dropped. Note the trade-off this creates: CI now exercises
+  the version actually shipped against, and no longer exercises the declared floor. A matrix over
+  both is the proper fix and is tracked in ROADMAP.
+- **`pubspec_overrides.yaml` is now gitignored.** CI writes
+  `native_workmanager_gen/pubspec_overrides.yaml` to point the generator at the local plugin.
+  Committing it — or a `pubspec.lock` resolved with it in place — drags the Flutter SDK's pinned
+  `meta` into the generator and forces `analyzer` below the version it targets, which is exactly
+  what that package's pubspec comment warns against.
 - **iOS offline-queue enqueue had never worked.** Dart invokes the channel method
   `offlineQueueEnqueue` and Android registers that name, but iOS registered
   `enqueueOfflineQueue` — the same two words the other way round — so every call fell through

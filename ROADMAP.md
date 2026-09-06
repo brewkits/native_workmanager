@@ -4,6 +4,11 @@ Our mission is to provide the most robust, efficient, and secure background exec
 
 ## 🔜 Planned (v1.7.0)
 
+- **Test against the declared minimum Flutter, not just the current one.** v1.6.0 moved
+  `.flutter-version` from 3.27.4 to 3.41.9 so CI validates what the library is actually shipped
+  against — but the published floor is still `flutter: '>=3.27.0'`, and nothing verifies it any
+  more. A two-entry CI matrix (floor + current) is the honest fix; until then the floor is a
+  claim, not a tested guarantee.
 - **Audit the benchmark harness before publishing any figure from it.** The first recorded run
   (`benchmark/results/2026-09-06-ios-simulator/`) has the Dart-worker path reporting *faster*
   than the native path, and `chain_3_steps_ms` returning the timeout sentinel. Both need
