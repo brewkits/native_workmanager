@@ -41,9 +41,18 @@ class BatteryRestrictionReport {
   /// or kill the task, and many devices report `true` while doing exactly that.
   /// Treat it as "one known obstacle is cleared", never as a guarantee.
   ///
-  /// `null` on platforms with no equivalent concept (iOS), where background
-  /// execution is governed by BGTaskScheduler's own budget and there is no
-  /// exemption to request.
+  /// `null` means the question has no answer here. That covers two cases the
+  /// caller should treat the same way — do not prompt the user:
+  ///
+  ///  * **iOS**, which has no exemption concept at all; background execution is
+  ///    governed by BGTaskScheduler's own budget and there is nothing to request.
+  ///  * **An Android device that would not answer** — a few OEM builds throw from
+  ///    `PowerManager.isIgnoringBatteryOptimizations()` rather than returning.
+  ///    Reporting `null` there is deliberate: defaulting to `false` would push
+  ///    apps to prompt users about a setting the plugin could not actually read.
+  ///
+  /// Either way [isSupported] is `false`. What `null` never means is "not
+  /// exempt" — that is reported as `false`.
   final bool? isExempt;
 
   /// The device manufacturer, lowercased, verbatim from `Build.MANUFACTURER`.
@@ -68,9 +77,10 @@ class BatteryRestrictionReport {
   /// Always `false` on iOS.
   final bool canOpenSettings;
 
-  /// Whether this platform has a battery-optimization exemption concept at all.
+  /// Whether an exemption state could be read at all.
   ///
-  /// `false` on iOS, where [isExempt] is always `null`.
+  /// `false` whenever [isExempt] is `null` — on iOS, and on an Android device
+  /// that would not answer. Do not prompt the user in either case.
   bool get isSupported => isExempt != null;
 
   @override

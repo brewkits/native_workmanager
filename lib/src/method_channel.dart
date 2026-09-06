@@ -396,6 +396,16 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
 
     // Log unknown values instead of silently treating them as accepted.
     // This surfaces native-side bugs (e.g. typos, new values) during development.
+    //
+    // Known gap: the Android bridge already forwards 'DEADLINE_ALREADY_PASSED'
+    // (see NativeWorkmanagerPlugin+Enqueue.kt), which lands here and degrades to
+    // `accepted`. That is currently unreachable — verified on device 2026-09-06:
+    // a windowed trigger whose `latest` has elapsed returns `accepted` on BOTH
+    // platforms, because the plugin never sets kmpworkmanager's `deadlineMs`
+    // (KMPSchedulerBridge passes nil). Wiring per-task deadlines MUST add a
+    // ScheduleResult value for it first, or a skipped task will report as
+    // accepted — the Issue #30 failure shape, where native forwards a field and
+    // Dart quietly drops it.
     developer.log(
       'NativeWorkManager: Unrecognised schedule result "$result" — defaulting to accepted. '
       'This may indicate a platform bug or version mismatch.',

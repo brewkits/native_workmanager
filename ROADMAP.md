@@ -4,15 +4,6 @@ Our mission is to provide the most robust, efficient, and secure background exec
 
 ## 🔜 Planned (v1.7.0)
 
-- [x] **Battery-restriction diagnostics (Android)** — implemented on
-  `feat/android-battery-restriction-helpers`. `batteryRestriction()` reports the stock-Android
-  exemption state, `Build.MANUFACTURER`, and whether the settings screen actually resolves;
-  `openBatteryOptimizationSettings()` is the no-permission route;
-  `requestDisableBatteryOptimization()` is the direct dialog, which returns `missingPermission`
-  unless the **host** app declares the Play-restricted permission itself (the plugin never
-  will — `ManifestGuardTest` guards it). No per-OEM settings deep links: those activities are
-  undocumented and rename between firmware builds, so `manufacturer` is passed up raw for the
-  app to act on. Android device verification still outstanding.
 - **Audit the benchmark harness before publishing any figure from it.** The first recorded run
   (`benchmark/results/2026-09-06-ios-simulator/`) has the Dart-worker path reporting *faster*
   than the native path, and `chain_3_steps_ms` returning the timeout sentinel. Both need
@@ -22,6 +13,23 @@ Our mission is to provide the most robust, efficient, and secure background exec
   to each node on iOS to work around BGTaskScheduler dropping back-to-back submissions
   (`_iosNodeSubmissionStagger`). It is a platform detail sitting in Dart domain logic; it belongs
   in the iOS scheduling layer, which needs a per-submission hook in KMP first.
+
+---
+
+## 🚧 Unreleased (on branch, not merged)
+
+- **Battery-restriction diagnostics (Android)** — on branch
+  `feat/android-battery-restriction-helpers`. Which release it lands in is undecided:
+  it can ride along with the v1.6.0 engine bump, or be its own v1.7.0. `batteryRestriction()` reports the stock-Android
+  exemption state, `Build.MANUFACTURER`, and whether the settings screen actually resolves;
+  `openBatteryOptimizationSettings()` is the no-permission route;
+  `requestDisableBatteryOptimization()` is the direct dialog, which returns `missingPermission`
+  unless the **host** app declares the Play-restricted permission itself (the plugin never
+  will — `ManifestGuardTest` guards it). No per-OEM settings deep links: those activities are
+  undocumented and rename between firmware builds, so `manufacturer` is passed up raw for the
+  app to act on. Verified on Pixel 6 Pro (Android 17) and iPhone 16 Pro simulator; the
+  permission-present/absent branches are covered by Robolectric, which a single device cannot
+  produce.
 
 ---
 

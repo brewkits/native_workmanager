@@ -280,7 +280,7 @@ the linked source before relying on it — capabilities move, and this table is 
 | **iOS Live Activity progress filter** | ✅ Built-in (v1.5.0) | ❌ No | ❌ No | ❌ No | ❌ No |
 | **DevTools Real-Time Extension** | ✅ Built-in | ❌ No | ❌ No | ❌ No | ❌ No |
 | **Type-Safe Code Generator** | ✅ `native_workmanager_gen` | ❌ No | ❌ No | ❌ No | ❌ No |
-| **Battery-restriction diagnostics** | ✅ Built-in (v1.7.0) | ❌ No | ❌ No | ❌ No | ❌ No |
+| **Battery-restriction diagnostics** | ✅ Built-in (unreleased) | ❌ No | ❌ No | ❌ No | ❌ No |
 
 ### 5.2 Performance — not yet published
 
