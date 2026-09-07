@@ -79,6 +79,22 @@ Future<TaskEvent?> _waitEvent(String taskId, {Duration? timeout}) async {
             record.status == 'completed' ||
             record.status == 'failed' ||
             record.status == 'cancelled')) {
+      // A task that reached a terminal state without delivering an event is a
+      // BUG, not a slow event — issue #62 was exactly this, and these tests
+      // stayed green through it because the synthetic event below papered over
+      // the missing one. Shout about it so the next occurrence is visible in the
+      // log even though the suite still passes.
+      //
+      // The fallback itself is kept deliberately: it makes the suite resilient
+      // to a genuinely slow event on a loaded emulator, and it is what lets a
+      // test assert on the RESULT even when delivery is broken. But it must not
+      // be silent.
+      print(
+        'WaitEvent: ⚠️  NO EVENT DELIVERED for $taskId — the task reached '
+        '"${record.status}" but nothing arrived on NativeWorkManager.events. '
+        'That is a delivery bug (cf. issue #62), not a slow test. '
+        'Synthesising from getTaskRecord so the assertion can still run.',
+      );
       print('WaitEvent: returning synthetic event for $taskId');
       return TaskEvent(
         taskId: taskId,
