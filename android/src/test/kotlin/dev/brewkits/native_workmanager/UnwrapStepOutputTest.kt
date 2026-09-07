@@ -99,6 +99,89 @@ class UnwrapStepOutputTest {
         assertTrue(unwrapStepOutput(emptyMap()).isEmpty())
     }
 
+    // ── issue #62 ─────────────────────────────────────────────────────────────
+    //
+    // The output of this function goes straight onto the EventChannel, and
+    // Flutter's StandardMessageCodec can only encode plain types. Handing it an
+    // org.json value threw
+    //   IllegalArgumentException: Unsupported value: [...] of type 'org.json.JSONArray'
+    // from inside eventSink.success(), which lost the WHOLE completion event —
+    // the task ran, wrote its result, and looked to the app like it never
+    // finished. These assert the decoded tree is codec-safe all the way down.
+
+    @Test
+    fun `nested arrays decode to a Kotlin List, not a JSONArray`() {
+        val raw = mapOf<String, Any?>(
+            "kmp_step_output" to
+                """{"operation":"copy","files":["/tmp/a.txt","/tmp/b.txt"]}""",
+        )
+
+        val out = unwrapStepOutput(raw)
+
+        assertTrue(
+            "a JSONArray here is unencodable and destroys the event — see issue #62",
+            out["files"] is List<*>,
+        )
+        assertEquals(listOf("/tmp/a.txt", "/tmp/b.txt"), out["files"])
+    }
+
+    @Test
+    fun `nested objects decode to a Kotlin Map, not a JSONObject`() {
+        val raw = mapOf<String, Any?>(
+            "kmp_step_output" to """{"files":[{"path":"/tmp/a.txt","size":5}]}""",
+        )
+
+        val out = unwrapStepOutput(raw)
+        val files = out["files"] as List<*>
+
+        assertTrue(files[0] is Map<*, *>)
+        assertEquals("/tmp/a.txt", (files[0] as Map<*, *>)["path"])
+    }
+
+    @Test
+    fun `every decoded value is a type the Flutter codec accepts`() {
+        val raw = mapOf<String, Any?>(
+            "kmp_step_output" to """{"s":"x","i":1,"b":true,"n":null,
+                "arr":[1,2],"obj":{"k":"v"}}""",
+        )
+
+        fun assertCodecSafe(value: Any?) {
+            when (value) {
+                null, is String, is Boolean, is Int, is Long, is Double -> Unit
+                is List<*> -> value.forEach { assertCodecSafe(it) }
+                is Map<*, *> -> value.values.forEach { assertCodecSafe(it) }
+                else -> throw AssertionError(
+                    "StandardMessageCodec cannot encode ${value::class.java.name}",
+                )
+            }
+        }
+
+        unwrapStepOutput(raw).values.forEach { assertCodecSafe(it) }
+    }
+
+    // ── decodeResultData: the plugin's own TaskEventBus path ──────────────────
+
+    @Test
+    fun `decodeResultData turns the JSON string into a Map`() {
+        // That bus carries outputData as a JSON *string*, and Dart reads
+        // `map['resultData'] is Map ? … : null` — so an undecoded string was
+        // silently dropped and events on this path arrived with resultData null.
+        val out = decodeResultData("""{"operation":"copy","fileCount":1}""")
+
+        assertEquals("copy", out?.get("operation"))
+        assertEquals(1, out?.get("fileCount"))
+    }
+
+    @Test
+    fun `decodeResultData returns null for null, blank and malformed input`() {
+        // Never throw on a completion path: a task that succeeded must not be
+        // reported as failed because its payload could not be parsed.
+        assertNull(decodeResultData(null))
+        assertNull(decodeResultData(""))
+        assertNull(decodeResultData("   "))
+        assertNull(decodeResultData("not json {{{"))
+    }
+
     @Test
     fun `the envelope key matches kmpworkmanager's constant`() {
         // NativeTaskScheduler.KEY_STEP_OUTPUT upstream. A rename there silently reverts

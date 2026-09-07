@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Android: a completed task could emit no completion event at all
+  ([#62](https://github.com/brewkits/native_workmanager/issues/62)).** Affected every worker
+  whose result payload contains a nested list or object — `FileSystemWorker` (`fileCopy`,
+  `fileMove`, `list`, …) most visibly. The task ran, wrote its result and persisted
+  `status=completed`, but nothing arrived on `NativeWorkManager.events`, so an app awaiting the
+  event waited forever.
+
+  Root cause was in v1.6.0's own `resultData` fix: `unwrapStepOutput` decoded the
+  `kmp_step_output` envelope with `JSONObject.get()`, which returns `org.json` types for nested
+  values. Flutter's `StandardMessageCodec` cannot encode those, so `eventSink.success()` threw
+
+  ```
+  IllegalArgumentException: Unsupported value: [...] of type 'class org.json.JSONArray'
+  ```
+
+  and the **entire** event — not just the payload — was dropped. It now decodes recursively to
+  plain Kotlin types through the converter the plugin already used elsewhere.
+
+  Also fixed on the same path: the plugin's own `TaskEventBus` carries `outputData` as a JSON
+  **string**, and Dart reads `map['resultData'] is Map ? … : null`, so a string was silently
+  discarded and events delivered that way arrived with `resultData == null`. Both paths now hand
+  Dart the same decoded shape.
+
+  Not caught earlier because `native_workers_test.dart`'s `_waitEvent` falls back to
+  `getTaskRecord` and **synthesises** an event when none arrives — the device tests passed while
+  the public API was broken. The benchmark harness has no such fallback, which is what exposed it.
+
 ## [1.6.0] - 2026-09-06
 
 Engine bump, a new Android diagnostics API, and a documentation correction that removes

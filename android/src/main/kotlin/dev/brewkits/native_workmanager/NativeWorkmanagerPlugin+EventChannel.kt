@@ -1,6 +1,7 @@
 package dev.brewkits.native_workmanager
 
 import android.app.NotificationManager
+import dev.brewkits.native_workmanager.utils.CommandProcessor
 import android.content.Context
 import androidx.core.app.NotificationCompat
 import androidx.work.WorkInfo
@@ -156,7 +157,13 @@ internal fun NativeWorkmanagerPlugin.subscribeToTaskEvents() {
                     "taskId" to event.taskName,
                     "success" to event.success,
                     "message" to event.message,
-                    "resultData" to event.outputData,
+                    // This bus carries outputData as a JSON *string*, but Dart reads
+                    // resultData with `map['resultData'] is Map ? … : null` — so a
+                    // string was silently discarded and every event delivered on this
+                    // path arrived with resultData == null. Decode it so both this
+                    // path and the WorkInfo fallback hand Dart the same shape.
+                    // Issue #62.
+                    "resultData" to decodeResultData(event.outputData),
                     "timestamp" to System.currentTimeMillis()
                 )
                 if (!event.success) eventMap["errorCode"] = deriveErrorCode(event.message)
@@ -647,18 +654,42 @@ internal fun NativeWorkmanagerPlugin.deriveErrorCode(message: String?): String {
 internal fun unwrapStepOutput(raw: Map<String, Any?>): Map<String, Any?> {
     val encoded = raw[KEY_STEP_OUTPUT] as? String ?: return raw
     return try {
-        val obj = org.json.JSONObject(encoded)
-        val flattened = LinkedHashMap<String, Any?>(raw.size + obj.length())
+        // jsonToMap converts RECURSIVELY to plain Kotlin types. That matters: the
+        // result of this function goes straight onto the EventChannel, and Flutter's
+        // StandardMessageCodec cannot encode org.json types. Reading values with
+        // `obj.get(key)` instead handed it a JSONArray for any nested list — e.g.
+        // FileSystemWorker's `files` — and the codec threw
+        //   IllegalArgumentException: Unsupported value: [...] of type
+        //   'class org.json.JSONArray'
+        // from inside eventSink.success(), so the ENTIRE completion event was lost
+        // and the task looked like it never finished. See issue #62.
+        val decoded = CommandProcessor.jsonToMap(org.json.JSONObject(encoded))
+        val flattened = LinkedHashMap<String, Any?>(raw.size + decoded.size)
         // Preserve any sibling keys, then layer the decoded payload over them.
         raw.forEach { (k, v) -> if (k != KEY_STEP_OUTPUT) flattened[k] = v }
-        obj.keys().forEach { key ->
-            val value = obj.get(key)
-            flattened[key] = if (value === org.json.JSONObject.NULL) null else value
-        }
+        flattened.putAll(decoded)
         flattened
     } catch (e: Exception) {
         NativeLogger.w("Could not decode $KEY_STEP_OUTPUT, forwarding raw output: ${e.message}")
         raw
+    }
+}
+
+/**
+ * Decodes a worker's JSON result string into plain, codec-safe Kotlin types.
+ *
+ * Returns null for null/blank/unparseable input rather than throwing: this runs
+ * while emitting a *completion* event, and a task that genuinely succeeded must
+ * not be reported as failed — or, worse, not reported at all — because its result
+ * payload could not be read.
+ */
+internal fun decodeResultData(json: String?): Map<String, Any?>? {
+    if (json.isNullOrBlank()) return null
+    return try {
+        CommandProcessor.jsonToMap(org.json.JSONObject(json))
+    } catch (e: Exception) {
+        NativeLogger.w("Could not decode result data, forwarding null: ${e.message}")
+        null
     }
 }
 
