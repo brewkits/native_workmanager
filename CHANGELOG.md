@@ -111,6 +111,19 @@ every performance number the project could not reproduce.
   Comparison tables now carry dated capability rows only. Numbers return when there are runs to
   back them.
 
+- **`Build Validation (iOS)` could never pass on a release PR.** The job runs
+  `flutter build ios`, and CI's Flutter has SwiftPM on by default, so it resolved
+  `Package.swift`'s remote `binaryTarget` — a GitHub release asset that does not exist until
+  the release is cut. Every release that changes the bundled framework therefore had a red
+  check by construction, which is how a gate stops being read.
+
+  Split into two: the build validates the CocoaPods path (both are shipped), and a new
+  `scripts/verify_spm_release.sh` checks everything about the SwiftPM path that does not need a
+  live asset — manifest parses, product is hyphenated (issue #52), `binaryTarget` is remote with
+  a checksum (issue #49), no `testTarget` is declared (v1.4.3) and the xcframework has both
+  slices — then verifies the published zip's sha256 against the declared checksum once the asset
+  exists. That last check is a hard failure on `main` and on tags, and the exact check that would
+  have caught the wrong checksum shipped in v1.4.5. It is runnable locally before tagging.
 - **`benchmark/README.md`** no longer claims the project provides independent community
   verification. It provides transparent methodology and reproducibility; the third leg needs
   published results, which do not exist yet.
