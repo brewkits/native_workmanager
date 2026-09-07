@@ -160,6 +160,65 @@ NativeWorkManager.events.listen((event) {
 });
 ```
 
+##### Querying and bulk control
+
+```dart
+// Every task the store knows about.
+final all = await NativeWorkManager.allTasks();
+
+// Just the ones in a given state.
+final running = await NativeWorkManager.getTasksByStatus(TaskStatus.running);
+
+// One task.
+final record = await NativeWorkManager.getTaskRecord(taskId: 'sync');
+final status = await NativeWorkManager.getTaskStatus(taskId: 'sync');
+
+// Bulk pause/resume — these operate on whatever is currently running/paused.
+await NativeWorkManager.pauseAll();
+await NativeWorkManager.resumeAll();
+```
+
+| Method | Returns |
+| :--- | :--- |
+| `allTasks()` | `List<TaskRecord>` — every persisted task |
+| `getTasksByStatus(TaskStatus)` | `List<TaskRecord>` filtered by state |
+| `getTaskRecord(taskId:)` | `TaskRecord?` |
+| `getTaskStatus(taskId:)` | `TaskStatus?` |
+| `pauseAll()` / `resumeAll()` | `void` — pauses every running task / resumes every paused one |
+
+> **Fixed in 1.6.0.** `getTasksByStatus`, `pauseAll` and `resumeAll` threw
+> `MissingPluginException` on both platforms in every earlier version — they invoked a
+> method channel neither Android nor iOS implemented. If you are upgrading from ≤1.5.0 and
+> had worked around them, the workaround can go.
+
+##### Reading a worker's output
+
+A completed task's `TaskEvent.resultData` carries whatever the worker produced. The typed
+helpers in `worker_results.dart` parse it:
+
+```dart
+NativeWorkManager.events.listen((event) {
+  if (!event.success) return;
+  final result = DownloadResult.from(event.resultData);
+  print('Saved ${result?.fileSize} bytes to ${result?.filePath}');
+});
+```
+
+Available parsers: `DownloadResult`, `UploadResult`, `ParallelUploadResult`,
+`HttpRequestResult`, `CryptoResult`, `CompressionResult`, `DecompressionResult`,
+`ImageProcessResult`, `FileSystemResult`.
+
+> **Also fixed in 1.6.0.** `resultData` was always `null` on Android before this release, so
+> every one of these helpers returned an empty object there. A few of them were additionally
+> reading field names the workers never emit. Both are corrected — see the changelog for the
+> per-parser detail.
+>
+> Two known per-platform gaps remain, by design rather than oversight:
+> `ParallelUploadResult.files` (the per-file breakdown) is iOS-only — Android reports the
+> counters without it — and `ParallelDownloadResult` has no producer at all, because
+> `ParallelHttpDownloadWorker` downloads a single file over parallel range requests and
+> reports the single-file shape. Use `DownloadResult` for it.
+
 ---
 
 ## Workers
