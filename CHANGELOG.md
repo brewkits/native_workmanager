@@ -186,6 +186,13 @@ every performance number the project could not reproduce.
   map whose only key was the envelope and returning all-null fields. The plugin now flattens the
   envelope before forwarding. Maps without it pass through untouched, and a malformed payload
   degrades to the raw map rather than failing a worker that genuinely succeeded.
+- **`FileSystemResult.entries` was always null on Android, and `.count` always null on both
+  platforms.** The parser read `entries` and `count`; the workers emit `files` (objects carrying
+  `path`) and `fileCount`, and only iOS also sends an explicit `entries` array. `count` was
+  emitted by neither. Both fields are now derived from the shared `files`/`fileCount` payload,
+  with the platform-specific keys preferred when present — rather than widening the native
+  payload, since `files` already carries the paths and duplicating them costs room against
+  WorkManager's `Data` budget.
 - **iOS offline-queue enqueue had never worked.** Dart invokes the channel method
   `offlineQueueEnqueue` and Android registers that name, but iOS registered
   `enqueueOfflineQueue` — the same two words the other way round — so every call fell through

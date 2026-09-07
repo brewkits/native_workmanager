@@ -436,13 +436,31 @@ class FileSystemResult {
     if (data == null) return null;
     final op = data['operation'] as String?;
     if (op == null) return null;
-    final rawEntries = data['entries'] as List?;
+
+    // The two platforms do not agree on this payload, and neither sends `count`:
+    //   iOS      → `entries` (paths), `files` (objects), `fileCount`
+    //   Android  → `files` (objects), `fileCount`   — no `entries`
+    // Reading only `entries`/`count` left both fields null on Android and `count`
+    // null everywhere. Rather than widen the native payload — `files` already
+    // carries the paths, and duplicating them costs room against WorkManager's
+    // Data budget — the shared `files` list is the source of truth here, with the
+    // platform-specific keys preferred when present.
+    final explicitEntries = data['entries'] as List?;
+    final files = data['files'] as List?;
+    final entries = explicitEntries?.map((e) => '$e').toList() ??
+        files
+            ?.whereType<Map>()
+            .map((f) => f['path'])
+            .whereType<String>()
+            .toList();
+
     return FileSystemResult(
       operation: op,
       sourcePath: data['sourcePath'] as String?,
       destinationPath: data['destinationPath'] as String?,
-      entries: rawEntries?.map((e) => e as String).toList(),
-      count: (data['count'] as num?)?.toInt(),
+      entries: entries,
+      count: (data['count'] as num?)?.toInt() ??
+          (data['fileCount'] as num?)?.toInt(),
     );
   }
 }
