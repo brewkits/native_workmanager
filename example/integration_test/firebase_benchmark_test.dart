@@ -37,6 +37,13 @@ String _id(String name) =>
 
 /// Subscribe to events and wait for [taskId] completion (success or failure).
 /// Returns elapsed ms, or -1 on timeout.
+/// Elapsed ms for [taskId], or a negative sentinel.
+///
+/// `-1` timed out. `-2` reached a terminal event but **failed** — that case used
+/// to be reported as an ordinary timing, so a task that failed in 5 ms was
+/// indistinguishable from one that succeeded in 5 ms. Every "fast" number this
+/// harness produced had to be read with that in mind, and at least one was an
+/// artefact: see the note on the FGS comparison below.
 Future<int> _measureTaskMs(
   String taskId,
   Future<void> Function() enqueue, {
@@ -49,7 +56,17 @@ Future<int> _measureTaskMs(
   sub = NativeWorkManager.events.listen((event) {
     if (event.taskId == taskId && !event.isStarted && !completer.isCompleted) {
       sw.stop();
-      completer.complete(sw.elapsedMilliseconds);
+      if (!event.success) {
+        // Timing a failure is meaningless — it measures how fast the platform
+        // gave up, not how fast the work ran.
+        print(
+          'BENCHMARK_FAILED: $taskId failed after '
+          '${sw.elapsedMilliseconds}ms — ${event.message}',
+        );
+        completer.complete(-2);
+      } else {
+        completer.complete(sw.elapsedMilliseconds);
+      }
       sub.cancel();
     }
   });
@@ -195,9 +212,32 @@ void main() {
       expect(elapsed, lessThan(5000));
     });
 
+    // Android only, and deliberately so.
+    //
+    // The point of this comparison is the cost of booting a Flutter engine for a
+    // background task. On iOS in foreground/test mode a DartWorker does not boot
+    // one — it runs through executeDartWorkerViaMethodChannel() on the engine
+    // already hosting the test — so it reports ~5 ms against the native worker's
+    // ~530 ms, and looks like Dart is a hundred times faster than native. It is
+    // not measuring what the name says; it is comparing an in-process callback
+    // against the full BGTaskScheduler dispatch path.
+    //
+    // The numbers were still being emitted on iOS, which is how the first
+    // recorded run (benchmark/results/2026-09-06-ios-simulator/) ended up
+    // carrying exactly that inversion. `isHeavyTask` (FGS) is an Android concept
+    // to begin with, so the whole test is now skipped elsewhere rather than
+    // publishing a figure that means something different per platform.
     testWidgets('FGS Memory Footprint Benchmark: Native Worker vs Dart Worker', (
       tester,
     ) async {
+      if (!Platform.isAndroid) {
+        print(
+          'BENCHMARK_SKIPPED: fgs_native_vs_dart is Android-only — a '
+          'DartWorker does not boot an engine on iOS in foreground mode, so '
+          'the comparison would not measure engine-boot cost.',
+        );
+        return;
+      }
       final tmpDir = Directory.systemTemp.createTempSync('bm_fgs_native_');
       final file = File('${tmpDir.path}/data.bin')
         ..writeAsBytesSync(
@@ -353,8 +393,14 @@ void main() {
       final sw = Stopwatch();
 
       late StreamSubscription<TaskEvent> sub;
+      // Completion events carry the individual STEP ids ('$chainId-1', '-2',
+      // '-3'), never the chain's name. Listening for `chainId` matched nothing,
+      // so this benchmark hit its 60 s timeout and reported the -1 sentinel on
+      // every run it has ever done. The last step is what marks the chain done —
+      // the same thing the chain device tests wait on.
+      final lastStepId = '$chainId-3';
       sub = NativeWorkManager.events.listen((event) {
-        if (event.taskId == chainId &&
+        if (event.taskId == lastStepId &&
             !event.isStarted &&
             !completer.isCompleted) {
           sw.stop();
