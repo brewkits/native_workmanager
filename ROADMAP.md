@@ -9,7 +9,17 @@ Our mission is to provide the most robust, efficient, and secure background exec
   against — but the published floor is still `flutter: '>=3.27.0'`, and nothing verifies it any
   more. A two-entry CI matrix (floor + current) is the honest fix; until then the floor is a
   claim, not a tested guarantee.
-- **Audit the benchmark harness before publishing any figure from it.** The first recorded run
+- **Android: `FileSystemWorker` tasks complete but never emit a completion `TaskEvent`.**
+  Found while auditing the benchmark harness. `NativeWorker.fileCopy` finishes — `getTaskRecord`
+  reports `status=completed` with real result data — but nothing arrives on
+  `NativeWorkManager.events`, so an app awaiting the event waits forever. Not a timing race:
+  a 60 MB copy is just as silent as a tiny one, while `hashFile` on **the same 60 MB file**
+  emits normally. Suspect `NativeWorkmanagerPlugin+EventChannel.kt`, which guards the fallback
+  emission on `taskStatuses[taskId] != "completed"` while the TaskEventBus handler sets that
+  same map before emitting — two dedup mechanisms that can disagree and drop the event between
+  them. Filed as an issue with the reproduction.
+- **Audit the benchmark harness before publishing any figure from it.** *(done in v1.6.x — see
+  below; kept here only for the RAM instrument, which still does not exist.)* The first recorded run
   (`benchmark/results/2026-09-06-ios-simulator/`) has the Dart-worker path reporting *faster*
   than the native path, and `chain_3_steps_ms` returning the timeout sentinel. Both need
   explaining — the two latency benchmarks do not appear to measure the same span. There is also
