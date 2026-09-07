@@ -5,7 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.6.1] - 2026-09-07
+
+**Fixes a regression in 1.6.0.** If you are on 1.6.0 and use any worker whose result contains a
+nested list or object — `FileSystemWorker` (`fileCopy`, `fileMove`, `list`, …) above all — its
+completion event never reached `NativeWorkManager.events` on Android, so code awaiting that event
+waited forever. Upgrade.
+
+### Added
+
+- A device regression guard, `issue_62:` in `device_integration_test.dart`, that **fails** if a
+  completion event is ever dropped again. It differs from the existing tests in the two ways that
+  let 1.6.0 ship broken: it uses a worker whose payload is **nested** (the crypto/hash workers
+  return a flat map, which is why probing with one missed the bug entirely), and it subscribes to
+  `NativeWorkManager.events` **directly**, with no `getTaskRecord` fallback to synthesise an event
+  when none arrives. Verified by re-introducing the defect: the test goes red and names it.
 
 ### Fixed
 

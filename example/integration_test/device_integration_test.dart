@@ -2886,6 +2886,85 @@ void main() {
     });
   });
 
+  // ════════════════════════════════════════════════════════════
+  // GROUP – Issue #62: completion events must actually be delivered
+  // ════════════════════════════════════════════════════════════
+  group('Issue #62 – completion event delivery', () {
+    // This is the test that would have caught the v1.6.0 regression and did not
+    // exist. The bug: a worker whose result payload contains a NESTED list threw
+    // inside Flutter's StandardMessageCodec while the event was being encoded,
+    // so eventSink.success() blew up and the whole completion event was lost.
+    //
+    // Two things make this test different from the ones that stayed green
+    // through the bug:
+    //   1. It uses a worker with a NESTED payload. FileSystemWorker returns a
+    //      `files` list; the crypto/hash workers return a flat map, which is why
+    //      probing with a hash worker missed it entirely.
+    //   2. It subscribes to NativeWorkManager.events DIRECTLY, with no
+    //      getTaskRecord fallback. native_workers_test's _waitEvent synthesises
+    //      an event from the task store when none arrives, which is exactly what
+    //      hid a broken public API behind a green suite.
+    testWidgets('issue_62: a nested result payload still delivers its event', (
+      tester,
+    ) async {
+      final id = _id('issue_62_nested');
+      final src = File('${tmpDir.path}/issue62_src.txt')
+        ..writeAsStringSync('issue 62 regression guard');
+      final dst = '${tmpDir.path}/issue62_dst.txt';
+
+      final completer = Completer<TaskEvent>();
+      final sub = NativeWorkManager.events.listen((event) {
+        if (event.taskId == id && !event.isStarted && !completer.isCompleted) {
+          completer.complete(event);
+        }
+      });
+      addTearDown(sub.cancel);
+
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(),
+        worker: NativeWorker.fileCopy(
+          sourcePath: src.path,
+          destinationPath: dst,
+        ),
+      );
+
+      final event = await completer.future.timeout(
+        const Duration(seconds: 40),
+        onTimeout: () {
+          fail(
+            'issue_62: no completion event arrived for a task whose result '
+            'carries a nested list. On v1.6.0 this was silent — the encode threw '
+            'inside eventSink.success() and the event was dropped. Check logcat '
+            'for "Unsupported value ... org.json".',
+          );
+        },
+      );
+
+      expect(event.success, isTrue, reason: 'issue_62: the copy must succeed');
+
+      // The payload must survive the channel intact, nesting included.
+      expect(
+        event.resultData,
+        isNotNull,
+        reason: 'issue_62: resultData must reach Dart',
+      );
+      expect(
+        event.resultData!['files'],
+        isA<List<dynamic>>(),
+        reason:
+            'issue_62: the nested list must arrive as a real List — an '
+            'org.json.JSONArray here cannot be encoded and takes the whole '
+            'event down with it',
+      );
+      expect(
+        event.resultData!['operation'],
+        equals('copy'),
+        reason: 'issue_62: flat keys must survive alongside the nested ones',
+      );
+    });
+  });
+
   group('Issue #36 – BGTask launch handler registration', () {
     testWidgets(
       'issue_36: handlers registered in +load, before launch completed, exactly once',
