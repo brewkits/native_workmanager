@@ -163,6 +163,31 @@ void main() {
         expect(
             map['latestMs'], equals(const Duration(hours: 3).inMilliseconds));
       });
+
+      // kmpworkmanager 3.4.1 made TaskTrigger.Windowed reject latest < earliest at
+      // construction. The rejection belongs in the native bridges (which turn it into a
+      // Dart-visible error), NOT in a Dart assert — an assert here would be the Issue #26
+      // mistake: blocking a combination the platform is perfectly able to answer for
+      // itself. This test pins that: Dart must keep serialising an inverted window
+      // faithfully so there is exactly one place that decides.
+      test('kmp_341: inverted window is serialised as-is, not blocked in Dart',
+          () {
+        final map = TaskTrigger.windowed(
+          earliest: const Duration(minutes: 10),
+          latest: const Duration(minutes: 1),
+        ).toMap();
+
+        expect(map['type'], equals('windowed'));
+        expect(map['earliestMs'],
+            equals(const Duration(minutes: 10).inMilliseconds));
+        expect(
+            map['latestMs'], equals(const Duration(minutes: 1).inMilliseconds));
+        expect(
+          map['earliestMs'] as int > (map['latestMs'] as int),
+          isTrue,
+          reason: 'kmp_341: Dart must not silently swap or clamp the bounds',
+        );
+      });
     });
 
     group('Constraints map keys and types', () {

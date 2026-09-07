@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import 'battery_restriction.dart';
 import 'constraints.dart';
 import 'enqueue_request.dart';
 import 'events.dart';
@@ -1350,6 +1351,69 @@ class NativeWorkManager {
     _checkInitialized();
     return NativeWorkManagerPlatform.instance
         .openFile(path, mimeType: mimeType);
+  }
+
+  /// Reports what the OS knows about background battery restrictions.
+  ///
+  /// Use this to explain to a user why a periodic task is running late. It is a
+  /// pure diagnostic — it schedules nothing and does not require [initialize],
+  /// so it is safe to call during startup before deciding whether to show a
+  /// prompt.
+  ///
+  /// ```dart
+  /// final report = await NativeWorkManager.batteryRestriction();
+  /// if (report.isExempt == false) {
+  ///   // Periodic work on this device may be deferred well past its interval.
+  ///   await NativeWorkManager.openBatteryOptimizationSettings();
+  /// }
+  /// ```
+  ///
+  /// Read [BatteryRestrictionReport.isExempt] carefully: it reflects one
+  /// stock-Android list, and an OEM power manager can still defer or kill work
+  /// on a device that reports `true`. It is not a guarantee that background
+  /// work will run on time, and this library does not claim to make it one.
+  ///
+  /// On iOS every field reports "not applicable" — BGTaskScheduler has its own
+  /// budget and there is no exemption to request.
+  static Future<BatteryRestrictionReport> batteryRestriction() {
+    return NativeWorkManagerPlatform.instance.batteryRestriction();
+  }
+
+  /// Opens the system battery-optimization settings screen (Android).
+  ///
+  /// This is the route that needs **no special permission**: it opens the OS
+  /// list of apps and lets the user pick yours. Returns `false` if the device
+  /// has no such screen, or on iOS.
+  ///
+  /// Prefer this over [requestDisableBatteryOptimization] unless you have a use
+  /// case that can be justified to Google Play — see that method's docs.
+  static Future<bool> openBatteryOptimizationSettings() {
+    return NativeWorkManagerPlatform.instance.openBatteryOptimizationSettings();
+  }
+
+  /// Shows the OS dialog asking the user to exempt this app from battery
+  /// optimization (Android).
+  ///
+  /// **This requires the host app to declare
+  /// `android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` in its own
+  /// `AndroidManifest.xml`.** This plugin will never declare it: a library
+  /// manifest merges into every consumer app, and it is a Play-policy
+  /// restricted permission, so declaring it here would drag apps that never
+  /// call this API into a policy review. If the permission is absent, this
+  /// returns [BatteryOptimizationRequestResult.missingPermission] rather than
+  /// throwing.
+  ///
+  /// Google Play restricts this permission to a short list of app categories.
+  /// If your app does not clearly fall into one of them, use
+  /// [openBatteryOptimizationSettings] instead — it achieves the same outcome
+  /// with one more user tap and no policy exposure.
+  ///
+  /// The user's answer is not reported synchronously; re-read
+  /// [batteryRestriction] after your app resumes to see the result.
+  static Future<BatteryOptimizationRequestResult>
+      requestDisableBatteryOptimization() {
+    return NativeWorkManagerPlatform.instance
+        .requestDisableBatteryOptimization();
   }
 
   /// Set the maximum number of concurrent downloads per host.

@@ -17,7 +17,9 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           flutter-version-file: .flutter-version
-          channel: stable
+          # No `channel:` here on purpose — subosito/flutter-action lets channel
+          # WIN over flutter-version-file, so having both meant .flutter-version was
+          # silently ignored and every job ran whatever stable happened to be latest.
           cache: true
 
       - name: Install dependencies
@@ -42,7 +44,9 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           flutter-version-file: .flutter-version
-          channel: stable
+          # No `channel:` here on purpose — subosito/flutter-action lets channel
+          # WIN over flutter-version-file, so having both meant .flutter-version was
+          # silently ignored and every job ran whatever stable happened to be latest.
           cache: true
 
       - uses: actions/setup-java@v4
@@ -71,13 +75,36 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           flutter-version-file: .flutter-version
-          channel: stable
+          # No `channel:` here on purpose — subosito/flutter-action lets channel
+          # WIN over flutter-version-file, so having both meant .flutter-version was
+          # silently ignored and every job ran whatever stable happened to be latest.
           cache: true
 
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build iOS (Debug/No-Codesign)
+      # The plugin ships BOTH CocoaPods and SwiftPM. This job validates that it
+      # compiles; the SwiftPM *artifact* is validated separately below, because
+      # Package.swift's binaryTarget points at a GitHub release asset that does not
+      # exist until the release is cut. Resolving it on a release PR can only 404,
+      # and a check that is red by construction is one people learn to ignore.
+      - name: Build iOS via CocoaPods (Debug/No-Codesign)
         run: |
+          flutter config --no-enable-swift-package-manager
           cd example
           flutter build ios --no-codesign --debug --no-pub
+
+      # The SwiftPM consumer path. Split out from the build above because
+      # Package.swift's binaryTarget points at a GitHub release asset that does not
+      # exist until the release is cut, so resolving it on a release PR can only
+      # 404 — and a check that is red by construction is one people learn to
+      # ignore. The script checks everything that CAN be checked pre-publication
+      # (manifest shape, hyphenated product, remote binaryTarget, no testTarget,
+      # both xcframework slices) and verifies the published checksum once the
+      # asset is live. Runnable locally before tagging: ./scripts/verify_spm_release.sh
+      - name: Verify SwiftPM release readiness
+        env:
+          # A missing asset is expected on a release PR, but never on main or on a
+          # tag — there it means SwiftPM consumers cannot resolve the release.
+          REQUIRE_PUBLISHED_ASSET: ${{ (github.ref_name == 'main' || github.ref_type == 'tag') && '1' || '0' }}
+        run: ./scripts/verify_spm_release.sh

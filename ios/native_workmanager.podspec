@@ -4,7 +4,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'native_workmanager'
-  s.version          = '1.5.0'
+  s.version          = '1.6.0'
   s.summary          = 'Background task manager for Flutter using platform-native APIs.'
   s.description      = <<-DESC
 Native WorkManager is a Flutter plugin that provides native background task scheduling
@@ -41,19 +41,19 @@ Features:
   }
   s.swift_version = '5.0'
 
-  # KMP WorkManager Framework (kmpworkmanager v3.3.1)
+  # KMP WorkManager Framework (kmpworkmanager v3.4.1)
   # Downloaded from GitHub Releases to stay under the pub.dev 100 MB package limit.
-  # RELEASE STEP: attach the rebuilt 3.3.1 KMPWorkManager.xcframework.zip to the v1.5.0
-  # release. The git-tracked copy under ios/Frameworks/ is already 3.3.1 for local/CI
+  # RELEASE STEP: attach the rebuilt 3.4.1 KMPWorkManager.xcframework.zip to the v1.6.0
+  # release. The git-tracked copy under ios/Frameworks/ is already 3.4.1 for local/CI
   # builds; this download only fires for pub.dev installs where .pubignore strips
-  # ios/Frameworks/.
+  # ios/Frameworks/. Keep this URL and Package.swift's binaryTarget URL on the same asset.
   s.prepare_command = <<-CMD
     set -e
     if [ ! -d "Frameworks/KMPWorkManager.xcframework" ]; then
-      echo "Downloading KMPWorkManager.xcframework v3.3.1..."
+      echo "Downloading KMPWorkManager.xcframework v3.4.1..."
       mkdir -p Frameworks
       curl -L --retry 3 -o /tmp/KMPWorkManager.xcframework.zip \
-        "https://github.com/brewkits/native_workmanager/releases/download/v1.5.0/KMPWorkManager.xcframework.zip"
+        "https://github.com/brewkits/native_workmanager/releases/download/v1.6.0/KMPWorkManager.xcframework.zip"
       rm -rf /tmp/kmpwm_extract
       unzip -o /tmp/KMPWorkManager.xcframework.zip -d /tmp/kmpwm_extract
       # Release zip may be flat or wrapped in a Frameworks/ dir - handle both.

@@ -11,6 +11,15 @@ analyzer:
     - bin/**
     - extension/**
     - native_workmanager_gen/**
+    # Added explicitly because the Flutter tool appends exactly these three on
+    # newer stable channels. Leaving them out made `flutter analyze` rewrite this
+    # file mid-CI-run, which left the tree dirty and made `dart pub publish
+    # --dry-run` exit 65 — the Analyze & Format job was red on main for months
+    # over it. They are correct excludes regardless: none of these hold Dart the
+    # analyzer should be checking.
+    - build/**
+    - android/**
+    - ios/**
 
 linter:
   rules:

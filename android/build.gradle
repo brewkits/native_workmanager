@@ -57,7 +57,26 @@ android {
         // releases — 3.3.0 (BREAKING: Koin dropped; iOS execution history no longer silently
         // dropped) and 3.3.1 (iOS single-task persistence, monotonic durations, KSP duplicate-
         // worker-key build failure, iOS filename path-traversal fix). See CHANGELOG 1.5.0.
-        api("dev.brewkits:kmpworkmanager:3.3.1")
+        // Bumped 3.3.1 -> 3.4.1 for v1.6.0. Two upstream releases; the parts that reach this
+        // plugin without any Dart-side change:
+        //   * 3.4.0 FIXED TaskTrigger.Exact — the default AlarmReceiver registered by
+        //     KmpWorkManager.initialize() logged the fired alarm and never ran the worker, so
+        //     EVERY exact-alarm task fired on time and did nothing. This plugin uses that default
+        //     receiver (it subclasses neither AlarmReceiver nor BaseAlarmReceiver), so exact
+        //     triggers start actually executing on this bump.
+        //   * 3.4.0 CHANGED setExpedited() to be gated on TaskPriority. Standalone enqueue() has
+        //     no priority parameter, so plugin tasks are NORMAL and are no longer blanket-expedited
+        //     — expect slightly later scheduling under WorkManager quota pressure.
+        //   * 3.4.0/3.4.1 also fix Android exact-alarm metadata loss on process kill, an
+        //     overflow-file leak on REPLACE reschedule, chain-step overflow leaks on cancel,
+        //     KmpHeavyWorker treating a transient FGS denial as permanent failure, and
+        //     ExecutionRecord.errorMessage always persisting as null in getExecutionHistory().
+        // The BREAKING part of 3.4.0 (AlarmReceiver.onReceive no longer removes AlarmStore
+        // metadata before dispatch) only affects apps that subclass AlarmReceiver DIRECTLY —
+        // this plugin does not, so no migration is needed here. enqueue() gained defaulted
+        // `tags`/`deadlineMs` parameters; Kotlin defaults keep this source-compatible, but the
+        // ObjC-exported selector changed on iOS — see KMPSchedulerBridge.swift.
+        api("dev.brewkits:kmpworkmanager:3.4.1")
 
         // androidx.startup — auto-initializes the plugin before Application.onCreate()
         // so DartWorker works out-of-the-box without a custom Application class.

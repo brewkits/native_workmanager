@@ -420,12 +420,21 @@ number, even when a release has no codegen changes.
    library product name (`native-workmanager`) — that product name in `Package.swift` must
    never be renamed back to underscores, and iOS sources must compile under SPM's stricter
    module isolation (no transitive `import UIKit`).
-5. Commit, tag `vX.Y.Z`, push.
-6. Cut a GitHub release on the tag. If the iOS xcframework changed, attach
+5. Run `./scripts/verify_spm_release.sh`. It checks the SwiftPM manifest the way a consumer
+   resolves it — hyphenated product (#52), remote `binaryTarget` with a checksum (#49), no
+   `testTarget` (the v1.4.3 strict-toolchain bug), both xcframework slices — and prints the
+   sha256 the release asset must have. Before the release exists it reports `SKIP` for the
+   asset check; that is expected. CI runs the same script on every PR.
+6. Commit, tag `vX.Y.Z`, push.
+7. Cut a GitHub release on the tag. If the iOS xcframework changed, attach
    `KMPWorkManager.xcframework.zip` as a release asset **named exactly that** — GitHub's
    `#Label` syntax on `gh release create` only renames the *display* label, not the actual
    download filename the podspec's `prepare_command` expects.
-7. `flutter pub publish` (root) then `dart pub publish` (`native_workmanager_gen/`). Run
+8. **Re-run `./scripts/verify_spm_release.sh` once the asset is attached.** It now downloads
+   the published zip and compares its sha256 against the checksum in `Package.swift`. A
+   mismatch breaks every SwiftPM consumer — v1.4.5 shipped exactly that and needed an
+   immediate follow-up. The same check is a hard failure in CI on `main` and on tags.
+9. `flutter pub publish` (root) then `dart pub publish` (`native_workmanager_gen/`). Run
    `flutter pub publish --dry-run` in both first — `pana` should score 160/160 before
    publishing for real.
 

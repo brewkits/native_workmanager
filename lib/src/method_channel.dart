@@ -5,6 +5,7 @@ import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import 'battery_restriction.dart';
 import 'constraints.dart';
 import 'events.dart';
 import 'native_work_manager.dart' show resolveDispatcherTimeout;
@@ -280,14 +281,19 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   @override
   Future<List<TaskRecord>> getTasksByStatus(
       {required TaskStatus status}) async {
-    final result = await methodChannel.invokeMethod<List<dynamic>>(
-      'getTasksByStatus',
-      {'status': status.name},
-    );
-    if (result == null) return [];
-    return result
-        .map((e) => TaskRecord.fromMap(Map<String, dynamic>.from(e as Map)))
-        .toList();
+    // Filtered in Dart over allTasks() rather than through a dedicated
+    // 'getTasksByStatus' channel method. That method was invoked here but
+    // implemented by NEITHER platform, so this call — and pauseAll() and
+    // resumeAll(), which both route through it — threw MissingPluginException
+    // on every invocation, on both Android and iOS.
+    //
+    // Filtering here rather than adding two native handlers is deliberate: the
+    // status strings are already the contract that allTasks() returns, so one
+    // implementation cannot drift from the other the way two SQL/Swift filters
+    // could. Task counts are small enough that the round trip is not the cost
+    // worth optimising.
+    final all = await allTasks();
+    return all.where((record) => record.status == status.name).toList();
   }
 
   @override
@@ -395,6 +401,16 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
 
     // Log unknown values instead of silently treating them as accepted.
     // This surfaces native-side bugs (e.g. typos, new values) during development.
+    //
+    // Known gap: the Android bridge already forwards 'DEADLINE_ALREADY_PASSED'
+    // (see NativeWorkmanagerPlugin+Enqueue.kt), which lands here and degrades to
+    // `accepted`. That is currently unreachable — verified on device 2026-09-06:
+    // a windowed trigger whose `latest` has elapsed returns `accepted` on BOTH
+    // platforms, because the plugin never sets kmpworkmanager's `deadlineMs`
+    // (KMPSchedulerBridge passes nil). Wiring per-task deadlines MUST add a
+    // ScheduleResult value for it first, or a skipped task will report as
+    // accepted — the Issue #30 failure shape, where native forwards a field and
+    // Dart quietly drops it.
     developer.log(
       'NativeWorkManager: Unrecognised schedule result "$result" — defaulting to accepted. '
       'This may indicate a platform bug or version mismatch.',
@@ -418,6 +434,59 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
       'filePath': path,
       if (mimeType != null) 'mimeType': mimeType,
     });
+  }
+
+  @override
+  Future<BatteryRestrictionReport> batteryRestriction() async {
+    final result = await methodChannel
+        .invokeMethod<Map<Object?, Object?>>('batteryRestriction');
+    if (result == null) {
+      // A platform that does not implement the call is treated the same as a
+      // platform with no such concept, rather than throwing at a diagnostics
+      // call site.
+      return const BatteryRestrictionReport(
+        isExempt: null,
+        manufacturer: null,
+        canOpenSettings: false,
+      );
+    }
+    return BatteryRestrictionReport.fromMap(
+      result.map((key, value) => MapEntry(key.toString(), value)),
+    );
+  }
+
+  @override
+  Future<bool> openBatteryOptimizationSettings() async {
+    final opened = await methodChannel
+        .invokeMethod<bool>('openBatteryOptimizationSettings');
+    return opened ?? false;
+  }
+
+  @override
+  Future<BatteryOptimizationRequestResult>
+      requestDisableBatteryOptimization() async {
+    final raw = await methodChannel
+        .invokeMethod<String>('requestDisableBatteryOptimization');
+    switch (raw) {
+      case 'shown':
+        return BatteryOptimizationRequestResult.shown;
+      case 'alreadyExempt':
+        return BatteryOptimizationRequestResult.alreadyExempt;
+      case 'missingPermission':
+        return BatteryOptimizationRequestResult.missingPermission;
+      case 'unavailable':
+        return BatteryOptimizationRequestResult.unavailable;
+      case 'notSupported':
+        return BatteryOptimizationRequestResult.notSupported;
+      default:
+        developer.log(
+          'NativeWorkManager: unrecognised battery-optimization request result '
+          '"$raw" — treating as unavailable.',
+          name: 'NativeWorkManager',
+          level: 900, // WARNING
+        );
+        return BatteryOptimizationRequestResult.unavailable;
+    }
   }
 
   @override

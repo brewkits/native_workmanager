@@ -5,6 +5,280 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-09-06
+
+Engine bump, a new Android diagnostics API, and a documentation correction that removes
+every performance number the project could not reproduce.
+
+### Added
+
+- **Battery-restriction diagnostics (Android).** The most common real-world reason a periodic
+  task runs late is the OS — or the OEM — deferring it, and there was no way to see that from
+  Dart.
+
+  - `NativeWorkManager.batteryRestriction()` reports `isExempt`
+    (`PowerManager.isIgnoringBatteryOptimizations`), `manufacturer` (`Build.MANUFACTURER`,
+    lowercased) and `canOpenSettings` — the last resolved with `resolveActivity` on the actual
+    device rather than assumed. It is a pure diagnostic: it schedules nothing and does not
+    require `initialize()`, so it is safe to call during startup.
+  - `NativeWorkManager.openBatteryOptimizationSettings()` opens the system list. Needs no
+    permission.
+  - `NativeWorkManager.requestDisableBatteryOptimization()` shows the direct "allow" dialog.
+
+  **`isExempt` is not a guarantee.** It reflects one stock-Android list; Xiaomi, Samsung,
+  Huawei, Oppo and Vivo run their own task killer on top of it, so a device can report `true`
+  and still stretch a 15-minute task into hours. The API and the docs say so rather than
+  implying otherwise.
+
+  There are deliberately **no per-manufacturer settings deep links**. Those "autostart" and
+  "protected apps" screens are undocumented internal activities that get renamed between
+  firmware builds; a shipped table of them rots on devices this project cannot test.
+  `manufacturer` is passed up raw so an app can word its own guidance.
+
+  `requestDisableBatteryOptimization()` requires the **host app** to declare
+  `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`. This plugin will never declare it: it is Play-policy
+  restricted and a library manifest merges into every consumer app, so declaring it would drag
+  apps that never call this API into a policy review — the same mistake that got the
+  foreground-service permissions removed. Without it the call returns `missingPermission`
+  rather than throwing. `ManifestGuardTest` now guards both permissions.
+
+  On iOS all three report "not applicable" — `isExempt` is `null` so
+  `BatteryRestrictionReport.isSupported` distinguishes "we asked and the answer is no" from
+  "there is nothing to ask".
+
+### Changed
+
+- **kmpworkmanager core upgraded 3.3.1 → 3.4.1** (spans two upstream releases). No Dart API
+  change — this release is the engine bump plus the one bridge fix it forced. The parts that
+  reach plugin users without any code change on their side:
+
+  - **Android: `TaskTrigger.exact` actually runs its worker now.** The default `AlarmReceiver`
+    registered by `KmpWorkManager.initialize()` — the one this plugin uses — logged the fired
+    alarm and finished the broadcast without ever resolving or invoking the scheduled worker.
+    Every exact-alarm task fired on time and did nothing. Fixed upstream in 3.4.0.
+  - **Android: exact-alarm tasks survive a process kill mid-execution.** Alarm metadata was
+    removed from `AlarmStore` *before* the work ran; a kill in that window lost the task with
+    no trace and no reboot recovery. Removal now happens after a definitive outcome.
+  - **Android: expedited work is now gated on task priority.** Previously every eligible task
+    (no delay, not heavy, no charging/unmetered requirement) was requested as expedited work
+    regardless of priority. Standalone `enqueue()` has no priority parameter, so plugin tasks
+    are `NORMAL` and are **no longer blanket-expedited** — expect slightly later scheduling for
+    them under WorkManager quota pressure. Chain steps marked `CRITICAL`/`HIGH` are unaffected.
+  - **Android: `KmpHeavyWorker` retries instead of discarding on a transient foreground-service
+    denial.** A `SecurityException`/`IllegalStateException` from OS background-start policy
+    (battery saver, OEM restriction) returned a permanent failure and dropped the task.
+  - **Android: file leaks closed** — the large-input overflow file for a task rescheduled under
+    `ExistingPolicy.replace` is now deleted rather than orphaned until the 24 h janitor sweep,
+    and chain-step overflow files are cleaned up when a chain is cancelled before the step runs.
+  - **Android: `getExecutionHistory()` records the real failure reason.** `ExecutionRecord.errorMessage`
+    was always persisted as `null`, so persisted history lost every diagnostic detail (live
+    completion events were unaffected).
+  - **iOS: `ExistingPolicy.keep` no longer behaves like `replace`.** For a task id not declared
+    in `Info.plist` — the normal case, since ids are usually per-instance — the KEEP check
+    queried `BGTaskScheduler` for an identifier that is never submitted under its own name, so
+    it always missed. A repeat `enqueue(policy: keep)` therefore discarded the first call's
+    metadata and could duplicate the task.
+  - **iOS: chain progress can no longer regress.** A failed progress flush unconditionally
+    re-buffered its pre-failure snapshot, which could clobber a newer in-memory value; a
+    process kill after that made a resumed chain re-run an already-completed step.
+  - **iOS: a dynamic task is no longer silently dropped** when a host app's `WorkerFactory`
+    throws something other than `IllegalArgumentException` — the case that permanently stopped
+    a periodic task's recurring schedule.
+  - **iOS: standalone tasks now honour `requiresUnmeteredNetwork`, `requiresCharging` and the
+    battery-not-low constraint**, and `Constraints.backoffPolicy`/`backoffDelayMs` affect retry
+    timing when explicitly set. Previously only chain steps enforced any of these.
+  - **iOS: metadata, chain definitions and chain progress are written atomically**
+    (temp file + `replaceItemAtURL`) instead of via `NSString.writeToFile(atomically:)`, and a
+    completed background download is moved without the previous delete-then-move window.
+
+  Upstream 3.4.0 carries one breaking change — `AlarmReceiver.onReceive()` no longer removes
+  `AlarmStore` metadata before dispatch — that affects only apps subclassing `AlarmReceiver`
+  **directly**. This plugin subclasses neither it nor `BaseAlarmReceiver`, so no host-app
+  migration is required.
+
+- **Removed every unmeasured performance claim from the documentation.** The docs advertised a
+  `~2 MB` RAM footprint, `< 50 ms` task startup, and `100% Guaranteed` survival of process
+  death — for this package *and*, in the comparison table, for four competitors. None came from
+  a run anyone could reproduce, and `benchmark/results/` had been empty since the harness was
+  built in February.
+
+  Two of those were not merely unsourced but wrong. Nothing *guarantees* background execution
+  on either platform; the real property is that a task is **restored** after process death via
+  WorkManager/SQLite and BGTaskScheduler persistence, which is what the docs now say. And
+  `< 50 ms` is contradicted by this project's own harness, which reports 698 ms and 794 ms for
+  its two startup benchmarks.
+
+  Comparison tables now carry dated capability rows only. Numbers return when there are runs to
+  back them.
+
+- **`Build Validation (iOS)` could never pass on a release PR.** The job runs
+  `flutter build ios`, and CI's Flutter has SwiftPM on by default, so it resolved
+  `Package.swift`'s remote `binaryTarget` — a GitHub release asset that does not exist until
+  the release is cut. Every release that changes the bundled framework therefore had a red
+  check by construction, which is how a gate stops being read.
+
+  Split into two: the build validates the CocoaPods path (both are shipped), and a new
+  `scripts/verify_spm_release.sh` checks everything about the SwiftPM path that does not need a
+  live asset — manifest parses, product is hyphenated (issue #52), `binaryTarget` is remote with
+  a checksum (issue #49), no `testTarget` is declared (v1.4.3) and the xcframework has both
+  slices — then verifies the published zip's sha256 against the declared checksum once the asset
+  exists. That last check is a hard failure on `main` and on tags, and the exact check that would
+  have caught the wrong checksum shipped in v1.4.5. It is runnable locally before tagging.
+- **`benchmark/README.md`** no longer claims the project provides independent community
+  verification. It provides transparent methodology and reproducibility; the third leg needs
+  published results, which do not exist yet.
+
+- **`ROADMAP.md`**: replaced the adoption-metric KPI table (pub.dev likes, stars, weekly
+  downloads, "Enterprise Users") — those targets predate the July 2026 decision that this is a
+  portfolio project, not a commercial one, and steering by them pushed prioritisation toward
+  breadth. Cross-integration adapters, the templates repository, desktop support, cloud
+  coordination and enterprise rate limiting moved to a **Deliberately deferred** section with
+  the reason for each recorded.
+
+### Fixed
+
+- **An inverted `TaskTrigger.windowed(earliest:, latest:)` window (`latest < earliest`) is
+  rejected with a normal Dart-visible error instead of taking the app down on iOS.**
+  kmpworkmanager 3.4.1 added construction-time validation to `TaskTrigger.Windowed`; a Kotlin
+  `IllegalArgumentException` thrown from a constructor exported to Swift cannot be caught and
+  terminates the process. `KMPSchedulerBridge` now rejects the inverted window before
+  constructing the trigger, which flows into the existing "Invalid trigger configuration" error
+  path. Android already parsed the trigger inside a guarded block and surfaces `ENQUEUE_ERROR`.
+  No Dart-side `assert` was added — the Dart API still accepts the combination and lets the
+  platform answer. Covered by `kmp_341: inverted windowed trigger errors instead of crashing`
+  in `device_integration_test.dart`. That test is only meaningful on iOS — removing the guard
+  kills the app there; Android passes either way, because its existing guarded parse already
+  turns upstream's own exception into `ENQUEUE_ERROR`.
+
+- **CI never honoured `.flutter-version` at all.** Every `subosito/flutter-action` step passed
+  both `flutter-version-file: .flutter-version` **and** `channel: stable`, and the channel wins —
+  so the pin was decorative and all 15 job setups ran whatever stable happened to be latest
+  (3.47.2 at time of writing). The `channel:` line is now removed wherever a version file is
+  given, so the pin actually takes effect.
+
+  This was also the real cause of the long-red `Analyze & Format` job, which the Flutter bump
+  below did *not* fix: newer stable Flutter appends `build/**`, `android/**` and `ios/**` to the
+  `analyzer.exclude` list in `analysis_options.yaml` and `example/analysis_options.yaml` when it
+  runs. That left the working tree dirty mid-job, and `dart pub publish --dry-run` exits 65 on a
+  dirty checked-in file. Both files now declare those excludes up front — they are correct
+  excludes in their own right — so nothing rewrites them.
+- **CI was validating against a Flutter the project no longer uses.** `.flutter-version` pinned
+  **3.27.4** (Dart 3.6.2, released 2025-02-05) while development and the consuming app run
+  **3.41.9** (Dart 3.11.5). Two concrete consequences, both now fixed by bumping the pin:
+
+  - `Analyze & Format` had been red on `main` since before v1.5.0. `dart pub publish --dry-run`
+    reported `analysis_options.yaml` and `example/analysis_options.yaml` as "modified in git"
+    during the run — an old-toolchain artefact that does not reproduce on 3.41.9 (0 warnings).
+  - `native_workmanager_gen` declares `sdk: '>=3.9.0'`, which **cannot resolve on Dart 3.6.2**,
+    so the generator package was never properly validated by CI. That is the source of the
+    `Failed to resolve package URI "package:flutter_lints/flutter.yaml"` warnings in the logs.
+
+  The published minimums are unchanged — the plugin still declares `flutter: '>=3.27.0'` /
+  `sdk: '>=3.6.0'`, so no consumer is dropped. Note the trade-off this creates: CI now exercises
+  the version actually shipped against, and no longer exercises the declared floor. A matrix over
+  both is the proper fix and is tracked in ROADMAP.
+- **`pubspec_overrides.yaml` is now gitignored.** CI writes
+  `native_workmanager_gen/pubspec_overrides.yaml` to point the generator at the local plugin.
+  Committing it — or a `pubspec.lock` resolved with it in place — drags the Flutter SDK's pinned
+  `meta` into the generator and forces `analyzer` below the version it targets, which is exactly
+  what that package's pubspec comment warns against.
+- **`TaskEvent.resultData` now actually carries a worker's result on Android — the
+  `worker_results.dart` helpers have never returned data there before.** Measured on a Pixel
+  6 Pro with a SHA-256 hash task:
+
+  | | `resultData` |
+  | :--- | :--- |
+  | kmpworkmanager 3.3.1 (v1.5.0) | `null` |
+  | 3.4.1, before this fix | `{kmp_step_output: "{\"hash\":\"2cf2…\"}"}` |
+  | 3.4.1, after this fix | `{hash: 2cf2…, algorithm: SHA-256, fileSize: 5}` |
+
+  kmpworkmanager 3.4.0's InputMerger change serialises `WorkerResult.Success.data` into
+  WorkManager's output `Data` under a single `kmp_step_output` key as a JSON string, so the next
+  chain step can merge it. But `WorkInfo.outputData` is also what this plugin forwards to Dart,
+  so `CryptoResult.from(...)`, `ImageResult.from(...)` and every sibling helper were reading a
+  map whose only key was the envelope and returning all-null fields. The plugin now flattens the
+  envelope before forwarding. Maps without it pass through untouched, and a malformed payload
+  degrades to the raw map rather than failing a worker that genuinely succeeded.
+- **Every `worker_results.dart` parser was reading at least one key the native workers never
+  send.** With `resultData` permanently null on Android, nothing ever exercised these against a
+  real payload, so the schema they were written to had drifted from what the workers emit:
+
+  | Parser | Was reading | Workers actually send |
+  | :--- | :--- | :--- |
+  | `DecompressionResult` | `outputPath`, `extractedCount`, `totalSize` | **none of them** — Android `targetDir`/`extractedFiles`/`totalBytes`, iOS `filesExtracted` |
+  | `CompressionResult` | `fileCount`, `totalSize` | Android `filesCompressed`, `originalSize` |
+  | `ImageProcessResult` | `width`, `height`, `fileSize` | Android `processedWidth`, `processedHeight`, `processedSize` |
+  | `FileSystemResult` | `entries`, `count` | `files`, `fileCount` (iOS also sends `entries`) |
+  | `CryptoResult` | `operation` | iOS only — Android omits it |
+  | `ParallelUploadResult` | `fileResults` | iOS only — Android sends counters alone |
+
+  `DecompressionResult.from` was the worst: not one of its three keys exists on either platform,
+  so it returned `null` for every real payload. Each parser now accepts the spellings its
+  platforms actually use, preferring the most specific. This is purely additive — every key that
+  worked before still works.
+
+- **`ParallelDownloadResult` documents a shape no worker produces.**
+  `ParallelHttpDownloadWorker` downloads a *single* file over parallel range requests and reports
+  the single-file shape, so `DownloadResult` is the correct parser for it. The class doc now says
+  so instead of pointing at that worker; it is kept rather than removed because it is exported
+  public API.
+
+- **`FileSystemResult.entries` was always null on Android, and `.count` always null on both
+  platforms.** The parser read `entries` and `count`; the workers emit `files` (objects carrying
+  `path`) and `fileCount`, and only iOS also sends an explicit `entries` array. `count` was
+  emitted by neither. Both fields are now derived from the shared `files`/`fileCount` payload,
+  with the platform-specific keys preferred when present — rather than widening the native
+  payload, since `files` already carries the paths and duplicating them costs room against
+  WorkManager's `Data` budget.
+- **iOS offline-queue enqueue had never worked.** Dart invokes the channel method
+  `offlineQueueEnqueue` and Android registers that name, but iOS registered
+  `enqueueOfflineQueue` — the same two words the other way round — so every call fell through
+  to `FlutterMethodNotImplemented` and threw `MissingPluginException`. Found by auditing every
+  Dart call site against both native dispatch tables after the `getTasksByStatus` bug, which is
+  the same defect class.
+- **Added a method-channel parity guard** (`test/unit/channel_method_parity_test.dart`). It
+  reads the real dispatch tables in `NativeWorkmanagerPlugin.kt` and
+  `NativeWorkmanagerPlugin.swift` and asserts every method Dart invokes is registered on both,
+  the way `ManifestGuardTest` reads AndroidManifest.xml. This class of bug is invisible to
+  normal testing — a mock will happily answer a method no platform implements, so unit tests,
+  analysis and both native compilers all stay green while a public API is dead in production.
+  Verified to fail (naming the exact method) when either bug is re-introduced.
+- **A result parser could throw `TypeError` instead of returning data.** The two delivery paths
+  disagree on the Dart type of a nested field: the event channel hands lists over already
+  decoded, while the `getTaskRecord` fallback — used whenever the completion event is missed —
+  hands them over as the JSON text they were persisted as. `data['files'] as List?` therefore
+  threw `type 'String' is not a subtype of type 'List<dynamic>?'` on the fallback path only,
+  taking down a caller trying to read a task that had actually succeeded. Every list field in
+  `worker_results.dart` now accepts either form and returns `null` rather than throwing when it
+  is neither.
+- **The `ImageProcessWorker` device tests failed on every Android run against a corrupt fixture.**
+  `native_workers_test.dart`'s `_minimalPng` described itself as a minimal valid PNG but was not
+  one: its IDAT chunk carried a wrong CRC and the bytes following it did not form a valid IEND.
+  `file(1)` still reported "PNG image data, 32 x 32" — it only reads the header — and iOS's
+  decoder accepted it, but Android's `BitmapFactory` validates the whole stream and refused it
+  with "Failed to decode image". **Android was correct and the fixture was wrong.** Replaced with
+  a genuinely valid 32×32 RGB PNG with correct per-chunk CRCs, which is also smaller (99 bytes vs
+  138).
+- **The `exact trigger` device test failed on every iOS run.** `ExactTrigger` has been rejected
+  in Dart on iOS since v1.2.1 — BGTaskScheduler cannot honour an exact time, so the API refuses
+  rather than accepting a request it would miss by hours — but the test called `enqueue`
+  unconditionally and asserted a contract the library deliberately does not have. It now asserts
+  `throwsUnsupportedError` on iOS and keeps the accepted/rejected assertion on Android.
+- `doc/ANDROID_SETUP.md` told readers to hand-roll a `MethodChannel` calling
+  `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` with **no mention of the Play-policy
+  restriction**. Replaced with the new API and the warning. Also corrected a "see §3 above"
+  pointer that aimed at Killed-App Support rather than the battery section.
+
+### Notes
+
+- `BackgroundTaskScheduler.enqueue()` gained defaulted `tags` and `deadlineMs` parameters
+  upstream. Kotlin defaults keep Android source-compatible, but they are **not** exported to
+  Swift, so the ObjC selector changed and `KMPSchedulerBridge.swift` now passes both explicitly
+  at their Kotlin defaults (empty set / `nil`) — behaviour is identical to 3.3.1.
+- The new upstream API surface — task tags with `cancelByTag`, per-task deadlines, the chain
+  `InputMerger` (`mergeOutputFromPreviousStep`) and `ExistingPolicy.UPDATE` — is **not** exposed
+  through the Dart API in this release. Wiring it is tracked separately.
+
 ## [1.5.0] - 2026-08-23
 
 ### Added

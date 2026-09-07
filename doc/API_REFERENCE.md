@@ -160,6 +160,65 @@ NativeWorkManager.events.listen((event) {
 });
 ```
 
+##### Querying and bulk control
+
+```dart
+// Every task the store knows about.
+final all = await NativeWorkManager.allTasks();
+
+// Just the ones in a given state.
+final running = await NativeWorkManager.getTasksByStatus(TaskStatus.running);
+
+// One task.
+final record = await NativeWorkManager.getTaskRecord(taskId: 'sync');
+final status = await NativeWorkManager.getTaskStatus(taskId: 'sync');
+
+// Bulk pause/resume — these operate on whatever is currently running/paused.
+await NativeWorkManager.pauseAll();
+await NativeWorkManager.resumeAll();
+```
+
+| Method | Returns |
+| :--- | :--- |
+| `allTasks()` | `List<TaskRecord>` — every persisted task |
+| `getTasksByStatus(TaskStatus)` | `List<TaskRecord>` filtered by state |
+| `getTaskRecord(taskId:)` | `TaskRecord?` |
+| `getTaskStatus(taskId:)` | `TaskStatus?` |
+| `pauseAll()` / `resumeAll()` | `void` — pauses every running task / resumes every paused one |
+
+> **Fixed in 1.6.0.** `getTasksByStatus`, `pauseAll` and `resumeAll` threw
+> `MissingPluginException` on both platforms in every earlier version — they invoked a
+> method channel neither Android nor iOS implemented. If you are upgrading from ≤1.5.0 and
+> had worked around them, the workaround can go.
+
+##### Reading a worker's output
+
+A completed task's `TaskEvent.resultData` carries whatever the worker produced. The typed
+helpers in `worker_results.dart` parse it:
+
+```dart
+NativeWorkManager.events.listen((event) {
+  if (!event.success) return;
+  final result = DownloadResult.from(event.resultData);
+  print('Saved ${result?.fileSize} bytes to ${result?.filePath}');
+});
+```
+
+Available parsers: `DownloadResult`, `UploadResult`, `ParallelUploadResult`,
+`HttpRequestResult`, `CryptoResult`, `CompressionResult`, `DecompressionResult`,
+`ImageProcessResult`, `FileSystemResult`.
+
+> **Also fixed in 1.6.0.** `resultData` was always `null` on Android before this release, so
+> every one of these helpers returned an empty object there. A few of them were additionally
+> reading field names the workers never emit. Both are corrected — see the changelog for the
+> per-parser detail.
+>
+> Two known per-platform gaps remain, by design rather than oversight:
+> `ParallelUploadResult.files` (the per-file breakdown) is iOS-only — Android reports the
+> counters without it — and `ParallelDownloadResult` has no producer at all, because
+> `ParallelHttpDownloadWorker` downloads a single file over parallel range requests and
+> reports the single-file shape. Use `DownloadResult` for it.
+
 ---
 
 ## Workers
@@ -929,6 +988,58 @@ NativeWorker.httpDownload(
 - No time limits
 - Automatic retry on network failure
 
+### Android battery restrictions
+
+The most common real-world reason a periodic task runs late is the OS — or the device
+manufacturer — deferring it. These report what the OS actually says.
+
+```dart
+final report = await NativeWorkManager.batteryRestriction();
+
+if (report.isExempt == false) {
+  await NativeWorkManager.openBatteryOptimizationSettings();
+}
+```
+
+| Method | Returns | Notes |
+| :--- | :--- | :--- |
+| `batteryRestriction()` | `BatteryRestrictionReport` | Pure diagnostic. Does not require `initialize()`. |
+| `openBatteryOptimizationSettings()` | `Future<bool>` | Opens the system list. **No permission needed.** |
+| `requestDisableBatteryOptimization()` | `BatteryOptimizationRequestResult` | Direct dialog. Needs a host-app permission — see below. |
+
+**`BatteryRestrictionReport`**
+
+| Field | Type | Meaning |
+| :--- | :--- | :--- |
+| `isExempt` | `bool?` | `PowerManager.isIgnoringBatteryOptimizations()`. `null` = no answer (iOS, or an OEM build that threw). |
+| `manufacturer` | `String?` | `Build.MANUFACTURER`, lowercased. `null` on iOS. |
+| `canOpenSettings` | `bool` | Whether the settings screen resolves on this device — checked, not assumed. |
+| `isSupported` | `bool` | `false` whenever `isExempt` is `null`. |
+
+> **`isExempt: true` is not a guarantee.** It reflects one stock-Android list. Xiaomi
+> (MIUI/HyperOS), Samsung, Huawei, Oppo and Vivo run their own task killer on top of it, so a
+> device can report `true` and still stretch a 15-minute task into hours.
+
+There are deliberately **no per-manufacturer settings deep links** — those screens are
+undocumented internal activities that get renamed between firmware builds. Use `manufacturer`
+to word your own guidance.
+
+**`BatteryOptimizationRequestResult`**
+
+`shown` · `alreadyExempt` · `missingPermission` · `unavailable` · `notSupported`
+
+`requestDisableBatteryOptimization()` needs this in **your** manifest:
+
+```xml
+<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+```
+
+The plugin never declares it — it is Play-policy restricted and a library manifest merges into
+every consumer app. Without it the call returns `missingPermission` rather than throwing. Unless
+your app fits one of Google's eligible categories, prefer `openBatteryOptimizationSettings()`.
+
+See [ANDROID_SETUP.md](ANDROID_SETUP.md) for the full guidance.
+
 ---
 
 ## See Also
@@ -940,5 +1051,5 @@ NativeWorker.httpDownload(
 
 ---
 
-**Version:** 1.3.3
-**Last Updated:** 2026-07-14
+**Version:** 1.6.0
+**Last Updated:** 2026-09-06

@@ -62,4 +62,42 @@ class ManifestGuardTest {
             manifestContent.contains("android:foregroundServiceType="),
         )
     }
+
+    /**
+     * Same rule, different permission.
+     *
+     * `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` is what
+     * `NativeWorkManager.requestDisableBatteryOptimization()` needs, and Google Play
+     * restricts it to a short list of app categories. Declaring it in this *library*
+     * manifest would merge it into every consumer app — including the ones that only ever
+     * call `openBatteryOptimizationSettings()`, or never touch the battery API at all —
+     * and drag them into a policy review they did not ask for. That is precisely the FGS
+     * mistake above, so it is guarded the same way.
+     *
+     * The host app declares it, or the plugin returns `missingPermission`. See
+     * `NativeWorkmanagerPlugin+BatteryRestriction.kt`.
+     */
+    @Test
+    fun `library manifest does not declare the Play-restricted battery permission`() {
+        val manifestFile = File("src/main/AndroidManifest.xml")
+        val actualFile = if (manifestFile.exists()) {
+            manifestFile
+        } else {
+            File("android/src/main/AndroidManifest.xml")
+        }
+
+        assertTrue(
+            "Could not find AndroidManifest.xml at ${actualFile.absolutePath}",
+            actualFile.exists(),
+        )
+
+        assertFalse(
+            "Library AndroidManifest.xml MUST NOT declare " +
+                "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS. It is Play-policy restricted and a " +
+                "library manifest merges into EVERY consumer app. Apps that need the " +
+                "direct dialog declare it themselves; the plugin reports " +
+                "missingPermission otherwise.",
+            actualFile.readText().contains("REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"),
+        )
+    }
 }

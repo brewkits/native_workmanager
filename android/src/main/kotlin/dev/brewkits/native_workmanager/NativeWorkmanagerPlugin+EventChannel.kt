@@ -439,7 +439,7 @@ internal fun NativeWorkmanagerPlugin.observeWorkCompletion(taskId: String, isPer
                     val workInfo = terminalInfos.first()
                     val state = workInfo.state
                     // Extract output data from WorkInfo (set by KmpWorker/KmpHeavyWorker)
-                    val outputDataMap = workInfo.outputData.keyValueMap
+                    val outputDataMap = unwrapStepOutput(workInfo.outputData.keyValueMap)
                         .let { if (it.isEmpty()) null else it }
                     when (state) {
                         WorkInfo.State.SUCCEEDED -> {
@@ -626,3 +626,41 @@ internal fun NativeWorkmanagerPlugin.deriveErrorCode(message: String?): String {
     }
 }
 
+/**
+ * Flattens kmpworkmanager's chain-step envelope out of a WorkManager output [Data] map.
+ *
+ * Since kmpworkmanager 3.4.0 (the WorkManager-parity / InputMerger change), a worker's
+ * `WorkerResult.Success.data` is serialised into WorkManager's output `Data` under a single
+ * `kmp_step_output` key, as a JSON **string**, so the next chain step's InputMerger can pick
+ * it up. That envelope is an implementation detail of chain plumbing — but `WorkInfo.outputData`
+ * is also what this plugin forwards to Dart as `TaskEvent.resultData`, so without unwrapping,
+ * every `CryptoResult.from(...)` / `ImageResult.from(...)` / etc. in `worker_results.dart`
+ * reads a map whose only key is `kmp_step_output` and returns all-null fields.
+ *
+ * Before 3.4.0 the map was simply empty and `resultData` arrived as null, so these helpers have
+ * never returned data on Android. Unwrapping here is what makes them work.
+ *
+ * Anything other than the exact single-key envelope is returned untouched: a worker that writes
+ * its own output keys directly keeps them, and a malformed payload degrades to the raw map
+ * rather than throwing on a success path.
+ */
+internal fun unwrapStepOutput(raw: Map<String, Any?>): Map<String, Any?> {
+    val encoded = raw[KEY_STEP_OUTPUT] as? String ?: return raw
+    return try {
+        val obj = org.json.JSONObject(encoded)
+        val flattened = LinkedHashMap<String, Any?>(raw.size + obj.length())
+        // Preserve any sibling keys, then layer the decoded payload over them.
+        raw.forEach { (k, v) -> if (k != KEY_STEP_OUTPUT) flattened[k] = v }
+        obj.keys().forEach { key ->
+            val value = obj.get(key)
+            flattened[key] = if (value === org.json.JSONObject.NULL) null else value
+        }
+        flattened
+    } catch (e: Exception) {
+        NativeLogger.w("Could not decode $KEY_STEP_OUTPUT, forwarding raw output: ${e.message}")
+        raw
+    }
+}
+
+/** kmpworkmanager's `NativeTaskScheduler.KEY_STEP_OUTPUT`. */
+internal const val KEY_STEP_OUTPUT = "kmp_step_output"

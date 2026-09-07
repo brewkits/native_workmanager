@@ -1,5 +1,6 @@
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
+import 'battery_restriction.dart';
 import 'constraints.dart';
 import 'events.dart';
 import 'method_channel.dart';
@@ -183,6 +184,24 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
   /// [mimeType] — optional MIME type hint. If null, the OS infers from extension.
   Future<void> openFile(String path, {String? mimeType}) {
     throw UnimplementedError('openFile() has not been implemented.');
+  }
+
+  /// Reports what the platform knows about background battery restrictions.
+  Future<BatteryRestrictionReport> batteryRestriction() {
+    throw UnimplementedError('batteryRestriction() has not been implemented.');
+  }
+
+  /// Opens the system battery-optimization settings screen.
+  Future<bool> openBatteryOptimizationSettings() {
+    throw UnimplementedError(
+        'openBatteryOptimizationSettings() has not been implemented.');
+  }
+
+  /// Asks the OS to show the "allow this app to ignore battery optimization"
+  /// dialog.
+  Future<BatteryOptimizationRequestResult> requestDisableBatteryOptimization() {
+    throw UnimplementedError(
+        'requestDisableBatteryOptimization() has not been implemented.');
   }
 
   /// Set the maximum number of concurrent downloads per host.

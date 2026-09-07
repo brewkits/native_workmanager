@@ -31,14 +31,26 @@ void main() {
             'createdAt': now,
             'updatedAt': now,
           };
-        case 'getTasksByStatus':
+        // NOTE: there is deliberately no 'getTasksByStatus' case. No platform
+        // implements that method — mocking it here is what let the real bug
+        // (MissingPluginException on every call, on both platforms) sit unseen
+        // behind a green unit test. getTasksByStatus now filters allTasks().
+        case 'allTasks':
           return [
             {
               'taskId': 't1',
               'status': 'completed',
+              'workerClassName': 'HttpWorker',
               'createdAt': now,
               'updatedAt': now,
-            }
+            },
+            {
+              'taskId': 't2',
+              'status': 'running',
+              'workerClassName': 'HttpWorker',
+              'createdAt': now,
+              'updatedAt': now,
+            },
           ];
         case 'enqueueChain':
           return 'accepted';
@@ -91,10 +103,19 @@ void main() {
       expect(record!.taskId, 't1');
     });
 
-    test('getTasksByStatus', () async {
+    test('getTasksByStatus filters allTasks and calls no missing method',
+        () async {
       final tasks =
           await NativeWorkManager.getTasksByStatus(TaskStatus.completed);
+
       expect(tasks.length, 1);
+      expect(tasks.single.taskId, 't1');
+
+      // The regression this guards: invoking a channel method no platform
+      // registers throws MissingPluginException at runtime, which a mock that
+      // answers it would hide.
+      expect(log.any((c) => c.method == 'allTasks'), isTrue);
+      expect(log.any((c) => c.method == 'getTasksByStatus'), isFalse);
     });
 
     test('enqueueChain', () async {
