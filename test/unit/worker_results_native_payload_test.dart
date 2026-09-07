@@ -130,6 +130,97 @@ void main() {
     });
   });
 
+  group('parsers that read a different key on each platform', () {
+    test('CompressionResult reads the Android compression payload', () {
+      // Android: filesCompressed / originalSize — not fileCount / totalSize.
+      final r = CompressionResult.from(const {
+        'outputPath': '/tmp/out.zip',
+        'filesCompressed': 3,
+        'originalSize': 9000,
+        'compressedSize': 3000,
+        'compressionRatio': 0.33,
+      });
+
+      expect(r, isNotNull);
+      expect(r!.fileCount, equals(3));
+      expect(r.totalSize, equals(9000));
+      expect(r.compressedSize, equals(3000));
+      expect(r.compressionRatio, closeTo(0.333, 0.01));
+    });
+
+    test('DecompressionResult reads the Android payload', () {
+      // Every key this parser used to read was absent on both platforms, so it
+      // returned null for every real payload. Android sends targetDir /
+      // extractedFiles / totalBytes.
+      final r = DecompressionResult.from(const {
+        'targetDir': '/tmp/out',
+        'extractedFiles': 7,
+        'extractedDirs': 2,
+        'totalBytes': 40960,
+        'zipDeleted': false,
+      });
+
+      expect(r, isNotNull);
+      expect(r!.outputPath, equals('/tmp/out'));
+      expect(r.extractedCount, equals(7));
+      expect(r.totalSize, equals(40960));
+    });
+
+    test('DecompressionResult reads the iOS payload', () {
+      final r = DecompressionResult.from(const {
+        'outputPath': '/tmp/out',
+        'filesExtracted': 4,
+      });
+
+      expect(r!.extractedCount, equals(4));
+    });
+
+    test('ImageProcessResult reads Android processed* dimensions', () {
+      // Android reports post-processing size as processedWidth/Height/Size;
+      // width/height/fileSize are never sent.
+      final r = ImageProcessResult.from(const {
+        'outputPath': '/tmp/out.jpg',
+        'processedWidth': 512,
+        'processedHeight': 384,
+        'processedSize': 48000,
+        'format': 'jpeg',
+      });
+
+      expect(r, isNotNull);
+      expect(r!.width, equals(512));
+      expect(r.height, equals(384));
+      expect(r.fileSize, equals(48000));
+    });
+
+    test('CryptoResult infers operation on Android, echoes it on iOS', () {
+      // Android never sends `operation`; a hash payload implies it.
+      final android = CryptoResult.from(const {'hash': 'abc', 'fileSize': 5});
+      expect(android!.operation, equals('hash'));
+
+      final ios = CryptoResult.from(const {
+        'operation': 'encrypt',
+        'outputPath': '/tmp/a.enc',
+        'outputSize': 128,
+      });
+      expect(ios!.operation, equals('encrypt'));
+      expect(ios.fileSize, equals(128));
+    });
+
+    test('ParallelUploadResult reads Android counters without fileResults', () {
+      // Only iOS emits the per-file breakdown. The counters must still parse.
+      final r = ParallelUploadResult.from(const {
+        'uploadedCount': 3,
+        'failedCount': 0,
+        'totalBytes': 123,
+      });
+
+      expect(r, isNotNull);
+      expect(r!.uploadedCount, equals(3));
+      expect(r.totalBytes, equals(123));
+      expect(r.files, isEmpty);
+    });
+  });
+
   group('robustness of every parser', () {
     test('null input yields null, never a throw', () {
       expect(DownloadResult.from(null), isNull);

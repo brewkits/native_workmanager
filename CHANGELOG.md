@@ -186,6 +186,30 @@ every performance number the project could not reproduce.
   map whose only key was the envelope and returning all-null fields. The plugin now flattens the
   envelope before forwarding. Maps without it pass through untouched, and a malformed payload
   degrades to the raw map rather than failing a worker that genuinely succeeded.
+- **Every `worker_results.dart` parser was reading at least one key the native workers never
+  send.** With `resultData` permanently null on Android, nothing ever exercised these against a
+  real payload, so the schema they were written to had drifted from what the workers emit:
+
+  | Parser | Was reading | Workers actually send |
+  | :--- | :--- | :--- |
+  | `DecompressionResult` | `outputPath`, `extractedCount`, `totalSize` | **none of them** — Android `targetDir`/`extractedFiles`/`totalBytes`, iOS `filesExtracted` |
+  | `CompressionResult` | `fileCount`, `totalSize` | Android `filesCompressed`, `originalSize` |
+  | `ImageProcessResult` | `width`, `height`, `fileSize` | Android `processedWidth`, `processedHeight`, `processedSize` |
+  | `FileSystemResult` | `entries`, `count` | `files`, `fileCount` (iOS also sends `entries`) |
+  | `CryptoResult` | `operation` | iOS only — Android omits it |
+  | `ParallelUploadResult` | `fileResults` | iOS only — Android sends counters alone |
+
+  `DecompressionResult.from` was the worst: not one of its three keys exists on either platform,
+  so it returned `null` for every real payload. Each parser now accepts the spellings its
+  platforms actually use, preferring the most specific. This is purely additive — every key that
+  worked before still works.
+
+- **`ParallelDownloadResult` documents a shape no worker produces.**
+  `ParallelHttpDownloadWorker` downloads a *single* file over parallel range requests and reports
+  the single-file shape, so `DownloadResult` is the correct parser for it. The class doc now says
+  so instead of pointing at that worker; it is kept rather than removed because it is exported
+  public API.
+
 - **`FileSystemResult.entries` was always null on Android, and `.count` always null on both
   platforms.** The parser read `entries` and `count`; the workers emit `files` (objects carrying
   `path`) and `fileCount`, and only iOS also sends an explicit `entries` array. `count` was
