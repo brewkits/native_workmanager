@@ -230,6 +230,14 @@ every performance number the project could not reproduce.
   normal testing — a mock will happily answer a method no platform implements, so unit tests,
   analysis and both native compilers all stay green while a public API is dead in production.
   Verified to fail (naming the exact method) when either bug is re-introduced.
+- **A result parser could throw `TypeError` instead of returning data.** The two delivery paths
+  disagree on the Dart type of a nested field: the event channel hands lists over already
+  decoded, while the `getTaskRecord` fallback — used whenever the completion event is missed —
+  hands them over as the JSON text they were persisted as. `data['files'] as List?` therefore
+  threw `type 'String' is not a subtype of type 'List<dynamic>?'` on the fallback path only,
+  taking down a caller trying to read a task that had actually succeeded. Every list field in
+  `worker_results.dart` now accepts either form and returns `null` rather than throwing when it
+  is neither.
 - **The `ImageProcessWorker` device tests failed on every Android run against a corrupt fixture.**
   `native_workers_test.dart`'s `_minimalPng` described itself as a minimal valid PNG but was not
   one: its IDAT chunk carried a wrong CRC and the bytes following it did not form a valid IEND.

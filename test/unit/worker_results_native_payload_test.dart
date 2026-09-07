@@ -221,6 +221,67 @@ void main() {
     });
   });
 
+  group('the getTaskRecord fallback delivers nested values as JSON strings',
+      () {
+    // The event channel hands nested values over as real Dart collections; the
+    // getTaskRecord fallback — used whenever the completion event is missed —
+    // hands them over as the JSON text they were persisted as. A plain
+    // `as List?` threw a TypeError on that path only, taking down a caller
+    // reading a task that had actually succeeded. Captured from a Pixel 6 Pro.
+    const androidFallbackList = {
+      'operation': 'list',
+      'files': '[{"path":"/tmp/dir/a.txt","name":"a.txt","size":1,'
+          '"lastModified":1788744306926,"isDirectory":false},'
+          '{"path":"/tmp/dir/b.txt","name":"b.txt","size":1,'
+          '"lastModified":1788744306930,"isDirectory":false}]',
+    };
+
+    test('FileSystemResult parses a JSON-string files field', () {
+      final r = FileSystemResult.from(androidFallbackList);
+
+      expect(r, isNotNull);
+      expect(r!.entries, equals(['/tmp/dir/a.txt', '/tmp/dir/b.txt']));
+    });
+
+    test('parsing never throws on a JSON-string list', () {
+      expect(() => FileSystemResult.from(androidFallbackList), returnsNormally);
+      expect(
+        () => ParallelUploadResult.from(const {
+          'uploadedCount': 1,
+          'fileResults': '[{"fileName":"a.txt","success":true}]',
+        }),
+        returnsNormally,
+      );
+      expect(
+        () => ParallelDownloadResult.from(const {
+          'fileResults': '[{"fileName":"a.txt","success":true}]',
+        }),
+        returnsNormally,
+      );
+    });
+
+    test('ParallelUploadResult decodes a JSON-string fileResults', () {
+      final r = ParallelUploadResult.from(const {
+        'uploadedCount': 1,
+        'failedCount': 0,
+        'totalBytes': 12,
+        'fileResults': '[{"fileName":"a.txt","success":true}]',
+      });
+
+      expect(r!.files, hasLength(1));
+    });
+
+    test('a non-JSON string yields null rather than throwing', () {
+      final r = FileSystemResult.from(const {
+        'operation': 'list',
+        'files': 'not json at all',
+      });
+
+      expect(r, isNotNull);
+      expect(r!.entries, isNull);
+    });
+  });
+
   group('robustness of every parser', () {
     test('null input yields null, never a throw', () {
       expect(DownloadResult.from(null), isNull);

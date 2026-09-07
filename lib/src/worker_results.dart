@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 /// Typed result helpers for built-in workers.
@@ -147,7 +148,7 @@ class ParallelDownloadResult {
 
   static ParallelDownloadResult? from(Map<String, dynamic>? data) {
     if (data == null) return null;
-    final rawFiles = data['fileResults'] as List?;
+    final rawFiles = _listOf(data, const ['fileResults']);
     return ParallelDownloadResult(
       downloadedCount: (data['downloadedCount'] as num?)?.toInt() ?? 0,
       failedCount: (data['failedCount'] as num?)?.toInt() ?? 0,
@@ -251,7 +252,7 @@ class ParallelUploadResult {
     // (`uploadedCount` / `failedCount` / `totalBytes`) without it, so [files] is
     // empty there. Read the counters regardless — they are the part both
     // platforms agree on.
-    final rawFiles = _firstOf(data, const ['fileResults', 'files']) as List?;
+    final rawFiles = _listOf(data, const ['fileResults', 'files']);
     return ParallelUploadResult(
       uploadedCount: (data['uploadedCount'] as num?)?.toInt() ?? 0,
       failedCount: (data['failedCount'] as num?)?.toInt() ?? 0,
@@ -417,6 +418,29 @@ Object? _firstOf(Map<String, dynamic> data, List<String> keys) {
   return null;
 }
 
+/// Reads a list field that may arrive already decoded **or** as a JSON string.
+///
+/// The two delivery paths disagree: the event channel hands nested values over as
+/// real Dart collections, while the `getTaskRecord` fallback — used whenever the
+/// event is missed and the task is read back from the store — hands them over as
+/// the JSON text they were persisted as. A plain `as List?` therefore throws a
+/// `TypeError` on the fallback path only, which is both intermittent and worse
+/// than returning nothing: a result parser must never take down the caller that
+/// is trying to read a task that actually succeeded.
+List<dynamic>? _listOf(Map<String, dynamic> data, List<String> keys) {
+  final value = _firstOf(data, keys);
+  if (value is List) return value;
+  if (value is String && value.isNotEmpty) {
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is List) return decoded;
+    } catch (_) {
+      // Not JSON, or not a list. Fall through to null rather than throwing.
+    }
+  }
+  return null;
+}
+
 int? _intOf(Map<String, dynamic> data, List<String> keys) =>
     (_firstOf(data, keys) as num?)?.toInt();
 
@@ -498,8 +522,8 @@ class FileSystemResult {
     // carries the paths, and duplicating them costs room against WorkManager's
     // Data budget — the shared `files` list is the source of truth here, with the
     // platform-specific keys preferred when present.
-    final explicitEntries = data['entries'] as List?;
-    final files = data['files'] as List?;
+    final explicitEntries = _listOf(data, const ['entries']);
+    final files = _listOf(data, const ['files']);
     final entries = explicitEntries?.map((e) => '$e').toList() ??
         files
             ?.whereType<Map>()
