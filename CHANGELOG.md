@@ -230,6 +230,14 @@ every performance number the project could not reproduce.
   normal testing — a mock will happily answer a method no platform implements, so unit tests,
   analysis and both native compilers all stay green while a public API is dead in production.
   Verified to fail (naming the exact method) when either bug is re-introduced.
+- **The `ImageProcessWorker` device tests failed on every Android run against a corrupt fixture.**
+  `native_workers_test.dart`'s `_minimalPng` described itself as a minimal valid PNG but was not
+  one: its IDAT chunk carried a wrong CRC and the bytes following it did not form a valid IEND.
+  `file(1)` still reported "PNG image data, 32 x 32" — it only reads the header — and iOS's
+  decoder accepted it, but Android's `BitmapFactory` validates the whole stream and refused it
+  with "Failed to decode image". **Android was correct and the fixture was wrong.** Replaced with
+  a genuinely valid 32×32 RGB PNG with correct per-chunk CRCs, which is also smaller (99 bytes vs
+  138).
 - **The `exact trigger` device test failed on every iOS run.** `ExactTrigger` has been rejected
   in Dart on iOS since v1.2.1 — BGTaskScheduler cannot honour an exact time, so the API refuses
   rather than accepting a request it would miss by hours — but the test called `enqueue`
