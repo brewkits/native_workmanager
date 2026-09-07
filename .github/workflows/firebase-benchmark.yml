@@ -28,15 +28,49 @@ env:
   GCS_RESULTS_BUCKET: gs://${{ secrets.FIREBASE_PROJECT_ID }}-benchmark-results
 
 jobs:
+  # ── Preflight ──────────────────────────────────────────────────────────────
+  # This workflow needs FIREBASE_PROJECT_ID plus Workload Identity Federation
+  # secrets. They are not configured on this repository, so every scheduled run
+  # failed — weekly, since the workflow was added — with
+  # `GCS_RESULTS_BUCKET: gs://-benchmark-results`, an empty project id.
+  #
+  # A scheduled job that is red by construction trains people to ignore red
+  # jobs, which is exactly how `Analyze & Format` stayed broken for months. So
+  # a missing secret now SKIPS the run with a printed explanation instead of
+  # failing it. Configure the three secrets and the benchmark starts running on
+  # its own; nothing else has to change.
+  preflight:
+    name: Check benchmark credentials
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        env:
+          PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          WIF: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          SA: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+        run: |
+          if [ -n "$PROJECT_ID" ] && [ -n "$WIF" ] && [ -n "$SA" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Benchmark credentials present — running."
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping: this workflow needs the repository secrets FIREBASE_PROJECT_ID, GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_SERVICE_ACCOUNT. Add all three to enable the weekly benchmark. See benchmark/README.md."
+          fi
+
   # ── Android Benchmark ──────────────────────────────────────────────────────
   benchmark-android:
     name: Benchmark Android (Firebase Test Lab)
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    needs: preflight
     if: >
-      github.event_name == 'schedule' ||
-      github.event.inputs.platform == 'android' ||
-      github.event.inputs.platform == 'all'
+      needs.preflight.outputs.configured == 'true' && (
+        github.event_name == 'schedule' ||
+        github.event.inputs.platform == 'android' ||
+        github.event.inputs.platform == 'all'
+      )
     permissions:
       contents: read
       id-token: write   # required for Workload Identity Federation
@@ -139,10 +173,13 @@ jobs:
     name: Benchmark iOS (Firebase Test Lab)
     runs-on: macos-latest
     timeout-minutes: 90
+    needs: preflight
     if: >
-      (github.event_name == 'schedule' && github.event.inputs.skip_ios != 'true') ||
-      github.event.inputs.platform == 'ios' ||
-      github.event.inputs.platform == 'all'
+      needs.preflight.outputs.configured == 'true' && (
+        (github.event_name == 'schedule' && github.event.inputs.skip_ios != 'true') ||
+        github.event.inputs.platform == 'ios' ||
+        github.event.inputs.platform == 'all'
+      )
     permissions:
       contents: read
       id-token: write
@@ -247,14 +284,20 @@ jobs:
   benchmark-complete:
     name: Benchmark Complete
     runs-on: ubuntu-latest
-    needs: [benchmark-android]
+    needs: [preflight, benchmark-android]
     if: always()
     steps:
       - name: Report status
         run: |
+          echo "Credentials configured: ${{ needs.preflight.outputs.configured }}"
           echo "Android: ${{ needs.benchmark-android.result }}"
-          if [[ "${{ needs.benchmark-android.result }}" == "failure" ]]; then
-            echo "❌ Android benchmark failed"
+          if [[ "${{ needs.preflight.outputs.configured }}" != "true" ]]; then
+            echo "⏭️  Skipped — benchmark credentials are not configured on this repository."
+            exit 0
+          fi
+          # 'skipped' is only reachable above; anything else non-success is real.
+          if [[ "${{ needs.benchmark-android.result }}" != "success" ]]; then
+            echo "❌ Android benchmark ${{ needs.benchmark-android.result }}"
             exit 1
           fi
           echo "✅ Benchmark run complete"
