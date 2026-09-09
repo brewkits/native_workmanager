@@ -92,23 +92,27 @@ object FlutterEngineManager {
         // Issue #66: when non-null, lets this function mark
         // DartTaskCancellationRegistry on external cancellation so
         // NativeWorkManager.isTaskCancelled(taskId) is observable from inside
-        // the still-running Dart callback. Always cleared before returning.
+        // the still-running Dart callback.
+        //
+        // Cleared from the executeCallback MethodChannel.Result callbacks in
+        // executeDartCallbackInternal, NOT from a finally block here. Device
+        // testing (Pixel 6 Pro) caught a real bug in an earlier version of
+        // this fix: clearing here ran the instant THIS coroutine unwound after
+        // observing cancellation — but the orphaned Dart callback keeps
+        // running for a while after that (that's the entire premise of
+        // cooperative cancellation) and kept polling isTaskCancelled() long
+        // after this function had already returned. Clearing synchronously
+        // here raced the mark-then-immediately-clear into a window so narrow
+        // the callback's very next poll already saw `false` again — silently
+        // defeating the whole feature while every unit test (which mocks the
+        // channel and never runs the real coroutine-cancellation race) stayed
+        // green. Must be cleared only when the real invocation this taskId
+        // was registered for actually finishes.
         taskId: String? = null
     ): Boolean = withContext(Dispatchers.Main) {
-        try {
-            executeDartCallbackInternal(
-                context, callbackHandle, input, timeoutMs, disposeImmediately, taskId
-            )
-        } finally {
-            // Issue #66: always drop this taskId's cancellation-registry entry
-            // once execution is done, on every exit path (success, failure,
-            // timeout, or cancellation) — kept in one place, outside the
-            // catch blocks below, so it cannot interfere with the
-            // `catch (e: CancellationException) { throw e }` shape that
-            // cancellation_rethrow_invariant_test.dart requires immediately
-            // after the brace.
-            if (taskId != null) DartTaskCancellationRegistry.clear(taskId)
-        }
+        executeDartCallbackInternal(
+            context, callbackHandle, input, timeoutMs, disposeImmediately, taskId
+        )
     }
 
     private suspend fun executeDartCallbackInternal(
@@ -158,14 +162,26 @@ object FlutterEngineManager {
                     "timeoutMs" to timeoutMs
                 )
 
+                // Issue #66: these three overrides fire whenever this specific
+                // executeCallback invocation truly finishes — including when it
+                // finishes LATE, after resultDeferred.await() below has already
+                // been cancelled (see the comment on executeDartCallback above).
+                // That makes this the only correct place to clear taskId's
+                // DartTaskCancellationRegistry entry: clearing it here, not in a
+                // finally around the cancelled-coroutine's own unwind, is what
+                // lets isTaskCancelled() keep returning true for as long as the
+                // orphaned callback is still polling it.
                 channel.invokeMethod("executeCallback", args, object : MethodChannel.Result {
                     override fun success(result: Any?) {
+                        if (taskId != null) DartTaskCancellationRegistry.clear(taskId)
                         resultDeferred.complete((result as? Boolean) ?: false)
                     }
                     override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
+                        if (taskId != null) DartTaskCancellationRegistry.clear(taskId)
                         resultDeferred.complete(false)
                     }
                     override fun notImplemented() {
+                        if (taskId != null) DartTaskCancellationRegistry.clear(taskId)
                         resultDeferred.complete(false)
                     }
                 })
