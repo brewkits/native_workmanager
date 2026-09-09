@@ -36,6 +36,9 @@ void main() {
     // plugin's own onMethodCall.
     'dartReady': 'dart_worker_channel — FlutterEngineManager handles it',
     'reportProgress': 'dart_worker_channel — FlutterEngineManager handles it',
+    'isTaskCancelled': 'dart_worker_channel — FlutterEngineManager handles it '
+        '(iOS also answers it from the main-isolate dartWorkerChannel handler '
+        'in NativeWorkmanagerPlugin.swift, issue #66)',
   };
 
   /// Resolves a repo path whether the test runs from the repo root or elsewhere.

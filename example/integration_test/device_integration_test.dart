@@ -231,6 +231,32 @@ Future<bool> _ditRetryCounter(Map<String, dynamic>? input) async {
   return false; // fail → should retry under maxRetries, then abandon
 }
 
+/// Issue #66 regression: https://github.com/brewkits/native_workmanager/discussions/66
+///
+/// Cancelling a task does not interrupt a running DartWorker callback — Dart
+/// has no API to preemptively abort a `Future` already executing. This
+/// callback polls `NativeWorkManager.isTaskCancelled(taskId)` between chunks
+/// of "work" (a short delay) and writes how many iterations it completed to
+/// [input]'s `counterFile`, so the test can prove it bailed out early instead
+/// of running to completion (50 iterations × 200ms = 10s if never cancelled).
+@pragma('vm:entry-point')
+Future<bool> _ditCancelPoll(Map<String, dynamic>? input) async {
+  final taskId = input?['__taskId'] as String?;
+  final counterFile = input?['counterFile'] as String?;
+  for (var i = 1; i <= 50; i++) {
+    if (counterFile != null) {
+      File(counterFile).writeAsStringSync('$i');
+    }
+    if (taskId != null && await NativeWorkManager.isTaskCancelled(taskId)) {
+      print('[DartWorker] dit_cancel_poll: observed cancellation at iteration $i');
+      return false;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+  }
+  print('[DartWorker] dit_cancel_poll: completed all iterations uncancelled');
+  return true;
+}
+
 @pragma('vm:entry-point')
 Future<bool> _workflowFinalizer(Map<String, dynamic>? input) async {
   print('[DartWorker] _workflowFinalizer starting...');
@@ -272,6 +298,7 @@ void main() {
         'chain_c': _chainC,
         'dit_progress': _ditProgress,
         'dit_retry_counter': _ditRetryCounter,
+        'dit_cancel_poll': _ditCancelPoll,
         'workflow_finalizer': _workflowFinalizer,
       },
     );
@@ -1532,6 +1559,69 @@ void main() {
       // Must not throw.
       await NativeWorkManager.cancelAll();
     });
+
+    testWidgets(
+      'issue_66: cancelling a running DartWorker task is observable via isTaskCancelled',
+      (tester) async {
+        // https://github.com/brewkits/native_workmanager/discussions/66 —
+        // cancel() does not interrupt a running Dart callback (Dart has no
+        // preemptive Future cancellation). dit_cancel_poll runs up to 50
+        // iterations × 200ms (10s total if never cancelled), writing its
+        // iteration count to counterFile and polling isTaskCancelled()
+        // between iterations. Cancelling ~600ms in must make it stop well
+        // short of 50 — proving the callback actually observed the
+        // cancellation and returned, not merely that cancel() didn't crash.
+        final id = _id('issue_66_cancel_poll');
+        final counterFile = File('${tmpDir.path}/issue_66_counter.txt');
+
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: DartWorker(
+            callbackId: 'dit_cancel_poll',
+            input: {'counterFile': counterFile.path},
+          ),
+        );
+
+        // Let it run a few iterations, then cancel while it is still "in flight".
+        await Future.delayed(const Duration(milliseconds: 600));
+        await NativeWorkManager.cancel(taskId: id);
+
+        // Give the callback time to notice on its next poll and return —
+        // well short of the 10s it would take to run all 50 iterations.
+        await Future.delayed(const Duration(seconds: 2));
+
+        expect(
+          counterFile.existsSync(),
+          isTrue,
+          reason: 'issue_66: the callback must have started and written at '
+              'least one iteration before being cancelled',
+        );
+        final iterationsAtCancel = int.parse(counterFile.readAsStringSync().trim());
+        expect(
+          iterationsAtCancel,
+          lessThan(20),
+          reason: 'issue_66: cancelling ~600ms in (≈3 iterations of 200ms) '
+              'must stop the callback well short of all 50 iterations — a '
+              'count this high means isTaskCancelled() never observed the '
+              'cancellation and the callback ran to completion regardless',
+        );
+
+        // The counter must not keep climbing after cancellation was observed —
+        // confirms the callback actually returned instead of merely reading
+        // isTaskCancelled() once and continuing anyway.
+        final iterationsAfterWait = int.parse(counterFile.readAsStringSync().trim());
+        await Future.delayed(const Duration(seconds: 2));
+        final iterationsStillAfterWait =
+            int.parse(counterFile.readAsStringSync().trim());
+        expect(
+          iterationsStillAfterWait,
+          equals(iterationsAfterWait),
+          reason: 'issue_66: iteration count must not still be climbing '
+              '2s later — the callback should have returned, not kept working',
+        );
+      },
+    );
   });
 
   // ════════════════════════════════════════════════════════════

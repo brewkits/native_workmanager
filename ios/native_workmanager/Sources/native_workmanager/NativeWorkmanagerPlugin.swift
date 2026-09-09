@@ -118,19 +118,26 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         instance.dartWorkerChannel = FlutterMethodChannel(
             name: "dev.brewkits/dart_worker_channel", binaryMessenger: messenger)
         instance.dartWorkerChannel?.setMethodCallHandler { (call, result) in
-            guard call.method == "reportProgress" else {
+            let args = call.arguments as? [String: Any]
+            switch call.method {
+            case "reportProgress":
+                let taskId   = args?["taskId"]   as? String ?? ""
+                let progress = args?["progress"] as? Int    ?? 0
+                let message  = args?["message"]  as? String
+                // Route through ProgressReporter (same as the FlutterEngineManager
+                // background path): forwards to the progress EventChannel via onProgress,
+                // records lastEmittedUpdates, and persists last_progress_json to SQLite.
+                ProgressReporter.shared.report(taskId: taskId, progress: progress, message: message)
+                result(nil)
+            // Issue #66: cooperative cancellation poll from a foreground
+            // DartWorker callback (running in this main isolate, not the
+            // headless FlutterEngineManager engine — see DartTaskCancellationRegistry).
+            case "isTaskCancelled":
+                let taskId = args?["taskId"] as? String ?? ""
+                result(DartTaskCancellationRegistry.shared.isCancelled(taskId))
+            default:
                 result(FlutterMethodNotImplemented)
-                return
             }
-            let args     = call.arguments as? [String: Any]
-            let taskId   = args?["taskId"]   as? String ?? ""
-            let progress = args?["progress"] as? Int    ?? 0
-            let message  = args?["message"]  as? String
-            // Route through ProgressReporter (same as the FlutterEngineManager
-            // background path): forwards to the progress EventChannel via onProgress,
-            // records lastEmittedUpdates, and persists last_progress_json to SQLite.
-            ProgressReporter.shared.report(taskId: taskId, progress: progress, message: message)
-            result(nil)
         }
 
         KMPBridge.shared.initialize()
@@ -436,6 +443,12 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             result(FlutterError(code: "INVALID_ARGS", message: "taskId required", details: nil))
             return
         }
+        // Issue #66: activeTasks[taskId]?.cancel() below only unblocks whatever
+        // Swift Task is awaiting — it does not reach the Dart isolate, so a
+        // running DartWorker callback would otherwise never know it was
+        // cancelled. Mark it here so NativeWorkManager.isTaskCancelled(taskId)
+        // (polled cooperatively from inside the callback) can see it.
+        DartTaskCancellationRegistry.shared.markCancelled(taskId)
         stateQueue.async(flags: .barrier) {
             self.activeTasks[taskId]?.cancel()
             self.activeTasks.removeValue(forKey: taskId)

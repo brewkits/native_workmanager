@@ -10,6 +10,10 @@ extension NativeWorkmanagerPlugin {
 
     func handleCancelAll(result: @escaping FlutterResult) {
         stateQueue.sync(flags: .barrier) {
+            // Issue #66: mark every in-flight taskId cancelled BEFORE cancelling
+            // the Swift Tasks, so a DartWorker callback polling isTaskCancelled()
+            // sees it even though .cancel() itself does not reach the Dart isolate.
+            activeTasks.keys.forEach { DartTaskCancellationRegistry.shared.markCancelled($0) }
             activeTasks.values.forEach { $0.cancel() }
             activeTasks.removeAll()
             taskStates.removeAll()
@@ -46,6 +50,7 @@ extension NativeWorkmanagerPlugin {
         stateQueue.sync(flags: .barrier) {
             taskIdsToCancel = taskTags.compactMap { $0.value == tag ? $0.key : nil }
             for taskId in taskIdsToCancel {
+                DartTaskCancellationRegistry.shared.markCancelled(taskId) // issue #66
                 activeTasks[taskId]?.cancel()
                 activeTasks.removeValue(forKey: taskId)
                 taskStates[taskId] = .cancelled
@@ -65,6 +70,7 @@ extension NativeWorkmanagerPlugin {
                 BackgroundSessionManager.shared.cancel(taskId: taskId)
                 taskStore?.updateStatus(taskId: taskId, status: "cancelled")
                 BGTaskSchedulerManager.shared.cancelTask(taskId: taskId)
+                DartTaskCancellationRegistry.shared.markCancelled(taskId) // issue #66
                 stateQueue.async(flags: .barrier) {
                     self.activeTasks[taskId]?.cancel()
                     self.activeTasks.removeValue(forKey: taskId)

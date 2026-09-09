@@ -1072,6 +1072,56 @@ class NativeWorkManager {
     });
   }
 
+  /// Check whether [taskId] has been cancelled or stopped by the OS.
+  ///
+  /// Issue #66: cancelling a task (via [cancel]/[cancelAll], or the OS
+  /// reclaiming background time) does **not** interrupt a running
+  /// `DartWorker` callback — Dart has no API to preemptively abort a
+  /// `Future` that is already executing. A callback doing long-running work
+  /// must instead poll this **cooperatively** and return promptly once it
+  /// turns `true`:
+  ///
+  /// ```dart
+  /// 'longSync': (input) async {
+  ///   final taskId = input?['__taskId'] as String?;
+  ///   for (var i = 1; i <= 100; i++) {
+  ///     if (taskId != null && await NativeWorkManager.isTaskCancelled(taskId)) {
+  ///       return false; // bail out — do not keep working
+  ///     }
+  ///     await processChunk(i);
+  ///   }
+  ///   return true;
+  /// },
+  /// ```
+  ///
+  /// An `await longRunningOperation()` with no cancellation checks of its own
+  /// will keep running regardless of this API — break such work into chunks
+  /// (or pass cancellation into the operation itself) so there is a point to
+  /// check from.
+  ///
+  /// **Thread safety:** Safe to call from any isolate that has access to the
+  /// `dev.brewkits/dart_worker_channel` MethodChannel (i.e., the background
+  /// isolate spawned by DartWorker execution, or the main isolate when the
+  /// callback runs in the foreground).
+  ///
+  /// Returns `false` (never throws) if [taskId] is empty or the platform
+  /// channel call fails — a transient failure to check must not be mistaken
+  /// for "not cancelled forever," but it also must not crash the caller.
+  static Future<bool> isTaskCancelled(String taskId) async {
+    if (taskId.isEmpty) return false;
+    const channel = MethodChannel('dev.brewkits/dart_worker_channel');
+    try {
+      final result = await channel
+          .invokeMethod<bool>('isTaskCancelled', <String, Object?>{
+        'taskId': taskId,
+      });
+      return result ?? false;
+    } catch (e) {
+      developer.log('[NativeWorkManager] isTaskCancelled($taskId) failed: $e');
+      return false;
+    }
+  }
+
   /// Get the current status of a task.
   ///
   /// Query the execution state of a specific task. Useful for showing

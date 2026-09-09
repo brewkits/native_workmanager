@@ -362,6 +362,11 @@ class FlutterEngineManager {
                 let message  = args?["message"]  as? String
                 ProgressReporter.shared.report(taskId: taskId, progress: progress, message: message)
                 result(nil)
+            } else if call.method == "isTaskCancelled" {
+                // Issue #66: cooperative cancellation poll from inside a
+                // running DartWorker callback. See DartTaskCancellationRegistry.
+                let taskId = (call.arguments as? [String: Any])?["taskId"] as? String ?? ""
+                result(DartTaskCancellationRegistry.shared.isCancelled(taskId))
             } else {
                 result(FlutterMethodNotImplemented)
             }

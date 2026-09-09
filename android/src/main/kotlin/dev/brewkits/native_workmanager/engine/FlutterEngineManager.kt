@@ -88,9 +88,38 @@ object FlutterEngineManager {
         callbackHandle: Long,
         input: String?,
         timeoutMs: Long = 5 * 60 * 1000L,
-        disposeImmediately: Boolean = false
+        disposeImmediately: Boolean = false,
+        // Issue #66: when non-null, lets this function mark
+        // DartTaskCancellationRegistry on external cancellation so
+        // NativeWorkManager.isTaskCancelled(taskId) is observable from inside
+        // the still-running Dart callback. Always cleared before returning.
+        taskId: String? = null
     ): Boolean = withContext(Dispatchers.Main) {
         try {
+            executeDartCallbackInternal(
+                context, callbackHandle, input, timeoutMs, disposeImmediately, taskId
+            )
+        } finally {
+            // Issue #66: always drop this taskId's cancellation-registry entry
+            // once execution is done, on every exit path (success, failure,
+            // timeout, or cancellation) — kept in one place, outside the
+            // catch blocks below, so it cannot interfere with the
+            // `catch (e: CancellationException) { throw e }` shape that
+            // cancellation_rethrow_invariant_test.dart requires immediately
+            // after the brace.
+            if (taskId != null) DartTaskCancellationRegistry.clear(taskId)
+        }
+    }
+
+    private suspend fun executeDartCallbackInternal(
+        context: Context,
+        callbackHandle: Long,
+        input: String?,
+        timeoutMs: Long,
+        disposeImmediately: Boolean,
+        taskId: String?
+    ): Boolean {
+        return try {
             NativeLogger.d("Executing Dart callback with handle: $callbackHandle")
 
             ensureEngineInitialized(context)
@@ -119,7 +148,7 @@ object FlutterEngineManager {
             try {
                 val channel = methodChannel
                 if (channel == null) {
-                    return@withContext false
+                    return false
                 }
 
                 val resultDeferred = CompletableDeferred<Boolean>()
@@ -142,6 +171,15 @@ object FlutterEngineManager {
                 })
 
                 var timedOut = false
+                // Issue #66: external cancellation (WorkManager stopping this
+                // worker — user cancel, or the OS reclaiming background time)
+                // throws a plain CancellationException here too, since it's a
+                // child of the same coroutine job as TimeoutCancellationException's
+                // parent. It must be caught at this level (not just rethrown from
+                // the outer catch below) or the dispose/scheduleDisposalCheck logic
+                // beneath never runs for a cancelled task — see wasCancelled below.
+                var wasCancelled = false
+                var cancellationCause: kotlinx.coroutines.CancellationException? = null
                 val result = try {
                     withTimeout(timeoutMs) { resultDeferred.await() }
                 } catch (e: TimeoutCancellationException) {
@@ -150,8 +188,19 @@ object FlutterEngineManager {
                     // isolate leaks ~50 MB RAM and burns CPU until the OS kills the process.
                     timedOut = true
                     false
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    wasCancelled = true
+                    cancellationCause = e
+                    false
                 } finally {
                     releaseTaskCount()
+                }
+
+                // Mark the registry as soon as we know about cancellation, before
+                // any dispose/return below — the Dart callback may be polling
+                // isTaskCancelled() right now and should see it as early as possible.
+                if (wasCancelled && taskId != null) {
+                    DartTaskCancellationRegistry.markCancelled(taskId)
                 }
 
                 if (timedOut) {
@@ -162,7 +211,22 @@ object FlutterEngineManager {
                     if (activeTaskCount.get() <= 0) {
                         try { dispose() } catch (_: Exception) {}
                     }
-                    return@withContext false
+                    return false
+                }
+
+                if (wasCancelled) {
+                    // Unlike a timeout, cancellation does not necessarily mean the
+                    // isolate is hung — a cooperative callback may return on its own
+                    // in a moment. Don't force-dispose; just let the normal idle
+                    // timer reclaim the engine if this was the last in-flight task.
+                    // (The registry entry itself is cleared by executeDartCallback's
+                    // outer finally, not here — the orphaned callback, if any, may
+                    // still be polling isTaskCancelled() a moment longer.)
+                    NativeLogger.d("DartWorker cancelled externally (taskId=$taskId)")
+                    if (activeTaskCount.get() <= 0) {
+                        scheduleDisposalCheck()
+                    }
+                    throw cancellationCause ?: kotlinx.coroutines.CancellationException("DartWorker cancelled")
                 }
 
                 if (disposeImmediately && activeTaskCount.get() <= 0) {
@@ -179,15 +243,19 @@ object FlutterEngineManager {
                 // invokeMethod or the argument marshalling above.
                 releaseTaskCount()
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            // CancellationException is-a Exception, so the generic catch below
-            // would swallow a real cancellation (parent Job cancelled, task
-            // cancelled via WorkManager) and report it as a plain `false`
-            // failure. Rethrow so structured concurrency is preserved.
-            //
-            // The withTimeout above is unaffected: TimeoutCancellationException
-            // is caught locally at its call site and converted to `timedOut`,
-            // so the DartWorker timeout path never reaches here.
+        }
+        // CancellationException is-a Exception, so the generic catch below
+        // would swallow a real cancellation (parent Job cancelled, task
+        // cancelled via WorkManager) and report it as a plain `false`
+        // failure. Rethrow so structured concurrency is preserved.
+        //
+        // The withTimeout above is unaffected: TimeoutCancellationException is
+        // caught locally at its call site and converted to `timedOut`, and a
+        // plain external CancellationException is now also caught locally
+        // (wasCancelled) so disposal runs before this rethrows — so the
+        // DartWorker timeout/cancel paths never fall through to here except
+        // via the explicit rethrow above.
+        catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             NativeLogger.e("Error executing Dart callback", e)
@@ -316,6 +384,12 @@ object FlutterEngineManager {
                             val message  = call.argument<String>("message")
                             ProgressReporter.reportProgressNonBlocking(taskId, progress, message)
                             result.success(null)
+                        }
+                        // Issue #66: cooperative cancellation poll from inside a
+                        // running DartWorker callback. See DartTaskCancellationRegistry.
+                        "isTaskCancelled" -> {
+                            val taskId = call.argument<String>("taskId") ?: ""
+                            result.success(DartTaskCancellationRegistry.isCancelled(taskId))
                         }
                         else -> result.notImplemented()
                     }

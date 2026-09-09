@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`NativeWorkManager.isTaskCancelled(taskId)`** — answers
+  [#66](https://github.com/brewkits/native_workmanager/discussions/66):
+  cancelling a task (via `cancel`/`cancelAll`, or the OS reclaiming
+  background time) does not interrupt a running `DartWorker` callback,
+  because Dart has no API to preemptively abort a `Future` that is already
+  executing. A callback doing long-running work can now poll this
+  cooperatively between chunks of work and return early once it turns
+  `true`. Wired on both platforms: Android (`CoroutineWorker`
+  cancellation), iOS foreground/simulator (main-isolate `activeTasks`
+  cancel), and iOS true-background BGTask expiration. See
+  `DartTaskCancellationRegistry` (Kotlin and Swift) and the `issue_66_*`
+  entries in `device_integration_test.dart`.
+
+### Fixed
+
+- **Android: cancelling a `DartWorker` task while its callback was running
+  could leak the headless Flutter engine (~50 MB) or dispose it while an
+  orphaned callback was still executing.** `FlutterEngineManager
+  .executeDartCallback` rethrew external `CancellationException` before its
+  own dispose/idle-timer logic ever ran. Found investigating #66.
+- **iOS: `BGTaskSchedulerManager` never actually cancelled the running
+  `Task` on BGTask expiration** — only `activeWorker.stop()` was called (a
+  no-op for `DartCallbackWorker`), so the work backing an expired task kept
+  running in the background past the task's own completion. Found
+  investigating #66.
+
 ## [1.6.1] - 2026-09-07
 
 **Fixes a regression in 1.6.0.** If you are on 1.6.0 and use any worker whose result contains a
