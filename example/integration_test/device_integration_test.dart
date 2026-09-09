@@ -1622,6 +1622,60 @@ void main() {
         );
       },
     );
+
+    testWidgets(
+      'issue_69: cancelling a background-session download actually aborts the transfer (iOS)',
+      (tester) async {
+        // https://github.com/brewkits/native_workmanager/issues/69 — found
+        // auditing for bugs similar to #66. HttpDownloadWorker's
+        // useBackgroundSession path used to register its URLSessionDownloadTask
+        // with BackgroundSessionManager under a throwaway random id, so
+        // NativeWorkManager.cancel(taskId) — which looks the task up by the
+        // REAL taskId — could never find it. The transfer just kept running.
+        //
+        // httpbin.org/delay/6 doesn't send any response for 6s. Cancel at 1s
+        // (well before the server ever responds) and check again well past
+        // the 6s mark: if cancel() actually reached the URLSessionDownloadTask,
+        // the request is aborted and destinationURL is never written. If the
+        // old bug were still present, the server eventually answers, the
+        // (empty) body streams down, and the file appears.
+        if (!Platform.isIOS) {
+          markTestSkipped(
+            'useBackgroundSession is iOS-only on ${Platform.operatingSystem}',
+          );
+          return;
+        }
+
+        final id = _id('issue_69_bg_download_cancel');
+        final savePath = '${tmpDir.path}/issue_69_bg_download.bin';
+
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: HttpDownloadWorker(
+            url: 'https://httpbin.org/delay/6',
+            savePath: savePath,
+            useBackgroundSession: true,
+          ),
+          constraints: const Constraints(requiresNetwork: true),
+        );
+
+        await Future.delayed(const Duration(seconds: 1));
+        await NativeWorkManager.cancel(taskId: id);
+
+        // Past the 6s server-side delay, so if the transfer were still alive
+        // it would have completed and written the file by now.
+        await Future.delayed(const Duration(seconds: 8));
+
+        expect(
+          File(savePath).existsSync(),
+          isFalse,
+          reason: 'issue_69: a cancelled background-session download must '
+              'not still write its destination file — a file here means '
+              'cancel() never reached the actual URLSessionDownloadTask',
+        );
+      },
+    );
   });
 
   // ════════════════════════════════════════════════════════════

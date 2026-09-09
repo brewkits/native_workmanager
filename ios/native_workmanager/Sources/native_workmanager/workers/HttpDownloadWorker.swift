@@ -278,7 +278,8 @@ class HttpDownloadWorker: IosWorker {
                 tempURL: tempURL,
                 config: config,
                 headers: config.headers,
-                existingBytes: existingBytes
+                existingBytes: existingBytes,
+                taskId: taskIdForProgress
             )
         }
         if #available(iOS 15.0, *),
@@ -725,10 +726,21 @@ class HttpDownloadWorker: IosWorker {
         tempURL: URL,
         config: Config,
         headers: [String: String]?,
-        existingBytes: Int64
+        existingBytes: Int64,
+        // The plugin's real task ID (from __taskId in the input JSON), not to be
+        // confused with the throwaway ID this used to generate. Cancelling this
+        // task (NativeWorkManager.cancel/cancelAll/cancelByTag) calls
+        // BackgroundSessionManager.shared.cancel(taskId: <real taskId>) — that
+        // only reaches this download if it's registered under the SAME id.
+        // Previously this generated its own random "download-<uuid>" id, so a
+        // background-session download could never actually be cancelled: the
+        // cancel signal looked up a taskId this download was never registered
+        // under. Falls back to a random id only if no real taskId is available
+        // (keeps this callable without one, e.g. from isolated tests).
+        taskId: String?
     ) async -> WorkerResult {
         return await withCheckedContinuation { continuation in
-            let taskId = "download-\(UUID().uuidString)"
+            let taskId = taskId ?? "download-\(UUID().uuidString)"
 
             BackgroundSessionManager.shared.download(
                 url: url,

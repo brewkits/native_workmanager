@@ -34,6 +34,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no-op for `DartCallbackWorker`), so the work backing an expired task kept
   running in the background past the task's own completion. Found
   investigating #66.
+- **iOS: cancelling a `useBackgroundSession: true` `HttpDownloadWorker` or
+  `HttpUploadWorker` never actually stopped the transfer**
+  ([#69](https://github.com/brewkits/native_workmanager/issues/69)). Both
+  registered their background `URLSessionTask` with
+  `BackgroundSessionManager` under a throwaway random id instead of the
+  real task id, so `cancel()`/`cancelAll()`/`cancelByTag()` — which look
+  the task up by the real id — always missed. The download/upload kept
+  running in the background regardless. Found auditing for bugs similar
+  to #66; verified red-then-green with a device test that reproduces the
+  bug on the pre-fix code before confirming the fix.
 
 ## [1.6.1] - 2026-09-07
 
