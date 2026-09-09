@@ -29,6 +29,11 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Lets the androidTest source set (MainActivityTest.kt) drive whichever
+        // integration_test Dart entrypoint was baked into this APK via
+        // `flutter build apk --target=integration_test/<file>.dart` — needed to
+        // run on Firebase Test Lab as an instrumentation test.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -46,4 +51,12 @@ flutter {
 dependencies {
     // Kotlinx Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
+
+    // Firebase Test Lab instrumentation wrapper (MainActivityTest.kt).
+    // Pinned to 1.2.0 to match the version the integration_test plugin's own
+    // Android dependency already resolves to on :app:debugRuntimeClasspath —
+    // Gradle's consistent-resolution check fails the androidTest classpath
+    // otherwise (it must resolve every shared module to the same version).
+    androidTestImplementation("androidx.test:runner:1.2.0")
+    androidTestImplementation("androidx.test:rules:1.2.0")
 }
