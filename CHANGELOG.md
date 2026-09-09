@@ -20,7 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cancellation), iOS foreground/simulator (main-isolate `activeTasks`
   cancel), and iOS true-background BGTask expiration. See
   `DartTaskCancellationRegistry` (Kotlin and Swift) and the `issue_66_*`
-  entries in `device_integration_test.dart`.
+  entries in `device_integration_test.dart`. Device-verified on a Pixel 6
+  Pro and an iOS simulator — the Android half was a no-op until the
+  registry-clear-timing fix below.
 
 ### Fixed
 
@@ -29,6 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   orphaned callback was still executing.** `FlutterEngineManager
   .executeDartCallback` rethrew external `CancellationException` before its
   own dispose/idle-timer logic ever ran. Found investigating #66.
+- **Android: `isTaskCancelled(taskId)` cleared its own answer the instant
+  it was set, making the feature above a no-op on real hardware** — the
+  registry entry was cleared from a `finally` tied to the cancelling
+  coroutine's own lifetime, but the orphaned Dart callback keeps polling
+  for a while *after* that coroutine unwinds (the entire premise of
+  cooperative cancellation). Every unit test stayed green because a
+  mocked channel can't reproduce this timing race. Found only once a
+  real device became available to run the `issue_66` device test on.
 - **iOS: `BGTaskSchedulerManager` never actually cancelled the running
   `Task` on BGTask expiration** — only `activeWorker.stop()` was called (a
   no-op for `DartCallbackWorker`), so the work backing an expired task kept
