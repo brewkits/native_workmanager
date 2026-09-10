@@ -76,7 +76,43 @@ android {
         // this plugin does not, so no migration is needed here. enqueue() gained defaulted
         // `tags`/`deadlineMs` parameters; Kotlin defaults keep this source-compatible, but the
         // ObjC-exported selector changed on iOS — see KMPSchedulerBridge.swift.
-        api("dev.brewkits:kmpworkmanager:3.4.1")
+        // Bumped 3.4.1 -> 3.5.0 for v1.8.0 ("Hardening" — 20 bug fixes, 0 new API surface).
+        // `kmpworker.api` (the public JVM ABI) is BYTE-IDENTICAL between the two tags —
+        // verified with `git diff v3.4.1 v3.5.0 -- kmpworker/api/kmpworker.api`, empty output —
+        // so KMPSchedulerBridge.swift needed no changes this time, unlike the 3.4.1 bump.
+        // Both of 3.5.0's own "breaking changes" are non-issues here: KmpHeavyWorker's
+        // FGS_MEDIA_PROCESSING constant fix (4096->8192) only matters to callers who hardcoded
+        // the old wrong value, and this plugin reads the platform constant already; this plugin
+        // does not use FakeBackgroundTaskScheduler in its own tests. Fixes that reach real
+        // behavior here without any Dart-side change:
+        //   * ExistingPolicy.KEEP deleted the pending task's spilled input file before the
+        //     enqueue decision was made — a repeat enqueue(id, policy=KEEP) call could run with
+        //     input=null. This plugin exposes ExistingPolicy directly (NativeWorkmanagerPlugin
+        //     +Enqueue.kt).
+        //   * A chain step's input and its predecessor's output were checked against 8KB
+        //     independently, but WorkManager merges and caps the pair at 10240 bytes — a legal
+        //     pair could still blow the ceiling and kill the chain before any worker code ran.
+        //     This plugin's task chains are affected by construction.
+        //   * Retry backoff is no longer perfectly deterministic (equal jitter in
+        //     [delay/2, delay]) — an intentional behavior change to stop synchronized retry
+        //     storms after an outage. Existing maxRetries/backoffPolicy timing tests may need
+        //     widened tolerances if they assert exact delays.
+        //   * TaskTrigger.Exact: AlarmManager refusing an exact alarm no longer leaves
+        //     AlarmStore claiming an alarm the system never held; exact-alarm runs now appear
+        //     in getExecutionHistory() (not currently surfaced by this plugin's Dart API).
+        //   * TaskTrigger.Windowed (iOS) lost every constraint metadata field on its first
+        //     retry, silently downgrading a heavy Windowed task to a ~30s BGAppRefreshTaskRequest
+        //     budget instead of BGProcessingTaskRequest, and discarding the caller's maxRetries.
+        //     This plugin's WindowedTrigger (lib/src/task_trigger.dart) is directly affected.
+        //   * iOS: a chain long enough to span 5+ BGTask windows was quarantined as a "poison
+        //     pill" and deleted, and a cancellation during executeChain's prologue (BGTask
+        //     expiry is the normal way that happens) lost the chain outright. Both fixed.
+        //   * iOS: task/chain ids starting with "." were stored and readable by id but invisible
+        //     to every listing (queryTasks, computeIosTaskState, cancelByTag). User-supplied
+        //     taskIds could hit this.
+        //   * Both platforms' event-store low-disk guard returned a freshly minted event id
+        //     after writing nothing — a silent data-loss path now surfaces as a failure.
+        api("dev.brewkits:kmpworkmanager:3.5.0")
 
         // androidx.startup — auto-initializes the plugin before Application.onCreate()
         // so DartWorker works out-of-the-box without a custom Application class.

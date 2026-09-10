@@ -66,6 +66,13 @@ class HttpSyncWorker: IosWorker {
         let signingConfig = RequestSigner.Config.from(rawDict?["requestSigning"] as? [String: Any])
         let tokenRefreshConfig = TokenRefreshConfig.from(rawDict?["tokenRefresh"] as? [String: Any])
 
+        // TLS certificate pinning (opt-in) — only pay for a fresh URLSession when configured;
+        // the common no-pinning case keeps using .shared for its connection reuse/caching.
+        let pinningConfig = CertificatePinningConfig.from(rawDict?["certificatePinning"] as? [String: Any])
+        let session: URLSession = pinningConfig != nil
+            ? makeURLSession(pinningConfig: pinningConfig, timeoutInterval: config.timeout)
+            : URLSession.shared
+
         // Validate URL scheme (prevent file://, ftp://, etc.)
         guard let url = SecurityValidator.validateURL(config.url) else {
             NSLog("[NativeWorkManager] HttpSyncWorker: Error - Invalid or unsafe URL")
@@ -114,7 +121,7 @@ class HttpSyncWorker: IosWorker {
 
         // Execute request
         do {
-            var (data, response) = try await URLSession.shared.data(for: request)
+            var (data, response) = try await session.data(for: request)
 
             guard var httpResponse = response as? HTTPURLResponse else {
                 NSLog("[NativeWorkManager] HttpSyncWorker: Error - Invalid response type")
@@ -125,10 +132,10 @@ class HttpSyncWorker: IosWorker {
             if httpResponse.statusCode == 401, let tr = tokenRefreshConfig {
                 NSLog("[NativeWorkManager] HttpSyncWorker: Received 401 — Attempting token refresh...")
                 await AuthTokenManager.shared.invalidateCachedToken()
-                if let newToken = await AuthTokenManager.shared.refreshToken(config: tr, currentSession: URLSession.shared) {
+                if let newToken = await AuthTokenManager.shared.refreshToken(config: tr, currentSession: session) {
                     NSLog("[NativeWorkManager] HttpSyncWorker: Token refresh successful — retrying request...")
                     request = buildRequest(url: url, config: config, signingConfig: signingConfig, newToken: newToken, trConfig: tr)
-                    (data, response) = try await URLSession.shared.data(for: request)
+                    (data, response) = try await session.data(for: request)
                     if let newHttpResponse = response as? HTTPURLResponse {
                         httpResponse = newHttpResponse
                     }

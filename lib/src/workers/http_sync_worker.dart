@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../worker.dart';
 
+export 'certificate_pinning.dart';
 export 'request_signing.dart';
 
 /// HTTP sync worker configuration.
@@ -15,6 +16,7 @@ final class HttpSyncWorker extends Worker {
     this.timeout = const Duration(seconds: 60),
     this.requestSigning,
     this.tokenRefresh,
+    this.certificatePinning,
   });
 
   final String url;
@@ -31,6 +33,9 @@ final class HttpSyncWorker extends Worker {
 
   /// Automatic token refresh configuration.
   final TokenRefreshConfig? tokenRefresh;
+
+  /// Opt-in TLS certificate pinning for this request. See [CertificatePinning].
+  final CertificatePinning? certificatePinning;
 
   @override
   String get workerClassName => 'HttpSyncWorker';
@@ -60,6 +65,8 @@ final class HttpSyncWorker extends Worker {
       'timeoutMs': timeout.inMilliseconds,
       if (requestSigning != null) 'requestSigning': requestSigning!.toMap(),
       if (tokenRefresh != null) 'tokenRefresh': tokenRefresh!.toMap(),
+      if (certificatePinning != null)
+        'certificatePinning': certificatePinning!.toMap(),
     };
   }
 }

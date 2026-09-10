@@ -154,10 +154,33 @@ enum SecurityValidator {
 
     // MARK: - Safe Logging
 
-    /// Sanitize URL for logging by redacting query parameters.
+    /// Replaces RFC 3986 UserInfo (`scheme://user:pass@host/...`) with `[REDACTED]@`.
     ///
-    /// Query parameters may contain sensitive data (tokens, passwords, etc.)
-    /// so we redact them before logging.
+    /// `URLComponents.string` below only ever touched `queryItems`, so a URL carrying its
+    /// credentials in the authority — still common for internal services and S3-style
+    /// pre-signed endpoints — printed them verbatim into logs, and this plugin's own
+    /// `sanitizedURL` output is embedded in `WorkerResult` failure messages, which become
+    /// `TaskCompletionEvent`s and are persisted to the task store, so the password outlives
+    /// the process. Same bug, independently found here while reviewing kmpworkmanager 3.5.0's
+    /// identical fix to its own (unrelated) `SecurityValidator.sanitizedURL` — this file
+    /// duplicates no code with that one.
+    ///
+    /// The authority ends at the first `/`, `?` or `#` after the scheme; anything before the
+    /// last `@` inside it is UserInfo.
+    private static func redactUserInfo(_ url: String) -> String {
+        guard let schemeRange = url.range(of: "://") else { return url }
+        let authorityStart = schemeRange.upperBound
+        let authorityEnd = url[authorityStart...].firstIndex { $0 == "/" || $0 == "?" || $0 == "#" } ?? url.endIndex
+        let authority = url[authorityStart..<authorityEnd]
+        guard let at = authority.lastIndex(of: "@") else { return url }
+        let afterAt = authority.index(after: at)
+        return url[url.startIndex..<authorityStart] + "[REDACTED]@" + authority[afterAt...] + url[authorityEnd...]
+    }
+
+    /// Sanitize URL for logging by redacting UserInfo credentials and query parameters.
+    ///
+    /// Both may contain sensitive data (Basic-auth passwords, tokens, API keys) so both are
+    /// redacted before logging.
     ///
     /// - Parameter urlString: URL to sanitize
     /// - Returns: Sanitized URL string safe for logging
@@ -171,7 +194,15 @@ enum SecurityValidator {
             components.queryItems = [URLQueryItem(name: "...", value: "[redacted]")]
         }
 
-        return components.string ?? "[invalid URL]"
+        guard let queryRedacted = components.string else { return "[invalid URL]" }
+
+        // Run UserInfo redaction on the plain string LAST, after URLComponents is done with
+        // it — not before. URLComponents.string re-percent-encodes whatever `.user`/
+        // `.password` currently hold, so redacting first and re-parsing the "[REDACTED]"
+        // placeholder through URLComponents would come back as "%5BREDACTED%5D@" instead of
+        // the literal text. redactUserInfo works on the raw string, not a parsed URL, so
+        // running it after is exact either way and avoids that round-trip.
+        return redactUserInfo(queryRedacted)
     }
 
     /// Truncate string for safe logging.

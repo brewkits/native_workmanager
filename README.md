@@ -150,6 +150,47 @@ All workers run natively. No Flutter Engine. No setup beyond `initialize()`.
 
 ---
 
+## TLS Certificate Pinning
+
+Opt-in, per-request, on every HTTP-ish worker. Pin one or more hosts to their
+SHA-256 SubjectPublicKeyInfo digest — the `sha256/BASE64` form OkHttp,
+TrustKit and openssl all emit — and a worker that never sets it behaves
+exactly as before, unaffected:
+
+```dart
+NativeWorker.httpRequest(
+  url: 'https://api.example.com/data',
+  certificatePinning: CertificatePinning([
+    CertificatePin(
+      hostname: 'api.example.com',
+      sha256Pins: [
+        'sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=', // current
+        'sha256/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=', // backup — see below
+      ],
+    ),
+  ]),
+)
+```
+
+Pinning is **additional to** the platform's own chain validation, never a
+replacement for it — a matching pin still results in the OS performing its
+own expiry, hostname and trust-store checks.
+
+> **Ship a backup pin.** This is the failure that makes teams abandon
+> pinning, and it isn't recoverable remotely: pin only the key in use today,
+> rotate it, and every installed copy of the app loses the ability to reach
+> that host — there is no server-side fix. Pin at least one key not in use
+> yet (typically the intermediate CA, or a backup key held offline).
+
+Works on `HttpRequestWorker`, `HttpDownloadWorker`, `HttpUploadWorker`,
+`HttpSyncWorker`, `ParallelHttpDownloadWorker`, `ParallelHttpUploadWorker`
+and `WebSocketWorker` (Android). Not applied to `HttpDownloadWorker`'s
+`useBackgroundSession: true` path on iOS — that hands off to a single
+app-lifetime background session shared across every background download,
+which per-request pinning can't reach there.
+
+---
+
 ## Track progress in real time
 
 `enqueue()` returns a `TaskHandler` that streams progress and completion events for that specific task — no manual filtering required.

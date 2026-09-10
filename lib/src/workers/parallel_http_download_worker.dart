@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import '../worker.dart';
 
+export 'certificate_pinning.dart';
+
 /// Parallel chunked HTTP download worker configuration.
 ///
 /// Splits a single file download into [numChunks] parallel byte-range
@@ -59,6 +61,7 @@ final class ParallelHttpDownloadWorker extends Worker {
     this.notificationTitle,
     this.notificationBody,
     this.skipExisting = false,
+    this.certificatePinning,
   }) : assert(numChunks >= 1 && numChunks <= 16,
             'numChunks must be between 1 and 16');
 
@@ -111,6 +114,10 @@ final class ParallelHttpDownloadWorker extends Worker {
   /// Default: `false`
   final bool skipExisting;
 
+  /// Opt-in TLS certificate pinning for every chunk request.
+  /// See [CertificatePinning].
+  final CertificatePinning? certificatePinning;
+
   @override
   String get workerClassName => 'ParallelHttpDownloadWorker';
 
@@ -128,5 +135,7 @@ final class ParallelHttpDownloadWorker extends Worker {
         'showNotification': showNotification,
         if (notificationTitle != null) 'notificationTitle': notificationTitle,
         if (notificationBody != null) 'notificationBody': notificationBody,
+        if (certificatePinning != null)
+          'certificatePinning': certificatePinning!.toMap(),
       };
 }
