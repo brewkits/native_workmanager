@@ -46,7 +46,7 @@ No boilerplate. No native code to write. No `AndroidManifest.xml` changes. Each 
 
 ```yaml
 dependencies:
-  native_workmanager: ^1.6.1
+  native_workmanager: ^1.7.0
 ```
 
 **2. Initialize once in `main()`:**
@@ -271,6 +271,24 @@ Future<bool> syncHealthData(Map<String, dynamic>? input) async {
   return true;
 }
 ```
+
+Cancelling a task (`cancel`/`cancelAll`, or the OS reclaiming background time) does **not** interrupt a running `DartWorker` callback — Dart has no API to preemptively abort a `Future` that is already executing. A callback doing long-running work should poll `NativeWorkManager.isTaskCancelled(taskId)` cooperatively between chunks of work and return promptly once it turns `true`:
+
+```dart
+@pragma('vm:entry-point')
+Future<bool> longSync(Map<String, dynamic>? input) async {
+  final taskId = input?['__taskId'] as String?;
+  for (var i = 1; i <= 100; i++) {
+    if (taskId != null && await NativeWorkManager.isTaskCancelled(taskId)) {
+      return false; // bail out — do not keep working
+    }
+    await processChunk(i);
+  }
+  return true;
+}
+```
+
+An `await longRunningOperation()` with no cancellation checks of its own keeps running regardless — break such work into chunks so there's a point to check from.
 
 > **Android killed-app support** — When Android kills your app and WorkManager later fires a `DartWorker`, the process restarts without Flutter. Since **v1.3.0 this is zero-config**: the plugin's `androidx.startup` initializer restores the `callbackHandle` and installs its `WorkerFactory` automatically before any task fires — no custom `Application` class required. Apps that ship their own `Configuration.Provider` can opt out — see **[Android Setup Guide](doc/ANDROID_SETUP.md)**.
 

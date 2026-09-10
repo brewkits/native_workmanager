@@ -1,7 +1,6 @@
 import 'package:build/build.dart';
 import 'package:build_test/build_test.dart';
 import 'package:native_workmanager_gen/builder.dart';
-import 'package:source_gen/source_gen.dart';
 import 'package:test/test.dart';
 
 /// Tests for [WorkerCallbackGenerator] via the [workerCallbackBuilder]
@@ -29,7 +28,7 @@ import 'package:test/test.dart';
 void main() {
   Builder builder() => workerCallbackBuilder(BuilderOptions.empty);
 
-  const _annotationSource = '''
+  const annotationSource = '''
 class WorkerCallback {
   final String id;
   final Type? inputType;
@@ -37,15 +36,15 @@ class WorkerCallback {
 }
 ''';
 
-  const _import =
+  const annotationImport =
       "import 'package:native_workmanager/src/worker_callback_generator_annotation.dart';";
 
   /// Builds the asset map for a `lib/workers.dart` source, plus the virtual
   /// `native_workmanager` annotation package every fixture imports.
   Map<String, String> assets(String workersSource) => {
     'native_workmanager|lib/src/worker_callback_generator_annotation.dart':
-        _annotationSource,
-    'a|lib/workers.dart': '$_import\n\n$workersSource',
+        annotationSource,
+    'a|lib/workers.dart': '$annotationImport\n\n$workersSource',
   };
 
   const outputAsset = 'a|lib/workers.worker_callback.g.part';

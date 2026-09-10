@@ -283,21 +283,31 @@ class BGTaskSchedulerManager {
             return
         }
 
+        // Declared before expirationHandler so the handler can cancel it —
+        // issue #66: previously expiration only called activeWorker?.stop()
+        // (a no-op for DartCallbackWorker) and never cancelled the Task
+        // driving runExecutor, so a Dart callback's cooperative
+        // isTaskCancelled() poll had nothing to observe on OS-triggered
+        // expiration, only on an explicit NativeWorkManager.cancel() call.
+        var runningTask: Task<Void, Never>?
+
         task.expirationHandler = { [weak self] in
             NativeLogger.d("BGTaskSchedulerManager: Task expired")
+            DartTaskCancellationRegistry.shared.markCancelled(taskInfo.taskId)
+            runningTask?.cancel()
             self?.activeWorker?.stop()
             self?.onExpiration?()
             self?.onTaskComplete?(taskInfo.taskId, false, "Task expired")
             completionGuard.completeOnce(task: task, success: false)
         }
 
-        let runningTask = Task(priority: .background) { [weak self] in
+        runningTask = Task(priority: .background) { [weak self] in
             guard let self = self else { return }
             let success = await self.runExecutor(taskInfo: taskInfo)
             completionGuard.completeOnce(task: task, success: success)
             self.activeWorker = nil
         }
-        onTaskRunning?(taskInfo.taskId, runningTask)
+        onTaskRunning?(taskInfo.taskId, runningTask!)
     }
 
     /// Handle BGAppRefreshTask execution.
@@ -313,21 +323,26 @@ class BGTaskSchedulerManager {
             return
         }
 
+        // See handleBackgroundTask's comment — same issue #66 fix.
+        var runningTask: Task<Void, Never>?
+
         task.expirationHandler = { [weak self] in
             NativeLogger.d("BGTaskSchedulerManager: Refresh task expired")
+            DartTaskCancellationRegistry.shared.markCancelled(taskInfo.taskId)
+            runningTask?.cancel()
             self?.activeWorker?.stop()
             self?.onExpiration?()
             self?.onTaskComplete?(taskInfo.taskId, false, "Refresh expired")
             completionGuard.completeOnce(task: task, success: false)
         }
 
-        let runningTask = Task(priority: .background) { [weak self] in
+        runningTask = Task(priority: .background) { [weak self] in
             guard let self = self else { return }
             let success = await self.runExecutor(taskInfo: taskInfo)
             completionGuard.completeOnce(task: task, success: success)
             self.activeWorker = nil
         }
-        onTaskRunning?(taskInfo.taskId, runningTask)
+        onTaskRunning?(taskInfo.taskId, runningTask!)
     }
 
     /// Shared execution path for both BGProcessingTask and BGAppRefreshTask.

@@ -578,6 +578,12 @@ extension NativeWorkmanagerPlugin {
         workerConfig: [String: Any],
         taskId: String
     ) async -> WorkerResult {
+        // Issue #66: whichever branch below runs, always drop this taskId's
+        // cancellation-registry entry once execution is done — otherwise a
+        // cancelled taskId (or, worse, a reused one on a later run) leaks or
+        // misreports "cancelled" forever.
+        defer { DartTaskCancellationRegistry.shared.clear(taskId) }
+
         guard let callbackId = workerConfig["callbackId"] as? String else {
             return WorkerResult.failure(message: "DartCallbackWorker: missing callbackId in config")
         }

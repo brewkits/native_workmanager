@@ -109,6 +109,7 @@ extension NativeWorkmanagerPlugin: UNUserNotificationCenterDelegate {
             if #available(iOS 13.0, *) {
                 cleanupTempFiles(forTaskId: taskId)
             }
+            DartTaskCancellationRegistry.shared.markCancelled(taskId) // issue #66
             stateQueue.async(flags: .barrier) {
                 self.activeTasks[taskId]?.cancel()
                 self.activeTasks.removeValue(forKey: taskId)

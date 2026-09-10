@@ -156,6 +156,12 @@ class HttpUploadWorker: IosWorker {
             return .failure(message: "Invalid input encoding")
         }
 
+        // Extract __taskId injected by the plugin, needed so a background-session
+        // upload registers under the same id NativeWorkManager.cancel() looks up
+        // (same pattern as HttpDownloadWorker's taskIdForProgress).
+        let taskIdForCancel: String? = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+            .flatMap { $0["__taskId"] as? String }
+
         let config: Config
         do {
             config = try JSONDecoder().decode(Config.self, from: data)
@@ -247,7 +253,8 @@ class HttpUploadWorker: IosWorker {
                 url: url,
                 config: config,
                 validatedFiles: validatedFiles,
-                totalSize: totalSize
+                totalSize: totalSize,
+                taskId: taskIdForCancel
             )
         }
 
@@ -507,7 +514,15 @@ class HttpUploadWorker: IosWorker {
         url: URL,
         config: Config,
         validatedFiles: [(url: URL, fileName: String, mimeType: String)],
-        totalSize: Int64
+        totalSize: Int64,
+        // Same fix as HttpDownloadWorker.downloadWithBackgroundSession: this used
+        // to register the background upload under a random "upload-<uuid>" id,
+        // so NativeWorkManager.cancel(taskId) — which calls
+        // BackgroundSessionManager.shared.cancel(taskId: <real taskId>) — could
+        // never find it. A cancelled background-session upload just kept
+        // uploading. Falls back to a random id only if no real taskId is
+        // available.
+        taskId: String?
     ) async -> WorkerResult {
         NativeLogger.d("HttpUploadWorker: Using background URLSession for upload")
 
@@ -531,7 +546,7 @@ class HttpUploadWorker: IosWorker {
 
         // Execute upload using BackgroundSessionManager
         return await withCheckedContinuation { continuation in
-            let taskId = "upload-\(UUID().uuidString)"
+            let taskId = taskId ?? "upload-\(UUID().uuidString)"
 
             BackgroundSessionManager.shared.upload(
                 to: url,

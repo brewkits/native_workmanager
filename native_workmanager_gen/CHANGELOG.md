@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.7.0] - 2026-09-10
+
+- Version bump synchronized with `native_workmanager` 1.7.0
+  (`NativeWorkManager.isTaskCancelled` cooperative cancellation, issue #66).
+  No codegen changes — also fixed this package's own `analysis_options.yaml`
+  gap (it had none, so `dart analyze` was silently resolving against the
+  root plugin's Flutter-lints config instead of this package's own `lints`
+  dependency) and two lint issues that gap had been hiding.
+
 ## [1.6.1] - 2026-09-07
 
 - Version bump synchronized with `native_workmanager` 1.6.1 (Android completion-event regression

@@ -88,10 +88,21 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version-file: .flutter-version
-          # No `channel:` here on purpose — subosito/flutter-action lets channel
-          # WIN over flutter-version-file, so having both meant .flutter-version was
-          # silently ignored and every job ran whatever stable happened to be latest.
+          flutter-version-file: .fvmrc
+          # MUST be .fvmrc, not a plain .flutter-version text file. subosito/
+          # flutter-action's flutter-version-file only parses pubspec.yaml,
+          # .fvmrc or .fvm/fvm_config.json — a bare "3.41.9" file (the previous
+          # setup) silently failed to parse and fell back to the `channel`
+          # default of 'stable', floating to whatever was newest that day.
+          # `channel` is explicitly emptied too, since that default is
+          # non-empty even when this key is omitted and a non-empty channel
+          # wins over flutter-version-file when both resolve. Confirmed
+          # 2026-09-10: the plain-text pin said 3.41.9, CI actually ran 3.47.2
+          # (then 3.47.3 the next run) and reformatted files differently than
+          # local, turning an unrelated PR red. This project already manages
+          # Flutter locally via `fvm`, so .fvmrc is also the natural single
+          # source of truth for local `fvm use`.
+          channel: ''
           cache: true
 
       - name: Get dependencies (plugin)

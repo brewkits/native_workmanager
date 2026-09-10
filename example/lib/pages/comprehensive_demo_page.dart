@@ -1397,6 +1397,45 @@ DartWorker(
         ),
 
         _DemoCard(
+          title: '1c. Dart Worker — Cooperative Cancellation (Issue #66)',
+          description:
+              'Schedules a 20 s callback that polls isTaskCancelled every '
+              '500 ms, then cancels it 2 s in. Dart has no API to '
+              'preemptively abort a running Future, so this only works '
+              'because the callback checks in cooperatively — watch logs '
+              'for "saw cancellation" well before the 20 s mark.',
+          icon: Icons.cancel_outlined,
+          code: '''
+'cancellableTask': (input) async {
+  final taskId = input?['__taskId'] as String?;
+  for (var i = 1; i <= 40; i++) {
+    if (taskId != null &&
+        await NativeWorkManager.isTaskCancelled(taskId)) {
+      return false; // bail out — do not keep working
+    }
+    await Future.delayed(const Duration(milliseconds: 500));
+  }
+  return true;
+}''',
+          onRun: () async {
+            final taskId =
+                'issue-66-cancel-${DateTime.now().millisecondsSinceEpoch}';
+            await NativeWorkManager.enqueue(
+              taskId: taskId,
+              trigger: TaskTrigger.oneTime(),
+              worker: DartWorker(callbackId: 'cancellableTask'),
+            );
+            onResult(
+              '🎯 Issue #66 demo: scheduled a 20 s callback, cancelling it '
+              'in 2 s. Watch logs for "saw cancellation" well short of 20 s.',
+            );
+            Future.delayed(const Duration(seconds: 2), () {
+              unawaited(NativeWorkManager.cancel(taskId: taskId));
+            });
+          },
+        ),
+
+        _DemoCard(
           title: '2. Custom Native Worker (Kotlin)',
           description:
               'ImageCompressWorker registered in MainActivity.kt — runs real Kotlin code',

@@ -5,6 +5,99 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-09-10
+
+### Added
+
+- **`NativeWorkManager.isTaskCancelled(taskId)`** — answers
+  [#66](https://github.com/brewkits/native_workmanager/discussions/66):
+  cancelling a task (via `cancel`/`cancelAll`, or the OS reclaiming
+  background time) does not interrupt a running `DartWorker` callback,
+  because Dart has no API to preemptively abort a `Future` that is already
+  executing. A callback doing long-running work can now poll this
+  cooperatively between chunks of work and return early once it turns
+  `true`. Wired on both platforms: Android (`CoroutineWorker`
+  cancellation), iOS foreground/simulator (main-isolate `activeTasks`
+  cancel), and iOS true-background BGTask expiration. See
+  `DartTaskCancellationRegistry` (Kotlin and Swift) and the `issue_66_*`
+  entries in `device_integration_test.dart`. Device-verified on a Pixel 6
+  Pro and an iOS simulator — the Android half was a no-op until the
+  registry-clear-timing fix below.
+
+### Fixed
+
+- **Android: cancelling a `DartWorker` task while its callback was running
+  could leak the headless Flutter engine (~50 MB) or dispose it while an
+  orphaned callback was still executing.** `FlutterEngineManager
+  .executeDartCallback` rethrew external `CancellationException` before its
+  own dispose/idle-timer logic ever ran. Found investigating #66.
+- **Android: `isTaskCancelled(taskId)` cleared its own answer the instant
+  it was set, making the feature above a no-op on real hardware** — the
+  registry entry was cleared from a `finally` tied to the cancelling
+  coroutine's own lifetime, but the orphaned Dart callback keeps polling
+  for a while *after* that coroutine unwinds (the entire premise of
+  cooperative cancellation). Every unit test stayed green because a
+  mocked channel can't reproduce this timing race. Found only once a
+  real device became available to run the `issue_66` device test on.
+- **iOS: `BGTaskSchedulerManager` never actually cancelled the running
+  `Task` on BGTask expiration** — only `activeWorker.stop()` was called (a
+  no-op for `DartCallbackWorker`), so the work backing an expired task kept
+  running in the background past the task's own completion. Found
+  investigating #66.
+- **iOS: cancelling a `useBackgroundSession: true` `HttpDownloadWorker` or
+  `HttpUploadWorker` never actually stopped the transfer**
+  ([#69](https://github.com/brewkits/native_workmanager/issues/69)). Both
+  registered their background `URLSessionTask` with
+  `BackgroundSessionManager` under a throwaway random id instead of the
+  real task id, so `cancel()`/`cancelAll()`/`cancelByTag()` — which look
+  the task up by the real id — always missed. The download/upload kept
+  running in the background regardless. Found auditing for bugs similar
+  to #66; verified red-then-green with a device test that reproduces the
+  bug on the pre-fix code before confirming the fix.
+- **CI never actually honoured any Flutter version pin.**
+  `flutter-version-file: .flutter-version` pointed at a plain-text file —
+  subosito/flutter-action's `flutter-version-file` only parses
+  `pubspec.yaml`, `.fvmrc`, or `.fvm/fvm_config.json`, so it silently
+  failed to parse and fell back to the `channel` input's default of
+  `stable` (non-empty even when the key is omitted from the workflow
+  yaml), floating every job to whatever Flutter was newest that day.
+  Switched to `.fvmrc` (the project already manages Flutter locally via
+  `fvm`) and explicitly empty `channel` as defense in depth.
+- `native_workmanager_gen` had no `analysis_options.yaml` of its own, so
+  `dart analyze` walked up to the root plugin's — which includes
+  `package:flutter_lints/flutter.yaml`, unresolvable against a pure-Dart
+  package that only depends on `lints`. That silently broke analysis for
+  the whole generator package (every run just warned and skipped),
+  hiding one unused import and two lint issues in its own test suite.
+
+### Known Issues
+
+- **When `DartWorker.timeoutMs` fires, no terminal event reaches
+  `NativeWorkManager.events` — and the late result from the abandoned
+  callback, once it does finish, is dropped too — reproduced on both
+  Android and iOS.** Found auditing this release's stress suite
+  (`issue_30 stress` in `stress_and_system_test.dart`): its 12-case matrix
+  shows a perfect correlation — every case where `delayMs < timeoutMs`
+  (natural completion, no timeout race) delivered its terminal event;
+  every case where `timeoutMs` was reached first delivered nothing, ever.
+  Isolating a single `DartWorker(timeoutMs: 1000, input: {delayMs: 2000})`
+  confirmed it directly: only the `isStarted` event arrived in a 15 s
+  window on either platform — nothing at the 1 s timeout mark, and
+  nothing when the callback's own 2 s delay separately elapsed and it
+  returned a real result to an invocation nobody was listening for
+  anymore. Worker completions with **no** timeout race are not implicated
+  by this — only the timeout-fires case. Confirmed pre-existing on `main`
+  at v1.6.1 (unaffected by anything in this release) via a worktree
+  comparison, so it does not block this release, but a real app awaiting
+  that event on a task that times out would hang indefinitely. The
+  existing `issue_30 stress` test does not catch this: it treats "no
+  event arrived" and "correctly failed" as the same outcome (`catch (_) {
+  actuals.add(0) }`), so 3 of its 4 timeout-should-fire cases pass by
+  coincidence rather than verifying a failure event was actually
+  received; only the 4th (`#10`) surfaces at all, and only as a flaky,
+  timing-order-dependent unhandled-`Future` error rather than a real
+  assertion failure. Needs its own investigation — not attempted here.
+
 ## [1.6.1] - 2026-09-07
 
 **Fixes a regression in 1.6.0.** If you are on 1.6.0 and use any worker whose result contains a

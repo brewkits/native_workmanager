@@ -115,13 +115,18 @@ class DartCallbackWorkerWrapper(
             Log.d(TAG, "Executing callback: $callbackId (handle: $callbackHandle, autoDispose: $autoDispose, timeoutMs: $timeoutMs)")
 
             // Execute Dart callback via FlutterEngineManager
-            // Pass callbackHandle (not callbackId) to enable cross-isolate execution
+            // Pass callbackHandle (not callbackId) to enable cross-isolate execution.
+            // taskId (issue #66) lets FlutterEngineManager mark
+            // DartTaskCancellationRegistry when this coroutine is cancelled
+            // externally, so NativeWorkManager.isTaskCancelled(taskId) can see it
+            // from inside the running Dart callback.
             val result = FlutterEngineManager.executeDartCallback(
                 context = context,
                 callbackHandle = callbackHandle,  // Serializable handle
                 input = callbackInput,
                 timeoutMs = timeoutMs,
-                disposeImmediately = autoDispose // Aggressive disposal flag
+                disposeImmediately = autoDispose, // Aggressive disposal flag
+                taskId = outerTaskId
             )
 
             Log.d(TAG, "Dart callback completed: $callbackId, result: $result")
