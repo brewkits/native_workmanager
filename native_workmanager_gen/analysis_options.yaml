@@ -1,0 +1,12 @@
+# native_workmanager_gen is a pure-Dart package (build_runner code generator)
+# with no Flutter dependency — it must not inherit the root plugin's
+# `package:flutter_lints/flutter.yaml`. Without this file, `dart analyze`
+# walked up to the root's analysis_options.yaml and failed to resolve
+# flutter_lints against this package's own pub cache (it only depends on
+# `lints`), producing a "Failed to resolve package URI" warning on every run.
+include: package:lints/recommended.yaml
+
+analyzer:
+  exclude:
+    - build/**
+    - example/**

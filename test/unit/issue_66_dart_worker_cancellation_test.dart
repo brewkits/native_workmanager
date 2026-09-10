@@ -38,7 +38,8 @@ void main() {
   });
 
   group('isTaskCancelled', () {
-    test('returns false without a platform call when taskId is empty', () async {
+    test('returns false without a platform call when taskId is empty',
+        () async {
       final result = await NativeWorkManager.isTaskCancelled('');
       expect(result, isFalse);
       expect(calls, isEmpty);
@@ -59,7 +60,9 @@ void main() {
       expect(calls.single.arguments, {'taskId': 'cancelled-task'});
     });
 
-    test('returns false, not an exception, if the platform channel has no handler', () async {
+    test(
+        'returns false, not an exception, if the platform channel has no handler',
+        () async {
       // Simulates a platform that has not registered a handler for this
       // method on this channel yet — MissingPluginException must not crash
       // a DartWorker callback that is only trying to check cancellation.

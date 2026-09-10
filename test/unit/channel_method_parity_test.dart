@@ -166,4 +166,104 @@ void main() {
       }
     });
   });
+
+  // Everything above is exempted from the main-channel checks (they're sent on
+  // MethodChannel('dev.brewkits/dart_worker_channel') instead), which left them
+  // with no automated check at all — the exact shape this whole file exists to
+  // catch, just one channel over. Closed 2026-09-10 while reviewing #66/#68:
+  // 'isTaskCancelled' had a written-out "iOS also answers it from ..." comment
+  // that no test actually verified.
+  group('dart_worker_channel parity (the gap _notOnMainChannel left open)', () {
+    Set<String> androidHandledMethods() {
+      final src = _repoFile(
+        'android/src/main/kotlin/dev/brewkits/native_workmanager/'
+        'engine/FlutterEngineManager.kt',
+      ).readAsStringSync();
+      return RegExp(r'"([a-zA-Z_]+)"\s*->')
+          .allMatches(src)
+          .map((m) => m.group(1)!)
+          .toSet();
+    }
+
+    Set<String> iosHeadlessHandledMethods() {
+      final src = _repoFile(
+        'ios/native_workmanager/Sources/native_workmanager/'
+        'engine/FlutterEngineManager.swift',
+      ).readAsStringSync();
+      return RegExp(r'call\.method\s*==\s*"([a-zA-Z_]+)"')
+          .allMatches(src)
+          .map((m) => m.group(1)!)
+          .toSet();
+    }
+
+    Set<String> iosForegroundHandledMethods() {
+      // NativeWorkmanagerPlugin.swift's own dartWorkerChannel — the main-isolate
+      // handler for foreground/test-mode DartWorker callbacks (see
+      // CLAUDE.md "Execution Modes"). Android has no equivalent: it always
+      // executes DartWorker callbacks through the headless engine above.
+      final src = _repoFile(
+        'ios/native_workmanager/Sources/native_workmanager/'
+        'NativeWorkmanagerPlugin.swift',
+      ).readAsStringSync();
+      final marker = src.indexOf('dartWorkerChannel?.setMethodCallHandler');
+      expect(
+        marker,
+        greaterThanOrEqualTo(0),
+        reason: 'NativeWorkmanagerPlugin.swift no longer wires the foreground '
+            'dartWorkerChannel handler — if this moved, update this test\'s '
+            'anchor rather than deleting the check',
+      );
+      final handlerBody = src.substring(marker);
+      return RegExp(r'case\s+"([a-zA-Z_]+)"')
+          .allMatches(handlerBody)
+          .map((m) => m.group(1)!)
+          .toSet();
+    }
+
+    // dartReady only matters to the headless engine (it signals the isolate is
+    // up before enqueuing work) — the foreground path has no isolate to wait
+    // for, so it is deliberately absent there.
+    const headlessOnlyMethods = {'dartReady'};
+    // reportProgress and isTaskCancelled must work identically no matter which
+    // engine a DartWorker callback happens to be running on.
+    const bothEnginesMethods = {'reportProgress', 'isTaskCancelled'};
+
+    test('Android handles every dart_worker_channel method', () {
+      final handled = androidHandledMethods();
+      final missing =
+          {...headlessOnlyMethods, ...bothEnginesMethods}.difference(handled);
+      expect(
+        missing,
+        isEmpty,
+        reason: 'dev.brewkits/dart_worker_channel methods with no Android '
+            'FlutterEngineManager.kt handler: $missing',
+      );
+    });
+
+    test('iOS headless engine handles every dart_worker_channel method', () {
+      final handled = iosHeadlessHandledMethods();
+      final missing =
+          {...headlessOnlyMethods, ...bothEnginesMethods}.difference(handled);
+      expect(
+        missing,
+        isEmpty,
+        reason: 'dev.brewkits/dart_worker_channel methods with no iOS '
+            'FlutterEngineManager.swift handler: $missing',
+      );
+    });
+
+    test('iOS foreground engine handles the methods it must', () {
+      final handled = iosForegroundHandledMethods();
+      final missing = bothEnginesMethods.difference(handled);
+      expect(
+        missing,
+        isEmpty,
+        reason: 'dev.brewkits/dart_worker_channel methods with no iOS '
+            'foreground dartWorkerChannel handler in '
+            'NativeWorkmanagerPlugin.swift: $missing — a callback running in '
+            'foreground/test mode (see CLAUDE.md "Execution Modes") would '
+            'throw MissingPluginException calling this',
+      );
+    });
+  });
 }

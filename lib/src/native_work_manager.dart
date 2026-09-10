@@ -1111,8 +1111,8 @@ class NativeWorkManager {
     if (taskId.isEmpty) return false;
     const channel = MethodChannel('dev.brewkits/dart_worker_channel');
     try {
-      final result = await channel
-          .invokeMethod<bool>('isTaskCancelled', <String, Object?>{
+      final result =
+          await channel.invokeMethod<bool>('isTaskCancelled', <String, Object?>{
         'taskId': taskId,
       });
       return result ?? false;
