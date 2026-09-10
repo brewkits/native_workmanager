@@ -81,9 +81,14 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           flutter-version-file: .flutter-version
-          # No `channel:` here on purpose — subosito/flutter-action lets channel
-          # WIN over flutter-version-file, so having both meant .flutter-version was
-          # silently ignored and every job ran whatever stable happened to be latest.
+          # `channel` MUST be explicitly emptied. subosito/flutter-action's `channel`
+          # input defaults to 'stable' even when this key is omitted entirely, and a
+          # non-empty channel wins over flutter-version-file. Omitting the key (the
+          # previous fix, see git blame) left that default in place, so
+          # .flutter-version kept being silently ignored and CI floated to whatever
+          # `stable` happened to be that day. Confirmed 2026-09-10: pin was 3.41.9,
+          # CI actually ran 3.47.2 and reformatted files differently than local.
+          channel: ''
           cache: true
 
       - uses: actions/setup-java@v4
@@ -190,9 +195,14 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           flutter-version-file: .flutter-version
-          # No `channel:` here on purpose — subosito/flutter-action lets channel
-          # WIN over flutter-version-file, so having both meant .flutter-version was
-          # silently ignored and every job ran whatever stable happened to be latest.
+          # `channel` MUST be explicitly emptied. subosito/flutter-action's `channel`
+          # input defaults to 'stable' even when this key is omitted entirely, and a
+          # non-empty channel wins over flutter-version-file. Omitting the key (the
+          # previous fix, see git blame) left that default in place, so
+          # .flutter-version kept being silently ignored and CI floated to whatever
+          # `stable` happened to be that day. Confirmed 2026-09-10: pin was 3.41.9,
+          # CI actually ran 3.47.2 and reformatted files differently than local.
+          channel: ''
           cache: true
 
       - name: Authenticate to Google Cloud (Workload Identity)
