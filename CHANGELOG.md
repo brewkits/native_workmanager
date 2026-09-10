@@ -72,26 +72,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Known Issues
 
-- **`DartWorker.timeoutMs` does not appear to deliver a terminal event to
-  `NativeWorkManager.events` when it fires — and neither does a plain
-  `DartWorker`'s own natural completion under the same conditions,
-  reproduced on both Android and iOS.** Found auditing this release's
-  stress suite (`issue_30 stress` in `stress_and_system_test.dart`):
-  isolating a single `DartWorker(timeoutMs: 1000, input: {delayMs:
-  2000})` and listening to `NativeWorkManager.events` directly showed
-  only the `isStarted` event arriving — no terminal event within 15 s on
-  either platform, well past both the 1 s timeout and the callback's own
-  2 s natural completion. Confirmed pre-existing on `main` at v1.6.1
-  (unaffected by anything in this release) via a worktree comparison, so
-  it does not block this release, but a real app awaiting that event
-  would hang indefinitely. The existing `issue_30 stress` test does not
-  catch this: it treats "no event arrived" and "correctly failed" as the
-  same outcome (`catch (_) { actuals.add(0) }`), so 3 of its 4
-  timeout-should-fire cases pass by coincidence rather than verifying a
-  failure event was actually received; only the 4th (`#10`) surfaces at
-  all, and only as a flaky, timing-order-dependent unhandled-`Future`
-  error rather than a real assertion failure. Needs its own investigation
-  — not attempted here.
+- **When `DartWorker.timeoutMs` fires, no terminal event reaches
+  `NativeWorkManager.events` — and the late result from the abandoned
+  callback, once it does finish, is dropped too — reproduced on both
+  Android and iOS.** Found auditing this release's stress suite
+  (`issue_30 stress` in `stress_and_system_test.dart`): its 12-case matrix
+  shows a perfect correlation — every case where `delayMs < timeoutMs`
+  (natural completion, no timeout race) delivered its terminal event;
+  every case where `timeoutMs` was reached first delivered nothing, ever.
+  Isolating a single `DartWorker(timeoutMs: 1000, input: {delayMs: 2000})`
+  confirmed it directly: only the `isStarted` event arrived in a 15 s
+  window on either platform — nothing at the 1 s timeout mark, and
+  nothing when the callback's own 2 s delay separately elapsed and it
+  returned a real result to an invocation nobody was listening for
+  anymore. Worker completions with **no** timeout race are not implicated
+  by this — only the timeout-fires case. Confirmed pre-existing on `main`
+  at v1.6.1 (unaffected by anything in this release) via a worktree
+  comparison, so it does not block this release, but a real app awaiting
+  that event on a task that times out would hang indefinitely. The
+  existing `issue_30 stress` test does not catch this: it treats "no
+  event arrived" and "correctly failed" as the same outcome (`catch (_) {
+  actuals.add(0) }`), so 3 of its 4 timeout-should-fire cases pass by
+  coincidence rather than verifying a failure event was actually
+  received; only the 4th (`#10`) surfaces at all, and only as a flaky,
+  timing-order-dependent unhandled-`Future` error rather than a real
+  assertion failure. Needs its own investigation — not attempted here.
 
 ## [1.6.1] - 2026-09-07
 
