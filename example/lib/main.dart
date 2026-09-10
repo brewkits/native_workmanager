@@ -108,6 +108,7 @@ void main() async {
       'customTask': customTaskCallback,
       'heavyTask': heavyTaskCallback,
       'longRunningTask': longRunningTaskCallback,
+      'cancellableTask': cancellableTaskCallback,
       'benchHeavyCompute': benchHeavyComputeCallback,
       // Stress & System Test Workers
       'stress_worker': stressWorkerCallback,
@@ -149,6 +150,30 @@ Future<bool> longRunningTaskCallback(Map<String, dynamic>? input) async {
   debugPrint('📱 Long-running Dart Worker: starting (delay ${delayMs}ms)');
   await Future.delayed(Duration(milliseconds: delayMs));
   debugPrint('📱 Long-running Dart Worker: completed after ${delayMs}ms');
+  return true;
+}
+
+/// Issue #66 demo callback: loops in 500ms chunks, polling
+/// `NativeWorkManager.isTaskCancelled` between each one and bailing out as
+/// soon as it turns true. Used by the "Cooperative Cancellation (Issue #66)"
+/// demo card — enqueues this, then cancels it shortly after it starts, to
+/// prove the poll actually observes the cancellation instead of running the
+/// full 20 s to completion.
+@pragma('vm:entry-point')
+Future<bool> cancellableTaskCallback(Map<String, dynamic>? input) async {
+  final taskId = input?['__taskId'] as String?;
+  debugPrint('📱 Cancellable Dart Worker: starting (taskId=$taskId)');
+  for (var chunk = 1; chunk <= 40; chunk++) {
+    if (taskId != null && await NativeWorkManager.isTaskCancelled(taskId)) {
+      debugPrint(
+        '📱 Cancellable Dart Worker: saw cancellation at chunk '
+        '$chunk/40 — bailing out',
+      );
+      return false;
+    }
+    await Future.delayed(const Duration(milliseconds: 500));
+  }
+  debugPrint('📱 Cancellable Dart Worker: ran to completion, never cancelled');
   return true;
 }
 

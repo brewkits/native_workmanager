@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.7.0] - 2026-09-10
 
 ### Added
 
@@ -54,6 +54,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   running in the background regardless. Found auditing for bugs similar
   to #66; verified red-then-green with a device test that reproduces the
   bug on the pre-fix code before confirming the fix.
+- **CI never actually honoured any Flutter version pin.**
+  `flutter-version-file: .flutter-version` pointed at a plain-text file —
+  subosito/flutter-action's `flutter-version-file` only parses
+  `pubspec.yaml`, `.fvmrc`, or `.fvm/fvm_config.json`, so it silently
+  failed to parse and fell back to the `channel` input's default of
+  `stable` (non-empty even when the key is omitted from the workflow
+  yaml), floating every job to whatever Flutter was newest that day.
+  Switched to `.fvmrc` (the project already manages Flutter locally via
+  `fvm`) and explicitly empty `channel` as defense in depth.
+- `native_workmanager_gen` had no `analysis_options.yaml` of its own, so
+  `dart analyze` walked up to the root plugin's — which includes
+  `package:flutter_lints/flutter.yaml`, unresolvable against a pure-Dart
+  package that only depends on `lints`. That silently broke analysis for
+  the whole generator package (every run just warned and skipped),
+  hiding one unused import and two lint issues in its own test suite.
+
+### Known Issues
+
+- **`DartWorker.timeoutMs` does not appear to deliver a terminal event to
+  `NativeWorkManager.events` when it fires — and neither does a plain
+  `DartWorker`'s own natural completion under the same conditions,
+  reproduced on both Android and iOS.** Found auditing this release's
+  stress suite (`issue_30 stress` in `stress_and_system_test.dart`):
+  isolating a single `DartWorker(timeoutMs: 1000, input: {delayMs:
+  2000})` and listening to `NativeWorkManager.events` directly showed
+  only the `isStarted` event arriving — no terminal event within 15 s on
+  either platform, well past both the 1 s timeout and the callback's own
+  2 s natural completion. Confirmed pre-existing on `main` at v1.6.1
+  (unaffected by anything in this release) via a worktree comparison, so
+  it does not block this release, but a real app awaiting that event
+  would hang indefinitely. The existing `issue_30 stress` test does not
+  catch this: it treats "no event arrived" and "correctly failed" as the
+  same outcome (`catch (_) { actuals.add(0) }`), so 3 of its 4
+  timeout-should-fire cases pass by coincidence rather than verifying a
+  failure event was actually received; only the 4th (`#10`) surfaces at
+  all, and only as a flaky, timing-order-dependent unhandled-`Future`
+  error rather than a real assertion failure. Needs its own investigation
+  — not attempted here.
 
 ## [1.6.1] - 2026-09-07
 
