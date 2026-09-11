@@ -142,7 +142,7 @@ Updated dependencies file:
 dependencies:
   flutter:
     sdk: flutter
-  native_workmanager: ^1.7.0  # Replaced workmanager
+  native_workmanager: ^1.8.0  # Replaced workmanager
 ```
 
 **Usage:**
