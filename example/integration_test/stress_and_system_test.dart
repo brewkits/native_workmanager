@@ -228,6 +228,21 @@ void main() {
     // a single 25 s ceiling regardless of timeoutMs, so a single broken path
     // would silently fail all of them. This test runs heterogeneous timeouts
     // concurrently so a regression manifests as wrong-bucket completion.
+    //
+    // maxRetries: 0 below is load-bearing, not decoration. A DartWorker that
+    // times out returns a retryable failure by design (matching #46/#47's
+    // "return false retries" fix) — without capping retries, a timed-out case
+    // doesn't reach a terminal WorkInfo state until all default-3 retries with
+    // growing backoff are exhausted (Android: WorkManager's own backoff;
+    // iOS: 30 s initial delay, exponential), which blows well past `waitMs`
+    // below. That is not a dropped event — confirmed directly: an isolated
+    // DartWorker(timeoutMs: 1000, delayMs: 2000) with maxRetries: 0 delivers
+    // its terminal event at ~1020 ms, exactly at the timeout mark, on both
+    // platforms. Previously this test had no maxRetries override, so its own
+    // wait budget was racing the retry backoff rather than the timeout itself
+    // — an early, misleadingly convenient draft of a "fixed the timeoutMs
+    // event bug" CHANGELOG entry was written from that race before this was
+    // traced to its actual cause and corrected.
     testWidgets(
       'issue_30 stress: 12 concurrent DartWorkers honor per-task timeoutMs',
       (tester) async {
@@ -274,18 +289,40 @@ void main() {
               input: {'delayMs': delayMs, 'tag': '#$i'},
               timeoutMs: timeoutMs,
             ),
+            constraints: const Constraints(maxRetries: 0),
           );
         }
 
+        // With maxRetries: 0 above, every case — success or timeout-induced
+        // failure — reaches a terminal WorkInfo state near its own budget, so
+        // waitMs genuinely timing out here means a terminal event never
+        // arrived at all. That used to be silently folded into "0 = fail",
+        // indistinguishable from a real, correctly-delivered failure event —
+        // which is exactly how a real dropped-event regression would slip
+        // through this test undetected. Fail loudly instead: name which case
+        // never got an event, so a future regression reads as a real
+        // assertion failure, not a coincidental match against `expected`.
         final actuals = <int>[];
+        final neverArrived = <int>[];
         for (var i = 0; i < waits.length; i++) {
           try {
             final event = await waits[i];
             actuals.add(event.success ? 1 : 0);
           } catch (_) {
-            actuals.add(0); // timed out waiting → treat as fail
+            neverArrived.add(i);
+            actuals.add(-1); // sentinel — never equals expected 0 or 1
           }
         }
+        expect(
+          neverArrived,
+          isEmpty,
+          reason:
+              'No terminal event ever arrived for case(s) $neverArrived '
+              '(delay/timeoutMs: ${neverArrived.map((i) => cases[i]).toList()}) '
+              'within their wait budget. With maxRetries: 0 this is not a slow '
+              'retry — either NativeWorkManager.events dropped the event, or '
+              "the worker's own execution hung past timeoutMs.",
+        );
 
         final expected = cases.map((c) => c[2]).toList();
         // Print on mismatch so simulator output points at the wrong case.

@@ -189,4 +189,62 @@ class SecurityValidatorTests: XCTestCase {
         XCTAssertTrue(logged.contains("Content-Type"),
                       "Non-sensitive headers should be logged")
     }
+
+    // MARK: - sanitizedURL
+
+    // sanitizedURL redacted the query string but never touched RFC 3986 UserInfo, so a URL
+    // carrying its credentials in the authority (https://user:pass@host/...) printed the
+    // password verbatim into logs and persisted WorkerResult failure messages. Same bug shape
+    // kmpworkmanager's own (unrelated) SecurityValidator.sanitizedURL had just been fixed for —
+    // found by comparison, not shared code. Cases mirror the Android regression test
+    // (SecurityValidatorSanitizedUrlTest.kt) and the standalone Swift script this fix was
+    // originally verified against before being folded into this file.
+
+    func testSanitizedURL_RedactsUserInfoCredentials() {
+        let sanitized = SecurityValidator.sanitizedURL("https://admin:secret123@api.example.com/data")
+        XCTAssertFalse(sanitized.contains("secret123"), "password must not appear in sanitized output")
+        XCTAssertFalse(sanitized.contains("admin"), "username must not appear in sanitized output")
+        XCTAssertTrue(sanitized.contains("[REDACTED]@"))
+        XCTAssertTrue(sanitized.contains("api.example.com/data"))
+    }
+
+    func testSanitizedURL_RedactsUserInfoAndQueryTogether() {
+        let sanitized = SecurityValidator.sanitizedURL(
+            "https://admin:secret123@api.example.com/data?token=abc123")
+        XCTAssertFalse(sanitized.contains("secret123"))
+        XCTAssertFalse(sanitized.contains("abc123"))
+        XCTAssertTrue(sanitized.contains("[REDACTED]@"))
+    }
+
+    func testSanitizedURL_PortAndPathSurviveUserInfoRedaction() {
+        let sanitized = SecurityValidator.sanitizedURL(
+            "https://user:pass@api.example.com:8080/path/to/resource")
+        XCTAssertFalse(sanitized.contains("user:pass"))
+        XCTAssertTrue(sanitized.contains("api.example.com:8080/path/to/resource"))
+    }
+
+    func testSanitizedURL_NoCredentials_unchanged() {
+        let url = "https://api.example.com/data"
+        XCTAssertEqual(SecurityValidator.sanitizedURL(url), url)
+    }
+
+    func testSanitizedURL_QueryOnly_stillRedactsQueryAsBefore() {
+        let sanitized = SecurityValidator.sanitizedURL("https://api.example.com/data?token=abc123")
+        XCTAssertFalse(sanitized.contains("abc123"))
+        XCTAssertTrue(sanitized.contains("api.example.com/data"))
+    }
+
+    func testSanitizedURL_AtSignInPath_notAuthority_leftAlone() {
+        // No "://...@" before the first "/" — the "@" here is just path content.
+        let url = "https://api.example.com/users/@handle"
+        XCTAssertEqual(SecurityValidator.sanitizedURL(url), url)
+    }
+
+    func testSanitizedURL_EmptyString_doesNotCrash() {
+        // URLComponents(string: "") does not return nil (verified directly, not assumed) —
+        // it's a valid empty-path components value with no authority and no query, so both
+        // redactUserInfo's early return (no "://") and the no-query branch apply and this
+        // comes back unchanged. Pre-existing behavior, unrelated to this fix.
+        XCTAssertEqual(SecurityValidator.sanitizedURL(""), "")
+    }
 }

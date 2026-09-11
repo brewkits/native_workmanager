@@ -202,33 +202,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the whole generator package (every run just warned and skipped),
   hiding one unused import and two lint issues in its own test suite.
 
-### Known Issues
+### Test infrastructure
 
-- **When `DartWorker.timeoutMs` fires, no terminal event reaches
-  `NativeWorkManager.events` — and the late result from the abandoned
-  callback, once it does finish, is dropped too — reproduced on both
-  Android and iOS.** Found auditing this release's stress suite
-  (`issue_30 stress` in `stress_and_system_test.dart`): its 12-case matrix
-  shows a perfect correlation — every case where `delayMs < timeoutMs`
-  (natural completion, no timeout race) delivered its terminal event;
-  every case where `timeoutMs` was reached first delivered nothing, ever.
-  Isolating a single `DartWorker(timeoutMs: 1000, input: {delayMs: 2000})`
-  confirmed it directly: only the `isStarted` event arrived in a 15 s
-  window on either platform — nothing at the 1 s timeout mark, and
-  nothing when the callback's own 2 s delay separately elapsed and it
-  returned a real result to an invocation nobody was listening for
-  anymore. Worker completions with **no** timeout race are not implicated
-  by this — only the timeout-fires case. Confirmed pre-existing on `main`
-  at v1.6.1 (unaffected by anything in this release) via a worktree
-  comparison, so it does not block this release, but a real app awaiting
-  that event on a task that times out would hang indefinitely. The
-  existing `issue_30 stress` test does not catch this: it treats "no
-  event arrived" and "correctly failed" as the same outcome (`catch (_) {
-  actuals.add(0) }`), so 3 of its 4 timeout-should-fire cases pass by
-  coincidence rather than verifying a failure event was actually
-  received; only the 4th (`#10`) surfaces at all, and only as a flaky,
-  timing-order-dependent unhandled-`Future` error rather than a real
-  assertion failure. Needs its own investigation — not attempted here.
+- **`stress_and_system_test.dart`'s `issue_30 stress` case had a wait-budget
+  bug that looked, from the outside, exactly like a real "timeoutMs drops
+  the terminal event" product bug** — enough that an earlier draft of this
+  entry claimed exactly that before the real cause was traced down. A
+  `DartWorker` whose `timeoutMs` fires returns a *retryable* failure by
+  design (matching #46/#47's "`return false` retries" behavior), and the
+  test never set `maxRetries: 0`. With the default of 3 retries and each
+  platform's default backoff (Android: WorkManager's own; iOS: 30 s
+  initial, exponential), a timed-out case doesn't reach a terminal
+  `WorkInfo` state until all retries are exhausted — which routinely
+  exceeds the test's own wait budget. That is not a dropped event:
+  isolating a single `DartWorker(timeoutMs: 1000, delayMs: 2000)` with
+  `maxRetries: 0` delivers its terminal event at ~1020 ms, exactly at the
+  timeout mark, confirmed on both platforms. Fixed by adding
+  `maxRetries: 0` to the enqueue calls (matching what the test actually
+  intends to measure) and replacing the silent `catch (_) { actuals.add(0)
+  }` — which made "no event ever arrived" and "correctly failed" read as
+  the same outcome — with an explicit `expect(neverArrived, isEmpty)` that
+  names the case if a real dropped-event regression ever does occur.
 
 ## [1.6.1] - 2026-09-07
 

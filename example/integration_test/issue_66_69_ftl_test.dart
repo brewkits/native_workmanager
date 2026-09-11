@@ -101,28 +101,34 @@ void main() {
         expect(
           counterFile.existsSync(),
           isTrue,
-          reason: 'issue_66: the callback must have started and written at '
+          reason:
+              'issue_66: the callback must have started and written at '
               'least one iteration before being cancelled',
         );
-        final iterationsAtCancel =
-            int.parse(counterFile.readAsStringSync().trim());
+        final iterationsAtCancel = int.parse(
+          counterFile.readAsStringSync().trim(),
+        );
         expect(
           iterationsAtCancel,
           lessThan(20),
-          reason: 'issue_66: cancelling ~600ms in must stop the callback '
+          reason:
+              'issue_66: cancelling ~600ms in must stop the callback '
               'well short of all 50 iterations — a count this high means '
               'isTaskCancelled() never observed the cancellation',
         );
 
-        final iterationsAfterWait =
-            int.parse(counterFile.readAsStringSync().trim());
+        final iterationsAfterWait = int.parse(
+          counterFile.readAsStringSync().trim(),
+        );
         await Future.delayed(const Duration(seconds: 2));
-        final iterationsStillAfterWait =
-            int.parse(counterFile.readAsStringSync().trim());
+        final iterationsStillAfterWait = int.parse(
+          counterFile.readAsStringSync().trim(),
+        );
         expect(
           iterationsStillAfterWait,
           equals(iterationsAfterWait),
-          reason: 'issue_66: iteration count must not still be climbing '
+          reason:
+              'issue_66: iteration count must not still be climbing '
               '2s later — the callback should have returned, not kept '
               'working',
         );
@@ -161,7 +167,8 @@ void main() {
         expect(
           File(savePath).existsSync(),
           isFalse,
-          reason: 'issue_69: a cancelled background-session download must '
+          reason:
+              'issue_69: a cancelled background-session download must '
               'not still write its destination file',
         );
       },
