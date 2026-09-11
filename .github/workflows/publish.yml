@@ -128,7 +128,18 @@ jobs:
           PUB_CREDENTIALS: ${{ secrets.PUB_CREDENTIALS }}
         run: |
           if [ -n "$PUB_CREDENTIALS" ]; then
-            mkdir -p ~/.pub-cache
+            # Modern Dart (3.x) reads pub credentials from the XDG config dir
+            # on Linux runners (~/.config/dart/pub-credentials.json), NOT the
+            # legacy ~/.pub-cache/credentials.json path. Writing only to the
+            # legacy path is why every prior run of this workflow (13/13,
+            # back to April 2026) hung on "Publish plugin" and had to be
+            # manually cancelled: OIDC wasn't configured on pub.dev's side
+            # either, so dart fell through to interactive browser auth with
+            # no TTY to complete it, and never errored — it just sat there
+            # until the 60-minute job timeout. Writing to both paths is
+            # cheap insurance against future SDK path changes.
+            mkdir -p ~/.config/dart ~/.pub-cache
+            echo "$PUB_CREDENTIALS" > ~/.config/dart/pub-credentials.json
             echo "$PUB_CREDENTIALS" > ~/.pub-cache/credentials.json
           fi
 
@@ -178,7 +189,18 @@ jobs:
           PUB_CREDENTIALS: ${{ secrets.PUB_CREDENTIALS }}
         run: |
           if [ -n "$PUB_CREDENTIALS" ]; then
-            mkdir -p ~/.pub-cache
+            # Modern Dart (3.x) reads pub credentials from the XDG config dir
+            # on Linux runners (~/.config/dart/pub-credentials.json), NOT the
+            # legacy ~/.pub-cache/credentials.json path. Writing only to the
+            # legacy path is why every prior run of this workflow (13/13,
+            # back to April 2026) hung on "Publish plugin" and had to be
+            # manually cancelled: OIDC wasn't configured on pub.dev's side
+            # either, so dart fell through to interactive browser auth with
+            # no TTY to complete it, and never errored — it just sat there
+            # until the 60-minute job timeout. Writing to both paths is
+            # cheap insurance against future SDK path changes.
+            mkdir -p ~/.config/dart ~/.pub-cache
+            echo "$PUB_CREDENTIALS" > ~/.config/dart/pub-credentials.json
             echo "$PUB_CREDENTIALS" > ~/.pub-cache/credentials.json
           fi
 
