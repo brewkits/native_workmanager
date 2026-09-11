@@ -3,6 +3,7 @@ package dev.brewkits.native_workmanager.workers
 import android.util.Log
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
+import dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper.applyCertificatePinning
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -77,6 +78,7 @@ class WebSocketWorker : AndroidWorker {
         val receiveMessages: Int?,
         val storeResponseAt: String?,
         val pingIntervalSeconds: Int?,
+        val certificatePinningConfig: dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper.CertificatePinningConfig? = null,
     ) {
         val timeout: Int get() = timeoutSeconds ?: DEFAULT_TIMEOUT_SECONDS
         val expectedMessages: Int get() = (receiveMessages ?: DEFAULT_RECEIVE_MESSAGES).coerceAtLeast(0)
@@ -103,6 +105,7 @@ class WebSocketWorker : AndroidWorker {
                 receiveMessages = if (j.has("receiveMessages")) j.getInt("receiveMessages") else null,
                 storeResponseAt = if (j.has("storeResponseAt") && !j.isNull("storeResponseAt")) j.getString("storeResponseAt") else null,
                 pingIntervalSeconds = if (j.has("pingIntervalSeconds") && !j.isNull("pingIntervalSeconds")) j.getInt("pingIntervalSeconds") else null,
+                certificatePinningConfig = dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper.CertificatePinningConfig.fromMap(j.optJSONObject("certificatePinning")),
             )
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid config JSON: ${e.message}", e)
@@ -138,6 +141,7 @@ class WebSocketWorker : AndroidWorker {
             .connectTimeout(config.timeout.toLong(), TimeUnit.SECONDS)
             .readTimeout(config.timeout.toLong(), TimeUnit.SECONDS)
             .writeTimeout(config.timeout.toLong(), TimeUnit.SECONDS)
+            .applyCertificatePinning(config.url, config.certificatePinningConfig)
             .build()
 
         // Build upgrade request

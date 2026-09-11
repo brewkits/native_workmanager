@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import '../worker.dart';
 
+export 'certificate_pinning.dart';
 export 'request_signing.dart';
 
 /// HTTP request worker configuration.
@@ -14,6 +15,7 @@ final class HttpRequestWorker extends Worker {
     this.timeout = const Duration(seconds: 30),
     this.requestSigning,
     this.tokenRefresh,
+    this.certificatePinning,
   });
 
   final String url;
@@ -36,6 +38,9 @@ final class HttpRequestWorker extends Worker {
   /// Automatic token refresh configuration.
   final TokenRefreshConfig? tokenRefresh;
 
+  /// Opt-in TLS certificate pinning for this request. See [CertificatePinning].
+  final CertificatePinning? certificatePinning;
+
   // ═══════════════════════════════════════════════════════════════════════════
   // BUILDER-STYLE copyWith + convenience methods
   // ═══════════════════════════════════════════════════════════════════════════
@@ -49,6 +54,7 @@ final class HttpRequestWorker extends Worker {
     Duration? timeout,
     RequestSigning? requestSigning,
     TokenRefreshConfig? tokenRefresh,
+    CertificatePinning? certificatePinning,
   }) =>
       HttpRequestWorker(
         url: url ?? this.url,
@@ -58,6 +64,7 @@ final class HttpRequestWorker extends Worker {
         timeout: timeout ?? this.timeout,
         requestSigning: requestSigning ?? this.requestSigning,
         tokenRefresh: tokenRefresh ?? this.tokenRefresh,
+        certificatePinning: certificatePinning ?? this.certificatePinning,
       );
 
   /// Convenience: add or merge HTTP headers.
@@ -91,6 +98,10 @@ final class HttpRequestWorker extends Worker {
   HttpRequestWorker withTokenRefresh(TokenRefreshConfig config) =>
       copyWith(tokenRefresh: config);
 
+  /// Convenience: pin this request's TLS certificate. See [CertificatePinning].
+  HttpRequestWorker withCertificatePinning(CertificatePinning pinning) =>
+      copyWith(certificatePinning: pinning);
+
   @override
   String get workerClassName => 'HttpRequestWorker';
 
@@ -104,5 +115,7 @@ final class HttpRequestWorker extends Worker {
         'timeoutMs': timeout.inMilliseconds,
         if (requestSigning != null) 'requestSigning': requestSigning!.toMap(),
         if (tokenRefresh != null) 'tokenRefresh': tokenRefresh!.toMap(),
+        if (certificatePinning != null)
+          'certificatePinning': certificatePinning!.toMap(),
       };
 }

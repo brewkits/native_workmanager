@@ -5,6 +5,8 @@ import android.webkit.MimeTypeMap
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.native_workmanager.workers.utils.HostConcurrencyManager
+import dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper
+import dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper.applyCertificatePinning
 import dev.brewkits.native_workmanager.workers.utils.ProgressReporter
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import kotlinx.coroutines.Dispatchers
@@ -73,6 +75,7 @@ class ParallelHttpUploadWorker : AndroidWorker {
         val maxConcurrent: Int = DEFAULT_MAX_CONCURRENT,
         val maxRetries: Int = DEFAULT_MAX_RETRIES,
         val timeoutMs: Long = DEFAULT_TIMEOUT_MS,
+        val certificatePinningConfig: HttpSecurityHelper.CertificatePinningConfig? = null,
     )
 
     override suspend fun doWork(input: String?, env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment): WorkerResult = withContext(Dispatchers.IO) {
@@ -112,6 +115,7 @@ class ParallelHttpUploadWorker : AndroidWorker {
             .connectTimeout(config.timeoutMs, TimeUnit.MILLISECONDS)
             .readTimeout(config.timeoutMs, TimeUnit.MILLISECONDS)
             .writeTimeout(config.timeoutMs, TimeUnit.MILLISECONDS)
+            .applyCertificatePinning(config.url, config.certificatePinningConfig)
             .build()
 
         val totalUploaded = AtomicLong(0L)
@@ -298,6 +302,7 @@ class ParallelHttpUploadWorker : AndroidWorker {
             maxConcurrent = j.optInt("maxConcurrent", DEFAULT_MAX_CONCURRENT).coerceIn(1, 16),
             maxRetries    = j.optInt("maxRetries", DEFAULT_MAX_RETRIES).coerceIn(0, 5),
             timeoutMs     = if (j.has("timeoutMs")) j.getLong("timeoutMs") else DEFAULT_TIMEOUT_MS,
+            certificatePinningConfig = HttpSecurityHelper.CertificatePinningConfig.fromMap(j.optJSONObject("certificatePinning")),
         )
     }
 

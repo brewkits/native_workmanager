@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import '../worker.dart';
 
+export 'certificate_pinning.dart';
 export 'request_signing.dart';
 
 /// HTTP upload worker configuration.
@@ -20,6 +21,7 @@ final class HttpUploadWorker extends Worker {
     this.timeout = const Duration(minutes: 5),
     this.useBackgroundSession = false,
     this.requestSigning,
+    this.certificatePinning,
   });
 
   /// The URL to upload to.
@@ -85,6 +87,9 @@ final class HttpUploadWorker extends Worker {
   /// and the signature is injected as a request header (default: `X-Signature`).
   final RequestSigning? requestSigning;
 
+  /// Opt-in TLS certificate pinning for this request. See [CertificatePinning].
+  final CertificatePinning? certificatePinning;
+
   // ═══════════════════════════════════════════════════════════════════════════
   // BUILDER-STYLE copyWith + convenience methods
   // ═══════════════════════════════════════════════════════════════════════════
@@ -101,6 +106,7 @@ final class HttpUploadWorker extends Worker {
     Duration? timeout,
     bool? useBackgroundSession,
     RequestSigning? requestSigning,
+    CertificatePinning? certificatePinning,
   }) =>
       HttpUploadWorker(
         url: url ?? this.url,
@@ -113,6 +119,7 @@ final class HttpUploadWorker extends Worker {
         timeout: timeout ?? this.timeout,
         useBackgroundSession: useBackgroundSession ?? this.useBackgroundSession,
         requestSigning: requestSigning ?? this.requestSigning,
+        certificatePinning: certificatePinning ?? this.certificatePinning,
       );
 
   /// Convenience: add or merge HTTP headers.
@@ -158,5 +165,7 @@ final class HttpUploadWorker extends Worker {
         'timeoutMs': timeout.inMilliseconds,
         'useBackgroundSession': useBackgroundSession,
         if (requestSigning != null) 'requestSigning': requestSigning!.toMap(),
+        if (certificatePinning != null)
+          'certificatePinning': certificatePinning!.toMap(),
       };
 }

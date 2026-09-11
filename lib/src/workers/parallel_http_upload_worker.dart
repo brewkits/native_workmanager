@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import '../worker.dart';
 
+export 'certificate_pinning.dart';
+
 /// Parallel multi-file HTTP upload worker configuration.
 ///
 /// Uploads each file in [files] as a **separate** concurrent multipart request
@@ -64,6 +66,7 @@ final class ParallelHttpUploadWorker extends Worker {
     this.showNotification = false,
     this.notificationTitle,
     this.notificationBody,
+    this.certificatePinning,
   }) {
     if (files.isEmpty) {
       throw ArgumentError.value(files, 'files', 'must not be empty');
@@ -116,6 +119,10 @@ final class ParallelHttpUploadWorker extends Worker {
   /// Body text for the progress notification.
   final String? notificationBody;
 
+  /// Opt-in TLS certificate pinning for every file's upload request.
+  /// See [CertificatePinning].
+  final CertificatePinning? certificatePinning;
+
   @override
   String get workerClassName => 'ParallelHttpUploadWorker';
 
@@ -139,6 +146,8 @@ final class ParallelHttpUploadWorker extends Worker {
         'showNotification': showNotification,
         if (notificationTitle != null) 'notificationTitle': notificationTitle,
         if (notificationBody != null) 'notificationBody': notificationBody,
+        if (certificatePinning != null)
+          'certificatePinning': certificatePinning!.toMap(),
       };
 }
 

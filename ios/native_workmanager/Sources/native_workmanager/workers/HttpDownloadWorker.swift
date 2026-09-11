@@ -264,6 +264,20 @@ class HttpDownloadWorker: IosWorker {
         if let signingCfg = RequestSigner.Config.from(rawDictForSigning?["requestSigning"] as? [String: Any]) {
             RequestSigner.sign(request: &request, config: signingCfg)
         }
+
+        // TLS certificate pinning (opt-in) — only pay for a fresh URLSession when configured;
+        // the common no-pinning case keeps using .shared for its connection reuse/caching.
+        //
+        // NOT applied to the useBackgroundSession=true path below: that path hands off to
+        // BackgroundSessionManager's single app-lifetime background URLSessionConfiguration,
+        // shared across every background download, which per-request pinning cannot reach
+        // without changing that manager's own session-creation. Foreground and throttled
+        // downloads — the common case — are covered.
+        let pinningConfig = CertificatePinningConfig.from(rawDictForSigning?["certificatePinning"] as? [String: Any])
+        let session: URLSession = pinningConfig != nil
+            ? makeURLSession(pinningConfig: pinningConfig, timeoutInterval: config.timeout)
+            : URLSession.shared
+
         // The permit is released after the download completes (success, failure, or skip).
         let host = URL(string: config.url)?.host ?? config.url
         HostConcurrencyManager.shared.acquire(host: host)
@@ -286,6 +300,7 @@ class HttpDownloadWorker: IosWorker {
            let bwLimit = config.bandwidthLimitBytesPerSecond, bwLimit > 0 {
             return await throttledForegroundDownload(
                 request: request,
+                session: session,
                 tempURL: tempURL,
                 destinationURL: destinationURL,
                 config: config,
@@ -303,7 +318,7 @@ class HttpDownloadWorker: IosWorker {
             // keeping the KVO observer alive for the full duration of the download.
             var progressObserver: NSKeyValueObservation?
 
-            let task = URLSession.shared.downloadTask(with: request) { [self] location, response, error in
+            let task = session.downloadTask(with: request) { [self] location, response, error in
                 // Invalidate progress observer once the download finishes.
                 progressObserver?.invalidate()
                 progressObserver = nil
@@ -565,6 +580,7 @@ class HttpDownloadWorker: IosWorker {
     @available(iOS 15.0, *)
     private func throttledForegroundDownload(
         request: URLRequest,
+        session: URLSession,
         tempURL: URL,
         destinationURL: URL,
         config: Config,
@@ -575,7 +591,7 @@ class HttpDownloadWorker: IosWorker {
         let throttle = BandwidthThrottle(maxBytesPerSecond: bandwidthLimit)
 
         do {
-            let (asyncBytes, response) = try await URLSession.shared.bytes(for: request)
+            let (asyncBytes, response) = try await session.bytes(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 return .failure(message: "Invalid response")

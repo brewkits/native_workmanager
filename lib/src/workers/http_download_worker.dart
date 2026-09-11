@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import '../worker.dart';
 
+export 'certificate_pinning.dart';
 export 'request_signing.dart';
 
 /// What to do if the destination file already exists.
@@ -47,6 +48,7 @@ final class HttpDownloadWorker extends Worker {
     this.bandwidthLimitBytesPerSecond,
     this.requestSigning,
     this.tokenRefresh,
+    this.certificatePinning,
   });
 
   /// The URL to download from.
@@ -240,6 +242,13 @@ final class HttpDownloadWorker extends Worker {
   /// Automatic token refresh configuration.
   final TokenRefreshConfig? tokenRefresh;
 
+  /// Opt-in TLS certificate pinning for this request. See [CertificatePinning].
+  ///
+  /// Not applied when [useBackgroundSession] is true: that path hands off to
+  /// a single app-lifetime background `URLSession` shared across every
+  /// background download, which per-request pinning cannot reach on iOS.
+  final CertificatePinning? certificatePinning;
+
   // ═══════════════════════════════════════════════════════════════════════════
   // BUILDER-STYLE copyWith — avoids parameter explosion at call sites
   // ═══════════════════════════════════════════════════════════════════════════
@@ -287,6 +296,8 @@ final class HttpDownloadWorker extends Worker {
     bool? deleteArchiveAfterExtract,
     int? bandwidthLimitBytesPerSecond,
     RequestSigning? requestSigning,
+    TokenRefreshConfig? tokenRefresh,
+    CertificatePinning? certificatePinning,
   }) {
     return HttpDownloadWorker(
       url: url ?? this.url,
@@ -316,6 +327,8 @@ final class HttpDownloadWorker extends Worker {
       bandwidthLimitBytesPerSecond:
           bandwidthLimitBytesPerSecond ?? this.bandwidthLimitBytesPerSecond,
       requestSigning: requestSigning ?? this.requestSigning,
+      tokenRefresh: tokenRefresh ?? this.tokenRefresh,
+      certificatePinning: certificatePinning ?? this.certificatePinning,
     );
   }
 
@@ -413,5 +426,8 @@ final class HttpDownloadWorker extends Worker {
         if (bandwidthLimitBytesPerSecond != null)
           'bandwidthLimitBytesPerSecond': bandwidthLimitBytesPerSecond,
         if (requestSigning != null) 'requestSigning': requestSigning!.toMap(),
+        if (tokenRefresh != null) 'tokenRefresh': tokenRefresh!.toMap(),
+        if (certificatePinning != null)
+          'certificatePinning': certificatePinning!.toMap(),
       };
 }

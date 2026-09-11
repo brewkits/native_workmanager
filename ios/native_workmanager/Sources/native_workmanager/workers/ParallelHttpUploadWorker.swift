@@ -84,11 +84,14 @@ class ParallelHttpUploadWorker: IosWorker {
             return .failure(message: "Invalid or unsafe URL")
         }
 
+        let rawDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+
         let taskId: String? = {
-            guard let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let id = j["__taskId"] as? String else { return nil }
+            guard let id = rawDict?["__taskId"] as? String else { return nil }
             return id
         }()
+
+        let pinningConfig = CertificatePinningConfig.from(rawDict?["certificatePinning"] as? [String: Any])
 
         let host = url.host ?? config.url
 
@@ -121,7 +124,17 @@ class ParallelHttpUploadWorker: IosWorker {
         let sessionConfig = URLSessionConfiguration.default
         sessionConfig.timeoutIntervalForRequest  = config.timeout
         sessionConfig.timeoutIntervalForResource = config.timeout * 2
-        let session = URLSession(configuration: sessionConfig)
+        let session: URLSession
+        if let pinningConfig {
+            // See the matching comment in KMPBridge.swift's makeURLSession: a pinned
+            // session must never serve a cached response from a differently-pinned (or
+            // unpinned) prior request to the same URL.
+            sessionConfig.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+            sessionConfig.urlCache = nil
+            session = URLSession(configuration: sessionConfig, delegate: PinningDelegate(config: pinningConfig), delegateQueue: nil)
+        } else {
+            session = URLSession(configuration: sessionConfig)
+        }
 
         // ── Shared progress state (protected by NSLock) ───────────────────────
         let progressLock = NSLock()

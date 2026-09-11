@@ -210,12 +210,79 @@ public func makeURLSession(pinningConfig: CertificatePinningConfig?, timeoutInte
     let configuration = URLSessionConfiguration.default
     configuration.timeoutIntervalForRequest = timeoutInterval
     configuration.timeoutIntervalForResource = timeoutInterval
-    
+
     if let config = pinningConfig {
+        // URLCache.shared is process-wide and independent of which URLSession serves a
+        // request — a response cached from an earlier, correctly-pinned request to this
+        // same URL would otherwise be replayed here without a new TLS handshake, so a
+        // later request configured with a DIFFERENT (or wrong) pin could silently receive
+        // that stale cached response instead of ever being checked against its own pin.
+        // Confirmed empirically: device_integration_test.dart's "wrong pin rejects the
+        // connection" case passed in isolation but failed when run right after the
+        // "correct pin" case against the same URL, until this was added. A pinned
+        // session's whole purpose is to verify the live connection every time.
+        configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        configuration.urlCache = nil
         let delegate = PinningDelegate(config: config)
         return URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
     } else {
         return URLSession(configuration: configuration)
+    }
+}
+
+/// ASN.1 SubjectPublicKeyInfo headers, by key type.
+///
+/// `SecKeyCopyExternalRepresentation`/`SecTrustCopyKey` hand back the **raw key**, while a
+/// `sha256/…` pin — the form OkHttp, TrustKit, openssl and every pin-generating tool emit,
+/// and the same form this plugin's Android `HttpSecurityHelper.applyCertificatePinning`
+/// expects — is the hash of the **full SubjectPublicKeyInfo**, which prefixes the key with
+/// an AlgorithmIdentifier. Hashing the raw key (the previous implementation here) produces a
+/// digest that matches no pin any standard tool would generate: verified empirically against
+/// a real TLS handshake to www.example.com — the raw-key hash and the correct SPKI hash are
+/// different values, and only the SPKI one matches the known-good openssl-verified reference.
+///
+/// These exact bytes are transcribed from kmpworkmanager's own `TlsPinning.ios.kt`
+/// (`SPKI_HEADERS`), which verified them against openssl on a live server — not
+/// re-derived independently, to avoid introducing a transcription error into
+/// security-critical fixed bytes.
+///
+/// Covers RSA-2048/4096 and EC P-256/P-384, which cover TLS server certificates in practice.
+/// Anything else is rejected outright (`nil`), never waved through: a pinning check that
+/// silently accepts a key type it cannot verify is worse than no pinning, because the caller
+/// believes they are protected.
+private enum SpkiHeader {
+    static let rsa2048: [UInt8] = [
+        0x30, 0x53, 0x30, 0x0D, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86,
+        0xF7, 0x0D, 0x01, 0x01, 0x01, 0x05, 0x00, 0x03, 0x42, 0x00,
+    ]
+    static let rsa4096: [UInt8] = [
+        0x30, 0x82, 0x02, 0x22, 0x30, 0x0D, 0x06, 0x09, 0x2A, 0x86, 0x48,
+        0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01, 0x05, 0x00, 0x03, 0x82,
+        0x02, 0x0F, 0x00,
+    ]
+    /// EC P-256 raw key (uncompressed point, prefixed 0x04) is exactly 65 bytes.
+    static let ecP256: [UInt8] = [
+        0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2A, 0x86, 0x48, 0xCE, 0x3D,
+        0x02, 0x01, 0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01,
+        0x07, 0x03, 0x42, 0x00,
+    ]
+    /// EC P-384 raw key is exactly 97 bytes.
+    static let ecP384: [UInt8] = [
+        0x30, 0x76, 0x30, 0x10, 0x06, 0x07, 0x2A, 0x86, 0x48, 0xCE, 0x3D,
+        0x02, 0x01, 0x06, 0x05, 0x2B, 0x81, 0x04, 0x00, 0x22, 0x03, 0x62, 0x00,
+    ]
+}
+
+/// RSA raw-key byte counts vary slightly (leading zero-byte for sign, etc.), so these are
+/// ranges rather than exact matches — the same ranges kmpworkmanager's `rsaHeaderFor` uses.
+/// EC keys are fixed-length and matched exactly in `spkiHeader(forRawKeyByteCount:)`.
+private func spkiHeader(forRawKeyByteCount count: Int) -> [UInt8]? {
+    switch count {
+    case 65: return SpkiHeader.ecP256
+    case 97: return SpkiHeader.ecP384
+    case 260...280: return SpkiHeader.rsa2048   // RSA-2048 (270 bytes as typically returned)
+    case 515...535: return SpkiHeader.rsa4096   // RSA-4096 (526 bytes as typically returned)
+    default: return nil
     }
 }
 
@@ -227,7 +294,7 @@ public class PinningDelegate: NSObject, URLSessionDelegate {
     }
 
     public func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        
+
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
               let serverTrust = challenge.protectionSpace.serverTrust else {
             completionHandler(.performDefaultHandling, nil)
@@ -256,24 +323,31 @@ public class PinningDelegate: NSObject, URLSessionDelegate {
             return
         }
 
-        if validate(serverTrust: serverTrust, against: pins) {
-            completionHandler(.useCredential, URLCredential(trust: serverTrust))
-        } else {
-            NativeLogger.e("[NativeWorkManager] SSL Pinning failed")
+        // Deliberately NOT doing our own SecTrustEvaluateWithError + useCredential here.
+        // That was this delegate's previous shape, and it is the wrong one twice over: it
+        // replaces the system's chain validation with hand-written code — a bug there turns
+        // a pin into a way to accept an expired or untrusted certificate as long as the key
+        // matches — and a peer implementation of this exact feature (kmpworkmanager's own
+        // TlsPinning.ios.kt) independently hit real handshake failures from that pattern on
+        // its own test devices. Instead: only check whether the leaf's public key matches a
+        // configured pin, and tell the system to run its OWN validation (performDefaultHandling)
+        // either way. The pin becomes a strictly additional gate in front of normal validation,
+        // and a bug in the key-matching code below cannot weaken it.
+        switch matchesPin(serverTrust: serverTrust, pins: pins) {
+        case .match, .notPinned:
+            completionHandler(.performDefaultHandling, nil)
+        case .mismatch, .unsupportedKey:
+            // Loud on purpose. A pinning rejection looks like a network outage from the app's
+            // side; without this the only symptom is requests to this host that never succeed.
+            NativeLogger.e("[NativeWorkManager] TLS pinning rejected the connection to '\(host)' — " +
+                "server key did not match any configured pin, or its key type is unsupported.")
             completionHandler(.cancelAuthenticationChallenge, nil)
         }
     }
 
-    private func validate(serverTrust: SecTrust, against pins: [String]) -> Bool {
-        if #available(iOS 12.0, *) {
-            var error: CFError?
-            guard SecTrustEvaluateWithError(serverTrust, &error) else { return false }
-        } else {
-            var result: SecTrustResultType = .invalid
-            SecTrustEvaluate(serverTrust, &result)
-            guard result == .proceed || result == .unspecified else { return false }
-        }
+    private enum PinMatch { case notPinned, match, mismatch, unsupportedKey }
 
+    private func matchesPin(serverTrust: SecTrust, pins: [String]) -> PinMatch {
         // Use non-deprecated SecTrustCopyKey (iOS 14+), fall back to
         // SecTrustCopyPublicKey (deprecated in iOS 15) — never force-unwrap.
         let serverPublicKey: SecKey?
@@ -284,13 +358,18 @@ public class PinningDelegate: NSObject, URLSessionDelegate {
         }
 
         guard let publicKey = serverPublicKey,
-              let publicKeyData = SecKeyCopyExternalRepresentation(publicKey, nil) as Data? else {
-            return false
+              let rawKeyData = SecKeyCopyExternalRepresentation(publicKey, nil) as Data? else {
+            return .unsupportedKey
         }
 
-        let keyHash = sha256(data: publicKeyData).base64EncodedString()
+        guard let header = spkiHeader(forRawKeyByteCount: rawKeyData.count) else { return .unsupportedKey }
+
+        var spki = Data(header)
+        spki.append(rawKeyData)
+        let computed = "sha256/" + sha256(data: spki).base64EncodedString()
+
         // Timing-safe comparison to avoid short-circuit string equality.
-        return pins.contains { timingSafeEqual($0, keyHash) }
+        return pins.contains { timingSafeEqual($0, computed) } ? .match : .mismatch
     }
 
     /// Constant-time string comparison to prevent timing side-channel on cert pin matching.

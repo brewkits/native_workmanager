@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 
 import '../worker.dart';
 
+export 'certificate_pinning.dart';
+
 /// Connect to a WebSocket endpoint, send messages, and receive responses.
 ///
 /// The worker connects to [url], sends each string in [messages] after the
@@ -43,6 +45,7 @@ final class WebSocketWorker extends Worker {
     this.receiveMessages = 1,
     this.storeResponseAt,
     this.pingIntervalSeconds,
+    this.certificatePinning,
   });
 
   /// WebSocket endpoint URL. Must use `ws://` or `wss://` scheme.
@@ -66,6 +69,10 @@ final class WebSocketWorker extends Worker {
   /// Optional WebSocket ping interval in seconds (keep-alive).
   final int? pingIntervalSeconds;
 
+  /// Opt-in TLS certificate pinning (`wss://` connections). Android only,
+  /// matching this worker's overall platform support. See [CertificatePinning].
+  final CertificatePinning? certificatePinning;
+
   @override
   String get workerClassName => 'WebSocketWorker';
 
@@ -80,5 +87,7 @@ final class WebSocketWorker extends Worker {
         if (storeResponseAt != null) 'storeResponseAt': storeResponseAt,
         if (pingIntervalSeconds != null)
           'pingIntervalSeconds': pingIntervalSeconds,
+        if (certificatePinning != null)
+          'certificatePinning': certificatePinning!.toMap(),
       };
 }

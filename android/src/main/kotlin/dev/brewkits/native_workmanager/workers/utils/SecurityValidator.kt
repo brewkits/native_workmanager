@@ -176,17 +176,46 @@ object SecurityValidator {
     // MARK: - Safe Logging
 
     /**
-     * Sanitize URL for logging by redacting query parameters.
+     * Replaces RFC 3986 UserInfo (`scheme://user:pass@host/...`) with `[REDACTED]@`.
      *
-     * Query parameters may contain sensitive data (tokens, passwords, etc.)
-     * so we redact them before logging.
+     * Only the query string was being redacted below, so a URL that carried its credentials
+     * in the authority — still common for internal services and S3-style pre-signed
+     * endpoints — printed them verbatim into logs, and this plugin's own [sanitizedURL]
+     * output is embedded in [WorkerResult] failure messages, which become `TaskCompletionEvent`s
+     * and are persisted to the task store, so the password outlives the process. Same bug,
+     * independently found here while reviewing kmpworkmanager 3.5.0's identical fix to its own
+     * (unrelated) `SecurityValidator.sanitizedURL` — this file duplicates no code with that one.
+     *
+     * The authority ends at the first `/`, `?` or `#` after the scheme; anything before the
+     * last `@` inside it is UserInfo.
+     */
+    private fun redactUserInfo(url: String): String {
+        val schemeEnd = url.indexOf("://")
+        if (schemeEnd < 0) return url
+        val authorityStart = schemeEnd + 3
+        val authorityEnd = url.drop(authorityStart)
+            .indexOfFirst { it == '/' || it == '?' || it == '#' }
+            .let { if (it < 0) url.length else authorityStart + it }
+        val authority = url.substring(authorityStart, authorityEnd)
+        val at = authority.lastIndexOf('@')
+        if (at < 0) return url
+        return url.substring(0, authorityStart) + "[REDACTED]@" +
+            authority.substring(at + 1) + url.substring(authorityEnd)
+    }
+
+    /**
+     * Sanitize URL for logging by redacting UserInfo credentials and query parameters.
+     *
+     * Both may contain sensitive data (Basic-auth passwords, tokens, API keys) so both are
+     * redacted before logging.
      *
      * @param urlString URL to sanitize
      * @return Sanitized URL string safe for logging
      */
     fun sanitizedURL(urlString: String): String {
         return try {
-            val uri = Uri.parse(urlString)
+            val withoutCredentials = redactUserInfo(urlString)
+            val uri = Uri.parse(withoutCredentials)
 
             // Redact query parameters (may contain secrets)
             if (!uri.query.isNullOrEmpty()) {
@@ -196,7 +225,7 @@ object SecurityValidator {
                     .build()
                     .toString()
             } else {
-                urlString
+                withoutCredentials
             }
         } catch (e: Exception) {
             "[invalid URL]"

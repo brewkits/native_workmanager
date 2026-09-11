@@ -89,6 +89,13 @@ class HttpRequestWorker: IosWorker {
         // Token refresh config
         let tokenRefreshConfig = TokenRefreshConfig.from(rawDict?["tokenRefresh"] as? [String: Any])
 
+        // TLS certificate pinning (opt-in) — only pay for a fresh URLSession when configured;
+        // the common no-pinning case keeps using .shared for its connection reuse/caching.
+        let pinningConfig = CertificatePinningConfig.from(rawDict?["certificatePinning"] as? [String: Any])
+        let session: URLSession = pinningConfig != nil
+            ? makeURLSession(pinningConfig: pinningConfig, timeoutInterval: config.timeout)
+            : URLSession.shared
+
         // Validate URL scheme (prevent file://, ftp://, etc.)
         guard let url = SecurityValidator.validateURL(config.url) else {
             NSLog("[NativeWorkManager] HttpRequestWorker: Error - Invalid or unsafe URL")
@@ -143,7 +150,7 @@ class HttpRequestWorker: IosWorker {
             
             // Use a separate Task for the network call to avoid potential async/await state issues
             var (data, response) = try await Task {
-                return try await URLSession.shared.data(for: request)
+                return try await session.data(for: request)
             }.value
             
             NSLog("[NativeWorkManager] HttpRequestWorker: Request finished, data length: \(data.count)")
@@ -157,10 +164,10 @@ class HttpRequestWorker: IosWorker {
             if httpResponse.statusCode == 401, let tr = tokenRefreshConfig {
                 NSLog("[NativeWorkManager] HttpRequestWorker: Received 401 — Attempting token refresh...")
                 await AuthTokenManager.shared.invalidateCachedToken()
-                if let newToken = await AuthTokenManager.shared.refreshToken(config: tr, currentSession: URLSession.shared) {
+                if let newToken = await AuthTokenManager.shared.refreshToken(config: tr, currentSession: session) {
                     NSLog("[NativeWorkManager] HttpRequestWorker: Token refresh successful — retrying request...")
                     request = buildRequest(url: url, config: config, signingConfig: signingConfig, newToken: newToken, trConfig: tr)
-                    (data, response) = try await URLSession.shared.data(for: request)
+                    (data, response) = try await session.data(for: request)
                     if let newHttpResponse = response as? HTTPURLResponse {
                         httpResponse = newHttpResponse
                     }

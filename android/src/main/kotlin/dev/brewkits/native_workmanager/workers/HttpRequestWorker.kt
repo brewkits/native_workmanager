@@ -3,6 +3,7 @@ package dev.brewkits.native_workmanager.workers
 import android.util.Log
 import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
+import dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper.applyCertificatePinning
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -71,6 +72,7 @@ class HttpRequestWorker : AndroidWorker {
         val failurePattern: String? = null,  // Regex pattern that indicates failure (overrides 200)
         val requestSigningConfig: dev.brewkits.native_workmanager.workers.utils.RequestSigner.Config? = null,
         val tokenRefreshConfig: dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper.TokenRefreshConfig? = null,
+        val certificatePinningConfig: dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper.CertificatePinningConfig? = null,
     ) {
         val httpMethod: String get() = (method ?: "get").uppercase()
         val timeout: Long get() = timeoutMs ?: DEFAULT_TIMEOUT_MS
@@ -94,6 +96,7 @@ class HttpRequestWorker : AndroidWorker {
                 failurePattern = if (j.has("failurePattern") && !j.isNull("failurePattern")) j.getString("failurePattern") else null,
                 requestSigningConfig = dev.brewkits.native_workmanager.workers.utils.RequestSigner.fromMap(j.optJSONObject("requestSigning")),
                 tokenRefreshConfig = dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper.TokenRefreshConfig.fromMap(j.optJSONObject("tokenRefresh")),
+                certificatePinningConfig = dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper.CertificatePinningConfig.fromMap(j.optJSONObject("certificatePinning")),
             )
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid config JSON: ${e.message}", e)
@@ -114,6 +117,7 @@ class HttpRequestWorker : AndroidWorker {
             .connectTimeout(config.timeout, TimeUnit.MILLISECONDS)
             .readTimeout(config.timeout, TimeUnit.MILLISECONDS)
             .writeTimeout(config.timeout, TimeUnit.MILLISECONDS)
+            .applyCertificatePinning(config.url, config.certificatePinningConfig)
             .build()
 
         // Build request helper
