@@ -109,6 +109,19 @@ Duration resolveDispatcherTimeout(Map args) {
   return const Duration(milliseconds: fallbackMs);
 }
 
+/// Issue #72: Zone key `isTaskCancelled` uses to find the executionId of
+/// whichever DartWorker invocation is currently running, without requiring
+/// the app's callback to pass it explicitly. See `_callbackDispatcher`.
+const Object _executionIdZoneKey = #nativeWorkmanagerExecutionId;
+
+/// Test-only accessor for [_executionIdZoneKey] — lets unit tests simulate
+/// being inside a dispatched DartWorker callback's Zone without needing to
+/// go through the full `_callbackDispatcher` (which is private and driven by
+/// a native-supplied callback handle, not something a unit test can invoke
+/// directly). Not part of the public API.
+@visibleForTesting
+const Object executionIdZoneKeyForTesting = _executionIdZoneKey;
+
 /// Top-level callback dispatcher for background Dart execution.
 ///
 /// This function is invoked by the native side when initializing
@@ -212,20 +225,36 @@ Future<void> _callbackDispatcher() async {
         // or defaults to 25s for iOS BGAppRefreshTask safety buffer (Issue #30).
         final timeoutDuration = resolveDispatcherTimeout(args);
 
-        final result = await callback(input).timeout(
-          timeoutDuration,
-          onTimeout: () {
-            developer.log(
-              '[NativeWorkManager] DartWorker callback "$callbackId" timed out '
-              'after ${timeoutDuration.inSeconds} s. Consider:\n'
-              '  • Passing a custom `timeoutMs` to DartWorker.\n'
-              '  • Breaking the work into smaller tasks.\n'
-              '  • Using Constraints(bgTaskType: BGTaskType.processing) for '
-              'tasks that need up to 10 minutes (iOS).',
-              level: 900,
-            );
-            return false;
-          },
+        // Issue #72: bind this invocation's executionId (native-minted, so a
+        // REPLACE'd/retried/periodic re-run of the same taskId gets a fresh
+        // one) into a Zone around the callback call. isTaskCancelled() below
+        // reads it back out of Zone.current so a callback's own poll always
+        // resolves against the specific execution it's running inside of,
+        // never a different execution that happens to share its taskId — the
+        // whole point being neither instance can see the other's cancel mark.
+        // Zone values propagate through every await/Future spawned inside
+        // runZoned's callback, including overlapping concurrent invocations
+        // in this same isolate, so this stays correct even when two
+        // executions of one taskId are genuinely running at once.
+        final executionId = input?['__executionId'] as String?;
+
+        final result = await runZoned(
+          () => callback(input).timeout(
+            timeoutDuration,
+            onTimeout: () {
+              developer.log(
+                '[NativeWorkManager] DartWorker callback "$callbackId" timed out '
+                'after ${timeoutDuration.inSeconds} s. Consider:\n'
+                '  • Passing a custom `timeoutMs` to DartWorker.\n'
+                '  • Breaking the work into smaller tasks.\n'
+                '  • Using Constraints(bgTaskType: BGTaskType.processing) for '
+                'tasks that need up to 10 minutes (iOS).',
+                level: 900,
+              );
+              return false;
+            },
+          ),
+          zoneValues: {_executionIdZoneKey: executionId},
         );
 
         // Return execution result to native side
@@ -1111,9 +1140,19 @@ class NativeWorkManager {
     if (taskId.isEmpty) return false;
     const channel = MethodChannel('dev.brewkits/dart_worker_channel');
     try {
+      // Issue #72: pass along the current execution's own id (bound by
+      // `_callbackDispatcher` around this callback invocation), if any, so
+      // native can answer precisely for THIS execution instead of by bare
+      // taskId — which two concurrent executions of the same taskId
+      // (e.g. ExistingWorkPolicy.REPLACE) would otherwise answer for each
+      // other. Falls back to the coarse by-taskId check when called from
+      // outside that Zone (e.g. main-isolate code with no dispatched
+      // execution in scope).
+      final executionId = Zone.current[_executionIdZoneKey] as String?;
       final result =
           await channel.invokeMethod<bool>('isTaskCancelled', <String, Object?>{
         'taskId': taskId,
+        if (executionId != null) 'executionId': executionId,
       });
       return result ?? false;
     } catch (e) {
