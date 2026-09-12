@@ -1765,6 +1765,115 @@ void main() {
     );
 
     testWidgets(
+      'issue_72: ExistingTaskPolicy.replace does not let two executions of '
+      'the same taskId clobber each other\'s cancellation state (Android)',
+      (tester) async {
+        // https://github.com/brewkits/native_workmanager/issues/72 — raised
+        // by @Rikoshu in discussion #66. ExistingTaskPolicy.replace (the
+        // enqueue() default) cancels the running WorkRequest for a taskId
+        // and immediately starts a new WorkRequest under the SAME taskId —
+        // two executions sharing one taskId. DartTaskCancellationRegistry
+        // used to be keyed on bare taskId, so the two executions' marks and
+        // clears collided:
+        //   - direction 2 (near-deterministic, the one users actually hit):
+        //     the brand-new replacement run inherits the outgoing run's
+        //     stale "cancelled" mark and self-aborts immediately.
+        //   - direction 1 (racy): the outgoing run's clear (once its
+        //     orphaned callback eventually finishes) wipes the new run's
+        //     mark, or the new run's own completion wipes the old run's
+        //     mark before its next poll observes it.
+        // The fix keys the registry by a fresh per-doWork() executionId
+        // instead. This is Android-only: iOS's BGTaskScheduler can only
+        // replace a pending, not-yet-running request, so the two-concurrent-
+        // executions collision this test targets does not arise there.
+        if (!Platform.isAndroid) {
+          markTestSkipped(
+            'ExistingTaskPolicy.replace only creates two concurrent '
+            'executions of one taskId on Android\'s WorkManager — iOS '
+            'BGTaskScheduler cannot replace an already-running request.',
+          );
+          return;
+        }
+
+        final id = _id('issue_72_replace_race');
+        final oldCounterFile = File('${tmpDir.path}/issue_72_old_counter.txt');
+        final newCounterFile = File('${tmpDir.path}/issue_72_new_counter.txt');
+
+        // Old (soon-to-be-replaced) execution.
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: DartWorker(
+            callbackId: 'dit_cancel_poll',
+            input: {'counterFile': oldCounterFile.path},
+          ),
+        );
+
+        // Let it actually start running before replacing it.
+        await Future.delayed(const Duration(milliseconds: 600));
+
+        // Re-enqueue under the SAME taskId. ExistingTaskPolicy.replace (the
+        // default) cancels the still-running WorkRequest above and starts a
+        // brand-new one — both sharing taskId `id`.
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: DartWorker(
+            callbackId: 'dit_cancel_poll',
+            input: {'counterFile': newCounterFile.path},
+          ),
+        );
+
+        // dit_cancel_poll takes up to 50 * 200ms = 10s to run to completion
+        // uncancelled. Wait well past that so a spurious self-abort shows up
+        // as a low count rather than "just hasn't finished yet".
+        await Future.delayed(const Duration(seconds: 12));
+
+        // Direction 2 — the more likely failure in practice: the NEW,
+        // legitimate execution must run to completion, not inherit the old
+        // execution's cancellation mark and bail out immediately.
+        expect(
+          newCounterFile.existsSync(),
+          isTrue,
+          reason: 'issue_72: the replacement execution must have started',
+        );
+        final newIterations = int.parse(
+          newCounterFile.readAsStringSync().trim(),
+        );
+        expect(
+          newIterations,
+          equals(50),
+          reason:
+              'issue_72: the replacement execution must run to completion — '
+              'a lower count means it inherited the replaced execution\'s '
+              'stale cancellation mark and self-aborted',
+        );
+
+        // Direction 1: the OLD (replaced) execution must still have actually
+        // been told to stop, and the new execution completing must not have
+        // un-done that — it must not have run to completion as a zombie.
+        expect(
+          oldCounterFile.existsSync(),
+          isTrue,
+          reason:
+              'issue_72: the replaced execution must have started running '
+              'before being replaced',
+        );
+        final oldIterations = int.parse(
+          oldCounterFile.readAsStringSync().trim(),
+        );
+        expect(
+          oldIterations,
+          lessThan(50),
+          reason:
+              'issue_72: the replaced execution must have observed '
+              'cancellation and stopped — a full 50 means it kept running '
+              'to completion as a zombie alongside its replacement',
+        );
+      },
+    );
+
+    testWidgets(
       'issue_69: cancelling a background-session download actually aborts the transfer (iOS)',
       (tester) async {
         // https://github.com/brewkits/native_workmanager/issues/69 — found

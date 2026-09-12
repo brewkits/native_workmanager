@@ -108,10 +108,18 @@ object FlutterEngineManager {
         // channel and never runs the real coroutine-cancellation race) stayed
         // green. Must be cleared only when the real invocation this taskId
         // was registered for actually finishes.
-        taskId: String? = null
+        taskId: String? = null,
+        // Issue #72: identifies THIS specific doWork() invocation, distinct
+        // from taskId. ExistingWorkPolicy.REPLACE cancels the running
+        // WorkRequest for a taskId and immediately starts a new one under
+        // the same taskId — two executions, one taskId. Registry lookups
+        // must key on executionId (precise) so those two never clobber each
+        // other; taskId alone is kept only as a coarse fallback for callers
+        // with no executionId available.
+        executionId: String? = null
     ): Boolean = withContext(Dispatchers.Main) {
         executeDartCallbackInternal(
-            context, callbackHandle, input, timeoutMs, disposeImmediately, taskId
+            context, callbackHandle, input, timeoutMs, disposeImmediately, taskId, executionId
         )
     }
 
@@ -121,7 +129,8 @@ object FlutterEngineManager {
         input: String?,
         timeoutMs: Long,
         disposeImmediately: Boolean,
-        taskId: String?
+        taskId: String?,
+        executionId: String?
     ): Boolean {
         return try {
             NativeLogger.d("Executing Dart callback with handle: $callbackHandle")
@@ -166,22 +175,30 @@ object FlutterEngineManager {
                 // executeCallback invocation truly finishes — including when it
                 // finishes LATE, after resultDeferred.await() below has already
                 // been cancelled (see the comment on executeDartCallback above).
-                // That makes this the only correct place to clear taskId's
-                // DartTaskCancellationRegistry entry: clearing it here, not in a
-                // finally around the cancelled-coroutine's own unwind, is what
-                // lets isTaskCancelled() keep returning true for as long as the
-                // orphaned callback is still polling it.
+                // That makes this the only correct place to clear this
+                // execution's DartTaskCancellationRegistry entry: clearing it
+                // here, not in a finally around the cancelled-coroutine's own
+                // unwind, is what lets isTaskCancelled() keep returning true
+                // for as long as the orphaned callback is still polling it.
+                //
+                // Issue #72: keyed by executionId (falling back to taskId when
+                // no executionId was supplied), NOT bare taskId — a REPLACE'd
+                // taskId can have a second, unrelated execution already
+                // running under the same taskId by the time this fires, and
+                // clearing by taskId alone would wipe that other execution's
+                // mark out from under it.
+                val registryKey = executionId ?: taskId
                 channel.invokeMethod("executeCallback", args, object : MethodChannel.Result {
                     override fun success(result: Any?) {
-                        if (taskId != null) DartTaskCancellationRegistry.clear(taskId)
+                        if (registryKey != null) DartTaskCancellationRegistry.clear(registryKey)
                         resultDeferred.complete((result as? Boolean) ?: false)
                     }
                     override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
-                        if (taskId != null) DartTaskCancellationRegistry.clear(taskId)
+                        if (registryKey != null) DartTaskCancellationRegistry.clear(registryKey)
                         resultDeferred.complete(false)
                     }
                     override fun notImplemented() {
-                        if (taskId != null) DartTaskCancellationRegistry.clear(taskId)
+                        if (registryKey != null) DartTaskCancellationRegistry.clear(registryKey)
                         resultDeferred.complete(false)
                     }
                 })
@@ -215,8 +232,10 @@ object FlutterEngineManager {
                 // Mark the registry as soon as we know about cancellation, before
                 // any dispose/return below — the Dart callback may be polling
                 // isTaskCancelled() right now and should see it as early as possible.
-                if (wasCancelled && taskId != null) {
-                    DartTaskCancellationRegistry.markCancelled(taskId)
+                // Issue #72: keyed by this execution's registryKey (see above),
+                // not bare taskId — see DartTaskCancellationRegistry doc.
+                if (wasCancelled && taskId != null && registryKey != null) {
+                    DartTaskCancellationRegistry.markCancelled(registryKey, taskId)
                 }
 
                 if (timedOut) {
@@ -403,9 +422,23 @@ object FlutterEngineManager {
                         }
                         // Issue #66: cooperative cancellation poll from inside a
                         // running DartWorker callback. See DartTaskCancellationRegistry.
+                        //
+                        // Issue #72: the Dart dispatcher automatically threads the
+                        // calling execution's executionId through (via a Zone value
+                        // bound around the callback invocation) whenever the poll
+                        // happens from inside a dispatched callback. Prefer the
+                        // precise per-execution check; fall back to the coarse
+                        // by-taskId check only when no executionId was supplied
+                        // (e.g. a caller invoking isTaskCancelled outside that Zone).
                         "isTaskCancelled" -> {
+                            val executionId = call.argument<String>("executionId")
                             val taskId = call.argument<String>("taskId") ?: ""
-                            result.success(DartTaskCancellationRegistry.isCancelled(taskId))
+                            val isCancelled = if (executionId != null) {
+                                DartTaskCancellationRegistry.isCancelled(executionId)
+                            } else {
+                                DartTaskCancellationRegistry.isCancelledByTaskId(taskId)
+                            }
+                            result.success(isCancelled)
                         }
                         else -> result.notImplemented()
                     }

@@ -89,6 +89,18 @@ class DartCallbackWorkerWrapper(
             // it in here before forwarding to FlutterEngineManager.
             val rawInput = json.optString("input", null)
             val outerTaskId = json.optString("__taskId", null)
+
+            // Issue #72: mint a fresh executionId for THIS doWork() invocation,
+            // distinct from taskId. Must happen here — inside doWork(), per
+            // attempt — not at enqueue time: a periodic WorkRequest's input Data
+            // is frozen once, so an ID baked in at enqueue would be reused by
+            // every period and by every retry of the same request, which is
+            // exactly the taskId-reuse collision this is meant to fix, just
+            // moved one level up. Minting fresh per doWork() call guarantees a
+            // REPLACE'd generation, a retried attempt, and a fresh periodic
+            // run all get their own registry slot.
+            val executionId = java.util.UUID.randomUUID().toString()
+
             val callbackInput: String? = if (outerTaskId != null) {
                 try {
                     val inputObj = if (!rawInput.isNullOrEmpty() && rawInput != "null") {
@@ -97,6 +109,7 @@ class DartCallbackWorkerWrapper(
                         JSONObject()
                     }
                     inputObj.put("__taskId", outerTaskId)
+                    inputObj.put("__executionId", executionId)
                     inputObj.toString()
                 } catch (_: Exception) {
                     rawInput // fallback to original if inner JSON is malformed
@@ -116,17 +129,18 @@ class DartCallbackWorkerWrapper(
 
             // Execute Dart callback via FlutterEngineManager
             // Pass callbackHandle (not callbackId) to enable cross-isolate execution.
-            // taskId (issue #66) lets FlutterEngineManager mark
-            // DartTaskCancellationRegistry when this coroutine is cancelled
+            // taskId (issue #66) + executionId (issue #72) let FlutterEngineManager
+            // mark DartTaskCancellationRegistry when this coroutine is cancelled
             // externally, so NativeWorkManager.isTaskCancelled(taskId) can see it
-            // from inside the running Dart callback.
+            // from inside the running Dart callback — precisely, per execution.
             val result = FlutterEngineManager.executeDartCallback(
                 context = context,
                 callbackHandle = callbackHandle,  // Serializable handle
                 input = callbackInput,
                 timeoutMs = timeoutMs,
                 disposeImmediately = autoDispose, // Aggressive disposal flag
-                taskId = outerTaskId
+                taskId = outerTaskId,
+                executionId = if (outerTaskId != null) executionId else null
             )
 
             Log.d(TAG, "Dart callback completed: $callbackId, result: $result")

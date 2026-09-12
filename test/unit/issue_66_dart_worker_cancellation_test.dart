@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:native_workmanager/native_workmanager.dart';
@@ -73,6 +75,41 @@ void main() {
         NativeWorkManager.isTaskCancelled('any-task'),
         completion(isFalse),
       );
+    });
+
+    // Issue #72: https://github.com/brewkits/native_workmanager/issues/72
+    //
+    // ExistingWorkPolicy.replace cancels the running WorkRequest for a
+    // taskId and immediately starts a new one under the SAME taskId — two
+    // concurrent executions, one taskId. isTaskCancelled(taskId) alone
+    // cannot tell them apart; the real fix is `_callbackDispatcher` binding
+    // this invocation's own executionId into a Zone so isTaskCancelled can
+    // forward it transparently and native can answer per-execution instead
+    // of per-taskId. This test cannot drive the real dispatcher (private,
+    // driven by a native-supplied callback handle) but simulates being
+    // inside its Zone via the test-only [executionIdZoneKeyForTesting] hook.
+    test(
+        'forwards the current execution\'s executionId from the dispatcher Zone, when present',
+        () async {
+      final result = await runZoned(
+        () => NativeWorkManager.isTaskCancelled('shared-task'),
+        zoneValues: {executionIdZoneKeyForTesting: 'exec-123'},
+      );
+
+      expect(result, isFalse);
+      expect(calls, hasLength(1));
+      expect(calls.single.arguments,
+          {'taskId': 'shared-task', 'executionId': 'exec-123'});
+    });
+
+    test('omits executionId entirely when called outside any dispatcher Zone',
+        () async {
+      // Covers the coarse-fallback path (main-isolate code with no dispatched
+      // execution in scope) — must not send a stray null executionId key.
+      await NativeWorkManager.isTaskCancelled('shared-task');
+
+      expect(calls, hasLength(1));
+      expect(calls.single.arguments, {'taskId': 'shared-task'});
     });
   });
 }
