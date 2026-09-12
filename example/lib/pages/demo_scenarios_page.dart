@@ -703,7 +703,7 @@ class _DemoScenariosPageState extends State<DemoScenariosPage> {
                     ),
                   ),
                   Text(
-                    'v1.3.2 · 50+ ready-to-run examples',
+                    'v1.8.1 · 50+ ready-to-run examples',
                     style: TextStyle(
                       color: Colors.white.withAlpha(200),
                       fontSize: 12,

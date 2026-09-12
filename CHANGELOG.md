@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.1] - 2026-09-12
+
+### Fixed
+
+- **`ExistingTaskPolicy.replace` could defeat `isTaskCancelled()` cooperative
+  cancellation on Android** (issue #72, reported by @Rikoshu in discussion
+  #66). `replace` (the `enqueue()` default) cancels the running `WorkRequest`
+  for a `taskId` and immediately starts a new one under the *same* `taskId`
+  — two executions sharing one key in `DartTaskCancellationRegistry`, which
+  was keyed on bare `taskId`. The more likely failure direction: the
+  brand-new, legitimate replacement execution inherited the outgoing
+  execution's stale cancel mark and silently self-aborted on its very first
+  `isTaskCancelled()` poll, dropping real work with no error surfaced
+  anywhere. Fixed by keying the registry on a fresh per-execution id minted
+  inside `doWork()`, threaded to Dart transparently via a `Zone` — the
+  public `isTaskCancelled(taskId)` signature is unchanged. iOS was not
+  affected: `BGTaskScheduler` can only replace a pending, not-yet-running
+  request, so the two-concurrent-executions collision doesn't arise there.
+  Device-verified red→green on a real Pixel 6 Pro.
+
+### Documentation
+
+- `doc/API_REFERENCE.md`: added the missing `isTaskCancelled()` entry, added
+  a missing `ParallelHttpUploadWorker` / `NativeWorker.multiUpload()`
+  section, and refreshed the stale `Version: 1.6.0` footer.
+- Fixed `ParallelHttpUploadWorker`'s public dartdoc example: it called a
+  `NativeWorker.parallelHttpUpload()` factory that doesn't exist — the class
+  is constructed directly (`ParallelHttpUploadWorker(...)`), not via a
+  `NativeWorker.xxx()` factory method like most other workers. A
+  copy-pasted example from that dartdoc would not have compiled.
+
 ## [1.8.0] - 2026-09-11
 
 ### Added

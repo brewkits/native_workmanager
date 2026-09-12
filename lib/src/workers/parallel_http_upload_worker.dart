@@ -25,7 +25,7 @@ export 'certificate_pinning.dart';
 /// await NativeWorkManager.enqueue(
 ///   taskId: 'batch-photos',
 ///   trigger: TaskTrigger.oneTime(),
-///   worker: NativeWorker.parallelHttpUpload(
+///   worker: ParallelHttpUploadWorker(
 ///     url: 'https://api.example.com/photos',
 ///     files: [
 ///       UploadFile(filePath: '/data/user/0/.../img1.jpg'),

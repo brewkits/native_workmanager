@@ -351,7 +351,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
     });
 
     _addLog(
-      '🚀 NativeWorkManager v1.3.2 — Industrial Reliability & FGS Bypass',
+      '🚀 NativeWorkManager v1.8.1 — Industrial Reliability & FGS Bypass',
     );
   }
 

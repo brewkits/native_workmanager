@@ -142,6 +142,37 @@ await NativeWorkManager.cancelAll();
 
 ---
 
+##### `isTaskCancelled()`
+
+Checks whether `taskId` has been cancelled or stopped by the OS — for a running `DartWorker`
+callback to poll cooperatively. `cancel()`/`cancelAll()` do **not** interrupt a callback already
+executing (Dart has no API to preemptively abort a running `Future`); a callback doing
+long-running work must check this between chunks and return promptly once it turns `true`.
+
+```dart
+static Future<bool> isTaskCancelled(String taskId)
+```
+
+**Example:**
+```dart
+@pragma('vm:entry-point')
+Future<bool> longSync(Map<String, dynamic>? input) async {
+  final taskId = input?['__taskId'] as String?;
+  for (var i = 1; i <= 100; i++) {
+    if (taskId != null && await NativeWorkManager.isTaskCancelled(taskId)) {
+      return false; // bail out — do not keep working
+    }
+    await processChunk(i);
+  }
+  return true;
+}
+```
+
+> Added in 1.8.0 (discussion #66). Returns `false` (never throws) if `taskId` is empty or the
+> platform channel call fails.
+
+---
+
 ##### `events` Stream
 
 Stream of task completion events.
@@ -326,6 +357,61 @@ static Worker parallelHttpDownload({
   String checksumAlgorithm = 'SHA-256',
   bool showNotification = false,
 })
+```
+
+---
+
+##### `ParallelHttpUploadWorker` / `NativeWorker.multiUpload()`
+
+Two ways to upload several files, for different situations. Neither is invoked via a
+`NativeWorker.xxx()` factory the way most other workers are:
+
+- **`ParallelHttpUploadWorker(...)`** — construct directly (it's a `Worker` subclass, not a
+  `NativeWorker` factory). Uploads each file as a **separate** concurrent multipart request,
+  with per-host concurrency (`maxConcurrent`) and independent per-file retries.
+- **`NativeWorker.multiUpload(...)`** — bundles all files into a **single** multipart request
+  (reuses `HttpUploadWorker`'s `files` array). Simpler, but one request means one
+  success/failure for the whole batch.
+
+```dart
+static MultiUploadWorker multiUpload({
+  required String url,
+  required List<UploadFile> files,
+  Map<String, String> headers = const {},
+  Map<String, String> additionalFields = const {},
+  Duration timeout = const Duration(minutes: 10),
+  bool useBackgroundSession = false,
+})
+```
+
+```dart
+// Direct construction — no NativeWorker.parallelHttpUpload() factory exists.
+ParallelHttpUploadWorker({
+  required String url,
+  required List<UploadFile> files,
+  Map<String, String> headers = const {},
+  Map<String, String> fields = const {},
+  int maxConcurrent = 3,
+  int maxRetries = 1,
+  Duration timeout = const Duration(minutes: 5),
+  bool showNotification = false,
+  String? notificationTitle,
+  String? notificationBody,
+  CertificatePinning? certificatePinning,
+})
+```
+
+**Example:**
+```dart
+worker: ParallelHttpUploadWorker(
+  url: 'https://api.example.com/photos',
+  files: [
+    UploadFile(filePath: '/data/user/0/.../img1.jpg'),
+    UploadFile(filePath: '/data/user/0/.../img2.jpg', fieldName: 'photo'),
+  ],
+  maxConcurrent: 3,
+  maxRetries: 2,
+),
 ```
 
 ---
@@ -1051,5 +1137,5 @@ See [ANDROID_SETUP.md](ANDROID_SETUP.md) for the full guidance.
 
 ---
 
-**Version:** 1.6.0
+**Version:** 1.8.1
 **Last Updated:** 2026-09-06
