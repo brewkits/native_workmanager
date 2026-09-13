@@ -109,6 +109,32 @@ Duration resolveDispatcherTimeout(Map args) {
   return const Duration(milliseconds: fallbackMs);
 }
 
+/// Default budget for a [DartWorkerStoppedCallback] when the task did not set
+/// [DartWorker.cancelGrace] (issue #75).
+///
+/// A notify-only task (`cancelGrace: null`) never has its engine torn down, so
+/// nothing on the native side bounds its stop handler. Without a cap here a
+/// wedged handler would hold the channel reply open indefinitely.
+const Duration kDefaultStopHandlerBudget = Duration(seconds: 5);
+
+/// How long a DartWorker's stop handler may run (issue #75).
+///
+/// Reads `cancelGraceMs` out of the forwarded args, exactly as
+/// [resolveDispatcherTimeout] reads `timeoutMs` — the Dart API owns this value
+/// and the native bridges only forward it, so nothing here may re-derive it
+/// from a platform default.
+///
+/// `cancelGraceMs: 0` is meaningful and distinct from absent: it means "tear
+/// down as soon as the handler returns", so the handler still gets the default
+/// budget to return *in*. Only a missing or non-finite value falls back.
+Duration resolveStopHandlerBudget(Map args) {
+  final raw = args['cancelGraceMs'];
+  if (raw is num && raw.isFinite && raw > 0) {
+    return Duration(milliseconds: raw.toInt());
+  }
+  return kDefaultStopHandlerBudget;
+}
+
 /// Issue #72: Zone key `isTaskCancelled` uses to find the executionId of
 /// whichever DartWorker invocation is currently running, without requiring
 /// the app's callback to pass it explicitly. See `_callbackDispatcher`.
@@ -269,6 +295,75 @@ Future<void> _callbackDispatcher() async {
       }
     }
 
+    if (call.method == 'onTaskStopped') {
+      // Issue #75. Headless-isolate twin of method_channel.dart's
+      // 'onDartTaskStopped'. This isolate never ran initialize(), so there is
+      // no onStoppedHandlers registry to look an id up in — native forwards the
+      // handle instead, same as it does for the worker callback itself.
+      final args = call.arguments as Map?;
+      if (args == null) return null;
+
+      final handleRaw = args['onStoppedHandle'];
+      final handle = handleRaw is int
+          ? handleRaw
+          : (handleRaw is num ? handleRaw.toInt() : null);
+      if (handle == null) {
+        developer.log(
+          '[NativeWorkManager] onTaskStopped without a usable onStoppedHandle '
+          '(got ${handleRaw.runtimeType}) — nothing to notify.',
+        );
+        return null;
+      }
+
+      final inputJson = args['input'] as String?;
+      Map<String, dynamic>? input;
+      if (inputJson != null && inputJson.isNotEmpty && inputJson != 'null') {
+        try {
+          input = jsonDecode(inputJson) as Map<String, dynamic>;
+        } catch (e) {
+          developer.log(
+            '[NativeWorkManager] onTaskStopped input was not valid JSON: $e',
+          );
+        }
+      }
+
+      final budget = resolveStopHandlerBudget(args);
+      try {
+        final handler = PluginUtilities.getCallbackFromHandle(
+          CallbackHandle.fromRawHandle(handle),
+        );
+        if (handler is! DartWorkerStoppedCallback) {
+          developer.log(
+            '[NativeWorkManager] onStopped handle $handle resolved to '
+            '${handler.runtimeType}, expected DartWorkerStoppedCallback '
+            '(Future<void> Function(Map<String, dynamic>?)).',
+            level: 1000,
+          );
+          return null;
+        }
+        // Bind the execution's Zone so a stop handler can itself call
+        // isTaskCancelled() and resolve against the right execution (issue #72).
+        await runZoned(
+          () => handler(input).timeout(budget, onTimeout: () {
+            developer.log(
+              '[NativeWorkManager] onStopped handler did not finish within '
+              '${budget.inMilliseconds} ms — abandoning it.',
+              level: 900,
+            );
+          }),
+          zoneValues: {
+            _executionIdZoneKey: input?['__executionId'] as String?,
+          },
+        );
+      } catch (e, stackTrace) {
+        // Swallow: the task is already being torn down, and a thrown channel
+        // reply here would only mask the native-side stop log.
+        developer.log('[NativeWorkManager] onStopped handler threw: $e');
+        developer.log('Stack trace: $stackTrace');
+      }
+      return null;
+    }
+
     throw MissingPluginException('Unknown method: ${call.method}');
   });
 }
@@ -324,6 +419,16 @@ class NativeWorkManager {
   /// Map of callback IDs to their serializable handles.
   /// Handles can be passed across isolates, unlike function closures.
   static final Map<String, int> _callbackHandles = {};
+
+  /// Issue #75: stop handlers, keyed the same way [_dartWorkers] is. Separate
+  /// registry because a [DartWorkerStoppedCallback] returns no value (and will
+  /// grow a stop *reason* argument), so it cannot share the worker registry's
+  /// type without freezing a signature we already know has to change.
+  static final Map<String, DartWorkerStoppedCallback> _onStoppedHandlers = {};
+
+  /// Raw handles for [_onStoppedHandlers] — the headless isolate resolves stop
+  /// handlers by handle, never by id, because it never runs initialize().
+  static final Map<String, int> _onStoppedHandles = {};
 
   // ═══════════════════════════════════════════════════════════════════════════
   // INITIALIZATION
@@ -408,6 +513,14 @@ class NativeWorkManager {
   /// - [NativeWorker] - Create a native worker (no Flutter Engine)
   static Future<void> initialize({
     Map<String, DartWorkerCallback>? dartWorkers,
+
+    /// Issue #75: handlers notified when a running DartWorker is stopped
+    /// mid-flight — cancelled, or reclaimed by the OS. Reference one from a
+    /// task with `DartWorker(onStoppedId: ...)`.
+    ///
+    /// Same rules as [dartWorkers]: top-level or static functions only, never
+    /// closures, or the background isolate cannot resolve them.
+    Map<String, DartWorkerStoppedCallback>? onStoppedHandlers,
     bool debugMode = false,
     int maxConcurrentTasks = 4,
     int diskSpaceBufferMB = 20,
@@ -451,6 +564,7 @@ class NativeWorkManager {
     try {
       await _initializeInternal(
         dartWorkers: dartWorkers,
+        onStoppedHandlers: onStoppedHandlers,
         debugMode: debugMode,
         maxConcurrentTasks: maxConcurrentTasks,
         diskSpaceBufferMB: diskSpaceBufferMB,
@@ -471,6 +585,7 @@ class NativeWorkManager {
 
   static Future<void> _initializeInternal({
     Map<String, DartWorkerCallback>? dartWorkers,
+    Map<String, DartWorkerStoppedCallback>? onStoppedHandlers,
     bool debugMode = false,
     int maxConcurrentTasks = 4,
     int diskSpaceBufferMB = 20,
@@ -517,9 +632,45 @@ class NativeWorkManager {
       }
     }
 
+    // Issue #75: same shape as the dartWorkers loop above, deliberately —
+    // two registries validating differently is exactly the parity gap
+    // channel_method_parity_test.dart exists to catch.
+    if (onStoppedHandlers != null) {
+      _onStoppedHandlers.addAll(onStoppedHandlers);
+
+      for (final entry in onStoppedHandlers.entries) {
+        final onStoppedId = entry.key;
+        final handler = entry.value;
+
+        final handle = PluginUtilities.getCallbackHandle(handler);
+
+        if (handle == null) {
+          throw StateError(
+            'Failed to get callback handle for onStopped handler "$onStoppedId". '
+            'Ensure the handler is a top-level or static function, '
+            'NOT an anonymous function or instance method.\n'
+            '\n'
+            'Example CORRECT:\n'
+            '  Future<void> onMyWorkerStopped(Map<String, dynamic>? input) async { ... }\n'
+            '  onStoppedHandlers: {"onMyWorkerStopped": onMyWorkerStopped}\n'
+            '\n'
+            'Example WRONG:\n'
+            '  onStoppedHandlers: {"bad": (input) async {}} // Anonymous function!',
+          );
+        }
+
+        _onStoppedHandles[onStoppedId] = handle.toRawHandle();
+      }
+    }
+
     // Set up callback executor
     NativeWorkManagerPlatform.instance.setCallbackExecutor(
       _executeDartCallback,
+    );
+
+    // Issue #75: main-isolate stop-handler executor (foreground / simulator).
+    NativeWorkManagerPlatform.instance.setStoppedExecutor(
+      _executeDartStoppedHandler,
     );
 
     // Set up chain enqueue callback
@@ -567,6 +718,52 @@ class NativeWorkManager {
     }
 
     return callback(input);
+  }
+
+  /// Issue #75: run a stop handler on the main isolate.
+  ///
+  /// Unlike [_executeDartCallback] an unregistered id is logged rather than
+  /// thrown: a task whose handler was never registered is a developer mistake
+  /// worth surfacing, but the task is already being torn down and there is
+  /// nothing useful for the native side to do with an exception.
+  static Future<void> _executeDartStoppedHandler(
+    String onStoppedId,
+    Map<String, dynamic>? input,
+  ) async {
+    final handler = _onStoppedHandlers[onStoppedId];
+    if (handler == null) {
+      developer.log(
+        '[NativeWorkManager] No onStopped handler registered for '
+        '"$onStoppedId". Register it in NativeWorkManager.initialize('
+        'onStoppedHandlers: {"$onStoppedId": ...}).',
+        level: 900,
+      );
+      return;
+    }
+    await handler(input);
+  }
+
+  /// Resolve [onStoppedId] to its raw handle for the native bridge (issue #75).
+  ///
+  /// Throws if the id was never registered — unlike the teardown-time lookup in
+  /// [_executeDartStoppedHandler], this runs at *enqueue* time, where failing
+  /// loudly is exactly right: the task has not been scheduled yet and the
+  /// developer can still fix the registration.
+  static int? _resolveOnStoppedHandle(String? onStoppedId) {
+    if (onStoppedId == null) return null;
+    final handle = _onStoppedHandles[onStoppedId];
+    if (handle == null) {
+      throw StateError(
+        'onStopped handler "$onStoppedId" not registered.\n'
+        'Register it in NativeWorkManager.initialize():\n'
+        '  await NativeWorkManager.initialize(\n'
+        '    onStoppedHandlers: {\n'
+        '      "$onStoppedId": (input) async { ... },\n'
+        '    },\n'
+        '  );',
+      );
+    }
+    return handle;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -831,6 +1028,9 @@ class NativeWorkManager {
         input: worker.input,
         autoDispose: worker.autoDispose,
         timeoutMs: worker.timeoutMs,
+        onStoppedId: worker.onStoppedId,
+        onStoppedHandle: _resolveOnStoppedHandle(worker.onStoppedId),
+        cancelGraceMs: worker.cancelGrace?.inMilliseconds,
       );
     }
 
@@ -1912,6 +2112,9 @@ class NativeWorkManager {
             input: worker.input,
             autoDispose: worker.autoDispose,
             timeoutMs: worker.timeoutMs,
+            onStoppedId: worker.onStoppedId,
+            onStoppedHandle: _resolveOnStoppedHandle(worker.onStoppedId),
+            cancelGraceMs: worker.cancelGrace?.inMilliseconds,
           );
 
           // Return modified task map with converted worker

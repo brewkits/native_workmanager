@@ -125,7 +125,25 @@ class DartCallbackWorkerWrapper(
             val rawTimeout = if (json.has("timeoutMs")) json.getLong("timeoutMs") else -1L
             val timeoutMs = if (rawTimeout > 0) rawTimeout else 5 * 60 * 1000L
 
-            Log.d(TAG, "Executing callback: $callbackId (handle: $callbackHandle, autoDispose: $autoDispose, timeoutMs: $timeoutMs)")
+            // Issue #75: stop-notification hook. All three values are owned by
+            // the Dart API (DartWorker.onStoppedId / cancelGrace) and are only
+            // forwarded here — never defaulted or re-derived, per the
+            // cross-platform-parity rule.
+            //
+            // cancelGraceMs absent != cancelGraceMs == 0: absent means
+            // notify-only (never tear the engine down, the pre-#75 behaviour),
+            // while 0 means tear down as soon as the handler returns. Using
+            // optLong("cancelGraceMs", 0) here would silently convert every
+            // notify-only task into a hard kill, so test has() explicitly.
+            val onStoppedHandle = if (json.has("onStoppedHandle")) {
+                json.optLong("onStoppedHandle").takeIf { it != 0L }
+            } else null
+            val onStoppedId = json.optString("onStoppedId", null)
+            val cancelGraceMs = if (json.has("cancelGraceMs")) {
+                json.optLong("cancelGraceMs", 0L)
+            } else null
+
+            Log.d(TAG, "Executing callback: $callbackId (handle: $callbackHandle, autoDispose: $autoDispose, timeoutMs: $timeoutMs, onStoppedId: $onStoppedId, cancelGraceMs: $cancelGraceMs)")
 
             // Execute Dart callback via FlutterEngineManager
             // Pass callbackHandle (not callbackId) to enable cross-isolate execution.
@@ -140,7 +158,10 @@ class DartCallbackWorkerWrapper(
                 timeoutMs = timeoutMs,
                 disposeImmediately = autoDispose, // Aggressive disposal flag
                 taskId = outerTaskId,
-                executionId = if (outerTaskId != null) executionId else null
+                executionId = if (outerTaskId != null) executionId else null,
+                onStoppedHandle = onStoppedHandle,
+                onStoppedId = onStoppedId,
+                cancelGraceMs = cancelGraceMs
             )
 
             Log.d(TAG, "Dart callback completed: $callbackId, result: $result")

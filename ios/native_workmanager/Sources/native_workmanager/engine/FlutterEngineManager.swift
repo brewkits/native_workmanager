@@ -323,6 +323,46 @@ class FlutterEngineManager {
         waitForDartReady(channel: channel, timeout: FlutterEngineManager.initTimeoutSeconds)
     }
 
+    /// Issue #75: tell the headless Dart isolate that a running DartWorker has
+    /// been stopped.
+    ///
+    /// Addressed by HANDLE, not by id: this engine never ran `initialize()`, so
+    /// it has no `onStoppedHandlers` registry to resolve an id against.
+    /// `onStoppedId` rides along for logging only.
+    ///
+    /// Fire-and-forget by design. The caller is
+    /// `DartTaskCancellationRegistry.markCancelled`, which runs on whatever
+    /// thread performed the cancel and must not be blocked on a Dart round-trip;
+    /// the handler's own budget is enforced Dart-side by
+    /// `resolveStopHandlerBudget`. `cancelGraceMs` is forwarded so the Dart side
+    /// applies the same bound the task configured — nothing is defaulted here.
+    func notifyDartTaskStopped(
+        onStoppedHandle: Int64,
+        onStoppedId: String?,
+        input: String?,
+        taskId: String?,
+        cancelGraceMs: Int64?
+    ) {
+        // Channel sends must happen on the main thread; a cancel can arrive from
+        // a background queue (BGTask expiration, notification action).
+        DispatchQueue.main.async { [weak self] in
+            guard let channel = self?.methodChannel else {
+                NativeLogger.w(
+                    "Issue #75: cannot notify onStopped handler for taskId=\(taskId ?? "nil") — " +
+                    "headless engine channel already gone"
+                )
+                return
+            }
+            channel.invokeMethod("onTaskStopped", arguments: [
+                "onStoppedHandle": onStoppedHandle,
+                "onStoppedId": onStoppedId,
+                "input": input,
+                "taskId": taskId,
+                "cancelGraceMs": cancelGraceMs as Any?
+            ] as [String: Any?])
+        }
+    }
+
     /// Wait for Dart side to signal it's ready.
     private func waitForDartReady(channel: FlutterMethodChannel, timeout: TimeInterval) {
         // `isReady` must only be accessed from `self.queue` (a serial queue) so the timeout

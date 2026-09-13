@@ -260,6 +260,22 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
     throw UnimplementedError('setCallbackExecutor() has not been implemented.');
   }
 
+  /// Register the executor used to run a DartWorker's stop handler on the
+  /// main isolate (issue #75).
+  ///
+  /// Separate from [setCallbackExecutor] because the handler returns no value
+  /// and is resolved out of its own registry — see
+  /// `NativeWorkManager.initialize(onStoppedHandlers: ...)`.
+  /// Defaults to a no-op rather than throwing, unlike most methods here.
+  /// `initialize()` calls this unconditionally, so throwing would break every
+  /// existing platform implementation (and every test fake) that predates #75
+  /// — for a capability that is opt-in per task. A platform that does not
+  /// override it simply never delivers stop notifications; `isTaskCancelled`
+  /// polling still works there.
+  void setStoppedExecutor(
+      Future<void> Function(String onStoppedId, Map<String, dynamic>? input)
+          executor) {}
+
   /// Get real-time metrics from the native task store for DevTools.
   /// Returns a map with activeTasks, offlineQueueSize, failedTasks, completedTasks.
   Future<Map<String, dynamic>> getMetrics() {
