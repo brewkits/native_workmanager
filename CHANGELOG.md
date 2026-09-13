@@ -33,8 +33,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Fires on explicit `cancel()`/`cancelAll()`/`cancelByTag()`, and on the OS
   reclaiming background time (WorkManager stopping the worker on Android,
-  BGTask expiration on iOS). Unlike the prior art this is wired on iOS too,
-  not Android-only.
+  BGTask expiration on iOS). The **notification** is wired on iOS as well as
+  Android — unlike the prior art, which never fires it on iOS at all.
+
+  The **teardown** half is Android-only for now. On iOS `cancelGrace` still
+  bounds the handler's budget but disposes nothing: the foreground path runs on
+  the host app's own engine (disposing it would kill the app), and the headless
+  engine has no in-flight task counter yet to gate a safe dispose. Tracked as
+  follow-up on #75; `isTaskCancelled()` polling remains the way to stop an
+  uncooperative callback early on iOS.
 
   `cancelGrace` is the handler's budget and the opt-in for tearing the engine
   down afterwards:

@@ -1902,14 +1902,18 @@ void main() {
         // set, the engine is disposed once the grace elapses and the counter
         // must stall well short of 50.
         //
-        // Android-only: this asserts on the *shared-engine* teardown path in
-        // FlutterEngineManager. On iOS the foreground/simulator path runs the
-        // callback on the main engine, which is the host app's own engine and is
-        // never disposed — tearing it down would kill the app.
+        // Android-only because the teardown itself is Android-only today, not
+        // merely untestable here. On iOS: the foreground/simulator path runs on
+        // the host app's own engine (disposing it would kill the app), and the
+        // killed-app headless engine COULD be torn down but iOS has no
+        // in-flight task counter to gate it the way Android's activeTaskCount
+        // does — shipping an ungated dispose there risks tearing the engine out
+        // from under a sibling callback. Left as follow-up on #75 rather than
+        // shipped unsafe. Revisit this skip when iOS grows that counter.
         if (!Platform.isAndroid) {
           markTestSkipped(
-            'issue_75: engine teardown on cancel is an Android path; iOS '
-            'foreground runs on the main engine, which must not be disposed',
+            'issue_75: cancelGrace teardown is implemented on Android only; '
+            'iOS notifies but disposes nothing (see #75 follow-up)',
           );
           return;
         }
