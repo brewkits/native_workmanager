@@ -402,7 +402,29 @@ object FlutterEngineManager {
                                 "DartWorker cancelled (taskId=$taskId) — tearing down engine " +
                                     "after ${cancelGraceMs}ms grace"
                             )
-                            try { dispose() } catch (_: Exception) {}
+                            // NonCancellable for the same reason the notify
+                            // above needs it, and this one is easy to get wrong
+                            // because `dispose()` LOOKS synchronous here:
+                            // it is a suspend fun whose body is
+                            // `initializationMutex.withLock { withContext(
+                            // Dispatchers.Main) { engine?.destroy() } }`. On an
+                            // already-cancelled coroutine that inner
+                            // withContext throws JobCancellationException
+                            // before `engine.destroy()` ever runs — and
+                            // dispose()'s own catch swallows it and then nulls
+                            // the engine field anyway, so the native engine is
+                            // leaked AND the Dart isolate keeps running. It
+                            // fails completely silently: the plain
+                            // `catch (_: Exception)` here hides the rest.
+                            // Device-caught on a Pixel 6 Pro (the counter in the
+                            // issue_75 teardown test kept climbing past cancel
+                            // while logcat showed only "Error destroying engine
+                            // (expected if already detached)").
+                            withContext(kotlinx.coroutines.NonCancellable) {
+                                try { dispose() } catch (e: Exception) {
+                                    NativeLogger.e("Issue #75: engine teardown after cancel failed", e)
+                                }
+                            }
                         } else {
                             NativeLogger.w(
                                 "DartWorker cancelled (taskId=$taskId) with cancelGrace set, but " +

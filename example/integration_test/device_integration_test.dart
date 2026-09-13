@@ -278,6 +278,23 @@ Future<bool> _ditStopNoPoll(Map<String, dynamic>? input) async {
   return true;
 }
 
+/// Wait (bounded) for a DartWorker callback to create [file].
+///
+/// Issue #75: a fixed delay is not enough to know a callback has started — a
+/// cold Flutter engine boot alone is 500-1000ms, so whether a fixed wait is long
+/// enough depends on whether an earlier test happened to warm the engine.
+Future<bool> _waitForFile(
+  File file, {
+  Duration timeout = const Duration(seconds: 10),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (DateTime.now().isBefore(deadline)) {
+    if (file.existsSync()) return true;
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+  }
+  return file.existsSync();
+}
+
 /// Issue #75: the stop handler itself. Records the `__taskId` the native side
 /// forwarded, so the test proves both that the handler ran and that it could
 /// tell *which* task stopped — the bridge carrying `__taskId` is the part that
@@ -1841,10 +1858,14 @@ void main() {
           ),
         );
 
-        // Let it get going, then stop it mid-flight.
-        await Future.delayed(const Duration(milliseconds: 600));
+        // Poll rather than sleep a fixed 600ms: a COLD Flutter engine boot is
+        // 500-1000ms on its own, so a fixed wait makes the precondition below
+        // fail purely on ordering (it passes when an earlier test already
+        // warmed the engine, fails when this test runs first). Device-caught on
+        // a Pixel 6 Pro running this test in isolation.
+        final started = await _waitForFile(counterFile);
         expect(
-          counterFile.existsSync(),
+          started,
           isTrue,
           reason: 'issue_75: the callback must have started before being '
               'cancelled, or this test proves nothing',
@@ -1909,7 +1930,8 @@ void main() {
           ),
         );
 
-        await Future.delayed(const Duration(milliseconds: 600));
+        expect(await _waitForFile(counterFile), isTrue,
+            reason: 'issue_75: the callback must have started before cancel');
         await NativeWorkManager.cancel(taskId: id);
 
         // Past the grace, the engine should be gone and the counter frozen.

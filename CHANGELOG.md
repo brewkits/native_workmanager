@@ -58,6 +58,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a warning, rather than aborting unrelated work. Treat it as a best-effort
   stop. Per-task teardown would require one engine per worker (~50 MB each).
 
+  Device-verified on a Pixel 6 Pro and an iOS 26 simulator, not just unit
+  tests — the teardown was a silent no-op on real hardware in the first pass
+  (`dispose()` is a `suspend fun`, so on the already-cancelled coroutine it
+  aborted before `engine.destroy()` ever ran, swallowed its own exception, and
+  nulled the engine field anyway — leaking the engine *and* leaving the isolate
+  running). Same lesson as #66: a mocked channel cannot reproduce a teardown
+  race.
+
   A stop *reason* (Android's `StopReason`) is deliberately not included yet:
   `getStopReason()` only exists on `ListenableWorker`, so it has to come
   through `WorkerEnvironment` in `kmpworkmanager`. Additive, and it shouldn't
