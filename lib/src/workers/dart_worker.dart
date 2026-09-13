@@ -468,21 +468,22 @@ final class DartWorker extends Worker {
   /// - a positive duration — tear down once the handler returns **or** this
   ///   elapses, whichever comes first.
   ///
-  /// ## ⚠️ Teardown is Android-only today
+  /// ## ⚠️ On iOS, teardown applies to background execution only
   ///
-  /// The **notification** fires on both platforms. The **teardown** currently
-  /// happens on Android only. On iOS this setting still bounds the handler's
-  /// budget, but nothing is disposed:
+  /// The **notification** fires wherever the callback runs. The **teardown**
+  /// needs an engine that is safe to destroy, and on iOS only one of the two
+  /// execution paths has one:
   ///
-  /// - Foreground / simulator runs the callback on the host app's own Flutter
-  ///   engine, which must never be disposed — doing so would kill the app.
-  /// - The killed-app headless engine could be torn down, but iOS has no
-  ///   in-flight task counter yet to make that safe (see below), so it is left
-  ///   as follow-up rather than shipped ungated.
+  /// - **Killed-app background** (`BGTaskScheduler`) runs on the plugin's own
+  ///   headless engine — torn down, same as Android.
+  /// - **Foreground / simulator** runs on the *host app's* Flutter engine.
+  ///   That engine is never disposed; doing so would kill the app. A callback
+  ///   there keeps running until it returns on its own, so poll
+  ///   [NativeWorkManager.isTaskCancelled] inside it if you need it to stop
+  ///   early.
   ///
-  /// So on iOS an uncooperative callback keeps running until it returns on its
-  /// own. Poll [NativeWorkManager.isTaskCancelled] inside the callback if you
-  /// need it to stop early there.
+  /// Android has no such split — every `DartWorker` runs on the headless
+  /// engine, so teardown always applies.
   ///
   /// ## ⚠️ Teardown is not per-task
   ///

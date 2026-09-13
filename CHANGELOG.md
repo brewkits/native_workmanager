@@ -36,12 +36,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   BGTask expiration on iOS). The **notification** is wired on iOS as well as
   Android — unlike the prior art, which never fires it on iOS at all.
 
-  The **teardown** half is Android-only for now. On iOS `cancelGrace` still
-  bounds the handler's budget but disposes nothing: the foreground path runs on
-  the host app's own engine (disposing it would kill the app), and the headless
-  engine has no in-flight task counter yet to gate a safe dispose. Tracked as
-  follow-up on #75; `isTaskCancelled()` polling remains the way to stop an
-  uncooperative callback early on iOS.
+  The **teardown** applies wherever there is an engine that is safe to destroy.
+  On Android that is always (every `DartWorker` runs on the headless engine).
+  On iOS it is the killed-app `BGTaskScheduler` path only — foreground and
+  simulator runs execute on the *host app's* Flutter engine, which is never
+  disposed because that would kill the app. Poll `isTaskCancelled()` inside the
+  callback if you need it to stop early there.
+
+  ⚠️ The iOS headless teardown is implemented and compiles, but is **not
+  device-verified**: reaching that path requires a killed-app BGTask launch on
+  physical hardware, which a simulator cannot reproduce. The Android teardown
+  and the notification on both platforms are device-verified.
 
   `cancelGrace` is the handler's budget and the opt-in for tearing the engine
   down afterwards:

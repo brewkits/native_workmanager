@@ -1902,18 +1902,18 @@ void main() {
         // set, the engine is disposed once the grace elapses and the counter
         // must stall well short of 50.
         //
-        // Android-only because the teardown itself is Android-only today, not
-        // merely untestable here. On iOS: the foreground/simulator path runs on
-        // the host app's own engine (disposing it would kill the app), and the
-        // killed-app headless engine COULD be torn down but iOS has no
-        // in-flight task counter to gate it the way Android's activeTaskCount
-        // does — shipping an ungated dispose there risks tearing the engine out
-        // from under a sibling callback. Left as follow-up on #75 rather than
-        // shipped unsafe. Revisit this skip when iOS grows that counter.
+        // iOS is skipped for a harness reason, not a behavioural one: teardown
+        // IS implemented there (FlutterEngineManager.disposeAfterCancelIfIdle),
+        // but only for the killed-app BGTaskScheduler path, which runs on the
+        // plugin's headless engine. A foreground/simulator run — which is what
+        // this suite is — executes on the host app's own engine, and that is
+        // never disposed because it would kill the app under the test. Covering
+        // the iOS teardown needs a killed-app BGTask launch on physical
+        // hardware, which this harness cannot drive.
         if (!Platform.isAndroid) {
           markTestSkipped(
-            'issue_75: cancelGrace teardown is implemented on Android only; '
-            'iOS notifies but disposes nothing (see #75 follow-up)',
+            'issue_75: teardown only applies to the headless engine; an iOS '
+            'foreground run uses the host app engine, which is never disposed',
           );
           return;
         }

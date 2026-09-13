@@ -40,9 +40,29 @@ class FlutterEngineManager {
     private static let initTimeoutSeconds: TimeInterval = 30
     private static let defaultCallbackTimeoutSeconds: TimeInterval = 300 // 5 minutes
 
+    /// Issue #75: how many Dart callbacks are executing on this engine right now.
+    ///
+    /// Only ever read/written inside `queue`. `callbackQueue` (AsyncQueue)
+    /// serialises executions, so today this is 0 or 1 — it is a counter rather
+    /// than a Bool so it stays correct if that serialisation is ever relaxed,
+    /// and to mirror Android's `activeTaskCount` gate exactly.
+    ///
+    /// The gate matters because cancel-teardown is not instantaneous: the
+    /// cancelled task's Swift Task is cancelled immediately (freeing the
+    /// AsyncQueue slot) but the engine is only disposed after the stop handler
+    /// replies or its budget elapses. A queued task can start inside that
+    /// window, and disposing then would tear the engine out from under it.
+    private var activeCallbackCount = 0
+
     // Auto-disposal after idle timeout
     private var lastUsedTimestamp: Date?
     private static let idleTimeoutSeconds: TimeInterval = 300 // 5 minutes
+
+    /// Issue #75: fallback budget for a stop handler when the task set no
+    /// `cancelGrace`, or set it to zero. Must stay in step with
+    /// `kDefaultStopHandlerBudget` (Dart) and `DEFAULT_STOP_HANDLER_BUDGET_MS`
+    /// (Android).
+    private static let defaultStopHandlerBudgetMs: Int64 = 5_000
     private var disposalWorkItem: DispatchWorkItem?
 
     // MARK: - Public API
@@ -134,6 +154,13 @@ class FlutterEngineManager {
 
         // Ensure engine is initialized
         try await ensureEngineInitialized()
+
+        // Issue #75: count this execution for the whole of its life, including
+        // the cancellation path — the `defer` fires when CancellationError
+        // unwinds out of the task group below, which is exactly when the
+        // engine becomes eligible for a cancel-teardown.
+        queue.sync { self.activeCallbackCount += 1 }
+        defer { queue.sync { self.activeCallbackCount = max(0, self.activeCallbackCount - 1) } }
 
         let initTime = Date().timeIntervalSince(startTime)
         if !wasEngineAlive {
@@ -323,19 +350,52 @@ class FlutterEngineManager {
         waitForDartReady(channel: channel, timeout: FlutterEngineManager.initTimeoutSeconds)
     }
 
-    /// Issue #75: tell the headless Dart isolate that a running DartWorker has
-    /// been stopped.
+    /// Issue #75: dispose the headless engine after a cancel, but only if no
+    /// other Dart callback has started on it in the meantime.
+    ///
+    /// This is the iOS counterpart of Android's
+    /// `if (activeTaskCount.get() <= 0) dispose()`. Same reasoning, same
+    /// consequence: teardown is **not per-task**. When a sibling callback is
+    /// running the cancelled one is left to finish on its own rather than
+    /// aborting unrelated work.
+    ///
+    /// Unlike Android's, this dispose is synchronous and carries no
+    /// suspend/cancellation hazard — `_disposeInternal()` just drops the engine
+    /// reference and ARC tears the isolate down.
+    private func disposeAfterCancelIfIdle(taskId: String?) {
+        // One `queue.sync` for check-and-dispose so nothing can start between
+        // the two. `_disposeInternal` requires the lock already held — calling
+        // `_dispose()` here instead would re-enter `queue.sync` and deadlock.
+        queue.sync {
+            guard self.activeCallbackCount == 0 else {
+                NativeLogger.w(
+                    "Issue #75: cancelled task \(taskId ?? "nil") asked for engine teardown, but " +
+                    "\(self.activeCallbackCount) Dart callback(s) are still running on the shared " +
+                    "engine — skipping so they are not killed too. The cancelled callback keeps " +
+                    "running until it returns; poll NativeWorkManager.isTaskCancelled() to stop sooner."
+                )
+                return
+            }
+            NativeLogger.d("Issue #75: tearing down headless engine after cancel (taskId=\(taskId ?? "nil"))")
+            self._disposeInternal()
+        }
+    }
+
+    /// Issue #75: tell the headless Dart isolate a DartWorker was stopped, then
+    /// optionally tear the engine down.
     ///
     /// Addressed by HANDLE, not by id: this engine never ran `initialize()`, so
     /// it has no `onStoppedHandlers` registry to resolve an id against.
     /// `onStoppedId` rides along for logging only.
     ///
-    /// Fire-and-forget by design. The caller is
-    /// `DartTaskCancellationRegistry.markCancelled`, which runs on whatever
-    /// thread performed the cancel and must not be blocked on a Dart round-trip;
-    /// the handler's own budget is enforced Dart-side by
-    /// `resolveStopHandlerBudget`. `cancelGraceMs` is forwarded so the Dart side
-    /// applies the same bound the task configured — nothing is defaulted here.
+    /// When `cancelGraceMs` is nil this is notify-only and nothing is disposed
+    /// — the pre-#75 behaviour. When it is set, the engine is torn down once the
+    /// handler replies **or** its budget elapses, whichever comes first, which
+    /// is the same rule Android applies.
+    ///
+    /// Returns immediately. The caller is
+    /// `DartTaskCancellationRegistry.markCancelled`, running on whatever thread
+    /// performed the cancel; it must not be blocked on a Dart round-trip.
     func notifyDartTaskStopped(
         onStoppedHandle: Int64,
         onStoppedId: String?,
@@ -346,20 +406,50 @@ class FlutterEngineManager {
         // Channel sends must happen on the main thread; a cancel can arrive from
         // a background queue (BGTask expiration, notification action).
         DispatchQueue.main.async { [weak self] in
-            guard let channel = self?.methodChannel else {
+            guard let self = self, let channel = self.methodChannel else {
                 NativeLogger.w(
                     "Issue #75: cannot notify onStopped handler for taskId=\(taskId ?? "nil") — " +
                     "headless engine channel already gone"
                 )
                 return
             }
+
+            // `cancelGraceMs == 0` means "tear down as soon as the handler
+            // returns", NOT "give the handler no time" — it still needs a window
+            // to return in. Only a missing or non-positive value falls back,
+            // matching resolveStopHandlerBudget() on the Dart side and
+            // DEFAULT_STOP_HANDLER_BUDGET_MS on Android.
+            let budgetMs = (cancelGraceMs ?? 0) > 0
+                ? cancelGraceMs!
+                : FlutterEngineManager.defaultStopHandlerBudgetMs
+            let shouldTearDown = cancelGraceMs != nil
+
+            // Resume-once guard: the reply and the budget timer race, and both
+            // paths would otherwise dispose.
+            let settled = _OnceFlag()
+
             channel.invokeMethod("onTaskStopped", arguments: [
                 "onStoppedHandle": onStoppedHandle,
                 "onStoppedId": onStoppedId,
                 "input": input,
                 "taskId": taskId,
                 "cancelGraceMs": cancelGraceMs as Any?
-            ] as [String: Any?])
+            ] as [String: Any?]) { _ in
+                guard settled.take() else { return }
+                if shouldTearDown {
+                    self.disposeAfterCancelIfIdle(taskId: taskId)
+                }
+            }
+
+            guard shouldTearDown else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(budgetMs) / 1000.0) {
+                guard settled.take() else { return }
+                NativeLogger.w(
+                    "Issue #75: onStopped handler '\(onStoppedId ?? "nil")' (taskId=\(taskId ?? "nil")) " +
+                    "did not reply within \(budgetMs)ms — tearing down anyway"
+                )
+                self.disposeAfterCancelIfIdle(taskId: taskId)
+            }
         }
     }
 
@@ -598,6 +688,22 @@ enum FlutterEngineError: LocalizedError {
 /// so the continuation is resumed exactly once. If cancellation settles the box
 /// before the continuation is installed, the result is held in `pending` and
 /// delivered by `install`.
+/// Issue #75: one-shot guard for two racing callbacks (a channel reply and a
+/// timeout) where only the first may act.
+private final class _OnceFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var taken = false
+
+    /// `true` for the first caller only.
+    func take() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if taken { return false }
+        taken = true
+        return true
+    }
+}
+
 private final class _ContinuationBox: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Bool, Error>?
