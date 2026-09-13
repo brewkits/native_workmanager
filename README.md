@@ -331,6 +331,36 @@ Future<bool> longSync(Map<String, dynamic>? input) async {
 
 An `await longRunningOperation()` with no cancellation checks of its own keeps running regardless — break such work into chunks so there's a point to check from.
 
+Polling is not the only option. A task can also be **told** it was stopped, so it gets a chance to persist progress and release resources without threading a cancellation check through every layer:
+
+```dart
+@pragma('vm:entry-point')
+Future<void> onLongSyncStopped(Map<String, dynamic>? input) async {
+  // Runs when the task is cancelled, or when the OS reclaims background time.
+  await db.markInterrupted(input?['__taskId'] as String?);
+}
+
+await NativeWorkManager.initialize(
+  dartWorkers: {'longSync': longSync},
+  onStoppedHandlers: {'longSyncStopped': onLongSyncStopped},
+);
+
+await NativeWorkManager.enqueue(
+  taskId: 'nightly-sync',
+  trigger: const TaskTrigger.oneTime(),
+  worker: DartWorker(
+    callbackId: 'longSync',
+    onStoppedId: 'longSyncStopped',
+    cancelGrace: const Duration(seconds: 3), // omit for notify-only
+  ),
+);
+```
+
+The handler fires on `cancel`/`cancelAll`/`cancelByTag` and on the OS stopping the worker (WorkManager on Android, BGTask expiration on iOS). Two things to be clear about:
+
+- **It is a notification, not preemption.** Returning from the handler does not abort whatever the callback is `await`-ing. Keep polling `isTaskCancelled()` if you want the callback itself to stop early — the two compose.
+- **`cancelGrace` is the handler's budget, and the opt-in for tearing the engine down afterwards.** Omit it (the default) and nothing is disposed — identical to the previous behaviour, plus a notification. `Duration.zero` tears down as soon as the handler returns. **Teardown is currently Android-only**, and is skipped even there when another `DartWorker` is running concurrently, because the background Flutter Engine is shared and disposing it out from under a sibling task crashes the process.
+
 > **Android killed-app support** — When Android kills your app and WorkManager later fires a `DartWorker`, the process restarts without Flutter. Since **v1.3.0 this is zero-config**: the plugin's `androidx.startup` initializer restores the `callbackHandle` and installs its `WorkerFactory` automatically before any task fires — no custom `Application` class required. Apps that ship their own `Configuration.Provider` can opt out — see **[Android Setup Guide](doc/ANDROID_SETUP.md)**.
 
 ### Code generation for DartWorker
