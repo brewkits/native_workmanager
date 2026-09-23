@@ -7,6 +7,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`onStopped` hook for `DartWorker` — cancellation is no longer poll-only**
+  (issue #75, follow-up to #67 / discussion #66, raised by @devroble).
+  `isTaskCancelled()` shipped in v1.8.0 but required every callback to
+  remember to poll. A task can now be told it was stopped:
+
+  ```dart
+  Future<void> onSyncStopped(Map<String, dynamic>? input) async {
+    await db.markInterrupted(input?['__taskId'] as String?);
+  }
+
+  await NativeWorkManager.initialize(
+    dartWorkers: {'sync': syncCallback},
+    onStoppedHandlers: {'syncStopped': onSyncStopped},
+  );
+
+  DartWorker(
+    callbackId: 'sync',
+    onStoppedId: 'syncStopped',
+    cancelGrace: Duration(seconds: 3),
+  );
+  ```
+
+  Fires on explicit `cancel()`/`cancelAll()`/`cancelByTag()`, and on the OS
+  reclaiming background time (WorkManager stopping the worker on Android,
+  BGTask expiration on iOS). The **notification** is wired on iOS as well as
+  Android — unlike the prior art, which never fires it on iOS at all.
+
+  The **teardown** applies wherever there is an engine that is safe to destroy.
+  On Android that is always (every `DartWorker` runs on the headless engine).
+  On iOS it is the killed-app `BGTaskScheduler` path only — foreground and
+  simulator runs execute on the *host app's* Flutter engine, which is never
+  disposed because that would kill the app. Poll `isTaskCancelled()` inside the
+  callback if you need it to stop early there.
+
+  ⚠️ The iOS headless teardown is implemented and compiles, but is **not
+  device-verified**: reaching that path requires a killed-app BGTask launch on
+  physical hardware, which a simulator cannot reproduce. The Android teardown
+  and the notification on both platforms are device-verified.
+
+  `cancelGrace` is the handler's budget and the opt-in for tearing the engine
+  down afterwards:
+
+  - **`null` (default)** — notify only. Identical to v1.8.x behaviour plus a
+    notification, so upgrading cannot change how an existing task behaves.
+  - **`Duration.zero`** — tear down as soon as the handler returns.
+  - **positive** — tear down once the handler returns or the budget elapses.
+
+  **This is a notification, not preemption.** Returning from the handler does
+  not abort whatever the callback is `await`-ing; Dart has no API for that.
+  Use it to persist progress and release handles, and keep polling
+  `isTaskCancelled()` if you want the callback itself to stop early. Both
+  mechanisms work and compose.
+
+  **Teardown is not per-task.** The background Flutter engine is *shared* by
+  all concurrently running `DartWorker`s and can only be disposed when nothing
+  else is in flight — disposing it while another task still holds the method
+  channel is a JNI crash on freed memory. When a sibling task is running the
+  cancelled task is left to finish on its own and the teardown is skipped with
+  a warning, rather than aborting unrelated work. Treat it as a best-effort
+  stop. Per-task teardown would require one engine per worker (~50 MB each).
+
+  Device-verified on a Pixel 6 Pro and an iOS 26 simulator, not just unit
+  tests — the teardown was a silent no-op on real hardware in the first pass
+  (`dispose()` is a `suspend fun`, so on the already-cancelled coroutine it
+  aborted before `engine.destroy()` ever ran, swallowed its own exception, and
+  nulled the engine field anyway — leaking the engine *and* leaving the isolate
+  running). Same lesson as #66: a mocked channel cannot reproduce a teardown
+  race.
+
+  A stop *reason* (Android's `StopReason`) is deliberately not included yet:
+  `getStopReason()` only exists on `ListenableWorker`, so it has to come
+  through `WorkerEnvironment` in `kmpworkmanager`. Additive, and it shouldn't
+  block the hook.
+
 ### Changed
 
 - **Minimum Flutter is now 3.44** (was 3.27). This is required by the fix below.

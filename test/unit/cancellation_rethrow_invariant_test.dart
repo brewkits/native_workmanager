@@ -58,6 +58,15 @@ void main() {
     'FlutterEngineManager.kt#ensureEngineInitialized':
         'guarded region is FlutterLoader/engine construction on the main '
             'thread — blocking, no suspension point inside the try',
+    'FlutterEngineManager.kt#notifyDartTaskStopped':
+        'issue #75 stop notification. Only ever called from inside '
+            '`withContext(NonCancellable)` in the wasCancelled branch — the '
+            'coroutine it runs on has ALREADY been cancelled, which is the '
+            'premise of the call, so a rethrow here would abort the very '
+            'notification the branch exists to deliver and skip the teardown '
+            'decision below it. The one suspension point is '
+            'withTimeoutOrNull, which absorbs its own '
+            'TimeoutCancellationException and returns null',
     'FlutterEngineManager.kt#dispose':
         'teardown path; swallowing here is deliberate so a failed dispose '
             'cannot mask the original result',

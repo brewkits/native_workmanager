@@ -45,6 +45,17 @@ import java.util.concurrent.atomic.AtomicInteger
 object FlutterEngineManager {
 
     private const val CHANNEL_NAME = "dev.brewkits/dart_worker_channel"
+
+    /**
+     * Issue #75: fallback budget for a stop handler when the task did not set
+     * DartWorker.cancelGrace (notify-only), or set it to zero.
+     *
+     * Must stay in step with `kDefaultStopHandlerBudget` in
+     * lib/src/native_work_manager.dart — the Dart side applies the same bound
+     * to the handler itself, this one only stops a wedged isolate from holding
+     * the worker open when no reply ever comes.
+     */
+    private const val DEFAULT_STOP_HANDLER_BUDGET_MS = 5_000L
     private const val ENGINE_IDLE_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
 
     private var engine: FlutterEngine? = null
@@ -116,11 +127,106 @@ object FlutterEngineManager {
         // must key on executionId (precise) so those two never clobber each
         // other; taskId alone is kept only as a coarse fallback for callers
         // with no executionId available.
-        executionId: String? = null
+        executionId: String? = null,
+        // Issue #75: stop-notification hook. onStoppedHandle is the Dart
+        // handle to invoke when this execution is stopped mid-flight;
+        // cancelGraceMs is the budget that handler gets AND the opt-in for
+        // tearing the engine down afterwards — null means notify-only, which
+        // is the pre-#75 behaviour. Both come from the Dart API
+        // (DartWorker.onStoppedId / cancelGrace); nothing here re-derives them.
+        onStoppedHandle: Long? = null,
+        onStoppedId: String? = null,
+        cancelGraceMs: Long? = null
     ): Boolean = withContext(Dispatchers.Main) {
         executeDartCallbackInternal(
-            context, callbackHandle, input, timeoutMs, disposeImmediately, taskId, executionId
+            context, callbackHandle, input, timeoutMs, disposeImmediately, taskId, executionId,
+            onStoppedHandle, onStoppedId, cancelGraceMs
         )
+    }
+
+    /**
+     * Issue #75: tell the Dart side that a running DartWorker has been stopped.
+     *
+     * Mirrors the `executeCallback` invocation shape: the handler is addressed
+     * by HANDLE, never by id, because the headless isolate never ran
+     * `initialize()` and therefore has no `onStoppedHandlers` registry to
+     * resolve an id against. [onStoppedId] rides along for logging only.
+     *
+     * [input] is forwarded verbatim — DartCallbackWorker has already merged
+     * `__taskId` and `__executionId` into it, which is how one shared handler
+     * tells its tasks apart.
+     *
+     * Never throws. By the time this runs the task is already being torn down,
+     * so a failure to notify must degrade to a log line, not replace the real
+     * cancellation with a channel error.
+     */
+    private suspend fun notifyDartTaskStopped(
+        onStoppedHandle: Long,
+        onStoppedId: String?,
+        input: String?,
+        taskId: String?,
+        cancelGraceMs: Long?
+    ) {
+        val channel = methodChannel
+        if (channel == null) {
+            NativeLogger.w(
+                "Issue #75: cannot notify onStopped handler for taskId=$taskId — " +
+                    "engine channel already gone"
+            )
+            return
+        }
+
+        // cancelGraceMs == 0 is meaningful ("tear down as soon as the handler
+        // returns") and must not be read as "no time at all" — the handler
+        // still needs a window to return IN. Only a missing or non-positive
+        // value falls back, matching resolveStopHandlerBudget() on the Dart side.
+        val budgetMs = if (cancelGraceMs != null && cancelGraceMs > 0) {
+            cancelGraceMs
+        } else {
+            DEFAULT_STOP_HANDLER_BUDGET_MS
+        }
+
+        val done = CompletableDeferred<Unit>()
+        val args = mapOf(
+            "onStoppedHandle" to onStoppedHandle,
+            "onStoppedId" to onStoppedId,
+            "input" to input,
+            "taskId" to taskId,
+            "cancelGraceMs" to cancelGraceMs
+        )
+
+        try {
+            // Already on Dispatchers.Main (see executeDartCallback's withContext)
+            // — channel sends are @UiThread and throw on a WorkManager executor
+            // thread.
+            channel.invokeMethod("onTaskStopped", args, object : MethodChannel.Result {
+                override fun success(result: Any?) { done.complete(Unit) }
+                override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
+                    NativeLogger.w(
+                        "Issue #75: onStopped handler '$onStoppedId' reported an error: " +
+                            "$errorCode ${errorMessage ?: ""}"
+                    )
+                    done.complete(Unit)
+                }
+                override fun notImplemented() {
+                    NativeLogger.w(
+                        "Issue #75: Dart side has no onTaskStopped handler registered " +
+                            "(handle=$onStoppedHandle)"
+                    )
+                    done.complete(Unit)
+                }
+            })
+
+            val finished = kotlinx.coroutines.withTimeoutOrNull(budgetMs) { done.await() } != null
+            if (!finished) {
+                NativeLogger.w(
+                    "Issue #75: onStopped handler '$onStoppedId' (taskId=$taskId) did not " +
+                        "finish within ${budgetMs}ms — continuing without it"
+                )
+            }
+        } catch (e: Exception) {
+            NativeLogger.e("Issue #75: failed to notify onStopped handler '$onStoppedId'", e)
+        }
     }
 
     private suspend fun executeDartCallbackInternal(
@@ -130,7 +236,10 @@ object FlutterEngineManager {
         timeoutMs: Long,
         disposeImmediately: Boolean,
         taskId: String?,
-        executionId: String?
+        executionId: String?,
+        onStoppedHandle: Long?,
+        onStoppedId: String?,
+        cancelGraceMs: Long?
     ): Boolean {
         return try {
             NativeLogger.d("Executing Dart callback with handle: $callbackHandle")
@@ -250,16 +359,94 @@ object FlutterEngineManager {
                 }
 
                 if (wasCancelled) {
-                    // Unlike a timeout, cancellation does not necessarily mean the
-                    // isolate is hung — a cooperative callback may return on its own
-                    // in a moment. Don't force-dispose; just let the normal idle
-                    // timer reclaim the engine if this was the last in-flight task.
-                    // (The registry entry itself is cleared by executeDartCallback's
-                    // outer finally, not here — the orphaned callback, if any, may
-                    // still be polling isTaskCancelled() a moment longer.)
                     NativeLogger.d("DartWorker cancelled externally (taskId=$taskId)")
-                    if (activeTaskCount.get() <= 0) {
-                        scheduleDisposalCheck()
+
+                    // Issue #75: push the stop notification to Dart before any
+                    // teardown decision below, so the handler still has a live
+                    // engine and channel to run on.
+                    //
+                    // NonCancellable is load-bearing, not defensive: THIS
+                    // coroutine has already been cancelled (that is how we got
+                    // here), so a plain suspending call would abort at its first
+                    // suspension point and the handler would never run.
+                    if (onStoppedHandle != null) {
+                        withContext(kotlinx.coroutines.NonCancellable) {
+                            notifyDartTaskStopped(
+                                onStoppedHandle = onStoppedHandle,
+                                onStoppedId = onStoppedId,
+                                input = input,
+                                taskId = taskId,
+                                cancelGraceMs = cancelGraceMs
+                            )
+                        }
+                    }
+
+                    if (cancelGraceMs != null) {
+                        // Opt-in teardown (DartWorker.cancelGrace non-null). A
+                        // hard kill: no `finally` runs in the isolate, no
+                        // pending `await` resumes. Everything that must survive
+                        // had its chance in the handler above.
+                        //
+                        // ⚠️ Gated on activeTaskCount, and that gate cannot be
+                        // removed: the engine is SHARED by every concurrently
+                        // running DartWorker, and disposing it while another
+                        // task still holds `methodChannel` is a JNI crash on
+                        // freed C++ FlutterJNI memory. That is why there is no
+                        // per-task kill — only kill-everything or kill-nothing.
+                        // Per-task would require one engine per worker (~50 MB
+                        // each). When a sibling is in flight we deliberately
+                        // leave the cancelled callback running and say so
+                        // loudly rather than aborting unrelated work.
+                        if (activeTaskCount.get() <= 0) {
+                            NativeLogger.d(
+                                "DartWorker cancelled (taskId=$taskId) — tearing down engine " +
+                                    "after ${cancelGraceMs}ms grace"
+                            )
+                            // NonCancellable for the same reason the notify
+                            // above needs it, and this one is easy to get wrong
+                            // because `dispose()` LOOKS synchronous here:
+                            // it is a suspend fun whose body is
+                            // `initializationMutex.withLock { withContext(
+                            // Dispatchers.Main) { engine?.destroy() } }`. On an
+                            // already-cancelled coroutine that inner
+                            // withContext throws JobCancellationException
+                            // before `engine.destroy()` ever runs — and
+                            // dispose()'s own catch swallows it and then nulls
+                            // the engine field anyway, so the native engine is
+                            // leaked AND the Dart isolate keeps running. It
+                            // fails completely silently: the plain
+                            // `catch (_: Exception)` here hides the rest.
+                            // Device-caught on a Pixel 6 Pro (the counter in the
+                            // issue_75 teardown test kept climbing past cancel
+                            // while logcat showed only "Error destroying engine
+                            // (expected if already detached)").
+                            withContext(kotlinx.coroutines.NonCancellable) {
+                                try { dispose() } catch (e: Exception) {
+                                    NativeLogger.e("Issue #75: engine teardown after cancel failed", e)
+                                }
+                            }
+                        } else {
+                            NativeLogger.w(
+                                "DartWorker cancelled (taskId=$taskId) with cancelGrace set, but " +
+                                    "${activeTaskCount.get()} other Dart task(s) are still running on the " +
+                                    "shared Flutter engine — skipping teardown so they are not aborted too. " +
+                                    "The cancelled callback will keep running until it returns on its own; " +
+                                    "poll NativeWorkManager.isTaskCancelled() inside it to stop sooner."
+                            )
+                            scheduleDisposalCheck()
+                        }
+                    } else {
+                        // Notify-only (cancelGrace == null): pre-#75 behaviour.
+                        // A cooperative callback may still return on its own in a
+                        // moment, so don't force-dispose — let the idle timer
+                        // reclaim the engine if this was the last task in flight.
+                        // (The registry entry itself is cleared by
+                        // executeDartCallback's outer finally, not here — the
+                        // orphaned callback, if any, may still be polling
+                        // isTaskCancelled() a moment longer.)
+                        if (activeTaskCount.get() <= 0) {
+                            scheduleDisposalCheck()
+                        }
                     }
                     throw cancellationCause ?: kotlinx.coroutines.CancellationException("DartWorker cancelled")
                 }

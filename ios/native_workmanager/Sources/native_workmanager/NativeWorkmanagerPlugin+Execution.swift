@@ -583,6 +583,10 @@ extension NativeWorkmanagerPlugin {
         // cancelled taskId (or, worse, a reused one on a later run) leaks or
         // misreports "cancelled" forever.
         defer { DartTaskCancellationRegistry.shared.clear(taskId) }
+        // Issue #75: clear() above already drops the stop notifier, but be
+        // explicit — an early `return` on a config error below must not leave a
+        // notifier behind that a later cancel of the same taskId would fire.
+        defer { DartTaskCancellationRegistry.shared.clearStopNotifier(taskId) }
 
         guard let callbackId = workerConfig["callbackId"] as? String else {
             return WorkerResult.failure(message: "DartCallbackWorker: missing callbackId in config")
@@ -599,6 +603,24 @@ extension NativeWorkmanagerPlugin {
         let timeoutMsValue = (workerConfig["timeoutMs"] as? NSNumber)?.int64Value
                           ?? (workerConfig["timeoutMs"] as? Int64)
 
+        // Issue #75: stop-notification hook. All three are owned by the Dart API
+        // (DartWorker.onStoppedId / cancelGrace) and only forwarded here.
+        //
+        // `cancelGraceMs` absent is NOT the same as 0: absent means notify-only
+        // (never tear the engine down — the pre-#75 behaviour), 0 means tear down
+        // as soon as the handler returns. So test for the key's presence rather
+        // than coalescing a missing value to 0.
+        let onStoppedHandleValue = workerConfig["onStoppedHandle"]
+        let onStoppedHandle = (onStoppedHandleValue as? NSNumber)?.int64Value
+                           ?? (onStoppedHandleValue as? Int64)
+        let onStoppedId = workerConfig["onStoppedId"] as? String
+        let hasCancelGrace = workerConfig["cancelGraceMs"] != nil
+            && !(workerConfig["cancelGraceMs"] is NSNull)
+        let cancelGraceMsValue: Int64? = hasCancelGrace
+            ? ((workerConfig["cancelGraceMs"] as? NSNumber)?.int64Value
+                ?? (workerConfig["cancelGraceMs"] as? Int64))
+            : nil
+
         guard let channel = methodChannel else {
             let handleValue = workerConfig["callbackHandle"]
             guard let callbackHandle = (handleValue as? NSNumber)?.int64Value
@@ -606,6 +628,22 @@ extension NativeWorkmanagerPlugin {
                 return WorkerResult.failure(message: "DartCallbackWorker: missing callbackHandle for background execution")
             }
             NativeLogger.d("DartCallbackWorker: No main channel — using FlutterEngineManager for '\(callbackId)'")
+            // Issue #75: killed-app / headless path. The stop handler must be
+            // addressed by HANDLE here — this engine never ran initialize(), so
+            // it has no onStoppedHandlers registry to resolve an id against.
+            if let onStoppedHandle = onStoppedHandle {
+                DartTaskCancellationRegistry.shared.registerStopNotifier(
+                    taskId, cancelGraceMs: cancelGraceMsValue
+                ) { graceMs in
+                    FlutterEngineManager.shared.notifyDartTaskStopped(
+                        onStoppedHandle: onStoppedHandle,
+                        onStoppedId: onStoppedId,
+                        input: input,
+                        taskId: taskId,
+                        cancelGraceMs: graceMs
+                    )
+                }
+            }
             do {
                 let success: Bool
                 if let timeoutMs = timeoutMsValue {
@@ -624,6 +662,27 @@ extension NativeWorkmanagerPlugin {
         }
 
         NativeLogger.d("DartCallbackWorker: Executing '\(callbackId)' via main method channel")
+        // Issue #75: foreground / simulator path — the real execution path on
+        // iOS outside a killed-app background launch. The main isolate DID run
+        // initialize(), so it resolves the handler by ID out of
+        // `onStoppedHandlers`; only the headless path needs the raw handle.
+        // Registering only when an id is present keeps a task that opted out
+        // from paying for a channel round-trip on every cancel.
+        if let onStoppedId = onStoppedId {
+            DartTaskCancellationRegistry.shared.registerStopNotifier(
+                taskId, cancelGraceMs: cancelGraceMsValue
+            ) { [weak self] graceMs in
+                guard let channel = self?.methodChannel else { return }
+                DispatchQueue.main.async {
+                    channel.invokeMethod("onDartTaskStopped", arguments: [
+                        "onStoppedId": onStoppedId,
+                        "input": input,
+                        "taskId": taskId,
+                        "cancelGraceMs": graceMs as Any?
+                    ] as [String: Any?])
+                }
+            }
+        }
         return await withCheckedContinuation { continuation in
             DispatchQueue.main.async {
                 var args: [String: Any?] = [

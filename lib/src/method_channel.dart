@@ -8,7 +8,8 @@ import 'package:flutter/services.dart';
 import 'battery_restriction.dart';
 import 'constraints.dart';
 import 'events.dart';
-import 'native_work_manager.dart' show resolveDispatcherTimeout;
+import 'native_work_manager.dart'
+    show resolveDispatcherTimeout, resolveStopHandlerBudget;
 import 'platform_interface.dart';
 import 'remote_trigger.dart';
 import 'task_trigger.dart';
@@ -53,6 +54,9 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
   final _completedTaskIds = <String>{};
 
   Future<bool> Function(String, Map<String, dynamic>?)? _callbackExecutor;
+
+  /// Issue #75: runs a DartWorker's stop handler on the main isolate.
+  Future<void> Function(String, Map<String, dynamic>?)? _stoppedExecutor;
 
   /// Session start time (ms). Used to drop stale events from previous app runs.
   int _sessionStartTime = 0;
@@ -163,6 +167,13 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
     switch (call.method) {
       case 'executeDartCallback':
         return _executeDartCallback(call.arguments as Map<dynamic, dynamic>);
+      case 'onDartTaskStopped':
+        // Issue #75. The headless isolate gets this on
+        // `dev.brewkits/dart_worker_channel` inside `_callbackDispatcher`; this
+        // is the main-isolate twin, which is the real execution path for iOS
+        // foreground and the simulator. Shipping only one of the two is what
+        // left iOS broken between #40 and #41.
+        return _onDartTaskStopped(call.arguments as Map<dynamic, dynamic>);
       default:
         throw MissingPluginException('Unknown method: ${call.method}');
     }
@@ -209,11 +220,69 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
     );
   }
 
+  /// Run the stop handler for a task the platform has stopped (issue #75).
+  ///
+  /// Never throws and never propagates a handler error: by the time this
+  /// arrives the task is already being torn down, so the only thing an
+  /// exception here could achieve is replacing a useful native log line with a
+  /// channel error. Returns once the handler completes or [kStopHandlerBudget]
+  /// elapses — native applies its own grace on top, so this bound only stops a
+  /// wedged handler from holding the channel reply open forever.
+  Future<void> _onDartTaskStopped(Map<dynamic, dynamic> args) async {
+    final onStoppedId = args['onStoppedId'] as String?;
+    if (onStoppedId == null || onStoppedId.isEmpty) return;
+
+    final executor = _stoppedExecutor;
+    if (executor == null) {
+      developer.log(
+        '[NativeWorkManager] Task stopped, but no onStopped executor is '
+        'registered — pass onStoppedHandlers to NativeWorkManager.initialize().',
+      );
+      return;
+    }
+
+    final inputJson = args['input'] as String?;
+    Map<String, dynamic>? input;
+    if (inputJson != null && inputJson.isNotEmpty && inputJson != 'null') {
+      try {
+        final decoded = jsonDecode(inputJson);
+        if (decoded is Map) input = Map<String, dynamic>.from(decoded);
+      } catch (_) {
+        input = {'value': inputJson};
+      }
+    }
+
+    final budget = resolveStopHandlerBudget(args);
+    try {
+      await executor(onStoppedId, input).timeout(budget, onTimeout: () {
+        developer.log(
+          '[NativeWorkManager] onStopped handler "$onStoppedId" did not finish '
+          'within ${budget.inMilliseconds} ms — abandoning it. Keep stop '
+          'handlers short; they run while the task is being torn down.',
+          level: 900,
+        );
+      });
+    } catch (e, st) {
+      developer.log(
+        '[NativeWorkManager] onStopped handler "$onStoppedId" threw: $e',
+        level: 1000,
+        stackTrace: st,
+      );
+    }
+  }
+
   @override
   void setCallbackExecutor(
       Future<bool> Function(String callbackId, Map<String, dynamic>? input)
           executor) {
     _callbackExecutor = executor;
+  }
+
+  @override
+  void setStoppedExecutor(
+      Future<void> Function(String onStoppedId, Map<String, dynamic>? input)
+          executor) {
+    _stoppedExecutor = executor;
   }
 
   @override

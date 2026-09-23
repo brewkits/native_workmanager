@@ -60,6 +60,24 @@ import '../worker.dart';
 /// Returns `true` for success, `false` for failure.
 typedef DartWorkerCallback = Future<bool> Function(Map<String, dynamic>? input);
 
+/// Callback type for [DartWorker.onStoppedId] handlers (issue #75).
+///
+/// Invoked when the platform stops a running DartWorker — an explicit
+/// [NativeWorkManager.cancel], or the OS reclaiming background time (WorkManager
+/// stopping the worker on Android, BGTask expiration on iOS).
+///
+/// [input] is the task's own input plus `__taskId` and `__executionId`, so one
+/// handler can serve several tasks and tell them apart. Additional keys may be
+/// added here over time (a stop *reason* is the next one planned), which is why
+/// this takes a map rather than positional arguments.
+///
+/// This is a **notification, not preemption**: returning from this handler does
+/// not abort whatever the worker callback is currently `await`-ing — Dart has no
+/// API to do that. Use it to persist progress and release resources, and return
+/// promptly; the budget is [DartWorker.cancelGrace].
+typedef DartWorkerStoppedCallback = Future<void> Function(
+    Map<String, dynamic>? input);
+
 /// Dart callback worker for custom logic (requires Flutter Engine).
 ///
 /// Executes Dart code in a background isolate. This starts the Flutter Engine,
@@ -318,7 +336,23 @@ final class DartWorker extends Worker {
     this.input,
     this.autoDispose = false,
     this.timeoutMs,
+    this.onStoppedId,
+    this.cancelGrace,
   }) {
+    if (onStoppedId != null && onStoppedId!.isEmpty) {
+      throw ArgumentError(
+        'onStoppedId cannot be empty. '
+        'Use the ID you registered in NativeWorkManager.initialize('
+        'onStoppedHandlers: ...), or omit it entirely.',
+      );
+    }
+    if (cancelGrace != null && cancelGrace!.isNegative) {
+      throw ArgumentError(
+        'cancelGrace cannot be negative (got $cancelGrace). '
+        'Use null for notify-only, or Duration.zero to tear down as soon as '
+        'the onStopped handler returns.',
+      );
+    }
     if (callbackId.isEmpty) {
       throw ArgumentError(
         'callbackId cannot be empty. '
@@ -394,6 +428,76 @@ final class DartWorker extends Worker {
   /// ```
   final bool autoDispose;
 
+  /// ID of a registered [DartWorkerStoppedCallback] to notify when this task is
+  /// stopped mid-flight (issue #75).
+  ///
+  /// Must match a key in the `onStoppedHandlers` map passed to
+  /// [NativeWorkManager.initialize]. Fires on explicit cancellation and on the
+  /// OS reclaiming background time (WorkManager stopping the worker on Android,
+  /// BGTask expiration on iOS).
+  ///
+  /// Leave `null` if you'd rather poll [NativeWorkManager.isTaskCancelled] from
+  /// inside the callback — both mechanisms work, and they compose.
+  ///
+  /// ```dart
+  /// Future<void> onSyncStopped(Map<String, dynamic>? input) async {
+  ///   await db.markInterrupted(input?['__taskId'] as String?);
+  /// }
+  ///
+  /// await NativeWorkManager.initialize(
+  ///   dartWorkers: {'sync': syncCallback},
+  ///   onStoppedHandlers: {'syncStopped': onSyncStopped},
+  /// );
+  ///
+  /// DartWorker(callbackId: 'sync', onStoppedId: 'syncStopped')
+  /// ```
+  final String? onStoppedId;
+
+  /// How long the worker may keep running after it has been told to stop
+  /// (issue #75).
+  ///
+  /// This is the budget for the [onStoppedId] handler, and it also decides
+  /// whether the Flutter Engine is torn down afterwards:
+  ///
+  /// - `null` *(default)* — **notify only.** The handler still runs under a
+  ///   bounded internal budget, but the engine is never force-disposed, so an
+  ///   uncooperative callback keeps running until it finishes on its own. This
+  ///   is exactly the v1.8.x behaviour plus a notification, so upgrading cannot
+  ///   change how an existing task behaves.
+  /// - `Duration.zero` — tear down as soon as the handler returns.
+  /// - a positive duration — tear down once the handler returns **or** this
+  ///   elapses, whichever comes first.
+  ///
+  /// ## ⚠️ On iOS, teardown applies to background execution only
+  ///
+  /// The **notification** fires wherever the callback runs. The **teardown**
+  /// needs an engine that is safe to destroy, and on iOS only one of the two
+  /// execution paths has one:
+  ///
+  /// - **Killed-app background** (`BGTaskScheduler`) runs on the plugin's own
+  ///   headless engine — torn down, same as Android.
+  /// - **Foreground / simulator** runs on the *host app's* Flutter engine.
+  ///   That engine is never disposed; doing so would kill the app. A callback
+  ///   there keeps running until it returns on its own, so poll
+  ///   [NativeWorkManager.isTaskCancelled] inside it if you need it to stop
+  ///   early.
+  ///
+  /// Android has no such split — every `DartWorker` runs on the headless
+  /// engine, so teardown always applies.
+  ///
+  /// ## ⚠️ Teardown is not per-task
+  ///
+  /// The background Flutter Engine is **shared** by all concurrently running
+  /// DartWorkers, so it can only be disposed when nothing else is in flight —
+  /// disposing while another task still holds the method channel crashes the
+  /// process. When a sibling task is running, the cancelled task is left to
+  /// finish on its own and the teardown is skipped with a warning. Treat this
+  /// as a best-effort stop, not a guarantee.
+  ///
+  /// A teardown is a **hard kill**: no `finally`, no `await` resumes after it.
+  /// Anything that must survive belongs in the [onStoppedId] handler.
+  final Duration? cancelGrace;
+
   @override
   String get workerClassName => 'DartCallbackWorker';
 
@@ -404,6 +508,8 @@ final class DartWorker extends Worker {
         'input': input != null ? jsonEncode(input) : null,
         'autoDispose': autoDispose,
         if (timeoutMs != null) 'timeoutMs': timeoutMs,
+        if (onStoppedId != null) 'onStoppedId': onStoppedId,
+        if (cancelGrace != null) 'cancelGraceMs': cancelGrace!.inMilliseconds,
       };
 }
 
@@ -421,6 +527,9 @@ final class DartWorkerInternal extends Worker {
     this.input,
     this.autoDispose = false,
     this.timeoutMs,
+    this.onStoppedId,
+    this.onStoppedHandle,
+    this.cancelGraceMs,
   });
 
   /// ID of the registered callback.
@@ -439,6 +548,18 @@ final class DartWorkerInternal extends Worker {
   /// `null` means use the platform default (5 min).
   final int? timeoutMs;
 
+  /// ID of the registered stop handler, for the main-isolate path (issue #75).
+  final String? onStoppedId;
+
+  /// Serializable handle of the stop handler, for the headless-isolate path
+  /// (issue #75). The background isolate never runs `initialize()`, so it has
+  /// no registry to look [onStoppedId] up in and must resolve by handle.
+  final int? onStoppedHandle;
+
+  /// Grace budget in milliseconds. `null` means notify-only — never tear the
+  /// engine down. See [DartWorker.cancelGrace].
+  final int? cancelGraceMs;
+
   @override
   String get workerClassName => 'DartCallbackWorker';
 
@@ -450,5 +571,8 @@ final class DartWorkerInternal extends Worker {
         'input': input != null ? jsonEncode(input) : null,
         'autoDispose': autoDispose,
         if (timeoutMs != null) 'timeoutMs': timeoutMs,
+        if (onStoppedId != null) 'onStoppedId': onStoppedId,
+        if (onStoppedHandle != null) 'onStoppedHandle': onStoppedHandle,
+        if (cancelGraceMs != null) 'cancelGraceMs': cancelGraceMs,
       };
 }

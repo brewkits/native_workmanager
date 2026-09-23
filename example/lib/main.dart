@@ -12,6 +12,7 @@ import 'pages/case_study_page.dart';
 import 'pages/progress_tracking_demo_page.dart';
 import 'pages/cold_start_demo_page.dart';
 import 'pages/fgs_bypass_demo_page.dart';
+import 'pages/stop_handler_demo_page.dart';
 import 'examples/chain_resilience_test.dart';
 import 'examples/chain_data_flow_demo.dart';
 import 'screens/bug_fix_demo_screen.dart';
@@ -115,6 +116,15 @@ void main() async {
       'media_processor': mediaProcessorCallback,
       'large_payload': largePayloadWorkerCallback,
       'coldStartWorker': _coldStartWorkerCallbackMain,
+      // Issue #75 demo — identical callbacks bar one line: one polls
+      // isTaskCancelled(), the other never does.
+      'stop_demo_cooperative': stopDemoCooperative,
+      'stop_demo_stubborn': stopDemoStubborn,
+    },
+    // Issue #75: stop handlers live in their own registry — a
+    // DartWorkerStoppedCallback returns void, so it cannot share dartWorkers.
+    onStoppedHandlers: {
+      'stop_demo_on_stopped': stopDemoOnStopped,
     },
   );
 
@@ -315,6 +325,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
     'Data Flow',
     'Cold-Start Persistence',
     'FGS Bypass',
+    'Stop Handler (#75)',
   ];
 
   @override
@@ -545,6 +556,7 @@ class _DemoHomePageState extends State<DemoHomePage> {
                           const ChainDataFlowDemo(), // 15
                           const ColdStartDemoPage(), // 16
                           const FgsBypassDemoPage(), // 17
+                          const StopHandlerDemoPage(), // 18
                         ],
                       ),
                     ),
@@ -700,6 +712,10 @@ class _DemoHomePageState extends State<DemoHomePage> {
           const NavigationDrawerDestination(
             icon: Icon(Icons.notification_important_outlined),
             label: Text('FGS Bypass'),
+          ),
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.pan_tool_outlined),
+            label: Text('Stop Handler (#75)'),
           ),
         ],
       ),

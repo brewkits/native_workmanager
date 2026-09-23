@@ -259,6 +259,56 @@ Future<bool> _ditCancelPoll(Map<String, dynamic>? input) async {
   return true;
 }
 
+/// Issue #75 regression: https://github.com/brewkits/native_workmanager/issues/75
+///
+/// Deliberately does **not** poll `isTaskCancelled()` — that is the whole
+/// point. #75 adds a *push* stop notification, so the stop handler must fire
+/// even for a callback that never cooperates. Writes its iteration count to
+/// `counterFile` so the test can tell whether teardown actually stopped it.
+@pragma('vm:entry-point')
+Future<bool> _ditStopNoPoll(Map<String, dynamic>? input) async {
+  final counterFile = input?['counterFile'] as String?;
+  for (var i = 1; i <= 50; i++) {
+    if (counterFile != null) {
+      File(counterFile).writeAsStringSync('$i');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+  }
+  print('[DartWorker] dit_stop_no_poll: ran all iterations');
+  return true;
+}
+
+/// Wait (bounded) for a DartWorker callback to create [file].
+///
+/// Issue #75: a fixed delay is not enough to know a callback has started — a
+/// cold Flutter engine boot alone is 500-1000ms, so whether a fixed wait is long
+/// enough depends on whether an earlier test happened to warm the engine.
+Future<bool> _waitForFile(
+  File file, {
+  Duration timeout = const Duration(seconds: 10),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (DateTime.now().isBefore(deadline)) {
+    if (file.existsSync()) return true;
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+  }
+  return file.existsSync();
+}
+
+/// Issue #75: the stop handler itself. Records the `__taskId` the native side
+/// forwarded, so the test proves both that the handler ran and that it could
+/// tell *which* task stopped — the bridge carrying `__taskId` is the part that
+/// a dropped forward would break.
+@pragma('vm:entry-point')
+Future<void> _ditOnStopped(Map<String, dynamic>? input) async {
+  final markerFile = input?['markerFile'] as String?;
+  final taskId = input?['__taskId'] as String? ?? '<none>';
+  print('[DartWorker] dit_on_stopped: fired for taskId=$taskId');
+  if (markerFile != null) {
+    File(markerFile).writeAsStringSync(taskId);
+  }
+}
+
 @pragma('vm:entry-point')
 Future<bool> _workflowFinalizer(Map<String, dynamic>? input) async {
   print('[DartWorker] _workflowFinalizer starting...');
@@ -301,7 +351,13 @@ void main() {
         'dit_progress': _ditProgress,
         'dit_retry_counter': _ditRetryCounter,
         'dit_cancel_poll': _ditCancelPoll,
+        'dit_stop_no_poll': _ditStopNoPoll,
         'workflow_finalizer': _workflowFinalizer,
+      },
+      // Issue #75: stop handlers live in their own registry — a
+      // DartWorkerStoppedCallback returns void, so it cannot share dartWorkers.
+      onStoppedHandlers: {
+        'dit_on_stopped': _ditOnStopped,
       },
     );
 
@@ -1760,6 +1816,147 @@ void main() {
           reason:
               'issue_66: iteration count must not still be climbing '
               '2s later — the callback should have returned, not kept working',
+        );
+      },
+    );
+
+    testWidgets(
+      'issue_75: cancelling a DartWorker fires its onStopped handler even when '
+      'the callback never polls isTaskCancelled',
+      (tester) async {
+        // https://github.com/brewkits/native_workmanager/issues/75 — follow-up
+        // to discussion #66. Before #75 the only way a callback could learn it
+        // had been stopped was to poll isTaskCancelled() itself. dit_stop_no_poll
+        // deliberately never polls, so if the marker file appears it can only be
+        // because the native side pushed the notification through the bridge and
+        // the handler resolved and ran.
+        //
+        // This is the end-to-end leg the unit tests cannot cover: they drive the
+        // inbound channel message directly, which proves the Dart consumer works
+        // but says nothing about whether Kotlin/Swift actually send it. A mocked
+        // channel also cannot reproduce the real teardown race — the lesson from
+        // #66, where the Android registry fix was unit-green while being a
+        // complete no-op on hardware.
+        final id = _id('issue_75_on_stopped');
+        final counterFile = File('${tmpDir.path}/issue_75_counter.txt');
+        final markerFile = File('${tmpDir.path}/issue_75_stopped.txt');
+        for (final f in [counterFile, markerFile]) {
+          if (f.existsSync()) f.deleteSync();
+        }
+
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: DartWorker(
+            callbackId: 'dit_stop_no_poll',
+            onStoppedId: 'dit_on_stopped',
+            cancelGrace: const Duration(seconds: 2),
+            input: {
+              'counterFile': counterFile.path,
+              'markerFile': markerFile.path,
+            },
+          ),
+        );
+
+        // Poll rather than sleep a fixed 600ms: a COLD Flutter engine boot is
+        // 500-1000ms on its own, so a fixed wait makes the precondition below
+        // fail purely on ordering (it passes when an earlier test already
+        // warmed the engine, fails when this test runs first). Device-caught on
+        // a Pixel 6 Pro running this test in isolation.
+        final started = await _waitForFile(counterFile);
+        expect(
+          started,
+          isTrue,
+          reason: 'issue_75: the callback must have started before being '
+              'cancelled, or this test proves nothing',
+        );
+
+        await NativeWorkManager.cancel(taskId: id);
+
+        // The handler runs during teardown — give the round-trip room.
+        await Future.delayed(const Duration(seconds: 3));
+
+        expect(
+          markerFile.existsSync(),
+          isTrue,
+          reason: 'issue_75: the onStopped handler never ran. Either the native '
+              'side did not invoke onTaskStopped/onDartTaskStopped, or the '
+              'handle/id never crossed the bridge.',
+        );
+        expect(
+          markerFile.readAsStringSync().trim(),
+          equals(id),
+          reason: 'issue_75: the handler ran but did not receive __taskId, so a '
+              'shared handler could not tell which task stopped',
+        );
+      },
+    );
+
+    testWidgets(
+      'issue_75: cancelGrace tears the engine down, stopping an uncooperative '
+      'callback that would otherwise run to completion (Android)',
+      (tester) async {
+        // The teardown half of #75. dit_stop_no_poll runs 50 × 200ms = 10s and
+        // never checks for cancellation, so pre-#75 (and with cancelGrace unset)
+        // it keeps counting all the way to 50 after a cancel. With cancelGrace
+        // set, the engine is disposed once the grace elapses and the counter
+        // must stall well short of 50.
+        //
+        // iOS is skipped for a harness reason, not a behavioural one: teardown
+        // IS implemented there (FlutterEngineManager.disposeAfterCancelIfIdle),
+        // but only for the killed-app BGTaskScheduler path, which runs on the
+        // plugin's headless engine. A foreground/simulator run — which is what
+        // this suite is — executes on the host app's own engine, and that is
+        // never disposed because it would kill the app under the test. Covering
+        // the iOS teardown needs a killed-app BGTask launch on physical
+        // hardware, which this harness cannot drive.
+        if (!Platform.isAndroid) {
+          markTestSkipped(
+            'issue_75: teardown only applies to the headless engine; an iOS '
+            'foreground run uses the host app engine, which is never disposed',
+          );
+          return;
+        }
+
+        final id = _id('issue_75_grace_teardown');
+        final counterFile = File('${tmpDir.path}/issue_75_grace_counter.txt');
+        if (counterFile.existsSync()) counterFile.deleteSync();
+
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: DartWorker(
+            callbackId: 'dit_stop_no_poll',
+            onStoppedId: 'dit_on_stopped',
+            cancelGrace: Duration.zero, // tear down as soon as the handler returns
+            autoDispose: true,
+            input: {'counterFile': counterFile.path},
+          ),
+        );
+
+        expect(await _waitForFile(counterFile), isTrue,
+            reason: 'issue_75: the callback must have started before cancel');
+        await NativeWorkManager.cancel(taskId: id);
+
+        // Past the grace, the engine should be gone and the counter frozen.
+        await Future.delayed(const Duration(seconds: 2));
+        final afterTeardown = int.parse(counterFile.readAsStringSync().trim());
+
+        await Future.delayed(const Duration(seconds: 3));
+        final later = int.parse(counterFile.readAsStringSync().trim());
+
+        expect(
+          later,
+          equals(afterTeardown),
+          reason: 'issue_75: the counter is still climbing after cancelGrace '
+              'elapsed — the engine was never torn down, so an uncooperative '
+              'callback still runs to completion',
+        );
+        expect(
+          later,
+          lessThan(45),
+          reason: 'issue_75: the callback got essentially all 50 iterations, '
+              'meaning teardown never happened',
         );
       },
     );
