@@ -47,6 +47,28 @@ class TaskNode {
       'constraints': constraints.toMap(),
     };
   }
+
+  /// Same shape as [toMap], but with [worker]/[constraints] run through
+  /// [NativeWorkManager.resolveWorkerForWire] first — so a [DartWorker] node
+  /// carries a resolved callback handle instead of reaching native with none
+  /// at all (found by the 2026-09-23 lib/ audit: [toMap] alone never did this
+  /// conversion, unlike [NativeWorkManager.enqueue] and task chains).
+  ///
+  /// Kept separate from [toMap] so a plain `toMap()` call — used in tests,
+  /// docs examples, debug printing — never requires
+  /// `NativeWorkManager.initialize()` to have run. Only [enqueueTaskGraph]
+  /// calls this, at the moment a graph is actually sent to native.
+  Map<String, dynamic> _toResolvedMap() {
+    final (resolvedWorker, resolvedConstraints) =
+        NativeWorkManager.resolveWorkerForWire(worker, constraints);
+    return {
+      'id': id,
+      'workerClassName': resolvedWorker.workerClassName,
+      'workerConfig': resolvedWorker.toMap(),
+      'dependsOn': dependsOn,
+      'constraints': (resolvedConstraints ?? constraints).toMap(),
+    };
+  }
 }
 
 /// A directed acyclic graph (DAG) of background tasks.
@@ -214,6 +236,16 @@ class TaskGraph {
     return {
       'id': id,
       'nodes': _nodes.map((n) => n.toMap()).toList(),
+    };
+  }
+
+  /// Same shape as [toMap], but every node goes through
+  /// [TaskNode._toResolvedMap] first. See that method for why this is
+  /// separate from [toMap].
+  Map<String, dynamic> _toResolvedMap() {
+    return {
+      'id': id,
+      'nodes': _nodes.map((n) => n._toResolvedMap()).toList(),
     };
   }
 }
@@ -462,7 +494,7 @@ Future<GraphExecution> enqueueTaskGraph(TaskGraph graph) async {
 
   // 1. Send graph to native for persistent orchestration.
   // This ensures the graph continues even if the app is killed.
-  await NativeWorkManagerPlatform.instance.enqueueGraph(graph.toMap());
+  await NativeWorkManagerPlatform.instance.enqueueGraph(graph._toResolvedMap());
 
   // 2. Start the Dart-side listener so we can resolve the result future
   // if the app stays alive.

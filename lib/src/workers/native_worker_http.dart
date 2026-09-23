@@ -459,11 +459,19 @@ MultiUploadWorker _buildMultiUpload({
   Duration timeout = const Duration(minutes: 10),
   bool useBackgroundSession = false,
 }) {
+  // These two validators were missing entirely until the 2026-09-23 lib/
+  // audit — every other HTTP worker in this file calls them, but this one
+  // didn't, so multiUpload() bypassed HTTPS enforcement, SSRF/private-IP
+  // blocking, and path-traversal checks.
+  NativeWorker._validateUrl(url);
   if (files.isEmpty) {
     throw ArgumentError('files must not be empty');
   }
   if (files.length > 50) {
     throw ArgumentError('Maximum 50 files per upload request');
+  }
+  for (final file in files) {
+    NativeWorker._validateFilePath(file.filePath, 'files[].filePath');
   }
   return MultiUploadWorker(
     url: url,
@@ -496,6 +504,13 @@ MoveToSharedStorageWorker _buildMoveToSharedStorage({
   String? mimeType,
   String? subDir,
 }) {
+  // Missing entirely until the 2026-09-23 lib/ audit: sourcePath reached
+  // native with no path-traversal check, and subDir (which feeds
+  // MediaStore.RELATIVE_PATH on Android) wasn't checked at all.
+  NativeWorker._validateFilePath(sourcePath, 'sourcePath');
+  if (subDir != null) {
+    NativeWorker._validateRelativeSegment(subDir, 'subDir');
+  }
   return MoveToSharedStorageWorker(
     sourcePath: sourcePath,
     storageType: storageType,

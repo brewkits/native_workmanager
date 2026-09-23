@@ -16,6 +16,7 @@ extension NativeWorkmanagerPlugin {
             activeTasks.keys.forEach { DartTaskCancellationRegistry.shared.markCancelled($0) }
             activeTasks.values.forEach { $0.cancel() }
             activeTasks.removeAll()
+            activeTaskGenerations.removeAll() // see its doc comment on NativeWorkmanagerPlugin
             taskStates.removeAll()
             taskTags.removeAll()
             workers.values.forEach { $0.stop() }
@@ -53,6 +54,7 @@ extension NativeWorkmanagerPlugin {
                 DartTaskCancellationRegistry.shared.markCancelled(taskId) // issue #66
                 activeTasks[taskId]?.cancel()
                 activeTasks.removeValue(forKey: taskId)
+                activeTaskGenerations.removeValue(forKey: taskId) // see its doc comment
                 taskStates[taskId] = .cancelled
                 taskTags.removeValue(forKey: taskId)
                 workers[taskId]?.stop()
@@ -74,6 +76,7 @@ extension NativeWorkmanagerPlugin {
                 stateQueue.async(flags: .barrier) {
                     self.activeTasks[taskId]?.cancel()
                     self.activeTasks.removeValue(forKey: taskId)
+                    self.activeTaskGenerations.removeValue(forKey: taskId) // see its doc comment
                     self.taskStates[taskId] = .cancelled
                     self.taskTags.removeValue(forKey: taskId)
                     self.workers[taskId]?.stop()

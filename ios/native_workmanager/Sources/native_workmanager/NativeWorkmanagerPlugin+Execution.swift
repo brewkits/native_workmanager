@@ -578,24 +578,36 @@ extension NativeWorkmanagerPlugin {
         workerConfig: [String: Any],
         taskId: String
     ) async -> WorkerResult {
-        // Issue #66: whichever branch below runs, always drop this taskId's
-        // cancellation-registry entry once execution is done — otherwise a
-        // cancelled taskId (or, worse, a reused one on a later run) leaks or
-        // misreports "cancelled" forever.
-        defer { DartTaskCancellationRegistry.shared.clear(taskId) }
-        // Issue #75: clear() above already drops the stop notifier, but be
-        // explicit — an early `return` on a config error below must not leave a
-        // notifier behind that a later cancel of the same taskId would fire.
-        defer { DartTaskCancellationRegistry.shared.clearStopNotifier(taskId) }
+        // Issue #72: mint a fresh executionId for THIS invocation, distinct
+        // from taskId, mirroring Android's DartCallbackWorker (which mints
+        // one per doWork() call). handleEnqueue's existingPolicy: .replace
+        // can cancel an outgoing execution and start a new one under the SAME
+        // taskId — a bare taskId-keyed cancellation mark cannot tell the two
+        // apart, so this is what lets isTaskCancelled() resolve against the
+        // specific execution polling it rather than whichever one happens to
+        // share its taskId. Registered immediately so a replace racing in
+        // concurrently always has something to resolve to.
+        let executionId = UUID().uuidString
+        DartTaskCancellationRegistry.shared.beginExecution(executionId, taskId: taskId)
+        // Issue #66/#72: whichever branch below runs, always drop this
+        // execution's cancellation-registry entry once it's done — otherwise
+        // a cancelled execution (or, worse, a reused taskId on a later run)
+        // leaks or misreports "cancelled" forever. Scoped to executionId, not
+        // taskId, so a slow-finishing outgoing execution's cleanup can never
+        // wipe a replacing execution's tracking or stop notifier out from
+        // under it (endExecution only clears taskId-level state if it still
+        // points at this executionId) — see DartTaskCancellationRegistry.
+        defer { DartTaskCancellationRegistry.shared.endExecution(executionId, taskId: taskId) }
 
         guard let callbackId = workerConfig["callbackId"] as? String else {
             return WorkerResult.failure(message: "DartCallbackWorker: missing callbackId in config")
         }
-        // Inject __taskId into the input JSON so the Dart callback can call
-        // NativeWorkManager.reportDartWorkerProgress(). The Dart side only receives
-        // the inner "input" string — mirror Android's DartCallbackWorker, which merges
-        // the outer __taskId into that inner object before forwarding to Dart.
-        let input = Self.mergeTaskId(into: workerConfig["input"] as? String, taskId: taskId)
+        // Inject __taskId (progress reporting) and __executionId (issue #72
+        // cancellation precision) into the input JSON. The Dart side only
+        // receives the inner "input" string — mirrors Android's
+        // DartCallbackWorker, which merges both into that inner object before
+        // forwarding to Dart.
+        let input = Self.mergeTaskId(into: workerConfig["input"] as? String, taskId: taskId, executionId: executionId)
 
         // Honor user-configured DartWorker.timeoutMs across both execution paths
         // (foreground main-channel and killed-app FlutterEngineManager fallback).
@@ -709,11 +721,12 @@ extension NativeWorkmanagerPlugin {
         }
     }
 
-    /// Merge `__taskId` into a DartWorker input JSON string so the callback can
-    /// report progress. Returns a JSON object string. Mirrors Android's
-    /// DartCallbackWorker input enrichment; falls back to the original string if
-    /// the input is a non-object JSON that cannot carry the key.
-    static func mergeTaskId(into inputJson: String?, taskId: String) -> String? {
+    /// Merge `__taskId` (progress reporting) and, when given, `__executionId`
+    /// (issue #72 cancellation precision) into a DartWorker input JSON
+    /// string. Returns a JSON object string. Mirrors Android's
+    /// DartCallbackWorker input enrichment; falls back to the original string
+    /// if the input is a non-object JSON that cannot carry the keys.
+    static func mergeTaskId(into inputJson: String?, taskId: String, executionId: String? = nil) -> String? {
         var obj: [String: Any] = [:]
         if let json = inputJson, !json.isEmpty, json != "null" {
             if let data = json.data(using: .utf8),
@@ -725,6 +738,9 @@ extension NativeWorkmanagerPlugin {
             }
         }
         obj["__taskId"] = taskId
+        if let executionId {
+            obj["__executionId"] = executionId
+        }
         guard let merged = try? JSONSerialization.data(withJSONObject: obj),
               let mergedString = String(data: merged, encoding: .utf8) else {
             return inputJson

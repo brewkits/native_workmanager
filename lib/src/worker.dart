@@ -59,27 +59,55 @@ class NativeWorker {
   NativeWorker._();
 
   /// Validate URL format and throw helpful error if invalid.
-  static void _validateUrl(String url) {
+  static void _validateUrl(String url) => _validateUrlWithSchemes(
+        url,
+        insecureScheme: 'http',
+        secureScheme: 'https',
+        example: 'https://api.example.com/endpoint',
+      );
+
+  /// Validate a WebSocket URL. Same checks as [_validateUrl] (null-byte /
+  /// injection / HTTPS-equivalent enforcement / private-IP blocking), just
+  /// against `ws`/`wss` instead of `http`/`https`.
+  ///
+  /// Added by the 2026-09-23 lib/ audit: `NativeWorker.webSocket()` used to
+  /// accept any string with a `ws://`/`wss://` prefix and nothing else —
+  /// `enforceHttps(true)` had no effect on it, and it never blocked private
+  /// IPs, unlike every HTTP-based worker.
+  static void _validateWebSocketUrl(String url) => _validateUrlWithSchemes(
+        url,
+        insecureScheme: 'ws',
+        secureScheme: 'wss',
+        example: 'wss://api.example.com/socket',
+      );
+
+  static void _validateUrlWithSchemes(
+    String url, {
+    required String insecureScheme,
+    required String secureScheme,
+    required String example,
+  }) {
     _validateInput(url, 'URL', isUrl: true);
     if (url.isEmpty) {
       throw ArgumentError(
         'URL cannot be empty.\n'
-        'Provide a valid HTTP/HTTPS URL like "https://api.example.com/endpoint"',
+        'Provide a valid $insecureScheme:// or $secureScheme:// URL like "$example"',
       );
     }
 
     final uri = Uri.tryParse(url);
     if (uri == null ||
-        (!uri.hasScheme || (uri.scheme != 'http' && uri.scheme != 'https'))) {
+        (!uri.hasScheme ||
+            (uri.scheme != insecureScheme && uri.scheme != secureScheme))) {
       throw ArgumentError(
         'Invalid URL format: "$url"\n'
-        'URL must start with http:// or https://\n'
-        'Example: "https://api.example.com/endpoint"',
+        'URL must start with $insecureScheme:// or $secureScheme://\n'
+        'Example: "$example"',
       );
     }
 
-    // SECURITY: Enforce HTTPS if configured
-    if (NativeWorkManager.enforceHttps && uri.scheme == 'http') {
+    // SECURITY: Enforce the secure scheme if configured
+    if (NativeWorkManager.enforceHttps && uri.scheme == insecureScheme) {
       throw ArgumentError(
         'Insecure URL blocked: "$url"\n'
         'HTTPS is enforced by NativeWorkManager.initialize(enforceHttps: true)',
@@ -164,6 +192,35 @@ class NativeWorker {
       );
     }
   }
+
+  /// Validate a relative sub-path segment (e.g. [moveToSharedStorage]'s
+  /// `subDir`) for path traversal and injection, without requiring it to be
+  /// absolute — unlike [_validatePath], a relative segment is exactly what
+  /// these fields are meant to carry (Android's `MediaStore.RELATIVE_PATH`
+  /// / iOS's app-Documents subfolder).
+  static void _validateRelativeSegment(String value, String label) {
+    _validateInput(value, label, isUrl: false);
+    final normalized = value.toLowerCase();
+    if (normalized.contains('..') || normalized.contains('%2e%2e')) {
+      throw ArgumentError(
+          '$label cannot contain ".." or encoded dot-segments (path traversal attempt blocked).');
+    }
+  }
+
+  /// Validates [url] the same way every built-in HTTP worker's
+  /// `NativeWorker.*` factory does. Exposed (not private) so a package
+  /// `Worker` subclass with no `NativeWorker.*` factory of its own — e.g.
+  /// [ParallelHttpUploadWorker], whose constructor is the only entry point —
+  /// can still call the same check from its own file. Not part of the public
+  /// API surface.
+  @internal
+  static void validateUrlForWorkerConstructor(String url) => _validateUrl(url);
+
+  /// Validates [path] the same way every built-in file-based worker's
+  /// `NativeWorker.*` factory does. See [validateUrlForWorkerConstructor].
+  @internal
+  static void validateFilePathForWorkerConstructor(String path, String label) =>
+      _validateFilePath(path, label);
 
   /// Validate file path and throw helpful error if invalid.
   static void _validateFilePath(String path, String parameterName) {

@@ -9,7 +9,7 @@ import 'battery_restriction.dart';
 import 'constraints.dart';
 import 'events.dart';
 import 'native_work_manager.dart'
-    show resolveDispatcherTimeout, resolveStopHandlerBudget;
+    show executionIdZoneKey, resolveDispatcherTimeout, resolveStopHandlerBudget;
 import 'platform_interface.dart';
 import 'remote_trigger.dart';
 import 'task_trigger.dart';
@@ -206,17 +206,34 @@ class MethodChannelNativeWorkManager extends NativeWorkManagerPlatform {
     // native-side BGTask deadline (release on a real device) — in tests it
     // ran to completion regardless of timeoutMs. Mirrors the dispatcher.
     final timeoutDuration = resolveDispatcherTimeout(args);
-    return _callbackExecutor!(callbackId, input).timeout(
-      timeoutDuration,
-      onTimeout: () {
-        developer.log(
-          '[NativeWorkManager] DartWorker callback "$callbackId" timed out '
-          'after ${timeoutDuration.inSeconds} s on the main method channel. '
-          'Increase DartWorker.timeoutMs or split the work.',
-          level: 900,
-        );
-        return false;
-      },
+
+    // Issue #72 (iOS foreground/simulator — found by the 2026-09-23 lib/
+    // audit): bind this invocation's executionId into a Zone around the
+    // callback call, exactly like the headless isolate's
+    // `_callbackDispatcher` does. Without this, isTaskCancelled() falls back
+    // to its coarse by-taskId check on this path, which is exactly the
+    // instance-identity bug issue #72 fixed for the headless path — a
+    // DartWorker replaced via `existingPolicy: .replace` (the enqueue()
+    // default) could have its brand-new, legitimate execution mistaken for
+    // the outgoing one it replaced, since both share one taskId. iOS's
+    // `executeDartWorkerViaMethodChannel` mints and injects `__executionId`
+    // into `input` for this exact reason.
+    final executionId = input?['__executionId'] as String?;
+
+    return runZoned(
+      () => _callbackExecutor!(callbackId, input).timeout(
+        timeoutDuration,
+        onTimeout: () {
+          developer.log(
+            '[NativeWorkManager] DartWorker callback "$callbackId" timed out '
+            'after ${timeoutDuration.inSeconds} s on the main method channel. '
+            'Increase DartWorker.timeoutMs or split the work.',
+            level: 900,
+          );
+          return false;
+        },
+      ),
+      zoneValues: {executionIdZoneKey: executionId},
     );
   }
 
