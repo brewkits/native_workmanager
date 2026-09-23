@@ -180,7 +180,8 @@ void main() {
   });
 
   group('Chain-step unregistered DartWorker error message', () {
-    test('is the same helpful message enqueue() gives, not a misleading '
+    test(
+        'is the same helpful message enqueue() gives, not a misleading '
         '"INTERNAL ERROR" — pre-fix, chains skipped the registration check '
         'and fell straight into the internal-error branch meant for a truly '
         'impossible state', () async {
@@ -203,7 +204,8 @@ void main() {
   });
 
   group('Unregistered DartWorker fails loudly instead of silently', () {
-    test('enqueueGraph() rejects with a StateError, not a crash or a silent '
+    test(
+        'enqueueGraph() rejects with a StateError, not a crash or a silent '
         'no-op native call', () async {
       final graph = TaskGraph(id: 'g4')
         ..add(TaskNode(
@@ -220,7 +222,8 @@ void main() {
       expect(mockPlatform.capturedGraphMap, isNull);
     });
 
-    test('registerRemoteTrigger() rejects with a StateError, not a crash or '
+    test(
+        'registerRemoteTrigger() rejects with a StateError, not a crash or '
         'a silent no-op native call', () async {
       await expectLater(
         NativeWorkManager.registerRemoteTrigger(
