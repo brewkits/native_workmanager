@@ -83,6 +83,25 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     var activeTasks: [String: Task<Void, Never>] = [:]
     var workers: [String: IosWorker] = [:]
 
+    /// taskId -> a fresh id minted each time `handleEnqueue`'s direct
+    /// (one-time) path stores a new entry in `activeTasks`. `activeTasks`
+    /// itself is never cleared when a direct task finishes NATURALLY
+    /// (success, failure, or timeout) — only explicit cancel paths
+    /// (handleCancel/cancelAll/cancelByTag/notification-cancel) ever call
+    /// `removeValue`. Before existingPolicy was implemented that was a
+    /// harmless leak (a `Task` value is cheap and nothing read the dict as a
+    /// liveness signal). It is not harmless now: `existingPolicy` reads
+    /// `activeTasks[taskId] != nil` to decide whether a taskId is "still
+    /// running". Confirmed on a simulator (2026-09-23 lib/ audit follow-up):
+    /// re-enqueuing a taskId whose task had already completed, with
+    /// `existingPolicy: .keep`, was silently dropped forever — `.keep` saw
+    /// the stale entry and concluded something was still running. This id
+    /// lets the completing Task's own cleanup remove its `activeTasks` entry
+    /// exactly once it is truly done, while guarding against a replacing
+    /// execution's entry being wiped out from under it (same "clear only if
+    /// still current" pattern as `DartTaskCancellationRegistry.endExecution`).
+    var activeTaskGenerations: [String: UUID] = [:]
+
     @available(iOS 13.0, *)
     var chainStateManager: ChainStateManager { ChainStateManager.shared }
 
@@ -403,8 +422,25 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                 self.workers[taskId]?.stop()
             }
 
+            // See activeTaskGenerations' doc comment: this id is what lets the
+            // Task below tell, once IT finishes, whether it is still the
+            // current occupant of activeTasks[taskId] — a naturally-completing
+            // task must remove its own entry so a later enqueue() doesn't
+            // mistake a long-finished taskId for one still running.
+            let generationId = UUID()
             let task = Task { [weak self] in
                 guard let self else { return }
+                defer {
+                    self.stateQueue.sync(flags: .barrier) {
+                        // Only clear if nothing has replaced us in the meantime —
+                        // a .replace enqueue() racing in after we started but
+                        // before we finish must not have its brand-new entry
+                        // wiped out by our own late cleanup.
+                        guard self.activeTaskGenerations[taskId] == generationId else { return }
+                        self.activeTasks.removeValue(forKey: taskId)
+                        self.activeTaskGenerations.removeValue(forKey: taskId)
+                    }
+                }
                 if initialDelayMs > 0 {
                     try? await Task.sleep(nanoseconds: UInt64(initialDelayMs) * 1_000_000)
                 }
@@ -418,6 +454,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                 )
             }
             self.activeTasks[taskId] = task
+            self.activeTaskGenerations[taskId] = generationId
         }
         if skippedForKeep {
             NativeLogger.d("handleEnqueue: '\(taskId)' already running, existingPolicy=keep — new request ignored")
@@ -445,6 +482,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                 task.cancel()
             }
             activeTasks.removeAll()
+            activeTaskGenerations.removeAll() // see its doc comment
         }
         NativeLogger.w("⚠️ OS Expiration: Stopped all active workers")
     }
@@ -497,6 +535,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         stateQueue.async(flags: .barrier) {
             self.activeTasks[taskId]?.cancel()
             self.activeTasks.removeValue(forKey: taskId)
+            self.activeTaskGenerations.removeValue(forKey: taskId) // see its doc comment
             self.taskStates[taskId] = .cancelled
             self.workers[taskId]?.stop()
         }

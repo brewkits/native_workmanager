@@ -2215,6 +2215,63 @@ void main() {
     );
 
     testWidgets(
+      'lib_audit_3: re-enqueuing a taskId whose previous execution already '
+      'completed runs the new one, regardless of existingPolicy (iOS)',
+      (tester) async {
+        // Found while re-verifying the two tests above: iOS's activeTasks
+        // dict is never cleared when a direct one-time task finishes
+        // NATURALLY (only explicit cancel paths ever call removeValue).
+        // Before existingPolicy read that dict as a liveness signal this was
+        // a harmless leak; the first version of the existingPolicy fix
+        // treated a long-finished taskId as "still running" forever, so
+        // ANY later re-enqueue with existingPolicy.keep was silently
+        // dropped — confirmed with this exact test shape before the second
+        // fix (a per-enqueue generation id, cleared only by the Task that
+        // is still the current occupant of activeTasks[taskId] when it
+        // finishes — mirrors DartTaskCancellationRegistry's "clear only if
+        // still current" guard).
+        if (!Platform.isIOS) {
+          markTestSkipped('iOS foreground existingPolicy path');
+          return;
+        }
+
+        final id = _id('lib_audit_3_keep_after_completion');
+
+        final firstEvent = _waitEvent(id, timeout: const Duration(seconds: 15));
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: DartWorker(callbackId: 'dit_pass'),
+        );
+        final first = await firstEvent;
+        expect(first?.success, isTrue,
+            reason: 'lib_audit_3: the first execution must complete');
+
+        // Give the natural-completion cleanup a moment to run before
+        // re-enqueuing, so this genuinely exercises the "already finished,
+        // not just finishing" case.
+        await Future.delayed(const Duration(seconds: 2));
+
+        final secondEvent =
+            _waitEvent(id, timeout: const Duration(seconds: 15));
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: DartWorker(callbackId: 'dit_pass'),
+          existingPolicy: ExistingTaskPolicy.keep,
+        );
+        final second = await secondEvent;
+        expect(
+          second?.success,
+          isTrue,
+          reason: 'lib_audit_3: a taskId reused after its previous execution '
+              'already completed must run the new request — keep must not '
+              'mistake a long-finished task for one still running',
+        );
+      },
+    );
+
+    testWidgets(
       'issue_69: cancelling a background-session download actually aborts the transfer (iOS)',
       (tester) async {
         // https://github.com/brewkits/native_workmanager/issues/69 — found
