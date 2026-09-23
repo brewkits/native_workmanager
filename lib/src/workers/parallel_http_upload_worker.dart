@@ -68,8 +68,17 @@ final class ParallelHttpUploadWorker extends Worker {
     this.notificationBody,
     this.certificatePinning,
   }) {
+    // Missing entirely until the 2026-09-23 lib/ audit: unlike every other
+    // HTTP worker, this class has no NativeWorker.* factory to gate
+    // construction, so its own constructor is the only place these checks
+    // can live.
+    NativeWorker.validateUrlForWorkerConstructor(url);
     if (files.isEmpty) {
       throw ArgumentError.value(files, 'files', 'must not be empty');
+    }
+    for (final file in files) {
+      NativeWorker.validateFilePathForWorkerConstructor(
+          file.filePath, 'files[].filePath');
     }
     if (maxConcurrent < 1 || maxConcurrent > 16) {
       throw RangeError.range(maxConcurrent, 1, 16, 'maxConcurrent');

@@ -15,14 +15,12 @@ Worker _buildWebSocket({
       'Use a DartWorker with dart:io WebSocket for cross-platform WebSocket support.',
     );
   }
-  if (url.isEmpty) {
-    throw ArgumentError('url cannot be empty for webSocket');
-  }
-  final uri = Uri.tryParse(url);
-  if (uri == null || (uri.scheme != 'ws' && uri.scheme != 'wss')) {
-    throw ArgumentError(
-      'Invalid WebSocket URL: "$url". Must start with ws:// or wss://',
-    );
+  // Was a bare scheme-prefix check until the 2026-09-23 lib/ audit — url
+  // content (injection chars, null bytes) went unchecked, enforceHttps(true)
+  // had no effect on ws:// vs wss://, and blockPrivateIPs didn't apply here.
+  NativeWorker._validateWebSocketUrl(url);
+  if (storeResponseAt != null) {
+    NativeWorker._validateFilePath(storeResponseAt, 'storeResponseAt');
   }
   if (timeoutSeconds <= 0) {
     throw ArgumentError('timeoutSeconds must be > 0, got $timeoutSeconds');
