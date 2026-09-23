@@ -419,6 +419,7 @@ await NativeWorkManager.initialize(
 | Foreground service (long tasks) | ✅ | — |
 | Custom Dart workers | ✅ | ✅ |
 | Min OS version | Android 8.0 (API 26) | iOS 14.0 |
+| Min Flutter | 3.44 | 3.44 |
 
 ---
 

@@ -19,7 +19,10 @@ topics:
 
 environment:
   sdk: '>=3.6.0 <4.0.0'
-  flutter: '>=3.27.0'
+  # 3.44 is the first Flutter that applies the Kotlin Gradle Plugin to plugins
+  # itself — android/build.gradle relies on that since it no longer applies KGP
+  # (issue #76, Built-in Kotlin migration).
+  flutter: '>=3.44.0'
 
 dependencies:
   flutter:
