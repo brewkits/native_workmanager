@@ -36,7 +36,8 @@ void main() {
       expect(map['cancelGraceMs'], 3000);
     });
 
-    test('issue_75: both keys are omitted when unset — notify-only default', () {
+    test('issue_75: both keys are omitted when unset — notify-only default',
+        () {
       // Absence is load-bearing: a missing cancelGraceMs means "never tear the
       // engine down", which is the pre-#75 behaviour. If this key ever starts
       // being emitted as 0 by default, every existing task silently becomes a
@@ -56,7 +57,8 @@ void main() {
       expect(map['cancelGraceMs'], 0);
     });
 
-    test('issue_75: DartWorkerInternal forwards the handle for the headless isolate',
+    test(
+        'issue_75: DartWorkerInternal forwards the handle for the headless isolate',
         () {
       // The background isolate never runs initialize(), so it cannot resolve an
       // id — it needs the raw handle.
@@ -108,7 +110,8 @@ void main() {
       expect(resolveStopHandlerBudget({}), kDefaultStopHandlerBudget);
     });
 
-    test('issue_75: cancelGraceMs 0 still grants the default budget to return in',
+    test(
+        'issue_75: cancelGraceMs 0 still grants the default budget to return in',
         () {
       // 0 governs teardown, not how long the handler may take to return — it
       // still needs a window, or a zero-grace task could never persist anything.
