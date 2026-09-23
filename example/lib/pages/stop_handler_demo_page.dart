@@ -61,16 +61,20 @@ class _StopHandlerDemoPageState extends State<StopHandlerDemoPage> {
     _activeTaskId = taskId;
     setState(_log.clear);
     _addLog('▶️  enqueued $taskId');
-    _addLog(cooperative
-        ? 'callback POLLS isTaskCancelled()'
-        : 'callback does NOT poll — only the handler will fire');
+    _addLog(
+      cooperative
+          ? 'callback POLLS isTaskCancelled()'
+          : 'callback does NOT poll — only the handler will fire',
+    );
     _addLog('cancelGrace: ${cancelGrace ?? "null (notify only)"}');
 
     await NativeWorkManager.enqueue(
       taskId: taskId,
       trigger: const TaskTrigger.oneTime(),
       worker: DartWorker(
-        callbackId: cooperative ? 'stop_demo_cooperative' : 'stop_demo_stubborn',
+        callbackId: cooperative
+            ? 'stop_demo_cooperative'
+            : 'stop_demo_stubborn',
         onStoppedId: 'stop_demo_on_stopped',
         cancelGrace: cancelGrace,
         input: {'counterFile': counter.path, 'markerFile': marker.path},
@@ -81,8 +85,9 @@ class _StopHandlerDemoPageState extends State<StopHandlerDemoPage> {
     // visible without digging through logcat / the Xcode console.
     _poll = Timer.periodic(const Duration(milliseconds: 400), (_) async {
       if (!mounted) return;
-      final count =
-          counter.existsSync() ? counter.readAsStringSync().trim() : '–';
+      final count = counter.existsSync()
+          ? counter.readAsStringSync().trim()
+          : '–';
       final stopped = marker.existsSync()
           ? 'handler fired for ${marker.readAsStringSync().trim()}'
           : 'handler not fired';
@@ -110,16 +115,20 @@ class _StopHandlerDemoPageState extends State<StopHandlerDemoPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Issue #75 — onStopped hook',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                Text(
+                  'Issue #75 — onStopped hook',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
                 SizedBox(height: 8),
                 Text(
                   'Start a run, then hit Cancel. The stop handler fires either '
                   'way — that is the hook. Whether the callback actually STOPS '
                   'depends on it cooperating (or, on Android, on cancelGrace '
                   'tearing the engine down).\n\n'
-                  'cancelGrace teardown is Android-only; on iOS the callback '
-                  'keeps running unless it polls isTaskCancelled() itself.',
+                  'On iOS, cancelGrace teardown only applies to killed-app '
+                  'BGTask runs. This demo runs in the foreground on the app\'s '
+                  'own engine, so there the callback keeps running unless it '
+                  'polls isTaskCancelled() itself.',
                 ),
               ],
             ),
@@ -143,10 +152,7 @@ class _StopHandlerDemoPageState extends State<StopHandlerDemoPage> {
                   _run(cooperative: false, cancelGrace: Duration.zero),
               child: const Text('Run: never polls, grace 0 (teardown)'),
             ),
-            FilledButton(
-              onPressed: _cancel,
-              child: const Text('Cancel'),
-            ),
+            FilledButton(onPressed: _cancel, child: const Text('Cancel')),
           ],
         ),
         const SizedBox(height: 16),
