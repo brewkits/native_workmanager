@@ -5,6 +5,82 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Fixes 3 issues found by a full `lib/` audit (2026-09-23), reviewed in detail
+in the linked commits. Ships as **1.8.3** (1.8.2 is already live on pub.dev
+and immutable).
+
+### Fixed
+
+- **`moveToSharedStorage()`'s `subDir` had no path-traversal check on either
+  platform** — the one genuine cross-platform bypass in this batch. Neither
+  native implementation ever checked it: Android does
+  `File(publicDir, config.subDir)` directly, iOS does
+  `docsURL.appendingPathComponent(subDir)` directly, which does **not**
+  resolve `..` safely. `subDir` feeds `MediaStore.RELATIVE_PATH` on Android
+  and a Documents subfolder on iOS, so
+  `moveToSharedStorage(sourcePath: p, subDir: '../../OtherApp/Camera')`
+  reached native and would have actually escaped the sandbox on both
+  platforms. Everything else validated in the same commit
+  (`multiUpload()`'s url/files, `webSocket()`'s url/storeResponseAt,
+  `ParallelHttpUploadWorker`'s constructor) is Dart-side defense-in-depth,
+  not a closed system-level hole — native's `SecurityValidator`
+  (Kotlin/Swift, at parity) already independently validated those; see the
+  commit for the exact per-worker breakdown.
+- **A `DartWorker` placed in a `TaskGraph` node or a `RemoteTriggerRule`
+  mapping never reached native with a resolved callback handle** —
+  `enqueue()` and task chains converted `DartWorker` to `DartWorkerInternal`
+  (resolving the native callback handle) before sending it; `TaskNode` and
+  `RemoteTriggerRule` never did, so the task was enqueued but its callback
+  could never be resolved and the task silently never ran. Confirmed
+  reachable on both platforms before fixing (neither native worker factory
+  special-cases `DartCallbackWorker`; both require `callbackHandle` and fail
+  cleanly without it).
+  - **Behavior change:** a chain-step `DartWorker` is now promoted to
+    `isHeavyTask: true` on iOS, matching plain `enqueue()`. This was silently
+    skipped before — chain-step DartWorkers ran on the short
+    `BGAppRefreshTask` budget (~30s) instead of `BGProcessingTask`'s, far more
+    likely to be killed mid-execution since a DartWorker needs 1-2s just to
+    boot its Flutter Engine.
+  - **Behavior change:** an unregistered `DartWorker` (`callbackId` not
+    passed to `initialize(dartWorkers:)`) used in a `TaskGraph` node or a
+    `RemoteTriggerRule` mapping now throws a `StateError` at the point of
+    `enqueueGraph()`/`registerRemoteTrigger()`, instead of silently reaching
+    native and never running.
+- **iOS's foreground `handleEnqueue` never read `existingPolicy` at all** —
+  found while investigating the item above. Every repeat `enqueue()` call
+  for a reused `taskId` silently started a second, fully independent
+  concurrent execution, regardless of what policy the caller asked for.
+  Confirmed on a simulator: two `DartWorker` executions of one `taskId`,
+  600ms apart, both ran to full completion independently.
+  `existingPolicy: .replace` (the default) now actually cancels the outgoing
+  execution before starting the new one; `.keep` now actually leaves the
+  running execution alone and ignores the new request — both matching
+  Android's WorkManager semantics.
+  - Fixing this alone reproduced **issue #72's exact bug shape on iOS**: the
+    replacement execution resolves almost instantly (same running engine, no
+    boot delay), sees the outgoing execution's cancellation mark, and its own
+    cleanup — previously keyed by bare `taskId` — cleared that mark before
+    the outgoing execution's next poll could observe it. So this also ports
+    issue #72's fix to iOS: `DartTaskCancellationRegistry` is now keyed by a
+    fresh per-execution id (minted in `executeDartWorkerViaMethodChannel`,
+    covering both the foreground and headless paths since they share that
+    function), not by bare `taskId`, mirroring the Android fix. `isTaskCancelled()`
+    now binds this id into a Zone on the foreground/simulator path too
+    (`method_channel.dart`'s `_executeDartCallback`), matching what the
+    headless isolate's `_callbackDispatcher` already did.
+  - Known residual limitation: two `existingPolicy: .replace` calls for the
+    same `taskId` in extremely rapid succession (before the first
+    replacement's execution has started running) can still race, since the
+    per-execution id is minted lazily when the replacement execution starts,
+    not synchronously at enqueue time. Far narrower than the bug this fixes;
+    not expected to matter in practice.
+  - Device-verified on an iOS simulator (both `.replace` and `.keep`); no
+    Android changes were needed (Android's `existingPolicy` handling and
+    `DartTaskCancellationRegistry` were already correct — that's what issue
+    #72 fixed).
+
 ## [1.8.2] - 2026-09-23
 
 ### Added
