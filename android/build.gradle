@@ -2,11 +2,21 @@ group = "dev.brewkits.native_workmanager"
 version = "1.8.1"
 
 apply plugin: "com.android.library"
-apply plugin: "kotlin-android"
+// No `apply plugin: "kotlin-android"` here (issue #76). Flutter >= 3.44 applies KGP to plugin
+// subprojects itself when the app has not turned on AGP 9 built-in Kotlin, and with built-in
+// Kotlin on, AGP compiles Kotlin directly. Applying KGP ourselves trips Flutter's "plugins that
+// apply Kotlin Gradle Plugin" warning, and future Flutter versions fail the build outright.
+// This is why pubspec.yaml requires Flutter >= 3.44 — below that nothing applies KGP for us.
 
 repositories {
     google()
     mavenCentral()
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
 }
 
 android {
@@ -21,10 +31,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = "17"
     }
 
     sourceSets {
@@ -141,7 +147,10 @@ android {
         implementation("androidx.security:security-crypto:1.1.0")
 
         // Testing
-        testImplementation("org.jetbrains.kotlin:kotlin-test")
+        // kotlin-test-junit, not bare kotlin-test: KGP used to swap in the JUnit variant (which
+        // carries kotlin.test.Test) on its own. With AGP 9 built-in Kotlin nothing does that, and
+        // `import kotlin.test.Test` stops resolving (issue #76).
+        testImplementation("org.jetbrains.kotlin:kotlin-test-junit")
         testImplementation("junit:junit:4.13.2")
         testImplementation("org.mockito:mockito-core:5.0.0")
         testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")

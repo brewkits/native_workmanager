@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Minimum Flutter is now 3.44** (was 3.27). This is required by the fix below.
+  On older Flutter, pub keeps resolving 1.8.x, so existing builds don't break.
+
+### Fixed
+
+- **Migrated to Flutter's Built-in Kotlin** (issue #76, reported by
+  @kostyaten). `android/build.gradle` applied the Kotlin Gradle Plugin (KGP)
+  unconditionally. That had two effects:
+  - On AGP 9, Flutter printed "Your app uses the following plugins that apply
+    Kotlin Gradle Plugin (KGP): native_workmanager".
+  - With `android.builtInKotlin=true`, the build failed outright with
+    `Failed to apply plugin 'kotlin-android'`. Flutter says future versions
+    will turn that into a hard failure for every app.
+
+  The plugin no longer applies KGP. `kotlinOptions {}` became
+  `kotlin { compilerOptions { jvmTarget = JVM_17 } }`. Flutter 3.44+ applies
+  KGP to plugins itself when built-in Kotlin is off, which is why the floor
+  moved.
+
+  The Android build was verified to compile the identical set of plugin
+  classes under four setups, with no warning and no app changes needed:
+  - Flutter 3.47.5, AGP 9, built-in Kotlin on
+  - Flutter 3.47.5, AGP 9, built-in Kotlin off
+  - Flutter 3.47.5, AGP 8 with root KGP
+  - Flutter 3.44.0 with both AGP 9 and AGP 8
+
+  Guarded by `test/unit/issue_76_builtin_kotlin_test.dart`, which runs
+  Flutter's own detection regex over `android/build.gradle`.
+- The example app moved to AGP 9.1 / Gradle 9.3.1 with built-in Kotlin on, so
+  CI builds the plugin on that path. `workmanager` (the benchmark comparison
+  dependency) went to ^0.10.9, and the unused `kotlin-kapt` and serialization
+  compiler plugins were dropped.
+  - Robolectric unit tests are pinned to SDK 34. AGP 9 gives library tests
+    `targetSdk = 36`, which Robolectric 4.12.2 can't run.
+  - `kotlin-test` became `kotlin-test-junit`. Without KGP nothing swaps in the
+    JUnit variant, so `kotlin.test.Test` stopped resolving.
+
 ## [1.8.1] - 2026-09-12
 
 ### Fixed

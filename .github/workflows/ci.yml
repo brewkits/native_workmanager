@@ -220,7 +220,11 @@ jobs:
 
       - name: Run Android unit tests
         working-directory: example/android
-        run: ./gradlew testDebugUnitTest --stacktrace
+        # Only this plugin's tests. A bare `testDebugUnitTest` also runs every third-party
+        # plugin's own unit tests (shared_preferences_android, workmanager_android, ...), and
+        # those break on changes we don't control — shared_preferences_android 2.4.28 needs
+        # Robolectric SDK 36, i.e. JDK 21, and this job runs 17 (issue #76 PR).
+        run: ./gradlew :native_workmanager:testDebugUnitTest --stacktrace
 
   # ── iOS build ───────────────────────────────────────────────────────────────
   build-ios:
