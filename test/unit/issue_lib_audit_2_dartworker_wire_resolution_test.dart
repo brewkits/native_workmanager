@@ -178,4 +178,63 @@ void main() {
               'chain and enqueue() code paths.');
     });
   });
+
+  group('Chain-step unregistered DartWorker error message', () {
+    test('is the same helpful message enqueue() gives, not a misleading '
+        '"INTERNAL ERROR" — pre-fix, chains skipped the registration check '
+        'and fell straight into the internal-error branch meant for a truly '
+        'impossible state', () async {
+      expect(
+        () => NativeWorkManager.beginWith(
+          TaskRequest(
+            id: 'step1',
+            worker: DartWorker(callbackId: 'never-registered'),
+          ),
+        ).enqueue(),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('not registered'),
+          ),
+        ),
+      );
+    });
+  });
+
+  group('Unregistered DartWorker fails loudly instead of silently', () {
+    test('enqueueGraph() rejects with a StateError, not a crash or a silent '
+        'no-op native call', () async {
+      final graph = TaskGraph(id: 'g4')
+        ..add(TaskNode(
+          id: 'a',
+          worker: DartWorker(callbackId: 'never-registered'),
+        ));
+
+      await expectLater(
+        NativeWorkManager.enqueueGraph(graph),
+        throwsA(isA<StateError>()),
+      );
+      // The whole point of failing before the native call: it must never
+      // have been reached with an unresolvable worker.
+      expect(mockPlatform.capturedGraphMap, isNull);
+    });
+
+    test('registerRemoteTrigger() rejects with a StateError, not a crash or '
+        'a silent no-op native call', () async {
+      await expectLater(
+        NativeWorkManager.registerRemoteTrigger(
+          source: RemoteTriggerSource.fcm,
+          rule: RemoteTriggerRule(
+            payloadKey: 'action',
+            workerMappings: {
+              'sync': DartWorker(callbackId: 'never-registered'),
+            },
+          ),
+        ),
+        throwsA(isA<StateError>()),
+      );
+      expect(mockPlatform.capturedRule, isNull);
+    });
+  });
 }

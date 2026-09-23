@@ -37,17 +37,31 @@ and immutable).
   reachable on both platforms before fixing (neither native worker factory
   special-cases `DartCallbackWorker`; both require `callbackHandle` and fail
   cleanly without it).
-  - **Behavior change:** a chain-step `DartWorker` is now promoted to
-    `isHeavyTask: true` on iOS, matching plain `enqueue()`. This was silently
-    skipped before — chain-step DartWorkers ran on the short
-    `BGAppRefreshTask` budget (~30s) instead of `BGProcessingTask`'s, far more
-    likely to be killed mid-execution since a DartWorker needs 1-2s just to
-    boot its Flutter Engine.
+  - A chain-step or `TaskGraph`-node `DartWorker` now gets the same
+    `isHeavyTask: true` promotion plain `enqueue()` applies on iOS, instead of
+    silently skipping it. **Correction, checked after first writing this
+    entry:** this is not currently an observable behavior change. `isHeavyTask`
+    only ever affects scheduling on iOS for the `periodic` and `windowed`
+    trigger types (both routed through `BGTaskScheduler`); chain steps and
+    graph nodes have no `TaskTrigger` of their own and always execute inline
+    via a plain `Task {}`, never through `BGTaskScheduler`, so the promoted
+    value is stored correctly but not read anywhere today. Kept for
+    consistency with `enqueue()`'s existing behavior and so a future fix to
+    chain/graph iOS scheduling doesn't need its own audit of this — not
+    claimed as a fix for OS-kill risk on either mechanism today.
   - **Behavior change:** an unregistered `DartWorker` (`callbackId` not
     passed to `initialize(dartWorkers:)`) used in a `TaskGraph` node or a
     `RemoteTriggerRule` mapping now throws a `StateError` at the point of
     `enqueueGraph()`/`registerRemoteTrigger()`, instead of silently reaching
     native and never running.
+  - **Bonus fix, found while re-checking this change:** the same unregistered
+    `callbackId` used in a task **chain** used to throw too, but with the
+    wrong message — chains never checked registration at all, so they fell
+    straight into the "should never happen" internal-error branch meant for
+    a genuinely impossible state, printing `INTERNAL ERROR: Callback handle
+    not found... Please report this bug.` for what is actually a completely
+    ordinary mistake. Chains now get the same clear "not registered, here's
+    how to fix it" message `enqueue()` has always given.
 - **iOS's foreground `handleEnqueue` never read `existingPolicy` at all** —
   found while investigating the item above. Every repeat `enqueue()` call
   for a reused `taskId` silently started a second, fully independent
@@ -70,12 +84,28 @@ and immutable).
     now binds this id into a Zone on the foreground/simulator path too
     (`method_channel.dart`'s `_executeDartCallback`), matching what the
     headless isolate's `_callbackDispatcher` already did.
-  - Known residual limitation: two `existingPolicy: .replace` calls for the
-    same `taskId` in extremely rapid succession (before the first
-    replacement's execution has started running) can still race, since the
-    per-execution id is minted lazily when the replacement execution starts,
-    not synchronously at enqueue time. Far narrower than the bug this fixes;
-    not expected to matter in practice.
+  - Known residual limitation, traced through but deliberately not closed
+    (closing it means threading a pre-minted execution id through every
+    caller of `executeDartWorkerViaMethodChannel` — direct enqueue, chains,
+    `TaskGraph`, `BGTaskScheduler`-resumed tasks, offline queue — more surface
+    area than this PR's blast radius should grow to without its own device
+    verification pass): the per-execution id is minted lazily, inside
+    `executeDartWorkerViaMethodChannel`, once the replacement `Task` actually
+    starts running — not synchronously when `handleEnqueue` decides to
+    replace. In the narrow window between a `.replace` swapping
+    `activeTasks[taskId]` to the new `Task` and that `Task` reaching its
+    first `beginExecution` call, `DartTaskCancellationRegistry`'s
+    `currentExecutionId[taskId]` still points at the OLD (already-replaced)
+    execution. A `cancel(taskId)` — or another `.replace` — landing in that
+    window marks the wrong (stale) execution id; the new one starts moments
+    later unaffected by that mark, so it does **not** stop when the caller
+    thought it just told it to. Pure double/triple-replace with no
+    intervening `cancel()` was traced through and does not corrupt state —
+    only an explicit cancel landing in that specific gap does. The window is
+    on the order of the time from `Task { }` construction to its first
+    `await` inside `executeDartWorkerViaMethodChannel` — real, but requires a
+    caller to `enqueue()`-then-immediately-`cancel()`/`enqueue()` again the
+    same `taskId` back-to-back, not a pattern normal usage hits.
   - Device-verified on an iOS simulator (both `.replace` and `.keep`); no
     Android changes were needed (Android's `existingPolicy` handling and
     `DartTaskCancellationRegistry` were already correct — that's what issue
