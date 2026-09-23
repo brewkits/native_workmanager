@@ -80,6 +80,19 @@ and immutable).
     Android changes were needed (Android's `existingPolicy` handling and
     `DartTaskCancellationRegistry` were already correct — that's what issue
     #72 fixed).
+  - **Follow-up found in second-pass review, before this ever shipped**: the
+    `existingPolicy` fix above read `activeTasks[taskId]` as its "is this
+    still running" signal, but that dictionary was never cleared when a
+    direct one-time task finished *naturally* (only explicit cancel ever
+    removed an entry) — a leftover from before anything read it as a
+    liveness signal. Confirmed on a simulator: re-enqueuing a `taskId` whose
+    task had already completed, with `existingPolicy: .keep`, was silently
+    dropped forever, because the stale entry made `.keep` think something
+    was still running. Fixed with a per-enqueue generation id that lets a
+    task's own completion clear its entry — but only if nothing has replaced
+    it in the meantime, the same guard pattern used by
+    `DartTaskCancellationRegistry`. Verified fixed on the same simulator, and
+    the full `Cancellation` device-test group (8 tests) still passes.
 
 ## [1.8.2] - 2026-09-23
 
