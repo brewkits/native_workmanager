@@ -766,6 +766,79 @@ class NativeWorkManager {
     return handle;
   }
 
+  /// Resolves a [Worker] for the platform channel.
+  ///
+  /// If [worker] is a plain [DartWorker], this validates that its callback is
+  /// registered and returns the equivalent [DartWorkerInternal] carrying the
+  /// resolved native callback handle — plus, when [constraints] is given and
+  /// the platform is iOS, constraints promoted to a heavy task (a DartWorker
+  /// spins up a Flutter Engine, so it needs BGProcessingTask's larger budget
+  /// instead of BGAppRefreshTask's ~30s, the same promotion [enqueue] always
+  /// applied). Any other worker — including an already-resolved
+  /// [DartWorkerInternal] — passes through unchanged.
+  ///
+  /// This is the single choke point for every Dart→native path that can carry
+  /// a [DartWorker]: [enqueue], task chains ([_enqueueChain]), [TaskGraph]
+  /// nodes (via [enqueueTaskGraph]), and [registerRemoteTrigger]. Before this
+  /// existed, only [enqueue] and task chains did the conversion — a
+  /// DartWorker placed in a TaskGraph node or a RemoteTriggerRule mapping
+  /// reached native with no callbackHandle at all, so its callback could
+  /// never be resolved (found by the 2026-09-23 lib/ audit). Task chains also
+  /// silently skipped the iOS heavy-task promotion that plain enqueue()
+  /// applied, which this fixes as a side effect of sharing one implementation.
+  @internal
+  static (Worker, Constraints?) resolveWorkerForWire(
+    Worker worker, [
+    Constraints? constraints,
+  ]) {
+    if (worker is! DartWorker) return (worker, constraints);
+
+    if (!_dartWorkers.containsKey(worker.callbackId)) {
+      throw StateError(
+        'Dart worker "${worker.callbackId}" not registered.\n'
+        'Register it in NativeWorkManager.initialize():\n'
+        '  await NativeWorkManager.initialize(\n'
+        '    dartWorkers: {\n'
+        '      "${worker.callbackId}": (input) async { ... },\n'
+        '    },\n'
+        '  );',
+      );
+    }
+
+    var resolvedConstraints = constraints;
+    if (resolvedConstraints != null &&
+        defaultTargetPlatform == TargetPlatform.iOS &&
+        !resolvedConstraints.isHeavyTask) {
+      resolvedConstraints = resolvedConstraints.copyWith(isHeavyTask: true);
+      developer.log(
+        'NativeWorkManager: DartWorker on iOS detected. Promoting to heavy task '
+        '(isHeavyTask=true) to prevent OS termination.',
+        name: 'NativeWorkManager',
+      );
+    }
+
+    final callbackHandle = _callbackHandles[worker.callbackId];
+    if (callbackHandle == null) {
+      throw StateError(
+        'INTERNAL ERROR: Callback handle not found for "${worker.callbackId}". '
+        'This should never happen. Please report this bug.',
+      );
+    }
+
+    final resolvedWorker = DartWorkerInternal(
+      callbackId: worker.callbackId,
+      callbackHandle: callbackHandle,
+      input: worker.input,
+      autoDispose: worker.autoDispose,
+      timeoutMs: worker.timeoutMs,
+      onStoppedId: worker.onStoppedId,
+      onStoppedHandle: _resolveOnStoppedHandle(worker.onStoppedId),
+      cancelGraceMs: worker.cancelGrace?.inMilliseconds,
+    );
+
+    return (resolvedWorker, resolvedConstraints);
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // TASK SCHEDULING
   // ═══════════════════════════════════════════════════════════════════════════
@@ -983,56 +1056,9 @@ class NativeWorkManager {
     }
 
     // Validate DartWorker registration and prepare worker data
-    Worker workerToEnqueue = worker;
-    Constraints finalConstraints = constraints;
-
-    if (worker is DartWorker) {
-      if (!_dartWorkers.containsKey(worker.callbackId)) {
-        throw StateError(
-          'Dart worker "${worker.callbackId}" not registered.\n'
-          'Register it in NativeWorkManager.initialize():\n'
-          '  await NativeWorkManager.initialize(\n'
-          '    dartWorkers: {\n'
-          '      "${worker.callbackId}": (input) async { ... },\n'
-          '    },\n'
-          '  );',
-        );
-      }
-
-      // iOS safety: DartWorkers are heavy by definition because they spin up
-      // a Flutter Engine. Force BGProcessingTask (60s+) instead of
-      // BGAppRefreshTask (30s) to prevent immediate OS kills.
-      if (defaultTargetPlatform == TargetPlatform.iOS &&
-          !constraints.isHeavyTask) {
-        finalConstraints = constraints.copyWith(isHeavyTask: true);
-        developer.log(
-          'NativeWorkManager: DartWorker on iOS detected. Promoting to heavy task '
-          '(isHeavyTask=true) to prevent OS termination.',
-          name: 'NativeWorkManager',
-        );
-      }
-
-      // Get the callback handle for this worker
-      final callbackHandle = _callbackHandles[worker.callbackId];
-      if (callbackHandle == null) {
-        throw StateError(
-          'INTERNAL ERROR: Callback handle not found for "${worker.callbackId}". '
-          'This should never happen. Please report this bug.',
-        );
-      }
-
-      // Create enhanced DartWorker with callback handle
-      workerToEnqueue = DartWorkerInternal(
-        callbackId: worker.callbackId,
-        callbackHandle: callbackHandle,
-        input: worker.input,
-        autoDispose: worker.autoDispose,
-        timeoutMs: worker.timeoutMs,
-        onStoppedId: worker.onStoppedId,
-        onStoppedHandle: _resolveOnStoppedHandle(worker.onStoppedId),
-        cancelGraceMs: worker.cancelGrace?.inMilliseconds,
-      );
-    }
+    final (workerToEnqueue, resolvedConstraints) =
+        resolveWorkerForWire(worker, constraints);
+    final finalConstraints = resolvedConstraints ?? constraints;
 
     final scheduleResult = await NativeWorkManagerPlatform.instance.enqueue(
       taskId: taskId,
@@ -2090,44 +2116,19 @@ class NativeWorkManager {
 
   static Future<ScheduleResult> _enqueueChain(TaskChainBuilder chain) {
     // Convert DartWorker to DartWorkerInternal for all tasks in the chain
+    // (and, on iOS, apply the same heavy-task promotion enqueue() does —
+    // this used to be skipped here, leaving a chain-step DartWorker on the
+    // short BGAppRefreshTask budget instead of BGProcessingTask).
     final convertedSteps = chain.steps.map((step) {
       return step.map((task) {
-        final worker = task.worker;
-
-        // Check if worker is DartWorker and needs conversion
-        if (worker is DartWorker) {
-          // Get the callback handle for this worker
-          final callbackHandle = _callbackHandles[worker.callbackId];
-          if (callbackHandle == null) {
-            throw StateError(
-              'INTERNAL ERROR: Callback handle not found for "${worker.callbackId}". '
-              'This should never happen. Please report this bug.',
-            );
-          }
-
-          // Convert DartWorker to DartWorkerInternal
-          final convertedWorker = DartWorkerInternal(
-            callbackId: worker.callbackId,
-            callbackHandle: callbackHandle,
-            input: worker.input,
-            autoDispose: worker.autoDispose,
-            timeoutMs: worker.timeoutMs,
-            onStoppedId: worker.onStoppedId,
-            onStoppedHandle: _resolveOnStoppedHandle(worker.onStoppedId),
-            cancelGraceMs: worker.cancelGrace?.inMilliseconds,
-          );
-
-          // Return modified task map with converted worker
-          return {
-            'id': task.id,
-            'workerClassName': convertedWorker.workerClassName,
-            'workerConfig': convertedWorker.toMap(),
-            'constraints': task.constraints.toMap(),
-          };
-        }
-
-        // For non-DartWorker tasks, use original toMap()
-        return task.toMap();
+        final (resolvedWorker, resolvedConstraints) =
+            resolveWorkerForWire(task.worker, task.constraints);
+        return {
+          'id': task.id,
+          'workerClassName': resolvedWorker.workerClassName,
+          'workerConfig': resolvedWorker.toMap(),
+          'constraints': (resolvedConstraints ?? task.constraints).toMap(),
+        };
       }).toList();
     }).toList();
 
@@ -2554,9 +2555,22 @@ class NativeWorkManager {
     required RemoteTriggerRule rule,
   }) async {
     _checkInitialized();
+    // Resolve any DartWorker in workerMappings before it reaches native —
+    // RemoteTriggerRule.toMap() alone never did this, so a DartWorker mapped
+    // here reached native with no callbackHandle and could never be resolved
+    // (found by the 2026-09-23 lib/ audit). No Constraints exist on a
+    // mapping, so only the worker half of resolveWorkerForWire's result is
+    // used.
+    final resolvedRule = RemoteTriggerRule(
+      payloadKey: rule.payloadKey,
+      workerMappings: rule.workerMappings.map(
+        (key, worker) => MapEntry(key, resolveWorkerForWire(worker).$1),
+      ),
+      secretKey: rule.secretKey,
+    );
     return NativeWorkManagerPlatform.instance.registerRemoteTrigger(
       source: source,
-      rule: rule,
+      rule: resolvedRule,
     );
   }
 
