@@ -37,12 +37,19 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
 
-    kotlinOptions {
-        jvmTarget = "17"
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
 ```
+
+> `kotlinOptions {}` inside `android {}` no longer exists on AGP 9. Use the top-level
+> `kotlin { compilerOptions { … } }` block shown above; it also works on AGP 8 with KGP 2.x.
+> The plugin itself needs **Flutter 3.44+** and supports Flutter's Built-in Kotlin
+> (`android.builtInKotlin=true`) — see issue #76.
 
 **Why API 26?**
 - Android WorkManager requires API 23+ for basic functionality
