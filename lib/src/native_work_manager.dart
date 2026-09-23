@@ -137,16 +137,14 @@ Duration resolveStopHandlerBudget(Map args) {
 
 /// Issue #72: Zone key `isTaskCancelled` uses to find the executionId of
 /// whichever DartWorker invocation is currently running, without requiring
-/// the app's callback to pass it explicitly. See `_callbackDispatcher`.
-const Object _executionIdZoneKey = #nativeWorkmanagerExecutionId;
-
-/// Test-only accessor for [_executionIdZoneKey] — lets unit tests simulate
-/// being inside a dispatched DartWorker callback's Zone without needing to
-/// go through the full `_callbackDispatcher` (which is private and driven by
-/// a native-supplied callback handle, not something a unit test can invoke
-/// directly). Not part of the public API.
-@visibleForTesting
-const Object executionIdZoneKeyForTesting = _executionIdZoneKey;
+/// the app's callback to pass it explicitly. Bound by both the headless
+/// isolate's `_callbackDispatcher` and, since the 2026-09-23 lib/ audit's
+/// iOS-foreground fix, `method_channel.dart`'s `_executeDartCallback` — not
+/// private, so that separate library can use the same key. Also used by unit
+/// tests to simulate being inside a dispatched DartWorker callback's Zone
+/// without going through the full dispatcher. Not part of the public API.
+@internal
+const Object executionIdZoneKey = #nativeWorkmanagerExecutionId;
 
 /// Top-level callback dispatcher for background Dart execution.
 ///
@@ -280,7 +278,7 @@ Future<void> _callbackDispatcher() async {
               return false;
             },
           ),
-          zoneValues: {_executionIdZoneKey: executionId},
+          zoneValues: {executionIdZoneKey: executionId},
         );
 
         // Return execution result to native side
@@ -352,7 +350,7 @@ Future<void> _callbackDispatcher() async {
             );
           }),
           zoneValues: {
-            _executionIdZoneKey: input?['__executionId'] as String?,
+            executionIdZoneKey: input?['__executionId'] as String?,
           },
         );
       } catch (e, stackTrace) {
@@ -1374,7 +1372,7 @@ class NativeWorkManager {
       // other. Falls back to the coarse by-taskId check when called from
       // outside that Zone (e.g. main-isolate code with no dispatched
       // execution in scope).
-      final executionId = Zone.current[_executionIdZoneKey] as String?;
+      final executionId = Zone.current[executionIdZoneKey] as String?;
       final result =
           await channel.invokeMethod<bool>('isTaskCancelled', <String, Object?>{
         'taskId': taskId,

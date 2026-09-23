@@ -134,7 +134,15 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             // headless FlutterEngineManager engine — see DartTaskCancellationRegistry).
             case "isTaskCancelled":
                 let taskId = args?["taskId"] as? String ?? ""
-                result(DartTaskCancellationRegistry.shared.isCancelled(taskId))
+                // Issue #72: precise per-execution check when the Dart side's
+                // Zone had an executionId to send (see method_channel.dart's
+                // _executeDartCallback); falls back to the coarse taskId
+                // check otherwise.
+                if let executionId = args?["executionId"] as? String {
+                    result(DartTaskCancellationRegistry.shared.isCancelled(executionId: executionId))
+                } else {
+                    result(DartTaskCancellationRegistry.shared.isCancelled(taskId))
+                }
             default:
                 result(FlutterMethodNotImplemented)
             }
@@ -362,21 +370,58 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         let directQos = (directConstraintsMap?["qos"] as? String) ?? "background"
         let directRetryConfig = RetryConfig.from(constraintsMap: directConstraintsMap)
 
-        let task = Task { [weak self] in
-            guard let self else { return }
-            if initialDelayMs > 0 {
-                try? await Task.sleep(nanoseconds: UInt64(initialDelayMs) * 1_000_000)
+        // existingPolicy was accepted from Dart but never read here — every repeat
+        // enqueue() of the same taskId silently started a second, fully independent
+        // concurrent Task, regardless of what policy the caller asked for, because this
+        // dictionary write always just clobbered whatever was there. Confirmed on a
+        // simulator (2026-09-23 lib/ audit): two DartWorker executions of one taskId,
+        // 600ms apart, both ran to full completion independently. "replace" (the
+        // default, matching Android and NativeWorkManager.enqueue's own default) now
+        // stops the outgoing execution the same way handleCancel does before starting
+        // the new one; "keep" leaves the running execution alone and ignores the new
+        // request, matching WorkManager's ExistingWorkPolicy.KEEP on Android, which also
+        // always reports the enqueue as accepted regardless of whether it was a no-op.
+        //
+        // This whole check-decide-store sequence is one atomic stateQueue block so two
+        // overlapping handleEnqueue calls for the same taskId can't both see "nothing
+        // running yet" and both proceed.
+        let existingPolicyStr = (args["existingPolicy"] as? String)?.lowercased() ?? "replace"
+        var skippedForKeep = false
+        stateQueue.sync(flags: .barrier) {
+            if let existingTask = self.activeTasks[taskId] {
+                if existingPolicyStr == "keep" {
+                    skippedForKeep = true
+                    return
+                }
+                // Cancelling the Swift Task only unblocks whatever it's synchronously
+                // awaiting (irrelevant for a DartCallbackWorker, which awaits a method
+                // channel round-trip, not a cancellable operation). The registry mark is
+                // what a running DartWorker's isTaskCancelled() poll actually sees —
+                // same two calls handleCancel makes for an explicit user cancel().
+                existingTask.cancel()
+                DartTaskCancellationRegistry.shared.markCancelled(taskId)
+                self.workers[taskId]?.stop()
             }
-            guard !Task.isCancelled else { return }
-            await self.executeWorkerSync(
-                taskId: taskId,
-                workerClassName: workerClassName,
-                workerConfig: workerConfig,
-                qos: directQos,
-                retryConfig: directRetryConfig
-            )
+
+            let task = Task { [weak self] in
+                guard let self else { return }
+                if initialDelayMs > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(initialDelayMs) * 1_000_000)
+                }
+                guard !Task.isCancelled else { return }
+                await self.executeWorkerSync(
+                    taskId: taskId,
+                    workerClassName: workerClassName,
+                    workerConfig: workerConfig,
+                    qos: directQos,
+                    retryConfig: directRetryConfig
+                )
+            }
+            self.activeTasks[taskId] = task
         }
-        stateQueue.sync(flags: .barrier) { self.activeTasks[taskId] = task }
+        if skippedForKeep {
+            NativeLogger.d("handleEnqueue: '\(taskId)' already running, existingPolicy=keep — new request ignored")
+        }
 
         result("ACCEPTED")
     }

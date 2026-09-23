@@ -2071,6 +2071,150 @@ void main() {
     );
 
     testWidgets(
+      'lib_audit_3: existingPolicy.replace cancels the outgoing execution '
+      'precisely and the replacement runs to completion, not inheriting its '
+      'stale cancel mark (iOS)',
+      (tester) async {
+        // https://github.com/brewkits/native_workmanager — found by the
+        // 2026-09-23 lib/ audit while investigating the iOS analogue of
+        // issue_72 above. Two things were wrong before this fix, discovered
+        // in order:
+        //   1. iOS's foreground handleEnqueue never read existingPolicy at
+        //      all — every repeat enqueue() of one taskId silently started a
+        //      second, fully independent concurrent execution, confirmed by
+        //      running exactly this test's shape pre-fix: both old and new
+        //      ran to full completion (50/50), regardless of policy.
+        //   2. Fixing #1 alone (mark-and-replace on the outgoing execution)
+        //      reproduced issue_72's "direction 1" bug on iOS: the new
+        //      execution resolves almost instantly (same running engine, no
+        //      boot delay), sees the mark, and its own cleanup — keyed by
+        //      bare taskId — cleared it before the outgoing execution's next
+        //      poll could observe it. Confirmed the same way: the new
+        //      execution died at iteration 1, the old one ran all 50.
+        // The real fix needed both: existingPolicy.replace AND per-execution
+        // (executionId-keyed) cancellation tracking, mirroring issue #72's
+        // Android fix, ported to iOS's DartTaskCancellationRegistry.
+        if (!Platform.isIOS) {
+          markTestSkipped('iOS foreground existingPolicy path');
+          return;
+        }
+
+        final id = _id('lib_audit_3_replace');
+        final oldCounterFile =
+            File('${tmpDir.path}/lib_audit_3_replace_old.txt');
+        final newCounterFile =
+            File('${tmpDir.path}/lib_audit_3_replace_new.txt');
+
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: DartWorker(
+            callbackId: 'dit_cancel_poll',
+            input: {'counterFile': oldCounterFile.path},
+          ),
+        );
+
+        await Future.delayed(const Duration(milliseconds: 600));
+
+        // Default policy is replace.
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: DartWorker(
+            callbackId: 'dit_cancel_poll',
+            input: {'counterFile': newCounterFile.path},
+          ),
+        );
+
+        await Future.delayed(const Duration(seconds: 12));
+
+        expect(
+          oldCounterFile.existsSync(),
+          isTrue,
+          reason: 'lib_audit_3: the replaced execution must have started',
+        );
+        final oldIterations =
+            int.parse(oldCounterFile.readAsStringSync().trim());
+        expect(
+          oldIterations,
+          lessThan(50),
+          reason: 'lib_audit_3: the replaced execution must have observed '
+              'cancellation and stopped',
+        );
+
+        expect(
+          newCounterFile.existsSync(),
+          isTrue,
+          reason: 'lib_audit_3: the replacement execution must have started',
+        );
+        final newIterations =
+            int.parse(newCounterFile.readAsStringSync().trim());
+        expect(
+          newIterations,
+          equals(50),
+          reason: 'lib_audit_3: the replacement must run to completion — a '
+              'lower count means it inherited the replaced execution\'s '
+              'stale cancellation mark and self-aborted',
+        );
+      },
+    );
+
+    testWidgets(
+      'lib_audit_3: existingPolicy.keep leaves the running execution alone '
+      'and ignores the new request (iOS)',
+      (tester) async {
+        if (!Platform.isIOS) {
+          markTestSkipped('iOS foreground existingPolicy path');
+          return;
+        }
+
+        final id = _id('lib_audit_3_keep');
+        final oldCounterFile = File('${tmpDir.path}/lib_audit_3_keep_old.txt');
+        final newCounterFile = File('${tmpDir.path}/lib_audit_3_keep_new.txt');
+
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: DartWorker(
+            callbackId: 'dit_cancel_poll',
+            input: {'counterFile': oldCounterFile.path},
+          ),
+        );
+
+        await Future.delayed(const Duration(milliseconds: 600));
+
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: DartWorker(
+            callbackId: 'dit_cancel_poll',
+            input: {'counterFile': newCounterFile.path},
+          ),
+          existingPolicy: ExistingTaskPolicy.keep,
+        );
+
+        await Future.delayed(const Duration(seconds: 12));
+
+        expect(
+          oldCounterFile.existsSync(),
+          isTrue,
+          reason: 'lib_audit_3: keep must leave the running execution alone',
+        );
+        expect(
+          int.parse(oldCounterFile.readAsStringSync().trim()),
+          equals(50),
+          reason: 'lib_audit_3: keep must not cancel the running execution',
+        );
+        expect(
+          newCounterFile.existsSync(),
+          isFalse,
+          reason: 'lib_audit_3: keep must ignore the new request entirely — '
+              'no second execution should ever have started',
+        );
+      },
+    );
+
+    testWidgets(
       'issue_69: cancelling a background-session download actually aborts the transfer (iOS)',
       (tester) async {
         // https://github.com/brewkits/native_workmanager/issues/69 — found

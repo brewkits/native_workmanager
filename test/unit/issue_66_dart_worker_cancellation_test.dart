@@ -3,6 +3,11 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:native_workmanager/native_workmanager.dart';
+// executionIdZoneKey is @internal (not part of the public API, so hidden
+// from the barrel above) — reachable directly since this test lives inside
+// the same package.
+import 'package:native_workmanager/src/native_work_manager.dart'
+    show executionIdZoneKey;
 
 /// Issue #66: https://github.com/brewkits/native_workmanager/discussions/66
 ///
@@ -87,13 +92,13 @@ void main() {
     // forward it transparently and native can answer per-execution instead
     // of per-taskId. This test cannot drive the real dispatcher (private,
     // driven by a native-supplied callback handle) but simulates being
-    // inside its Zone via the test-only [executionIdZoneKeyForTesting] hook.
+    // inside its Zone via the test-only [executionIdZoneKey] hook.
     test(
         'forwards the current execution\'s executionId from the dispatcher Zone, when present',
         () async {
       final result = await runZoned(
         () => NativeWorkManager.isTaskCancelled('shared-task'),
-        zoneValues: {executionIdZoneKeyForTesting: 'exec-123'},
+        zoneValues: {executionIdZoneKey: 'exec-123'},
       );
 
       expect(result, isFalse);

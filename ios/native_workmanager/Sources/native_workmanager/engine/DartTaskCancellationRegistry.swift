@@ -1,37 +1,98 @@
 import Foundation
 
-/// Tracks which DartWorker task IDs have been cancelled, so a Dart callback
-/// running in either Flutter engine (the main isolate, or the headless
-/// engine spun up by `FlutterEngineManager`) can ask
+/// Tracks which DartWorker **executions** have been cancelled, so a Dart
+/// callback running in either Flutter engine (the main isolate, or the
+/// headless engine spun up by `FlutterEngineManager`) can ask
 /// `NativeWorkManager.isTaskCancelled(taskId)` (issue #66) and get a real
 /// answer instead of always `false`.
 ///
+/// Keyed by **executionId**, not by the app-level `taskId` (issue #72,
+/// ported from Android's `DartTaskCancellationRegistry.kt`). A single
+/// `taskId` can have more than one execution alive at once: `handleEnqueue`'s
+/// `existingPolicy: .replace` (the `enqueue()` default) now cancels the
+/// outgoing execution and immediately starts a new one under the SAME
+/// `taskId`. A bare `taskId`-keyed mark/clear cannot tell those two
+/// executions apart — confirmed on a simulator (2026-09-23 lib/ audit):
+/// without this, the new execution's own `clear` wiped the mark meant for the
+/// outgoing one, and the outgoing one ran to full completion never having
+/// noticed it should stop.
+///
 /// Marked from every place that cancels a running task —
 /// `NativeWorkmanagerPlugin`'s `cancel`/`cancelAll`/`cancelByTag` handlers,
-/// notification-driven cancel, and `BGTaskSchedulerManager`'s expiration
-/// handler. Read from the `dev.brewkits/dart_worker_channel` handlers in
-/// both `NativeWorkmanagerPlugin` (main isolate) and `FlutterEngineManager`
+/// notification-driven cancel, `BGTaskSchedulerManager`'s expiration handler,
+/// and `handleEnqueue`'s replace path — via the taskId-only `markCancelled`,
+/// which resolves to whichever executionId is currently live for that taskId
+/// (none of those call sites know a specific executionId; only
+/// `executeDartWorkerViaMethodChannel`, which mints one per invocation, does).
+/// Read from the `dev.brewkits/dart_worker_channel` handlers in both
+/// `NativeWorkmanagerPlugin` (main isolate) and `FlutterEngineManager`
 /// (headless isolate).
 ///
-/// This is **cooperative only**: marking a taskId here does not interrupt
-/// whatever the Dart isolate is currently `await`-ing — it only lets a
-/// polling callback see the request and return early.
+/// This is **cooperative only**: marking an execution here does not
+/// interrupt whatever the Dart isolate is currently `await`-ing — it only
+/// lets a polling callback see the request and return early.
 final class DartTaskCancellationRegistry {
     static let shared = DartTaskCancellationRegistry()
     private init() {}
 
     private let lock = NSLock()
-    private var cancelled: Set<String> = []
 
-    /// Issue #75: per-task stop notifiers, keyed by taskId.
+    /// executionId -> taskId. The value is only needed for the coarse
+    /// taskId-only `isCancelled` fallback (callers with no executionId).
+    private var cancelled: [String: String] = [:]
+
+    /// taskId -> the executionId of whichever execution is currently "the"
+    /// live one for that taskId. This is what a bare `markCancelled(taskId)`
+    /// call (from every call site except `executeDartWorkerViaMethodChannel`
+    /// itself, none of which know a specific executionId) actually targets.
+    private var currentExecutionId: [String: String] = [:]
+
+    /// Issue #75: per-task stop notifiers, keyed by taskId (not per-execution
+    /// — a known, deliberately out-of-scope simplification; see the 2026-09-23
+    /// lib/ audit notes. Two overlapping executions of one taskId could still
+    /// clobber each other's notifier registration, same as before this file's
+    /// issue #72 rework).
     ///
     /// Registered by whichever execution path is actually running the callback
     /// (main channel vs headless engine), because only that path knows which
     /// channel to notify on. Hanging this off the registry means every existing
     /// `markCancelled` call site — explicit cancel, cancelByTag, cancelAll,
-    /// notification-driven cancel, BGTask expiration — fires the notification
-    /// for free, instead of seven sites each having to remember to.
+    /// notification-driven cancel, BGTask expiration, replace — fires the
+    /// notification for free, instead of each having to remember to.
     private var stopNotifiers: [String: (Int64?) -> Void] = [:]
+
+    // MARK: - Per-execution lifecycle (issue #72)
+
+    /// Record that `executionId` is now the live execution for `taskId`.
+    /// Called once, right after `executeDartWorkerViaMethodChannel` mints an
+    /// executionId for a fresh invocation — before the Dart callback starts,
+    /// so a `markCancelled(taskId)` racing in concurrently always has
+    /// something to resolve to.
+    func beginExecution(_ executionId: String, taskId: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        currentExecutionId[taskId] = executionId
+    }
+
+    /// Drop `executionId`'s tracking once it has finished, successfully or
+    /// not — otherwise every cancelled execution leaks in `cancelled` forever.
+    ///
+    /// Only clears `currentExecutionId[taskId]` (and `taskId`'s stop
+    /// notifier) if it still points at THIS executionId. Without that guard,
+    /// a slow-finishing outgoing execution's cleanup could run AFTER a
+    /// replacing execution has already begun and wipe the newer execution's
+    /// tracking and notifier out from under it.
+    func endExecution(_ executionId: String, taskId: String) {
+        lock.lock()
+        cancelled.removeValue(forKey: executionId)
+        if currentExecutionId[taskId] == executionId {
+            currentExecutionId.removeValue(forKey: taskId)
+            stopNotifiers.removeValue(forKey: taskId)
+        }
+        lock.unlock()
+    }
+
+    // MARK: - Stop notifiers (issue #75)
 
     /// Register the stop notifier for a running DartWorker execution (issue #75).
     ///
@@ -54,15 +115,20 @@ final class DartTaskCancellationRegistry {
         stopNotifiers.removeValue(forKey: taskId)
     }
 
-    /// Record that `taskId` has been cancelled/stopped.
+    // MARK: - Marking / reading cancellation
+
+    /// Mark `taskId`'s CURRENT execution cancelled/stopped. Used by every
+    /// cancellation source that only knows a taskId — `cancel`/`cancelAll`/
+    /// `cancelByTag`, notification-driven cancel, and BGTask expiration.
     ///
     /// Issue #75: also fires that task's stop notifier, exactly once — the
-    /// notifier is removed as it is taken, so a `cancelAll` that sweeps the same
-    /// taskId twice, or an explicit cancel racing a BGTask expiration, cannot
-    /// notify the Dart handler twice.
+    /// notifier is removed as it is taken, so sweeping the same taskId twice
+    /// (e.g. an explicit cancel racing a BGTask expiration) cannot notify the
+    /// Dart handler twice.
     func markCancelled(_ taskId: String) {
         lock.lock()
-        cancelled.insert(taskId)
+        let executionId = currentExecutionId[taskId] ?? taskId
+        cancelled[executionId] = taskId
         let notifier = stopNotifiers.removeValue(forKey: taskId)
         lock.unlock()
 
@@ -73,19 +139,23 @@ final class DartTaskCancellationRegistry {
         notifier?(nil)
     }
 
-    /// Whether `taskId` has been marked cancelled.
+    /// Whether the execution identified by `executionId` is cancelled.
+    /// Precise — use this whenever an executionId is available (from
+    /// `isTaskCancelled`'s Zone-bound `executionId` argument).
+    func isCancelled(executionId: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled[executionId] != nil
+    }
+
+    /// Coarse: whether `taskId`'s CURRENT execution is cancelled. Fallback
+    /// for callers with no executionId in scope. Do not use this when an
+    /// executionId is available — it cannot distinguish a replaced
+    /// generation of the same taskId from its replacement.
     func isCancelled(_ taskId: String) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return cancelled.contains(taskId)
-    }
-
-    /// Remove `taskId`'s entry once its execution has finished, successfully
-    /// or not — otherwise every cancelled taskId leaks in this set forever.
-    func clear(_ taskId: String) {
-        lock.lock()
-        defer { lock.unlock() }
-        cancelled.remove(taskId)
-        stopNotifiers.removeValue(forKey: taskId)
+        let executionId = currentExecutionId[taskId] ?? taskId
+        return cancelled[executionId] != nil
     }
 }

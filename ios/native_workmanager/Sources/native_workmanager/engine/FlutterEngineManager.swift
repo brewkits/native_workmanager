@@ -495,8 +495,15 @@ class FlutterEngineManager {
             } else if call.method == "isTaskCancelled" {
                 // Issue #66: cooperative cancellation poll from inside a
                 // running DartWorker callback. See DartTaskCancellationRegistry.
-                let taskId = (call.arguments as? [String: Any])?["taskId"] as? String ?? ""
-                result(DartTaskCancellationRegistry.shared.isCancelled(taskId))
+                // Issue #72: precise per-execution check when provided (see
+                // NativeWorkmanagerPlugin.swift's identical handler).
+                let args = call.arguments as? [String: Any]
+                let taskId = args?["taskId"] as? String ?? ""
+                if let executionId = args?["executionId"] as? String {
+                    result(DartTaskCancellationRegistry.shared.isCancelled(executionId: executionId))
+                } else {
+                    result(DartTaskCancellationRegistry.shared.isCancelled(taskId))
+                }
             } else {
                 result(FlutterMethodNotImplemented)
             }
