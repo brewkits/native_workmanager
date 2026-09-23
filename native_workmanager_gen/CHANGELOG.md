@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.8.2] - 2026-09-23
+
+- Version bump synchronized with `native_workmanager` 1.8.2 (issue #76:
+  Built-in Kotlin migration, minimum Flutter 3.44; issue #75: `DartWorker`
+  onStopped hook). No codegen changes.
+
 ## [1.8.1] - 2026-09-12
 
 - Version bump synchronized with `native_workmanager` 1.8.1 (issue #72:

@@ -1137,5 +1137,5 @@ See [ANDROID_SETUP.md](ANDROID_SETUP.md) for the full guidance.
 
 ---
 
-**Version:** 1.8.1
-**Last Updated:** 2026-09-06
+**Version:** 1.8.2
+**Last Updated:** 2026-09-23
