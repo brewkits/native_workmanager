@@ -284,7 +284,7 @@ jobs:
   integration-ios-simulator:
     name: Integration (iOS Simulator)
     runs-on: macos-latest
-    timeout-minutes: 40
+    timeout-minutes: 75
     continue-on-error: true   # flaky on GitHub-hosted runners; gate is all-checks
     if: github.event_name != 'pull_request'
     steps:
@@ -345,13 +345,35 @@ jobs:
       - name: Boot simulator
         run: xcrun simctl boot "${{ steps.sim.outputs.udid }}" || true
 
-      - name: Run integration tests (simulator subset)
+      # One `flutter test` per group, not the whole file in one process. Run as a single
+      # process the 4000+ line suite never finished: the job failed or hit the timeout on
+      # every main push since at least May 2026. Group by group, all 24 groups pass on an
+      # iOS simulator in about 17 min (verified locally, 2026-09-23). The old
+      # `--dart-define=SIMULATOR=true` was dropped because the test file never read it.
+      - name: Run integration tests (group by group)
         working-directory: example
         run: |
-          flutter test integration_test/device_integration_test.dart \
-            -d "${{ steps.sim.outputs.udid }}" \
-            --dart-define=SIMULATOR=true \
-            --timeout=120s
+          set -o pipefail
+          GROUPS_FILE=$(mktemp)
+          grep -oE "^ *group\('[^']+'" integration_test/device_integration_test.dart \
+            | sed -E "s/^ *group\('//; s/'$//" > "$GROUPS_FILE"
+          echo "Found $(wc -l < "$GROUPS_FILE" | tr -d ' ') groups"
+          failed=()
+          while IFS= read -r g; do
+            echo "::group::$g"
+            if ! flutter test integration_test/device_integration_test.dart \
+                -d "${{ steps.sim.outputs.udid }}" \
+                --plain-name "$g" \
+                --timeout=120s < /dev/null; then
+              failed+=("$g")
+            fi
+            echo "::endgroup::"
+          done < "$GROUPS_FILE"
+          if [ ${#failed[@]} -gt 0 ]; then
+            printf '::error::Failed group: %s\n' "${failed[@]}"
+            exit 1
+          fi
+          echo "All groups passed."
 
   # ── Gate ───────────────────────────────────────────────────────────────────
   all-checks:
