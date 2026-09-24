@@ -64,10 +64,17 @@ final class DartTaskCancellationRegistry {
     // MARK: - Per-execution lifecycle (issue #72)
 
     /// Record that `executionId` is now the live execution for `taskId`.
-    /// Called once, right after `executeDartWorkerViaMethodChannel` mints an
-    /// executionId for a fresh invocation — before the Dart callback starts,
-    /// so a `markCancelled(taskId)` racing in concurrently always has
-    /// something to resolve to.
+    ///
+    /// Called from one of two places: (1) `executeDartWorkerViaMethodChannel`,
+    /// right after minting an executionId for a fresh invocation it wasn't
+    /// handed one for (chains, TaskGraph, BGTaskScheduler's periodic path,
+    /// the offline queue), or (2) `replaceActiveTask` (2026-09-24), which
+    /// mints and registers it synchronously — in the SAME barrier block that
+    /// decides to replace whatever's currently running — for its two callers
+    /// (`handleEnqueue`'s direct path, `handleResume`), so a
+    /// `markCancelled(taskId)` racing in immediately after has something
+    /// current to resolve to instead of a stale outgoing execution's id.
+    /// Either way, this must run before the Dart callback starts polling.
     func beginExecution(_ executionId: String, taskId: String) {
         lock.lock()
         defer { lock.unlock() }

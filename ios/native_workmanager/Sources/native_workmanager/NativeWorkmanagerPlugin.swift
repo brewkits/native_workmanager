@@ -432,11 +432,18 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         // always reports the enqueue as accepted regardless of whether it was a no-op.
         let existingPolicyStr = (args["existingPolicy"] as? String)?.lowercased() ?? "replace"
         var skippedForKeep = false
+        // Minted here (not lazily inside executeDartWorkerViaMethodChannel) only for
+        // DartCallbackWorker — see replaceActiveTask's doc comment. Any other worker
+        // class has no cancellation-registry entry to pre-register, and doing it
+        // anyway would leak: only executeDartWorkerViaMethodChannel's `defer` calls
+        // endExecution.
+        let dartExecutionId = workerClassName == "DartCallbackWorker" ? UUID().uuidString : nil
         replaceActiveTask(
             taskId: taskId,
             skipIfAlreadyRunning: existingPolicyStr == "keep",
+            dartExecutionId: dartExecutionId,
             onSkipped: { skippedForKeep = true }
-        ) { [weak self] in
+        ) { [weak self] preMintedExecutionId in
             guard let self else { return }
             if initialDelayMs > 0 {
                 try? await Task.sleep(nanoseconds: UInt64(initialDelayMs) * 1_000_000)
@@ -447,7 +454,8 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                 workerClassName: workerClassName,
                 workerConfig: workerConfig,
                 qos: directQos,
-                retryConfig: directRetryConfig
+                retryConfig: directRetryConfig,
+                preMintedExecutionId: preMintedExecutionId
             )
         }
         if skippedForKeep {
@@ -481,8 +489,9 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     func replaceActiveTask(
         taskId: String,
         skipIfAlreadyRunning: Bool = false,
+        dartExecutionId: String? = nil,
         onSkipped: (() -> Void)? = nil,
-        work: @escaping () async -> Void
+        work: @escaping (String?) async -> Void
     ) {
         stateQueue.sync(flags: .barrier) {
             if let existingTask = self.activeTasks[taskId] {
@@ -500,6 +509,28 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                 self.workers[taskId]?.stop()
             }
 
+            // 2026-09-24: if the caller already minted an executionId for the
+            // INCOMING execution (dartExecutionId — handleEnqueue/handleResume
+            // do this only when workerClassName == "DartCallbackWorker"),
+            // register it as taskId's current execution in this SAME
+            // barrier-protected block that just cancelled the outgoing one.
+            // Closes a real, easily-reproduced gap (not the narrow race it
+            // was originally scoped as): without this, there was a window
+            // between "decided to run" and "executeDartWorkerViaMethodChannel
+            // actually mints+registers its own id" — most commonly the task
+            // sitting parked in ConcurrencyLimiter.acquire() once the default
+            // 4 concurrent slots are full — where an explicit cancel(taskId)
+            // landing in that gap would resolve against whichever execution
+            // DartTaskCancellationRegistry knew about yet (the just-cancelled
+            // outgoing one on a replace, or nothing at all on a first-time
+            // enqueue — see markCancelled's taskId fallback), not this
+            // incoming one. See lib_audit_5 in device_integration_test.dart
+            // for the red-then-green repro (5 DartWorkers in flight, no
+            // artificial delay needed).
+            if let dartExecutionId {
+                DartTaskCancellationRegistry.shared.beginExecution(dartExecutionId, taskId: taskId)
+            }
+
             // See activeTaskGenerations' doc comment: this id is what lets the
             // Task below tell, once IT finishes, whether it is still the
             // current occupant of activeTasks[taskId] — a naturally-completing
@@ -507,6 +538,32 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             // long-finished taskId for one still running.
             let generationId = UUID()
             let task = Task { [weak self] in
+                // Unconditional and outside the `guard let self` / generation
+                // checks below: whichever exit path `work` takes must still
+                // drop this execution's registry entry, or it leaks (and
+                // `currentExecutionId[taskId]` is left pointing at a dead id
+                // forever). This matters because `work` CAN bail out WITHOUT
+                // ever reaching executeDartWorkerViaMethodChannel's own
+                // `defer { endExecution(...) }` — but NOT via
+                // ConcurrencyLimiter.acquire(): a task parked there is NOT
+                // cancellation-aware and DOES eventually proceed once a slot
+                // frees (confirmed by lib_audit_5 — that's exactly why a
+                // pre-minted id is needed there in the first place; see
+                // executeDartWorkerViaMethodChannel's own comment). The real
+                // bail-out paths this defer exists for are: handleEnqueue's
+                // closure's `guard !Task.isCancelled` (checked once, after
+                // the initialDelay `Task.sleep`, before `work` is ever
+                // called), executeWorkerSync's per-attempt top-of-loop
+                // `guard !Task.isCancelled`, and `self` being nil below.
+                // endExecution is idempotent (guarded on
+                // currentExecutionId[taskId] still pointing at this id), so
+                // whichever of this defer or executeDartWorkerViaMethodChannel's
+                // own defer runs first makes the other a no-op.
+                defer {
+                    if let dartExecutionId {
+                        DartTaskCancellationRegistry.shared.endExecution(dartExecutionId, taskId: taskId)
+                    }
+                }
                 guard let self else { return }
                 defer {
                     self.stateQueue.sync(flags: .barrier) {
@@ -519,7 +576,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                         self.activeTaskGenerations.removeValue(forKey: taskId)
                     }
                 }
-                await work()
+                await work(dartExecutionId)
             }
             self.activeTasks[taskId] = task
             self.activeTaskGenerations[taskId] = generationId

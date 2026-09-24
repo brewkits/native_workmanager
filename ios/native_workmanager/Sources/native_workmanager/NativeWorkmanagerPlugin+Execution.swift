@@ -423,7 +423,8 @@ extension NativeWorkmanagerPlugin {
         workerClassName: String,
         workerConfig: [String: Any],
         qos: String = "background",
-        retryConfig: RetryConfig = .noRetry
+        retryConfig: RetryConfig = .noRetry,
+        preMintedExecutionId: String? = nil
     ) async -> WorkerResult {
         let workerStartTime = Date()
         emitTaskStarted(taskId: taskId, workerType: workerClassName)
@@ -437,12 +438,25 @@ extension NativeWorkmanagerPlugin {
                 return .failure(message: "Cancelled before attempt \(attempt)/\(totalAttempts)")
             }
             await concurrencyLimiter.acquire()
+            // preMintedExecutionId (see replaceActiveTask) names ONE specific
+            // execution — the one that atomically replaced whatever was
+            // previously registered for taskId at enqueue/resume time. It
+            // only applies to attempt 1: a retry is a fresh execution that
+            // nothing external raced against, so it mints its own id lazily
+            // like any other caller of _executeWorker. Reusing the same
+            // preminted id across retries would be actively wrong — attempt
+            // 1's `defer { endExecution(...) }` already clears
+            // currentExecutionId[taskId] when it finishes, so attempt 2
+            // would run with an id that's no longer registered as "current"
+            // and a cancel() landing during attempt 2 would resolve against
+            // the wrong bucket.
             lastResult = await _executeWorker(
                 taskId: taskId,
                 workerClassName: workerClassName,
                 workerConfig: workerConfig,
                 qos: qos,
-                shouldEmitEvent: false
+                shouldEmitEvent: false,
+                preMintedExecutionId: attempt == 1 ? preMintedExecutionId : nil
             )
             await concurrencyLimiter.release()
 
@@ -491,7 +505,8 @@ extension NativeWorkmanagerPlugin {
         workerClassName: String,
         workerConfig: [String: Any],
         qos: String = "background",
-        shouldEmitEvent: Bool = false
+        shouldEmitEvent: Bool = false,
+        preMintedExecutionId: String? = nil
     ) async -> WorkerResult {
         NativeLogger.d("Executing task '\(taskId)' in chain with QoS: \(qos)...")
 
@@ -499,7 +514,11 @@ extension NativeWorkmanagerPlugin {
         // Using an unstructured Task {} inside withCheckedContinuation caused scheduling issues
         // on iOS 15 when two DartCallbackWorker tasks ran in parallel inside withTaskGroup.
         if workerClassName == "DartCallbackWorker" {
-            return await executeDartWorkerViaMethodChannel(workerConfig: workerConfig, taskId: taskId)
+            return await executeDartWorkerViaMethodChannel(
+                workerConfig: workerConfig,
+                taskId: taskId,
+                preMintedExecutionId: preMintedExecutionId
+            )
         }
 
         let qosClass = mapQoS(qos)
@@ -576,7 +595,8 @@ extension NativeWorkmanagerPlugin {
 
     func executeDartWorkerViaMethodChannel(
         workerConfig: [String: Any],
-        taskId: String
+        taskId: String,
+        preMintedExecutionId: String? = nil
     ) async -> WorkerResult {
         // Issue #72: mint a fresh executionId for THIS invocation, distinct
         // from taskId, mirroring Android's DartCallbackWorker (which mints
@@ -585,10 +605,31 @@ extension NativeWorkmanagerPlugin {
         // taskId — a bare taskId-keyed cancellation mark cannot tell the two
         // apart, so this is what lets isTaskCancelled() resolve against the
         // specific execution polling it rather than whichever one happens to
-        // share its taskId. Registered immediately so a replace racing in
-        // concurrently always has something to resolve to.
-        let executionId = UUID().uuidString
-        DartTaskCancellationRegistry.shared.beginExecution(executionId, taskId: taskId)
+        // share its taskId.
+        //
+        // 2026-09-24 improvement pass: minting AND registering it here was
+        // NOT the narrow, sub-microsecond race it was originally scoped as —
+        // a cancel() landing after handleEnqueue accepts a task but before
+        // this line finally runs (e.g. while the task is parked inside
+        // ConcurrencyLimiter.acquire(), waiting for one of the default 4
+        // concurrent slots) fell back to marking the bare taskId, an
+        // orphaned entry under the wrong key once this line's fresh
+        // executionId registers — reproduces with only 5 DartWorkers ever in
+        // flight, confirmed red-then-green by `lib_audit_5` in
+        // device_integration_test.dart. replaceActiveTask now closes that gap
+        // for its two callers (handleEnqueue, handleResume) by minting the id
+        // and calling beginExecution SYNCHRONOUSLY, in the same atomic block
+        // that cancels the outgoing execution — preMintedExecutionId is that
+        // id, arriving already registered. Every other caller of this
+        // function (chains, TaskGraph, BGTaskScheduler's periodic path, the
+        // offline queue, and retry attempts 2+ of executeWorkerSync's own
+        // loop) still doesn't have one to give, so this mints+registers its
+        // own exactly as before — those paths still have the same gap,
+        // tracked as a follow-up on PR #83.
+        let executionId = preMintedExecutionId ?? UUID().uuidString
+        if preMintedExecutionId == nil {
+            DartTaskCancellationRegistry.shared.beginExecution(executionId, taskId: taskId)
+        }
         // Issue #66/#72: whichever branch below runs, always drop this
         // execution's cancellation-registry entry once it's done — otherwise
         // a cancelled execution (or, worse, a reused taskId on a later run)

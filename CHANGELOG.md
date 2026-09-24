@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+iOS cancellation-registry improvement pass (branch
+`ios-cancellation-registry-improvements`, PR #83, still a draft — not
+released). Items 1–3 fix `activeTasks`/registry bookkeeping bugs found while
+reviewing the 1.8.3 `existingPolicy`/executionId work for follow-ups
+(`stopAllWorkers()` never marking the cancellation registry, `handleResume`
+never registering its `Task` — pause+resume could run a task twice
+concurrently, `BGTaskScheduler`'s periodic path never clearing its
+`activeTasks` entry on natural completion). See their commits for full
+detail.
+
+### Fixed
+
+- **Item 4, and a correction to 1.8.3's own CHANGELOG entry below**: that
+  entry describes the `executeDartWorkerViaMethodChannel` executionId
+  registration gap as "narrow" and "not a pattern normal usage hits." That
+  undersold it. The gap is real and reproduces under ordinary usage — a
+  `cancel(taskId)` landing while a `DartCallbackWorker` is parked inside
+  `ConcurrencyLimiter.acquire()` (the default cap is 4 concurrent tasks, so
+  a 5th enqueued DartWorker parks immediately) falls back to marking the
+  bare `taskId`, an orphaned entry once the task's own executionId
+  registers moments later once a slot frees — the task runs on, uncancelled.
+  Reproduced with only 5 DartWorkers ever in flight; no artificial delay or
+  back-to-back enqueue/cancel needed. `replaceActiveTask` now mints the
+  executionId and registers it synchronously, in the same barrier block
+  that accepts the enqueue — before the `enqueue()`/`resume()` Future even
+  resolves in Dart.
+  - Scope: this closes the gap for attempt 1 of `handleEnqueue`'s direct
+    (one-time) path and `handleResume` only — the two callers that now
+    pre-mint. Chains, `TaskGraph`, `BGTaskScheduler`'s periodic path, the
+    offline queue, and retry attempts 2+ within a single `enqueue()` call
+    still register lazily inside `executeDartWorkerViaMethodChannel` and
+    still have this exact gap. Tracked as a follow-up on PR #83.
+  - Android has no equivalent: `DartCallbackWorker` mints its executionId
+    inside `doWork()`, which WorkManager only invokes once it has already
+    decided to run the request — a request cancelled while still queued
+    never reaches `doWork()` at all. iOS-only, per `lib_audit_5` in
+    `device_integration_test.dart` (red-then-green verified on an iOS
+    simulator; no real device available this session).
+  - Also fixes a leak this introduced during development (caught before
+    committing): the pre-minted executionId is registered in
+    `replaceActiveTask`, but only `executeDartWorkerViaMethodChannel`'s own
+    `defer` ended it — any exit before reaching that function (the
+    `guard !Task.isCancelled` checks in `handleEnqueue`'s closure or
+    `executeWorkerSync`'s retry loop, or `self` being nil) never cleaned up
+    the registry entry. `replaceActiveTask`'s `Task` now unconditionally
+    calls `endExecution` for its pre-minted id in its own `defer`,
+    idempotent alongside `executeDartWorkerViaMethodChannel`'s.
+
 ## [1.8.3] - 2026-09-24
 
 Fixes 3 issues found by a full `lib/` audit (2026-09-23), reviewed in detail

@@ -186,12 +186,18 @@ extension NativeWorkmanagerPlugin {
             // this fresh one. replaceActiveTask cancels whatever's still
             // registered for taskId first, exactly like existingPolicy: .replace
             // does in handleEnqueue, then registers this execution the same way.
-            replaceActiveTask(taskId: taskId) { [weak self] in
+            // 2026-09-24: pre-mint dartExecutionId the same way handleEnqueue does —
+            // see replaceActiveTask's doc comment for why this must happen atomically
+            // with cancelling the outgoing execution, not lazily inside
+            // executeDartWorkerViaMethodChannel.
+            let dartExecutionId = record.workerClassName == "DartCallbackWorker" ? UUID().uuidString : nil
+            replaceActiveTask(taskId: taskId, dartExecutionId: dartExecutionId) { [weak self] preMintedExecutionId in
                 await self?.executeWorkerSync(
                     taskId: taskId,
                     workerClassName: record.workerClassName,
                     workerConfig: workerConfig,
-                    qos: "background"
+                    qos: "background",
+                    preMintedExecutionId: preMintedExecutionId
                 )
             }
         } else {
