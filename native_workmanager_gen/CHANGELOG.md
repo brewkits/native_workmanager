@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.8.3] - 2026-09-24
+
+- Version bump synchronized with `native_workmanager` 1.8.3 (lib/ audit: two
+  missing-validator/path-traversal fixes, DartWorker resolution for
+  TaskGraph/RemoteTrigger, iOS existingPolicy + issue #72 executionId port).
+  No codegen changes.
+
 ## [1.8.2] - 2026-09-23
 
 - Version bump synchronized with `native_workmanager` 1.8.2 (issue #76:
