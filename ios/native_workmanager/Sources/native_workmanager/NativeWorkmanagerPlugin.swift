@@ -400,16 +400,64 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         // the new one; "keep" leaves the running execution alone and ignores the new
         // request, matching WorkManager's ExistingWorkPolicy.KEEP on Android, which also
         // always reports the enqueue as accepted regardless of whether it was a no-op.
-        //
-        // This whole check-decide-store sequence is one atomic stateQueue block so two
-        // overlapping handleEnqueue calls for the same taskId can't both see "nothing
-        // running yet" and both proceed.
         let existingPolicyStr = (args["existingPolicy"] as? String)?.lowercased() ?? "replace"
         var skippedForKeep = false
+        replaceActiveTask(
+            taskId: taskId,
+            skipIfAlreadyRunning: existingPolicyStr == "keep",
+            onSkipped: { skippedForKeep = true }
+        ) { [weak self] in
+            guard let self else { return }
+            if initialDelayMs > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(initialDelayMs) * 1_000_000)
+            }
+            guard !Task.isCancelled else { return }
+            await self.executeWorkerSync(
+                taskId: taskId,
+                workerClassName: workerClassName,
+                workerConfig: workerConfig,
+                qos: directQos,
+                retryConfig: directRetryConfig
+            )
+        }
+        if skippedForKeep {
+            NativeLogger.d("handleEnqueue: '\(taskId)' already running, existingPolicy=keep — new request ignored")
+        }
+
+        result("ACCEPTED")
+    }
+
+    /// Cancels whatever is currently registered for `taskId` in `activeTasks` and
+    /// registers a fresh execution, atomically — the "check-decide-store" sequence
+    /// `handleEnqueue`'s `existingPolicy` handling and `handleResume` both need, pulled
+    /// into one place after duplicating it once already produced a gap (`handleResume`
+    /// used to build its own untracked `Task {}`, found in the 2026-09-24 iOS
+    /// improvement pass: a paused-then-resumed NON-background-session task could run
+    /// TWO concurrent executions, because `handlePause` never actually stops anything
+    /// for a task `BackgroundSessionManager` doesn't recognize as a real download, and
+    /// the resumed `Task` was never registered in `activeTasks` for anything to check
+    /// against).
+    ///
+    /// The whole thing runs inside one `stateQueue` barrier block so two overlapping
+    /// calls for the same `taskId` (an enqueue racing a resume, a resume racing another
+    /// resume, ...) can't both see "nothing running yet" and both proceed.
+    ///
+    /// - Parameters:
+    ///   - skipIfAlreadyRunning: `true` for `existingPolicy: .keep` — leaves a running
+    ///     execution alone and calls `onSkipped` instead of starting `work`.
+    ///   - work: the body to run as the new tracked `Task`. Checking `Task.isCancelled`
+    ///     inside `work` (e.g. after an initial delay) is the caller's job, same as
+    ///     before this was extracted.
+    func replaceActiveTask(
+        taskId: String,
+        skipIfAlreadyRunning: Bool = false,
+        onSkipped: (() -> Void)? = nil,
+        work: @escaping () async -> Void
+    ) {
         stateQueue.sync(flags: .barrier) {
             if let existingTask = self.activeTasks[taskId] {
-                if existingPolicyStr == "keep" {
-                    skippedForKeep = true
+                if skipIfAlreadyRunning {
+                    onSkipped?()
                     return
                 }
                 // Cancelling the Swift Task only unblocks whatever it's synchronously
@@ -425,42 +473,27 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             // See activeTaskGenerations' doc comment: this id is what lets the
             // Task below tell, once IT finishes, whether it is still the
             // current occupant of activeTasks[taskId] — a naturally-completing
-            // task must remove its own entry so a later enqueue() doesn't
-            // mistake a long-finished taskId for one still running.
+            // task must remove its own entry so a later call doesn't mistake a
+            // long-finished taskId for one still running.
             let generationId = UUID()
             let task = Task { [weak self] in
                 guard let self else { return }
                 defer {
                     self.stateQueue.sync(flags: .barrier) {
                         // Only clear if nothing has replaced us in the meantime —
-                        // a .replace enqueue() racing in after we started but
-                        // before we finish must not have its brand-new entry
-                        // wiped out by our own late cleanup.
+                        // a call racing in after we started but before we finish
+                        // must not have its brand-new entry wiped out by our own
+                        // late cleanup.
                         guard self.activeTaskGenerations[taskId] == generationId else { return }
                         self.activeTasks.removeValue(forKey: taskId)
                         self.activeTaskGenerations.removeValue(forKey: taskId)
                     }
                 }
-                if initialDelayMs > 0 {
-                    try? await Task.sleep(nanoseconds: UInt64(initialDelayMs) * 1_000_000)
-                }
-                guard !Task.isCancelled else { return }
-                await self.executeWorkerSync(
-                    taskId: taskId,
-                    workerClassName: workerClassName,
-                    workerConfig: workerConfig,
-                    qos: directQos,
-                    retryConfig: directRetryConfig
-                )
+                await work()
             }
             self.activeTasks[taskId] = task
             self.activeTaskGenerations[taskId] = generationId
         }
-        if skippedForKeep {
-            NativeLogger.d("handleEnqueue: '\(taskId)' already running, existingPolicy=keep — new request ignored")
-        }
-
-        result("ACCEPTED")
     }
 
     @available(iOS 13.0, *)

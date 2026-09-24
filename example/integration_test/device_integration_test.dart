@@ -278,6 +278,33 @@ Future<bool> _ditStopNoPoll(Map<String, dynamic>? input) async {
   return true;
 }
 
+/// Issue lib_audit_4 (iOS pause()/resume() double-execution check,
+/// 2026-09-24 improvement pass): appends "<executionId> <iteration>" lines to
+/// [logFile] so the test can tell one execution running serially (a short
+/// prefix from the cancelled-out outgoing execution, then a fresh 1..50 run
+/// from the resumed one) apart from two executions racing concurrently
+/// (interleaved executionIds within the same time window). Polls
+/// isTaskCancelled() like dit_cancel_poll — needed so the OUTGOING execution
+/// has any way to notice replaceActiveTask cancelled it.
+@pragma('vm:entry-point')
+Future<bool> _ditPauseResumeLog(Map<String, dynamic>? input) async {
+  final taskId = input?['__taskId'] as String?;
+  final executionId = input?['__executionId'] as String? ?? 'unknown';
+  final logFile = input?['logFile'] as String?;
+  for (var i = 1; i <= 50; i++) {
+    if (logFile != null) {
+      File(
+        logFile,
+      ).writeAsStringSync('$executionId $i\n', mode: FileMode.append);
+    }
+    if (taskId != null && await NativeWorkManager.isTaskCancelled(taskId)) {
+      return false;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+  }
+  return true;
+}
+
 /// Wait (bounded) for a DartWorker callback to create [file].
 ///
 /// Issue #75: a fixed delay is not enough to know a callback has started — a
@@ -352,13 +379,12 @@ void main() {
         'dit_retry_counter': _ditRetryCounter,
         'dit_cancel_poll': _ditCancelPoll,
         'dit_stop_no_poll': _ditStopNoPoll,
+        'dit_pause_resume_log': _ditPauseResumeLog,
         'workflow_finalizer': _workflowFinalizer,
       },
       // Issue #75: stop handlers live in their own registry — a
       // DartWorkerStoppedCallback returns void, so it cannot share dartWorkers.
-      onStoppedHandlers: {
-        'dit_on_stopped': _ditOnStopped,
-      },
+      onStoppedHandlers: {'dit_on_stopped': _ditOnStopped},
     );
 
     // Cancel any leftover tasks from previous runs.
@@ -1867,7 +1893,8 @@ void main() {
         expect(
           started,
           isTrue,
-          reason: 'issue_75: the callback must have started before being '
+          reason:
+              'issue_75: the callback must have started before being '
               'cancelled, or this test proves nothing',
         );
 
@@ -1879,14 +1906,16 @@ void main() {
         expect(
           markerFile.existsSync(),
           isTrue,
-          reason: 'issue_75: the onStopped handler never ran. Either the native '
+          reason:
+              'issue_75: the onStopped handler never ran. Either the native '
               'side did not invoke onTaskStopped/onDartTaskStopped, or the '
               'handle/id never crossed the bridge.',
         );
         expect(
           markerFile.readAsStringSync().trim(),
           equals(id),
-          reason: 'issue_75: the handler ran but did not receive __taskId, so a '
+          reason:
+              'issue_75: the handler ran but did not receive __taskId, so a '
               'shared handler could not tell which task stopped',
         );
       },
@@ -1928,14 +1957,18 @@ void main() {
           worker: DartWorker(
             callbackId: 'dit_stop_no_poll',
             onStoppedId: 'dit_on_stopped',
-            cancelGrace: Duration.zero, // tear down as soon as the handler returns
+            cancelGrace:
+                Duration.zero, // tear down as soon as the handler returns
             autoDispose: true,
             input: {'counterFile': counterFile.path},
           ),
         );
 
-        expect(await _waitForFile(counterFile), isTrue,
-            reason: 'issue_75: the callback must have started before cancel');
+        expect(
+          await _waitForFile(counterFile),
+          isTrue,
+          reason: 'issue_75: the callback must have started before cancel',
+        );
         await NativeWorkManager.cancel(taskId: id);
 
         // Past the grace, the engine should be gone and the counter frozen.
@@ -1948,14 +1981,16 @@ void main() {
         expect(
           later,
           equals(afterTeardown),
-          reason: 'issue_75: the counter is still climbing after cancelGrace '
+          reason:
+              'issue_75: the counter is still climbing after cancelGrace '
               'elapsed — the engine was never torn down, so an uncooperative '
               'callback still runs to completion',
         );
         expect(
           later,
           lessThan(45),
-          reason: 'issue_75: the callback got essentially all 50 iterations, '
+          reason:
+              'issue_75: the callback got essentially all 50 iterations, '
               'meaning teardown never happened',
         );
       },
@@ -2100,10 +2135,12 @@ void main() {
         }
 
         final id = _id('lib_audit_3_replace');
-        final oldCounterFile =
-            File('${tmpDir.path}/lib_audit_3_replace_old.txt');
-        final newCounterFile =
-            File('${tmpDir.path}/lib_audit_3_replace_new.txt');
+        final oldCounterFile = File(
+          '${tmpDir.path}/lib_audit_3_replace_old.txt',
+        );
+        final newCounterFile = File(
+          '${tmpDir.path}/lib_audit_3_replace_new.txt',
+        );
 
         await NativeWorkManager.enqueue(
           taskId: id,
@@ -2133,12 +2170,14 @@ void main() {
           isTrue,
           reason: 'lib_audit_3: the replaced execution must have started',
         );
-        final oldIterations =
-            int.parse(oldCounterFile.readAsStringSync().trim());
+        final oldIterations = int.parse(
+          oldCounterFile.readAsStringSync().trim(),
+        );
         expect(
           oldIterations,
           lessThan(50),
-          reason: 'lib_audit_3: the replaced execution must have observed '
+          reason:
+              'lib_audit_3: the replaced execution must have observed '
               'cancellation and stopped',
         );
 
@@ -2147,12 +2186,14 @@ void main() {
           isTrue,
           reason: 'lib_audit_3: the replacement execution must have started',
         );
-        final newIterations =
-            int.parse(newCounterFile.readAsStringSync().trim());
+        final newIterations = int.parse(
+          newCounterFile.readAsStringSync().trim(),
+        );
         expect(
           newIterations,
           equals(50),
-          reason: 'lib_audit_3: the replacement must run to completion — a '
+          reason:
+              'lib_audit_3: the replacement must run to completion — a '
               'lower count means it inherited the replaced execution\'s '
               'stale cancellation mark and self-aborted',
         );
@@ -2208,7 +2249,8 @@ void main() {
         expect(
           newCounterFile.existsSync(),
           isFalse,
-          reason: 'lib_audit_3: keep must ignore the new request entirely — '
+          reason:
+              'lib_audit_3: keep must ignore the new request entirely — '
               'no second execution should ever have started',
         );
       },
@@ -2244,16 +2286,21 @@ void main() {
           worker: DartWorker(callbackId: 'dit_pass'),
         );
         final first = await firstEvent;
-        expect(first?.success, isTrue,
-            reason: 'lib_audit_3: the first execution must complete');
+        expect(
+          first?.success,
+          isTrue,
+          reason: 'lib_audit_3: the first execution must complete',
+        );
 
         // Give the natural-completion cleanup a moment to run before
         // re-enqueuing, so this genuinely exercises the "already finished,
         // not just finishing" case.
         await Future.delayed(const Duration(seconds: 2));
 
-        final secondEvent =
-            _waitEvent(id, timeout: const Duration(seconds: 15));
+        final secondEvent = _waitEvent(
+          id,
+          timeout: const Duration(seconds: 15),
+        );
         await NativeWorkManager.enqueue(
           taskId: id,
           trigger: const TaskTrigger.oneTime(),
@@ -2264,9 +2311,121 @@ void main() {
         expect(
           second?.success,
           isTrue,
-          reason: 'lib_audit_3: a taskId reused after its previous execution '
+          reason:
+              'lib_audit_3: a taskId reused after its previous execution '
               'already completed must run the new request — keep must not '
               'mistake a long-finished task for one still running',
+        );
+      },
+    );
+
+    testWidgets(
+      'lib_audit_4: pausing a non-background-session task then resuming it '
+      'does not leave the outgoing execution running as an untracked zombie '
+      'alongside the resumed one (iOS)',
+      (tester) async {
+        // Found in the 2026-09-24 improvement pass while fixing item #2 on
+        // the post-audit list ("handleResume doesn't register in
+        // activeTasks"). The real bug turned out bigger than that framing:
+        // handlePause()'s only actual stop mechanism is
+        // BackgroundSessionManager.pause(), which looks the taskId up in the
+        // background URL session's OWN task list — for a plain DartWorker (or
+        // any non-background-session task) that lookup finds nothing, calls
+        // back false, and NOTHING about the real running execution is
+        // touched. handlePause still unconditionally relabels the task
+        // "paused" regardless. handleResume then built a brand-new, entirely
+        // untracked Task to re-run the persisted config under the same
+        // taskId — so pause()-then-resume() on an ordinary task could run
+        // TWO concurrent executions: the original, never actually paused,
+        // and the resumed one.
+        //
+        // Fixed by routing handleResume through the same replaceActiveTask
+        // helper existingPolicy: .replace uses — it cancels+marks whatever's
+        // still registered for the taskId before starting the resumed
+        // execution, exactly like a repeat enqueue() does.
+        if (!Platform.isIOS) {
+          markTestSkipped('iOS pause()/resume() path');
+          return;
+        }
+
+        final id = _id('lib_audit_4_pause_resume');
+        final logFile = File('${tmpDir.path}/lib_audit_4_log.txt');
+        if (logFile.existsSync()) logFile.deleteSync();
+
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          trigger: const TaskTrigger.oneTime(),
+          worker: DartWorker(
+            callbackId: 'dit_pause_resume_log',
+            input: {'logFile': logFile.path},
+          ),
+        );
+
+        // Let the original execution actually start and log a few iterations.
+        await Future.delayed(const Duration(milliseconds: 600));
+
+        // DartWorker isn't a background-session download, so pause() cannot
+        // actually stop the underlying execution — it only relabels state.
+        await NativeWorkManager.pause(taskId: id);
+        await NativeWorkManager.resume(taskId: id);
+
+        // Long enough for a full uncancelled 50-iteration run (~10s) to
+        // finish, whether that's the resumed execution behaving correctly or
+        // a zombie original proving the bug is back.
+        await Future.delayed(const Duration(seconds: 12));
+
+        expect(
+          logFile.existsSync(),
+          isTrue,
+          reason:
+              'lib_audit_4: the original execution must have started '
+              'logging before pause/resume were called',
+        );
+
+        final lines = logFile
+            .readAsLinesSync()
+            .where((l) => l.trim().isNotEmpty)
+            .map((l) => l.split(' '))
+            .toList();
+        final byExecution = <String, List<int>>{};
+        for (final parts in lines) {
+          final execId = parts[0];
+          final iter = int.parse(parts[1]);
+          (byExecution[execId] ??= []).add(iter);
+        }
+
+        expect(
+          byExecution.length,
+          equals(2),
+          reason:
+              'lib_audit_4: expected exactly two executions (the '
+              'original and the resumed one) to have logged anything at '
+              'all — got ${byExecution.length}: ${byExecution.keys}',
+        );
+
+        final maxIterations = byExecution.values.map(
+          (v) => v.reduce((a, b) => a > b ? a : b),
+        );
+        final sorted = maxIterations.toList()..sort();
+        final outgoingMax = sorted.first;
+        final resumedMax = sorted.last;
+
+        expect(
+          outgoingMax,
+          lessThan(30),
+          reason:
+              'lib_audit_4: the outgoing (pre-resume) execution must '
+              'have been cancelled shortly after resume() started a new '
+              'one — reaching anywhere near 50 means it kept running '
+              'unimpeded as an untracked zombie, the exact double-execution '
+              'this fix closes. Per-execution max iterations: $byExecution',
+        );
+        expect(
+          resumedMax,
+          equals(50),
+          reason:
+              'lib_audit_4: the resumed execution must run to '
+              'completion. Per-execution max iterations: $byExecution',
         );
       },
     );
