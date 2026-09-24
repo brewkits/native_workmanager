@@ -192,8 +192,38 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
             BGTaskSchedulerManager.shared.onTaskRunning = { [weak instance] taskId, runningTask in
                 // Track OS-triggered running tasks so NativeWorkManager.cancel(taskId) can
                 // cancel the Swift Task via cooperative cancellation.
-                instance?.stateQueue.sync(flags: .barrier) {
-                    instance?.activeTasks[taskId] = runningTask
+                guard let instance else { return }
+                // Improvement pass, 2026-09-24: this used to just store the Task with no
+                // generation tracking, so — same bug shape as handleEnqueue/handleResume
+                // before they were fixed — a periodic/refresh task that finishes NATURALLY
+                // (not via expiration) never had its activeTasks entry cleared, leaving a
+                // stale "still running" signal for that taskId forever (existingPolicy
+                // could misread it, cancel(taskId) would try to cancel an already-finished
+                // Task). Expiration already self-heals via stopAllWorkers(), which clears
+                // everything — this is specifically for the non-expiring completion path.
+                //
+                // BGTaskSchedulerManager creates and owns `runningTask` itself (it's what
+                // actually drives the BGProcessingTask/BGAppRefreshTask lifecycle), so this
+                // closure can't wrap its body in a defer the way handleEnqueue/handleResume
+                // wrap their own `Task { }` via replaceActiveTask. Instead, observe its
+                // completion from the outside: `Task<Void, Never>.value` suspends until the
+                // task's closure returns — success, failure, or an early cancelled return —
+                // then run the exact same "clear only if still current" cleanup as
+                // everywhere else, guarding against a taskId that got replaced in the
+                // meantime.
+                let generationId = UUID()
+                instance.stateQueue.sync(flags: .barrier) {
+                    instance.activeTasks[taskId] = runningTask
+                    instance.activeTaskGenerations[taskId] = generationId
+                }
+                Task { [weak instance] in
+                    _ = await runningTask.value
+                    guard let instance else { return }
+                    instance.stateQueue.sync(flags: .barrier) {
+                        guard instance.activeTaskGenerations[taskId] == generationId else { return }
+                        instance.activeTasks.removeValue(forKey: taskId)
+                        instance.activeTaskGenerations.removeValue(forKey: taskId)
+                    }
                 }
             }
             BackgroundSessionManager.shared.richProgressDelegate = { [weak instance] _, dict in
