@@ -175,12 +175,29 @@ extension NativeWorkmanagerPlugin {
             }
             taskStore?.updateStatus(taskId: taskId, status: "pending")
             stateQueue.async(flags: .barrier) { self.taskStates[taskId] = .pending }
-            Task { [weak self] in
+            // Found in the 2026-09-24 iOS improvement pass: this used to be a bare,
+            // untracked `Task { }` — never registered in activeTasks, so a
+            // resumed task could neither be cancel()'d nor be seen by
+            // existingPolicy, AND (the more serious half) handlePause() never
+            // actually stops anything for a task BackgroundSessionManager
+            // doesn't recognize as a real download — so pausing then resuming a
+            // plain (non-background-session) task could run it TWICE
+            // concurrently: the original, never-actually-paused execution, and
+            // this fresh one. replaceActiveTask cancels whatever's still
+            // registered for taskId first, exactly like existingPolicy: .replace
+            // does in handleEnqueue, then registers this execution the same way.
+            // 2026-09-24: pre-mint dartExecutionId the same way handleEnqueue does —
+            // see replaceActiveTask's doc comment for why this must happen atomically
+            // with cancelling the outgoing execution, not lazily inside
+            // executeDartWorkerViaMethodChannel.
+            let dartExecutionId = record.workerClassName == "DartCallbackWorker" ? UUID().uuidString : nil
+            replaceActiveTask(taskId: taskId, dartExecutionId: dartExecutionId) { [weak self] preMintedExecutionId in
                 await self?.executeWorkerSync(
                     taskId: taskId,
                     workerClassName: record.workerClassName,
                     workerConfig: workerConfig,
-                    qos: "background"
+                    qos: "background",
+                    preMintedExecutionId: preMintedExecutionId
                 )
             }
         } else {
