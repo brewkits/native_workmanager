@@ -478,7 +478,15 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
 
     internal func stopAllWorkers() {
         stateQueue.sync(flags: .barrier) {
-            for (_, task) in activeTasks {
+            for (taskId, task) in activeTasks {
+                // Pre-existing gap, found during the 2026-09-23 lib/ audit: this
+                // used to cancel the Swift Task without ever marking the
+                // registry, so a DartWorker callback cooperatively polling
+                // isTaskCancelled() during a real OS-triggered BGTask
+                // expiration would never find out — the same information
+                // handleCancel/cancelAll/cancelByTag already give an
+                // explicitly-cancelled task.
+                DartTaskCancellationRegistry.shared.markCancelled(taskId)
                 task.cancel()
             }
             activeTasks.removeAll()
