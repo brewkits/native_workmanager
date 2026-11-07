@@ -5,7 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.9.0] - 2026-11-07
+
+Minor release: new remote-trigger signature scheme (v2, backwards compatible), `maxConcurrentTasks`
+now actually enforced, and Android cancellation fixes. **Backends signing remote-trigger pushes should
+move to v2** (`doc/REMOTE_TRIGGER_SIGNING.md`); v1 keeps working but is deprecated and logged.
 
 ### Fixed
 - **Android: cancelling a `WebSocketWorker` now closes the connection promptly.** The worker
