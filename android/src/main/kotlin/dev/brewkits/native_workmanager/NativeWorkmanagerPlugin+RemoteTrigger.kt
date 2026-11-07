@@ -57,11 +57,26 @@ fun NativeWorkmanagerPlugin.Companion.onRemoteMessage(context: Context, source: 
 
         // Phase 2: HMAC Verification
         if (record.secretKey != null) {
-            val signature = payload["x-native-wm-signature"]?.toString()
-            if (signature == null || !verifyHmac(payload, record.secretKey, signature)) {
-                NativeLogger.w("⚠️ Remote trigger REJECTED: Invalid HMAC signature for $source")
-                return false
+            val prefs = context.getSharedPreferences(SHARED_PREFS_NAME, Context.MODE_PRIVATE)
+            val verdict = RemoteTriggerSignature.verify(
+                payload = payload,
+                secretKey = record.secretKey,
+                nowMs = System.currentTimeMillis(),
+                nonces = RemoteTriggerSignature.sharedNonceStore(prefs),
+            ) { legacySignature -> verifyHmac(payload, record.secretKey, legacySignature) }
+            when (verdict) {
+                RemoteTriggerSignature.Verdict.VALID_V2 -> Unit
+                RemoteTriggerSignature.Verdict.VALID_LEGACY ->
+                    NativeLogger.w("⚠️ Remote trigger for $source used the DEPRECATED v1 signature " +
+                        "(no timestamp/nonce, replayable). Switch your backend to v2.")
+                else -> {
+                    NativeLogger.w("⚠️ Remote trigger REJECTED ($verdict): invalid signature for $source")
+                    return false
+                }
             }
+        } else if (payload["native_wm"] != null || (payload["data"] as? Map<*, *>)?.get("native_wm") != null) {
+            NativeLogger.w("⚠️ Unsigned remote command for $source: no secretKey is set on this rule, so " +
+                "anyone who can deliver a push can run native_wm commands. Set RemoteTriggerRule.secretKey.")
         }
 
         // Mode 1: Direct Command (Highest priority)

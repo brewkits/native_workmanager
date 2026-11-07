@@ -51,6 +51,13 @@ class RemoteTriggerRule {
   /// If provided, the plugin will verify that the remote payload contains
   /// a valid `x-native-wm-signature` header/key computed using this secret.
   /// This prevents malicious actors from spoofing pushes to drain battery.
+  ///
+  /// Prefer the **v2** scheme (`v2=<hex>` + `x-native-wm-timestamp` +
+  /// `x-native-wm-nonce`): it rejects replayed and stale messages and uses a
+  /// collision-free canonical form. The bare-hex v1 form is still accepted but
+  /// deprecated. See `doc/REMOTE_TRIGGER_SIGNING.md`.
+  ///
+  /// Without a secret, `native_wm` direct commands are accepted unauthenticated.
   final String? secretKey;
 
   /// Convert to a map for the platform channel.
