@@ -2676,22 +2676,23 @@ void main() {
       // run all 50 iterations if the cancellation was never observed.
       await Future.delayed(const Duration(seconds: 3));
 
-      expect(
-        bCounterFile.existsSync(),
-        isTrue,
-        reason: 'lib_audit_5: B must have started once a slot freed up',
-      );
-      final iterations = int.parse(bCounterFile.readAsStringSync().trim());
-      expect(
-        iterations,
-        lessThan(5),
-        reason:
-            'lib_audit_5: B was cancelled before it ever got a '
-            'concurrency slot — it must stop at its very first '
-            'isTaskCancelled() poll. A count this high means the cancel '
-            'landed in the pre-fix gap and was silently dropped, letting '
-            'B run on uncancelled. Iterations observed: $iterations',
-      );
+      // Since issue #84 the limiter is cancellation-aware: a task cancelled while parked is
+      // removed from the queue and never starts (file absent). Before #84 it woke up when a
+      // slot freed and had to stop at its first poll. Either way the invariant is the same:
+      // a cancelled B must never run on as if uncancelled.
+      if (bCounterFile.existsSync()) {
+        final iterations = int.parse(bCounterFile.readAsStringSync().trim());
+        expect(
+          iterations,
+          lessThan(5),
+          reason:
+              'lib_audit_5: B was cancelled before it ever got a '
+              'concurrency slot — it must stop at its very first '
+              'isTaskCancelled() poll. A count this high means the cancel '
+              'landed in the pre-fix gap and was silently dropped, letting '
+              'B run on uncancelled. Iterations observed: $iterations',
+        );
+      }
     });
 
     testWidgets(
