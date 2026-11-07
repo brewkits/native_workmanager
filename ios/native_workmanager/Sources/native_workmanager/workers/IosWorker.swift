@@ -77,7 +77,14 @@ public class IosWorkerFactory {
     ///
     /// - Parameter className: The worker class name (e.g., "HttpRequestWorker")
     /// - Returns: Worker instance, or nil if class not found
-    static func createWorker(className: String) -> IosWorker? {
+    static func createWorker(className: String, limitConcurrency: Bool = true) -> IosWorker? {
+        guard let worker = resolveWorker(className: className) else { return nil }
+        // executeWorkerSync already owns a permit (including its direct Dart path).
+        // Background/command callers use the same limiter through this wrapper.
+        return limitConcurrency ? ConcurrencyLimitedWorker(worker) : worker
+    }
+
+    private static func resolveWorker(className: String) -> IosWorker? {
         NativeLogger.d("IosWorkerFactory: creating worker '\(className)'")
         // Try user-registered worker first
         if let factory = userWorkers[className] {
@@ -118,5 +125,39 @@ public class IosWorkerFactory {
             NativeLogger.d("IosWorkerFactory: Unknown worker class: \(className)")
             return nil
         }
+    }
+}
+
+private final class ConcurrencyLimitedWorker: IosWorker {
+    private let delegate: IosWorker
+    private let lock = NSLock()
+    private var stopped = false
+
+    init(_ delegate: IosWorker) { self.delegate = delegate }
+
+    private func isStopped() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return stopped
+    }
+
+    func doWork(input: String?, env: KMPWorkManager.WorkerEnvironment) async throws -> WorkerResult {
+        try await ConcurrencyLimiter.shared.acquire()
+        do {
+            if isStopped() || env.isCancelled().boolValue { throw CancellationError() }
+            let result = try await delegate.doWork(input: input, env: env)
+            await ConcurrencyLimiter.shared.release()
+            return result
+        } catch {
+            await ConcurrencyLimiter.shared.release()
+            throw error
+        }
+    }
+
+    func stop() {
+        lock.lock()
+        stopped = true
+        lock.unlock()
+        delegate.stop()
     }
 }

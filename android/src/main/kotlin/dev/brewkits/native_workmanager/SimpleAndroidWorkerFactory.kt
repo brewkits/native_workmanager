@@ -46,6 +46,10 @@ class SimpleAndroidWorkerFactory(
     private val context: Context
 ) : AndroidWorkerFactory {
 
+    init {
+        dev.brewkits.native_workmanager.concurrency.TaskConcurrency.restore(context)
+    }
+
     companion object {
         private const val TAG = "SimpleAndroidWorkerFactory"
 
@@ -124,7 +128,9 @@ class SimpleAndroidWorkerFactory(
         // issue_57: wrap every worker (built-in, registry, and factory-chain) so chain step
         // output data reaches ChainStore regardless of which path created it. No-op for
         // standalone (non-chain) tasks — see ChainResultCapturingWorker's doc comment.
-        return dev.brewkits.native_workmanager.workers.ChainResultCapturingWorker(worker, context)
+        return dev.brewkits.native_workmanager.concurrency.ConcurrencyLimitedWorker(
+            dev.brewkits.native_workmanager.workers.ChainResultCapturingWorker(worker, context)
+        )
     }
 
     private fun resolveWorker(workerClassName: String): AndroidWorker? {
