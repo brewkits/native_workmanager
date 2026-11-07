@@ -24,6 +24,7 @@
 // ============================================================
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -357,6 +358,20 @@ Future<bool> _workflowFinalizer(Map<String, dynamic>? input) async {
 // Main
 // ──────────────────────────────────────────────────────────────
 
+// Run with --dart-define=ISSUE84_LIMIT=1 and =2 to verify native admission.
+const _issue84Limit = int.fromEnvironment('ISSUE84_LIMIT', defaultValue: 4);
+
+@pragma('vm:entry-point')
+Future<bool> _issue84Probe(Map<String, dynamic>? input) async {
+  final start = DateTime.now().millisecondsSinceEpoch;
+  await Future<void>.delayed(const Duration(milliseconds: 500));
+  File(input!['path'] as String).writeAsStringSync(jsonEncode({
+    'start': start,
+    'end': DateTime.now().millisecondsSinceEpoch,
+  }));
+  return true;
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -368,7 +383,9 @@ void main() {
     )..createSync();
 
     await NativeWorkManager.initialize(
+      maxConcurrentTasks: _issue84Limit,
       dartWorkers: {
+        'issue84_probe': _issue84Probe,
         'dit_pass': _ditPass,
         'dit_fail': _ditFail,
         'dit_long_running': _ditLongRunning,
@@ -406,6 +423,48 @@ void main() {
     await NativeWorkManager.cancelAll();
     await _stopEventHub();
     tmpDir.deleteSync(recursive: true);
+  });
+
+  testWidgets('issue_84: native and Dart workers share the configured limit',
+      (tester) async {
+    final results = <Future<TaskEvent?>>[];
+    final files = <File>[];
+    for (var i = 0; i < 8; i++) {
+      final id = _id('issue84_$i');
+      final file = File('${tmpDir.path}/$id.json');
+      files.add(file);
+      results.add(_waitEvent(id));
+      final input = {'path': file.path};
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(),
+        worker: i.isEven
+            ? NativeWorker.custom(className: 'Issue84Probe', input: input)
+            : DartWorker(callbackId: 'issue84_probe', input: input),
+      );
+    }
+    for (final event in await Future.wait(results)) {
+      expect(event?.success, isTrue, reason: 'Probe must complete: $event');
+    }
+    final boundaries = <(int, int)>[];
+    for (final file in files) {
+      final interval = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      boundaries.add((interval['start'] as int, 1));
+      boundaries.add((interval['end'] as int, -1));
+    }
+    // End before start at the same millisecond; sequential hand-offs may tie.
+    boundaries.sort((a, b) => a.$1 != b.$1
+        ? a.$1.compareTo(b.$1) : a.$2.compareTo(b.$2));
+    var running = 0;
+    var peak = 0;
+    for (final boundary in boundaries) {
+      running += boundary.$2;
+      if (running > peak) peak = running;
+    }
+    print('issue_84: limit=$_issue84Limit peak=$peak completed=${files.length}');
+    expect(running, 0);
+    expect(peak, greaterThan(0));
+    expect(peak, lessThanOrEqualTo(_issue84Limit));
   });
 
   // ════════════════════════════════════════════════════════════

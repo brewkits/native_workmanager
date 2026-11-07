@@ -36,6 +36,11 @@ private const val DEBUG_NOTIFICATION_CHANNEL_NAME = "Background Task Debug"
  */
 internal fun NativeWorkmanagerPlugin.handleInitialize(call: MethodCall, result: Result) {
     try {
+        val maxConcurrentTasks = call.argument<Int>("maxConcurrentTasks")
+            ?: NativeWorkmanagerPlugin.DEFAULT_MAX_CONCURRENT_TASKS
+        dev.brewkits.native_workmanager.concurrency.TaskConcurrency.configure(context, maxConcurrentTasks)
+        NativeLogger.d("maxConcurrentTasks=$maxConcurrentTasks (plugin task admission)")
+
         val callbackHandle = call.argument<Long>("callbackHandle")
         val registerPlugins = call.argument<Boolean>("registerPlugins") ?: false
         
@@ -65,9 +70,6 @@ internal fun NativeWorkmanagerPlugin.handleInitialize(call: MethodCall, result: 
             createDebugNotificationChannel()
         }
 
-        val maxConcurrentTasks = call.argument<Int>("maxConcurrentTasks")
-            ?: NativeWorkmanagerPlugin.DEFAULT_MAX_CONCURRENT_TASKS
-        NativeLogger.d("maxConcurrentTasks=$maxConcurrentTasks (WorkManager thread-pool managed)")
 
         val enforceHttps = call.argument<Boolean>("enforceHttps") ?: false
         SecurityValidator.enforceHttps = enforceHttps

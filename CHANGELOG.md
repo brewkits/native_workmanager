@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Issue #84 — `maxConcurrentTasks` was ignored:** Android now gates plugin
+  worker execution instead of only logging the value. iOS now applies the supplied
+  value instead of keeping a fixed limit of four. The process-wide limit is
+  persisted for cold starts and shared across native, Dart and custom workers.
+  Waiting is cancellable; completion, failure and cancellation return permits.
+  Reconfiguration preserves active permits. Non-positive values are rejected.
+  This limits worker invocations, not OS scheduling states or connections within
+  a worker; OS-managed background transfers can outlive their worker invocation.
+
 ## [1.8.3] - 2026-09-24
 
 Fixes 3 issues found by a full `lib/` audit (2026-09-23), plus 4 more found

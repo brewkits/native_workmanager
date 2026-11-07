@@ -113,7 +113,7 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     var _offlineQueueProcessing: Bool = false
     var docController: UIDocumentInteractionController?
     weak var previousNotificationDelegate: UNUserNotificationCenterDelegate?
-    var concurrencyLimiter = ConcurrencyLimiter(max: 4)
+    let concurrencyLimiter = ConcurrencyLimiter.shared
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = NativeWorkmanagerPlugin()
@@ -297,6 +297,11 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
     }
 
     private func handleInitialize(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        let maxConcurrentTasks = (call.arguments as? [String: Any])?["maxConcurrentTasks"] as? Int ?? 4
+        guard maxConcurrentTasks > 0 else {
+            result(FlutterError(code: "INVALID_ARGS", message: "maxConcurrentTasks must be greater than zero", details: nil))
+            return
+        }
         if let args = call.arguments as? [String: Any] {
             if let callbackHandle = args["callbackHandle"] as? Int64 {
                 FlutterEngineManager.shared.setCallbackHandle(callbackHandle)
@@ -308,13 +313,17 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
         }
         if #available(iOS 13.0, *) {
             Task {
+                await concurrencyLimiter.configure(max: maxConcurrentTasks, persist: true)
+                // Acknowledge only after admission has been configured.
+                await MainActor.run { result(nil) }
                 TaskStore.shared.recoverZombieTasks()
                 await BackgroundSessionManager.shared.syncWithTaskStore()
                 await resumePendingChains()
                 resumePendingGraphs()
             }
+        } else {
+            result(nil)
         }
-        result(nil)
     }
 
     private func handleEnqueue(call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -543,18 +552,9 @@ public class NativeWorkmanagerPlugin: NSObject, FlutterPlugin {
                 // drop this execution's registry entry, or it leaks (and
                 // `currentExecutionId[taskId]` is left pointing at a dead id
                 // forever). This matters because `work` CAN bail out WITHOUT
-                // ever reaching executeDartWorkerViaMethodChannel's own
-                // `defer { endExecution(...) }` — but NOT via
-                // ConcurrencyLimiter.acquire(): a task parked there is NOT
-                // cancellation-aware and DOES eventually proceed once a slot
-                // frees (confirmed by lib_audit_5 — that's exactly why a
-                // pre-minted id is needed there in the first place; see
-                // executeDartWorkerViaMethodChannel's own comment). The real
-                // bail-out paths this defer exists for are: handleEnqueue's
-                // closure's `guard !Task.isCancelled` (checked once, after
-                // the initialDelay `Task.sleep`, before `work` is ever
-                // called), executeWorkerSync's per-attempt top-of-loop
-                // `guard !Task.isCancelled`, and `self` being nil below.
+                // ever reaching executeDartWorkerViaMethodChannel's own defer:
+                // cancellation during initial delay, while awaiting a slot
+                // (cancellation-aware since issue #84), or between attempts.
                 // endExecution is idempotent (guarded on
                 // currentExecutionId[taskId] still pointing at this id), so
                 // whichever of this defer or executeDartWorkerViaMethodChannel's

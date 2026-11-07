@@ -520,6 +520,10 @@ class NativeWorkManager {
     /// closures, or the background isolate cannot resolve them.
     Map<String, DartWorkerStoppedCallback>? onStoppedHandlers,
     bool debugMode = false,
+
+    /// Maximum worker invocations executing simultaneously per process on
+    /// Android and iOS. Must be positive. Persisted for background cold starts.
+    /// Does not cap OS RUNNING states or parallel connections within a worker.
     int maxConcurrentTasks = 4,
     int diskSpaceBufferMB = 20,
 
@@ -554,6 +558,9 @@ class NativeWorkManager {
     /// Default: false (Zero-Engine I/O principle).
     bool registerPlugins = false,
   }) async {
+    if (maxConcurrentTasks < 1) {
+      throw RangeError.range(maxConcurrentTasks, 1, null, 'maxConcurrentTasks');
+    }
     // If already initializing (concurrent calls), wait on the in-flight future.
     if (_initCompleter != null) return _initCompleter!.future;
     if (_initialized) return;
