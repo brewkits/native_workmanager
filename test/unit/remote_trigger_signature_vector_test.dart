@@ -15,13 +15,16 @@ void main() {
     return f.readAsStringSync();
   }
 
-  test('v2 signature vector is identical in Kotlin, Swift and the Python reference', () {
+  test(
+      'v2 signature vector is identical in Kotlin, Swift and the Python reference',
+      () {
     for (final path in [
       'android/src/test/kotlin/dev/brewkits/native_workmanager/RemoteTriggerSignatureTest.kt',
       'ios/Tests/RemoteTriggerSignatureTests.swift',
       'doc/REMOTE_TRIGGER_SIGNING.md',
     ]) {
-      expect(read(path), anyOf(contains(vectorHex), contains(vectorHex.substring(0, 8))),
+      expect(read(path),
+          anyOf(contains(vectorHex), contains(vectorHex.substring(0, 8))),
           reason: '$path must reference the shared v2 vector');
     }
   });
