@@ -9,6 +9,7 @@ import dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper
 import dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper.applyCertificatePinning
 import dev.brewkits.native_workmanager.workers.utils.ProgressReporter
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -276,6 +277,8 @@ class ParallelHttpUploadWorker : AndroidWorker {
                     watcher.cancel()
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             // A cancelled call surfaces as IOException("Canceled"); it must not become a retry.
             currentCoroutineContext().ensureActive()
