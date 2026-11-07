@@ -8,7 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-
+- **Android: cancelling a `WebSocketWorker` now closes the connection promptly.** The worker
+  blocked a thread on a `CountDownLatch`, so cancellation was only noticed after the full
+  receive timeout (and the slot stayed occupied).
+- **Android: cancelling a `ParallelHttpUploadWorker` now aborts the in-flight upload.** The
+  blocking OkHttp `execute()` kept streaming the file after `cancel()`.
+- **Android: `CancellationException` is no longer swallowed** by the remote-trigger /
+  middleware registration handlers and the chain/graph command enqueue.
 - **Issue #84 — `maxConcurrentTasks` was ignored:** Android now gates plugin
   worker execution instead of only logging the value. iOS now applies the supplied
   value instead of keeping a fixed limit of four. The process-wide limit is
