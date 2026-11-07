@@ -100,4 +100,12 @@ class RemoteTriggerSignatureTest {
         assertTrue(store.checkAndRecord("n", now + 2 * 300_000L + 1))
         repeat(2500) { assertTrue(store.checkAndRecord("bulk$it", now + it)) }
     }
+
+    @Test fun unsigned_command_is_rejected_only_when_rule_opted_in_and_has_no_secret() {
+        val f = RemoteTriggerSignature::shouldRejectUnsignedCommand
+        assertTrue(f(false, true, true))
+        assertFalse("default keeps old behaviour", f(false, true, false))
+        assertFalse("a secret means signatures are enforced elsewhere", f(true, true, true))
+        assertFalse("no command, nothing to reject", f(false, false, true))
+    }
 }

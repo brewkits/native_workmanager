@@ -129,7 +129,20 @@ final class RemoteTriggerStore {
         }
     }
 
+    // Not a secret, so plain UserDefaults (no SQLite migration needed).
+    private static func rejectFlagKey(_ source: String) -> String { "native_workmanager.rt.rejectUnsigned.\(source)" }
+
+    func setRejectUnsignedCommands(source: String, reject: Bool) {
+        if reject { UserDefaults.standard.set(true, forKey: Self.rejectFlagKey(source)) }
+        else { UserDefaults.standard.removeObject(forKey: Self.rejectFlagKey(source)) }
+    }
+
+    func rejectsUnsignedCommands(source: String) -> Bool {
+        UserDefaults.standard.bool(forKey: Self.rejectFlagKey(source))
+    }
+
     func delete(source: String) {
+        UserDefaults.standard.removeObject(forKey: Self.rejectFlagKey(source))
         KeystorePasswordVault.shared.deletePersistent(account: "rt_\(source)")
         queue.async(flags: .barrier) {
             let sql = "DELETE FROM remote_triggers WHERE source = ?"

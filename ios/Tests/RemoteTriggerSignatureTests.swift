@@ -65,4 +65,11 @@ final class RemoteTriggerSignatureTests: XCTestCase {
         var p = vector(); p["x-native-wm-signature"] = "deadbeef"
         XCTAssertEqual(RemoteTriggerSignature.verify(payload: p, secretKey: secret, now: now, nonces: .init()) { $0 == "deadbeef" }, .validLegacy)
     }
+    func testUnsignedCommandRejectedOnlyWhenOptedInAndNoSecret() {
+        let f = RemoteTriggerSignature.shouldRejectUnsignedCommand
+        XCTAssertTrue(f(false, true, true))
+        XCTAssertFalse(f(false, true, false))
+        XCTAssertFalse(f(true, true, true))
+        XCTAssertFalse(f(false, false, true))
+    }
 }

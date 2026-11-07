@@ -14,6 +14,11 @@ enum RemoteTriggerSignature {
     static let v2Prefix = "v2="
     static let maxSkewSeconds: Int64 = 300
 
+    /// An unsigned `native_wm` command is refused only when the rule opted in and has no secret.
+    static func shouldRejectUnsignedCommand(hasSecret: Bool, hasNativeWmCommand: Bool, rejectFlag: Bool) -> Bool {
+        !hasSecret && hasNativeWmCommand && rejectFlag
+    }
+
     enum Verdict: Equatable { case validV2, validLegacy, invalid, stale, replayed }
 
     static let sharedNonces = NonceStore(defaults: .standard)
