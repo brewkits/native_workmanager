@@ -88,6 +88,29 @@ OS version, core dependency, or checked-in build configuration was changed.
 
 The first HTTP-based device probe was replaced with interval files because its
 iOS networking behavior was inconsistent. The final probe has no network
-requirement. Physical-device force-stop/cold-start execution was not exercised;
-persistence is asserted on Android and restoration paths were reviewed on both
-platforms.
+requirement.
+
+### Follow-ups (2026-11-07)
+
+- Android limiter is now strictly FIFO (queue of `CompletableDeferred`); a waiter
+  granted a slot and cancelled in the same turn hands it back. New Kotlin tests:
+  `issue_84_waiters_are_admitted_fifo` (fails on the previous revision-flow limiter),
+  `issue_84_granted_then_cancelled_waiter_releases_slot`.
+- Device test asserts `peak == limit` for limits >= 2 (an over-restrictive limiter no
+  longer passes) and adds a chain with a parallel native+Dart step at limit 1 as a
+  nested-permit deadlock guard. Android API 34 emulator: limit 1 peak 1, limit 2 peak 2,
+  chain completes.
+- Debug-only warning when a later `initialize()` passes a different
+  `maxConcurrentTasks` (first call wins).
+- **Android cold start** (`scripts/issue84-cold-start.sh`): limit 1 persisted, 8 Dart
+  probes with a 45 s delay, process started headlessly (no Activity, no Dart
+  `initialize`) and SIGKILLed so JobScheduler cold-starts a new process. Result: limit 1
+  -> 8 files, peak 1; control limit 2 -> 8 files, peak 2. (`am force-stop` is not used:
+  it sets the stopped state and cancels jobs.)
+  Harness note: without a ~3 s pause after the last enqueue, `flutter test` force-stopping
+  the app once left the 8th task absent from WorkManager although Dart had received
+  `accepted`. Not investigated further; worth a look if "accepted but lost" is ever
+  reported.
+- **iOS cold start: not verified.** A killed-app BGTask launch cannot be driven
+  reliably on the simulator; restoration is covered by review of the
+  `ConcurrencyLimiter.shared` UserDefaults initialisation and the XCTest suite only.

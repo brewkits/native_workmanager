@@ -68,4 +68,37 @@ class TaskConcurrencyLimiterTest {
         assertTrue(secondAdmitted)
         c.cancelAndJoin()
     }
+
+    // Waiters must be admitted in arrival order, even when the limit is raised or a
+    // newcomer arrives while others are parked (no barging / starvation).
+    @Test fun issue_84_waiters_are_admitted_fifo() = runTest {
+        val limiter = TaskConcurrencyLimiter(1)
+        val holder = launch { limiter.withPermit { awaitCancellation() } }
+        runCurrent()
+        val order = mutableListOf<Int>()
+        val waiters = (1..6).map { id ->
+            launch { limiter.withPermit { order += id; delay(10) } }.also { runCurrent() }
+        }
+        // A newcomer arriving after a release must not jump the queue.
+        holder.cancelAndJoin()
+        val newcomer = launch { limiter.withPermit { order += 99 } }
+        runCurrent()
+        (waiters + newcomer).joinAll()
+        assertEquals(listOf(1, 2, 3, 4, 5, 6, 99), order)
+    }
+
+    // A waiter that was granted a slot and cancelled before running must hand it back.
+    @Test fun issue_84_granted_then_cancelled_waiter_releases_slot() = runTest {
+        val limiter = TaskConcurrencyLimiter(1)
+        val holder = launch { limiter.withPermit { awaitCancellation() } }
+        runCurrent()
+        val doomed = launch { limiter.withPermit { fail("must not run") } }
+        runCurrent()
+        // Grant and cancel in the same dispatcher turn.
+        holder.cancel()
+        doomed.cancel()
+        runCurrent()
+        joinAll(holder, doomed)
+        assertEquals(7, withTimeout(1_000) { limiter.withPermit { 7 } })
+    }
 }

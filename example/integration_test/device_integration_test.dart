@@ -465,6 +465,47 @@ void main() {
     expect(running, 0);
     expect(peak, greaterThan(0));
     expect(peak, lessThanOrEqualTo(_issue84Limit));
+    // 8 half-second probes must actually saturate a limit of 2..4, otherwise an
+    // over-restrictive limiter (e.g. always 1) would still pass the upper bound.
+    if (_issue84Limit >= 2) {
+      expect(peak, _issue84Limit < 8 ? _issue84Limit : 8,
+          reason: 'limiter must allow the configured parallelism');
+    }
+  });
+
+  // Deadlock guard: a chain with a parallel step mixing native + Dart workers must
+  // finish even when every execution slot is contended. Fails (times out) if any
+  // path ever holds a permit while asking for another one (nested admission).
+  testWidgets('issue_84: chain with parallel native+Dart step completes under the limit',
+      (tester) async {
+    final ids = [_id('i84c_a'), _id('i84c_b'), _id('i84c_c')];
+    final files = ids.map((id) => File('${tmpDir.path}/$id.json')).toList();
+    final done = ids.map(_waitEvent).toList();
+    await NativeWorkManager.beginWithAll([
+      TaskRequest(
+        id: ids[0],
+        worker: NativeWorker.custom(
+            className: 'Issue84Probe', input: {'path': files[0].path}),
+      ),
+      TaskRequest(
+        id: ids[1],
+        worker: DartWorker(
+            callbackId: 'issue84_probe', input: {'path': files[1].path}),
+      ),
+    ]).then(
+      TaskRequest(
+        id: ids[2],
+        worker: NativeWorker.custom(
+            className: 'Issue84Probe', input: {'path': files[2].path}),
+      ),
+    ).enqueue();
+    for (final event in await Future.wait(done)
+        .timeout(const Duration(seconds: 90))) {
+      expect(event?.success, isTrue, reason: 'chain step must complete: $event');
+    }
+    for (final f in files) {
+      expect(f.existsSync(), isTrue);
+    }
   });
 
   // ════════════════════════════════════════════════════════════
