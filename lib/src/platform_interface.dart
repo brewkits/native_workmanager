@@ -34,8 +34,10 @@ abstract class NativeWorkManagerPlatform extends PlatformInterface {
   /// Only works in debug builds.
   ///
   /// [maxConcurrentTasks] - Maximum number of worker tasks that may run
-  /// simultaneously. Defaults to 4. On iOS this is enforced by a semaphore
-  /// in the plugin; on Android WorkManager's own thread pool handles it.
+  /// simultaneously in this process. Must be positive; defaults to 4.
+  /// Enforced by plugin admission on Android and iOS, and restored after restart.
+  /// Limits worker execution, not OS RUNNING states or connections within a worker.
+  /// OS-managed background transfers may outlive their worker invocation.
   ///
   /// [diskSpaceBufferMB] - Minimum free disk space (in MB) the OS must have
   /// before any download worker is allowed to run. Defaults to 20 MB.

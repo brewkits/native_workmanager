@@ -134,10 +134,22 @@ class BGTaskSchedulerManager {
         }
 
         attachHandler(identifier: BGTaskSchedulerManager.defaultTaskIdentifier) { [weak self] task in
-            self?.handleBackgroundTask(task as! BGProcessingTask)
+            // Never force-cast: a mismatched task type must not crash the app in the
+            // background. Complete the task as failed so the OS watchdog is satisfied.
+            guard let processingTask = task as? BGProcessingTask else {
+                NativeLogger.e("BGTaskSchedulerManager: unexpected task type \(type(of: task)) for \(task.identifier)")
+                task.setTaskCompleted(success: false)
+                return
+            }
+            self?.handleBackgroundTask(processingTask)
         }
         attachHandler(identifier: BGTaskSchedulerManager.refreshTaskIdentifier) { [weak self] task in
-            self?.handleAppRefreshTask(task as! BGAppRefreshTask)
+            guard let refreshTask = task as? BGAppRefreshTask else {
+                NativeLogger.e("BGTaskSchedulerManager: unexpected task type \(type(of: task)) for \(task.identifier)")
+                task.setTaskCompleted(success: false)
+                return
+            }
+            self?.handleAppRefreshTask(refreshTask)
         }
 
         NativeLogger.d("BGTaskSchedulerManager: Handlers attached")

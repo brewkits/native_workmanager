@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import KMPWorkManager
 import native_workmanager  // For IosWorkerFactory and BackgroundSessionManager
 
 // The example app uses the Flutter 3.38+ UIScene lifecycle template
@@ -20,6 +21,8 @@ import native_workmanager  // For IosWorkerFactory and BackgroundSessionManager
     IosWorkerFactory.registerWorker(className: "ImageCompressWorker") {
         return ImageCompressWorker()
     }
+    // Example-only fixture for device integration tests.
+    IosWorkerFactory.registerWorker(className: "Issue84Probe") { Issue84Probe() }
     // Add more custom workers here following the same pattern.
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
@@ -201,4 +204,20 @@ import native_workmanager  // For IosWorkerFactory and BackgroundSessionManager
 
     return totalCpu
   }
+}
+
+/// Records actual execution intervals without network or OS scheduling timing assumptions.
+private final class Issue84Probe: IosWorker {
+    func doWork(input: String?, env: KMPWorkManager.WorkerEnvironment) async throws -> WorkerResult {
+        guard let data = input?.data(using: .utf8),
+              let config = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let path = config["path"] as? String else {
+            return .failure(message: "Missing probe path")
+        }
+        let start = Int64(Date().timeIntervalSince1970 * 1000)
+        try await Task.sleep(nanoseconds: 500_000_000)
+        let interval = ["start": start, "end": Int64(Date().timeIntervalSince1970 * 1000)]
+        try JSONSerialization.data(withJSONObject: interval).write(to: URL(fileURLWithPath: path))
+        return .success()
+    }
 }

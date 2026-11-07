@@ -11,6 +11,7 @@ import dev.brewkits.native_workmanager.store.TaskStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -63,6 +64,8 @@ object CommandProcessor {
                                 steps = steps,
                                 onObserveTaskId = null
                             )
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             NativeLogger.e("❌ Error enqueuing chain command", e)
                         }
@@ -79,6 +82,8 @@ object CommandProcessor {
                                 graphMap = data,
                                 onObserveTaskId = { }
                             )
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             NativeLogger.e("❌ Error enqueuing graph command", e)
                         }

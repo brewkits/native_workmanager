@@ -437,7 +437,11 @@ extension NativeWorkmanagerPlugin {
             guard !Task.isCancelled else {
                 return .failure(message: "Cancelled before attempt \(attempt)/\(totalAttempts)")
             }
-            await concurrencyLimiter.acquire()
+            do {
+                try await concurrencyLimiter.acquire()
+            } catch {
+                return .failure(message: "Cancelled while waiting for execution slot")
+            }
             // preMintedExecutionId (see replaceActiveTask) names ONE specific
             // execution — the one that atomically replaced whatever was
             // previously registered for taskId at enqueue/resume time. It
@@ -549,7 +553,7 @@ extension NativeWorkmanagerPlugin {
                             inputJson = configJson
                         }
 
-                        guard let worker = IosWorkerFactory.createWorker(className: workerClassName) else {
+                        guard let worker = IosWorkerFactory.createWorker(className: workerClassName, limitConcurrency: false) else {
                             NativeLogger.d("Unknown worker class: \(workerClassName)")
                             continuation.resume(returning: .failure(message: "Unknown worker class"))
                             return

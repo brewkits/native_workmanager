@@ -5,12 +5,14 @@ import dev.brewkits.kmpworkmanager.background.domain.AndroidWorker
 import dev.brewkits.kmpworkmanager.background.domain.WorkerResult
 import dev.brewkits.native_workmanager.workers.utils.HttpSecurityHelper.applyCertificatePinning
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.OkHttpClient
@@ -20,7 +22,6 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
 import java.io.File
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -130,7 +131,7 @@ class WebSocketWorker : AndroidWorker {
 
         // Synchronisation primitives
         val receivedMessages = mutableListOf<String>()
-        val receiveLatch = CountDownLatch(config.expectedMessages.coerceAtLeast(1))
+        val receiveLatch = MessageGate(config.expectedMessages.coerceAtLeast(1))
         val errorMessage = arrayOfNulls<String>(1)
         val connected = AtomicBoolean(false)
         val messagesSent = AtomicInteger(0)
@@ -183,19 +184,19 @@ class WebSocketWorker : AndroidWorker {
                 webSocket.close(WS_CLOSE_NORMAL, null)
                 closedCleanly.set(true)
                 // Unblock latch if we haven't received all expected messages
-                while (receiveLatch.count > 0) receiveLatch.countDown()
+                receiveLatch.releaseAll()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.d(TAG, "Closed: $code $reason")
                 closedCleanly.set(true)
-                while (receiveLatch.count > 0) receiveLatch.countDown()
+                receiveLatch.releaseAll()
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.e(TAG, "Failure: ${t.message}")
                 errorMessage[0] = t.message
-                while (receiveLatch.count > 0) receiveLatch.countDown()
+                receiveLatch.releaseAll()
             }
         }
 
@@ -231,7 +232,12 @@ class WebSocketWorker : AndroidWorker {
             } else null
 
             // Wait for the expected messages (or timeout)
-            timedOut = !receiveLatch.await(config.timeout.toLong(), TimeUnit.SECONDS)
+            // Suspending (cancellable) wait. The previous CountDownLatch.await() blocked the thread, so
+            // coroutine cancellation (WorkManager stop, task cancel) was only noticed after the full
+            // timeout — and the worker kept its execution slot for that long.
+            timedOut = withTimeoutOrNull(config.timeout.toLong() * 1000L) {
+                receiveLatch.await()
+            } == null
 
             pingJob?.cancel()
         } finally {
@@ -340,4 +346,24 @@ class WebSocketWorker : AndroidWorker {
         obj.keys().forEach { key -> map[key] = obj.getString(key) }
         return map
     }
+}
+
+/**
+ * Cancellable replacement for CountDownLatch: [countDown] [count] times, or [releaseAll],
+ * completes the gate; [await] suspends instead of blocking a thread.
+ */
+internal class MessageGate(count: Int) {
+    private val remaining = AtomicInteger(count)
+    private val done = CompletableDeferred<Unit>()
+
+    fun countDown() {
+        if (remaining.decrementAndGet() <= 0) done.complete(Unit)
+    }
+
+    fun releaseAll() {
+        remaining.set(0)
+        done.complete(Unit)
+    }
+
+    suspend fun await() = done.await()
 }
