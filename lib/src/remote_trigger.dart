@@ -25,6 +25,7 @@ class RemoteTriggerRule {
     required this.payloadKey,
     required this.workerMappings,
     this.secretKey,
+    this.rejectUnsignedCommands = false,
   });
 
   /// The key in the remote message payload to look for.
@@ -60,6 +61,15 @@ class RemoteTriggerRule {
   /// Without a secret, `native_wm` direct commands are accepted unauthenticated.
   final String? secretKey;
 
+  /// When `true` and this rule has **no** [secretKey], `native_wm` direct commands arriving for
+  /// this source are rejected instead of executed.
+  ///
+  /// Default `false` keeps the historical behaviour (unsigned commands are accepted, with a
+  /// warning in the log). Set it to `true` if you only use rule-based mappings and never send
+  /// `native_wm` commands unsigned. Has no effect when a [secretKey] is set (signatures are
+  /// always enforced then).
+  final bool rejectUnsignedCommands;
+
   /// Convert to a map for the platform channel.
   Map<String, dynamic> toMap() {
     return {
@@ -69,6 +79,7 @@ class RemoteTriggerRule {
             'workerConfig': worker.toMap(),
           })),
       if (secretKey != null) 'secretKey': secretKey,
+      if (rejectUnsignedCommands) 'rejectUnsignedCommands': true,
     };
   }
 }

@@ -120,8 +120,19 @@ internal class RemoteTriggerStore(private val context: Context) {
         }
     }
 
+    // Not a secret, so plain SharedPreferences (no DB migration needed).
+    private fun flagPrefs() =
+        context.getSharedPreferences("dev.brewkits.native_workmanager.remote_trigger_flags", android.content.Context.MODE_PRIVATE)
+
+    fun setRejectUnsignedCommands(source: String, reject: Boolean) {
+        flagPrefs().edit().apply { if (reject) putBoolean("reject_unsigned_$source", true) else remove("reject_unsigned_$source") }.apply()
+    }
+
+    fun rejectsUnsignedCommands(source: String): Boolean = flagPrefs().getBoolean("reject_unsigned_$source", false)
+
     fun delete(source: String) {
         try {
+            flagPrefs().edit().remove("reject_unsigned_$source").apply()
             getEncryptedPrefs()?.edit()?.remove("secret_$source")?.apply()
             dbHelper.writableDatabase.delete("remote_triggers", "source = ?", arrayOf(source))
         } catch (e: android.database.sqlite.SQLiteFullException) {

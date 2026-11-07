@@ -30,6 +30,8 @@ extension NativeWorkmanagerPlugin {
                 workerMappingsJson: mappingsJson,
                 secretKey: secretKey
             )
+            RemoteTriggerStore.shared.setRejectUnsignedCommands(
+                source: source, reject: (ruleMap["rejectUnsignedCommands"] as? Bool) == true)
         }
 
         NativeLogger.d("✅ Remote trigger registered for \(source) (key: \(payloadKey), hmac: \(secretKey != nil))")
@@ -83,6 +85,13 @@ extension NativeWorkmanagerPlugin {
                 return false
             }
         } else if payload["native_wm"] != nil {
+            if RemoteTriggerSignature.shouldRejectUnsignedCommand(
+                hasSecret: false, hasNativeWmCommand: true,
+                rejectFlag: RemoteTriggerStore.shared.rejectsUnsignedCommands(source: source)) {
+                NativeLogger.w("⚠️ Unsigned native_wm command REJECTED for \(source) (rejectUnsignedCommands=true).")
+                completionHandler(.failed)
+                return false
+            }
             NativeLogger.w("⚠️ Unsigned remote command for \(source): no secretKey is set on this rule, so anyone who can deliver a push can run native_wm commands. Set RemoteTriggerRule.secretKey.")
         }
 

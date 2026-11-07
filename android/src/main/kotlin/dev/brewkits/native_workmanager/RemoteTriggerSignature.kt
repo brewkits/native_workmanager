@@ -27,6 +27,10 @@ internal object RemoteTriggerSignature {
     fun sharedNonceStore(prefs: SharedPreferences): NonceStore =
         sharedStore ?: synchronized(this) { sharedStore ?: NonceStore(prefs).also { sharedStore = it } }
 
+    /** An unsigned `native_wm` command is refused only when the rule opted in and has no secret. */
+    fun shouldRejectUnsignedCommand(hasSecret: Boolean, hasNativeWmCommand: Boolean, rejectFlag: Boolean): Boolean =
+        !hasSecret && hasNativeWmCommand && rejectFlag
+
     enum class Verdict { VALID_V2, VALID_LEGACY, INVALID, STALE, REPLAYED }
 
     fun verify(
