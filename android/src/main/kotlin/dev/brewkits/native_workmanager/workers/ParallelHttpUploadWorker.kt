@@ -11,6 +11,11 @@ import dev.brewkits.native_workmanager.workers.utils.ProgressReporter
 import dev.brewkits.native_workmanager.workers.utils.SecurityValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -233,7 +238,7 @@ class ParallelHttpUploadWorker : AndroidWorker {
         val shouldRetry: Boolean = false,
     )
 
-    private fun uploadSingleFile(
+    private suspend fun uploadSingleFile(
         client: OkHttpClient,
         url: String,
         file: File,
@@ -257,26 +262,43 @@ class ParallelHttpUploadWorker : AndroidWorker {
             val reqBuilder = Request.Builder().url(url).post(multipartBuilder.build())
             headers?.forEach { (k, v) -> reqBuilder.addHeader(k, v) }
 
-            client.newCall(reqBuilder.build()).execute().use { response ->
-                val body = response.body?.bytes() ?: ByteArray(0)
-                if (!SecurityValidator.validateResponseSize(body)) {
-                    return UploadOutcome(success = false, errorMessage = "Response too large", shouldRetry = false)
+            val call = client.newCall(reqBuilder.build())
+            // OkHttp's blocking execute() does not observe coroutine cancellation: a cancelled
+            // upload used to keep streaming (and keep its execution slot) until it finished.
+            // The watcher cancels the in-flight call as soon as this coroutine is cancelled.
+            coroutineScope {
+                val watcher = launch {
+                    try { awaitCancellation() } finally { call.cancel() }
                 }
-                val responseStr = body.toString(Charsets.UTF_8)
-                val code = response.code
-                if (code in 200..299) {
-                    UploadOutcome(success = true, statusCode = code, responseBody = responseStr)
-                } else {
-                    UploadOutcome(
-                        success = false,
-                        statusCode = code,
-                        errorMessage = "HTTP $code: ${SecurityValidator.truncateForLogging(responseStr, 200)}",
-                        shouldRetry = code >= 500,
-                    )
+                try {
+                    call.execute().use { response -> readOutcome(response) }
+                } finally {
+                    watcher.cancel()
                 }
             }
         } catch (e: Exception) {
+            // A cancelled call surfaces as IOException("Canceled"); it must not become a retry.
+            currentCoroutineContext().ensureActive()
             UploadOutcome(success = false, errorMessage = e.message, shouldRetry = true)
+        }
+    }
+
+    private fun readOutcome(response: okhttp3.Response): UploadOutcome {
+        val body = response.body?.bytes() ?: ByteArray(0)
+        if (!SecurityValidator.validateResponseSize(body)) {
+            return UploadOutcome(success = false, errorMessage = "Response too large", shouldRetry = false)
+        }
+        val responseStr = body.toString(Charsets.UTF_8)
+        val code = response.code
+        return if (code in 200..299) {
+            UploadOutcome(success = true, statusCode = code, responseBody = responseStr)
+        } else {
+            UploadOutcome(
+                success = false,
+                statusCode = code,
+                errorMessage = "HTTP $code: ${SecurityValidator.truncateForLogging(responseStr, 200)}",
+                shouldRetry = code >= 500,
+            )
         }
     }
 

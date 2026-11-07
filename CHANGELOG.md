@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Android: cancelling a `WebSocketWorker` now closes the connection promptly.** The worker
+  blocked a thread on a `CountDownLatch`, so cancellation was only noticed after the full
+  receive timeout (and the slot stayed occupied).
+- **Android: cancelling a `ParallelHttpUploadWorker` now aborts the in-flight upload.** The
+  blocking OkHttp `execute()` kept streaming the file after `cancel()`.
+- **Android: `CancellationException` is no longer swallowed** by the remote-trigger /
+  middleware registration handlers and the chain/graph command enqueue.
+
 ## [1.8.3] - 2026-09-24
 
 Fixes 3 issues found by a full `lib/` audit (2026-09-23), plus 4 more found

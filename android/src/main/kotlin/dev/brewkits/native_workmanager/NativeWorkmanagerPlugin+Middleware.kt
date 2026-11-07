@@ -6,6 +6,7 @@ import dev.brewkits.native_workmanager.utils.MappingUtils.toJson
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -27,6 +28,8 @@ internal fun NativeWorkmanagerPlugin.handleRegisterMiddleware(call: MethodCall, 
             }
 
             result.success(null)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             NativeLogger.e("❌ Register middleware error", e)
             result.error("MIDDLEWARE_ERROR", e.message, null)

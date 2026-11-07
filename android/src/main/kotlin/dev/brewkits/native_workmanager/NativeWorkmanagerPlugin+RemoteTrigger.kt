@@ -7,6 +7,7 @@ import dev.brewkits.native_workmanager.utils.MappingUtils
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -40,6 +41,8 @@ internal fun NativeWorkmanagerPlugin.handleRegisterRemoteTrigger(call: MethodCal
 
             NativeLogger.d("✅ Remote trigger registered for $source (key: $payloadKey, hmac: ${secretKey != null})")
             result.success(null)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             NativeLogger.e("❌ Register remote trigger error", e)
             result.error("REGISTER_REMOTE_TRIGGER_ERROR", e.message, null)
