@@ -49,6 +49,9 @@ extension NativeWorkmanagerPlugin {
         
         guard let record = RemoteTriggerStore.shared.getRule(source: source) else {
             if let command = payload["native_wm"] {
+                // No rule is registered, so there is no secret to verify against: this path is
+                // unauthenticated (Android ignores such pushes). Kept for compatibility; loud on purpose.
+                NativeLogger.w("⚠️ Executing UNAUTHENTICATED native_wm command (no remote-trigger rule/secretKey registered).")
                 NativeLogger.d("📡 Processing direct command (Native WM)")
                 Task {
                     let cmdMap = (command as? [String: Any]) ?? (try? JSONSerialization.jsonObject(with: (command as? String ?? "").data(using: .utf8) ?? Data()) as? [String: Any]) ?? [:]
@@ -63,12 +66,24 @@ extension NativeWorkmanagerPlugin {
 
         // Phase 2: HMAC Verification
         if let secretKey = record.secretKey {
-            let signature = payload["x-native-wm-signature"] as? String
-            if signature == nil || !verifyHmac(payload: payload, secretKey: secretKey, signature: signature!) {
-                NativeLogger.w("⚠️ Remote trigger REJECTED: Invalid HMAC signature for \(source)")
+            let verdict = RemoteTriggerSignature.verify(
+                payload: payload, secretKey: secretKey, now: Date(),
+                nonces: RemoteTriggerSignature.sharedNonces
+            ) { legacySignature in
+                verifyHmac(payload: payload, secretKey: secretKey, signature: legacySignature)
+            }
+            switch verdict {
+            case .validV2:
+                break
+            case .validLegacy:
+                NativeLogger.w("⚠️ Remote trigger for \(source) used the DEPRECATED v1 signature (no timestamp/nonce, replayable). Switch your backend to v2.")
+            default:
+                NativeLogger.w("⚠️ Remote trigger REJECTED (\(verdict)): invalid signature for \(source)")
                 completionHandler(.failed)
                 return false
             }
+        } else if payload["native_wm"] != nil {
+            NativeLogger.w("⚠️ Unsigned remote command for \(source): no secretKey is set on this rule, so anyone who can deliver a push can run native_wm commands. Set RemoteTriggerRule.secretKey.")
         }
 
         // Mode 1: Direct Command (Highest priority)

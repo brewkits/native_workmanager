@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   This limits worker invocations, not OS scheduling states or connections within
   a worker; OS-managed background transfers can outlive their worker invocation.
 
+### Security
+- **Remote Trigger signature scheme v2** (`v2=<hex>`): length-prefixed canonical form (no more
+  `|`/`=` collisions), plus `x-native-wm-timestamp` (±300 s) and `x-native-wm-nonce` (persisted,
+  bounded) for replay protection. Same logic and test vector on Android, iOS and the Python
+  reference signer in `doc/examples/`.
+- v1 signatures are **still accepted** (deprecated, now logged). Rules without a `secretKey`
+  still accept `native_wm` commands unauthenticated, but now log a warning every time.
+
 ## [1.8.3] - 2026-09-24
 
 Fixes 3 issues found by a full `lib/` audit (2026-09-23), plus 4 more found
