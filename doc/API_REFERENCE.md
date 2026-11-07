@@ -30,7 +30,7 @@ static Future<void> initialize({
 **Parameters:**
 - `dartWorkers` - Optional map of `DartWorkerCallback` for executing Dart code in the background.
 - `debugMode` - Enable verbose logging (defaults to `false`).
-- `maxConcurrentTasks` - Maximum number of background tasks running simultaneously (defaults to 4).
+- `maxConcurrentTasks` - Positive maximum of worker invocations executing simultaneously per process on Android and iOS (defaults to 4). Persisted for cold starts. Applies to plugin workers, including Dart and registered custom workers. Does not limit OS `RUNNING` states, parallel connections within one worker, or OS-managed transfers after the worker returns. Configure on the first `initialize()` call; subsequent Dart calls are no-ops.
 - `diskSpaceBufferMB` - Required free disk space before I/O tasks run (defaults to 20MB).
 - `cleanupAfterDays` - Days to keep completed task records in SQLite (defaults to 30, use 0 to disable).
 - `enforceHttps` - When true, all HTTP workers reject plain HTTP URLs (defaults to `false`).

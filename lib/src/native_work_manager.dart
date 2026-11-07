@@ -370,6 +370,7 @@ class NativeWorkManager {
   NativeWorkManager._();
 
   static bool _initialized = false;
+  static int? _configuredMaxConcurrentTasks;
   static bool _enforceHttps = false;
   static bool _blockPrivateIPs = false;
   static bool _registerPlugins = false;
@@ -399,6 +400,7 @@ class NativeWorkManager {
   @visibleForTesting
   static void resetInitializedState() {
     _initialized = false;
+    _configuredMaxConcurrentTasks = null;
     _initCompleter = null;
     _enforceHttps = false;
     _blockPrivateIPs = false;
@@ -520,6 +522,10 @@ class NativeWorkManager {
     /// closures, or the background isolate cannot resolve them.
     Map<String, DartWorkerStoppedCallback>? onStoppedHandlers,
     bool debugMode = false,
+
+    /// Maximum worker invocations executing simultaneously per process on
+    /// Android and iOS. Must be positive. Persisted for background cold starts.
+    /// Does not cap OS RUNNING states or parallel connections within a worker.
     int maxConcurrentTasks = 4,
     int diskSpaceBufferMB = 20,
 
@@ -554,9 +560,24 @@ class NativeWorkManager {
     /// Default: false (Zero-Engine I/O principle).
     bool registerPlugins = false,
   }) async {
+    if (maxConcurrentTasks < 1) {
+      throw RangeError.range(maxConcurrentTasks, 1, null, 'maxConcurrentTasks');
+    }
     // If already initializing (concurrent calls), wait on the in-flight future.
-    if (_initCompleter != null) return _initCompleter!.future;
-    if (_initialized) return;
+    if (_initCompleter != null || _initialized) {
+      // initialize() is idempotent: the first call wins. Say so loudly in debug
+      // builds instead of silently ignoring a different limit (issue #84).
+      if (kDebugMode &&
+          _configuredMaxConcurrentTasks != null &&
+          _configuredMaxConcurrentTasks != maxConcurrentTasks) {
+        debugPrint('[native_workmanager] initialize() already ran with '
+            'maxConcurrentTasks=$_configuredMaxConcurrentTasks; ignoring '
+            'maxConcurrentTasks=$maxConcurrentTasks.');
+      }
+      if (_initCompleter != null) return _initCompleter!.future;
+      return;
+    }
+    _configuredMaxConcurrentTasks = maxConcurrentTasks;
 
     _initCompleter = Completer<void>();
     try {

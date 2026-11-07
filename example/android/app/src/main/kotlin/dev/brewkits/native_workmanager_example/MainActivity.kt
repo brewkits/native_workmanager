@@ -24,6 +24,26 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+            SimpleAndroidWorkerFactory.registerWorker("Issue84Probe") {
+                object : AndroidWorker {
+                    override suspend fun doWork(
+                        input: String?,
+                        env: dev.brewkits.kmpworkmanager.background.domain.WorkerEnvironment
+                    ): dev.brewkits.kmpworkmanager.background.domain.WorkerResult {
+                        val config = org.json.JSONObject(input!!)
+                        val start = System.currentTimeMillis()
+                        kotlinx.coroutines.delay(500)
+                        java.io.File(config.getString("path")).writeText(
+                            org.json.JSONObject().put("start", start)
+                                .put("end", System.currentTimeMillis()).toString()
+                        )
+                        return dev.brewkits.kmpworkmanager.background.domain.WorkerResult.Success()
+                    }
+                }
+            }
+        }
+
         // Register custom workers BEFORE Flutter engine starts
         SimpleAndroidWorkerFactory.setUserFactory(object : AndroidWorkerFactory {
             override fun createWorker(workerClassName: String): AndroidWorker? {
