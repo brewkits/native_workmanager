@@ -101,3 +101,6 @@ benchmark/
 # generator targets. A committed overrides file (or a pubspec.lock resolved with one)
 # silently reintroduces exactly that.
 pubspec_overrides.yaml
+
+# Gradle build output of the example app (a problems-report.html was committed by mistake)
+example/android/build/
