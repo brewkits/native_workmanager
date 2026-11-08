@@ -1,5 +1,5 @@
 group = "dev.brewkits.native_workmanager"
-version = "1.9.0"
+version = "1.10.0"
 
 apply plugin: "com.android.library"
 // No `apply plugin: "kotlin-android"` here (issue #76). Flutter >= 3.44 applies KGP to plugin
