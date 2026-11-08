@@ -1,0 +1,92 @@
+name: Device tests
+
+# The normal PR CI never boots a device, so bugs that only show on a real Android/iOS runtime
+# (see issues #30, #66, and lib_audit_5 broken by #84) stay invisible until someone runs
+# example/integration_test by hand. This runs them on GitHub-hosted emulator/simulator.
+# Not a merge gate (emulators are slower and occasionally flaky): nightly + on demand, and on
+# PRs that touch this workflow itself so it can be validated.
+on:
+  schedule:
+    - cron: '0 20 * * *'   # 03:00 ICT
+  workflow_dispatch:
+    inputs:
+      groups:
+        description: 'Comma-separated group names (empty = all)'
+        required: false
+        default: ''
+  pull_request:
+    paths:
+      - '.github/workflows/device-tests.yml'
+      - 'scripts/run_device_groups.py'
+
+concurrency:
+  group: device-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android emulator (API 34)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: .fvmrc
+          channel: ''
+          cache: true
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install dependencies
+        run: cd example && flutter pub get
+
+      - name: Run device groups
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          script: python3 scripts/run_device_groups.py emulator-5554 --only "${{ github.event.inputs.groups }}"
+
+  ios:
+    name: iOS simulator
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: .fvmrc
+          channel: ''
+          cache: true
+
+      - name: Boot simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)['devices']
+          c=[x for rt,v in d.items() if 'iOS' in rt for x in v if 'iPhone' in x['name'] and x['isAvailable']]
+          print(c[-1]['udid'])")
+          xcrun simctl boot "$UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: cd example && flutter pub get
+
+      - name: Run device groups
+        run: python3 scripts/run_device_groups.py "${{ steps.sim.outputs.udid }}" --only "${{ github.event.inputs.groups }}"
