@@ -72,4 +72,45 @@ final class ConcurrencyLimiterTests: XCTestCase {
         let finalPeak = await counter.peak
         XCTAssertEqual(finalPeak, 1)
     }
+
+    // Cold start: a process started by the OS has not run Dart initialize(), so the limiter it
+    // builds comes from the persisted value. Simulated with a throwaway defaults suite.
+    func test_issue_84_persisted_limit_survives_a_fresh_limiter() async throws {
+        let suite = "nwm.test.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertEqual(ConcurrencyLimiter.persistedLimit(defaults: defaults), 4, "nothing persisted -> default")
+
+        await ConcurrencyLimiter(max: 4).configure(max: 2, persist: true, defaults: defaults)
+        XCTAssertEqual(ConcurrencyLimiter.persistedLimit(defaults: defaults), 2)
+
+        // "Process restart": brand new limiter built only from what was persisted.
+        let cold = ConcurrencyLimiter(max: ConcurrencyLimiter.persistedLimit(defaults: defaults))
+        let counter = Counter()
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<12 {
+                group.addTask {
+                    try await cold.acquire()
+                    await counter.enter()
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                    await counter.leave()
+                    await cold.release()
+                }
+            }
+            try await group.waitForAll()
+        }
+        let peak = await counter.peak
+        XCTAssertEqual(peak, 2, "restored limit must be enforced without any initialize() call")
+    }
+
+    func test_issue_84_invalid_persisted_values_fall_back_to_default() {
+        let suite = "nwm.test.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        for bad: Any in [0, -3, "7", 2.5] {
+            defaults.set(bad, forKey: ConcurrencyLimiter.preferenceKey)
+            XCTAssertEqual(ConcurrencyLimiter.persistedLimit(defaults: defaults), 4, "bad value \(bad)")
+        }
+    }
 }

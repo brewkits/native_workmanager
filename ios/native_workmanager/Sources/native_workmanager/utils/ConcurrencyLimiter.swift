@@ -4,9 +4,16 @@ import Foundation
 /// Reconfiguration preserves active permits. Cancellation removes queued waiters.
 actor ConcurrencyLimiter {
     static let preferenceKey = "native_workmanager.maxConcurrentTasks"
-    static let shared = ConcurrencyLimiter(
-        max: UserDefaults.standard.object(forKey: preferenceKey) as? Int ?? 4
-    )
+    static let defaultLimit = 4
+
+    /// The limit persisted by the last `initialize()`, or the default. This is what a process
+    /// started cold by the OS (BGTask, no Dart `initialize()` yet) will use.
+    static func persistedLimit(defaults: UserDefaults = .standard) -> Int {
+        guard let value = defaults.object(forKey: preferenceKey) as? Int, value > 0 else { return defaultLimit }
+        return value
+    }
+
+    static let shared = ConcurrencyLimiter(max: persistedLimit())
 
     private var max: Int
     private var running = 0
@@ -14,10 +21,10 @@ actor ConcurrencyLimiter {
 
     init(max: Int) { self.max = Swift.max(1, max) }
 
-    func configure(max: Int, persist: Bool = false) {
+    func configure(max: Int, persist: Bool = false, defaults: UserDefaults = .standard) {
         precondition(max > 0)
         self.max = max
-        if persist { UserDefaults.standard.set(max, forKey: Self.preferenceKey) }
+        if persist { defaults.set(max, forKey: Self.preferenceKey) }
         drain()
     }
 
