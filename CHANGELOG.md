@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Issue #95 — Android Dart worker "cancelled" during engine start-up:** when the Flutter
+  engine's Dart isolate did not report ready within 10 s, the timeout surfaced as a
+  `TimeoutCancellationException` (a `CancellationException`), which every layer rethrows on
+  purpose. WorkManager then saw a cancelled run (`isStopped=false`, `stopReason=-256`,
+  `NOT_STOPPED`) rather than a failure, so `maxRetries`/backoff and the failure event never
+  ran. It is now an ordinary failure (`DartEngineStartupTimeoutException`) that follows the
+  normal retry path. Genuine cancellation is unchanged. Root cause identified from the
+  `cancelled … phase=worker-execution isStopped=false stopReason=-256` log added in 1.10.1.
+
 ## [1.10.1] - 2026-11-09
 
 Android fix for #95, plus a small iOS limiter hardening. Backwards compatible.
