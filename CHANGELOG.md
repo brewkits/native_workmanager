@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Issue #95 — Android foreground admission:** foreground promotion and worker execution
+  now share one `maxConcurrentTasks` permit. Waiting workers do not promote themselves.
+  Cancellation remains under WorkManager's control, preserving periodic scheduling;
+  debug logs include the phase, work ID, stop reason, and run attempt count.
+  Verified on an Android 14 emulator (`maxConcurrentTasks: 1`, 6 foreground Dart
+  workers): promotions were spread one per ~0.6 s instead of 6 within ~130 ms.
+  The reported cancellation itself is not reproduced and its cause remains
+  unconfirmed. iOS has no foreground-service promotion and already admits through
+  `ConcurrencyLimiter` before execution, so it is unaffected.
+
 ## [1.10.0] - 2026-11-08
 
 Adds an opt-in to refuse unsigned `native_wm` remote commands. Backwards compatible: default behaviour is unchanged.

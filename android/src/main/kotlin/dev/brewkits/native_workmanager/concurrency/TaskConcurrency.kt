@@ -28,7 +28,13 @@ internal object TaskConcurrency {
     }
 }
 
-internal class ConcurrencyLimitedWorker(private val delegate: AndroidWorker) : AndroidWorker {
+internal class ConcurrencyLimitedWorker(
+    private val delegate: AndroidWorker,
+    private val onAdmitted: suspend () -> Unit = {}
+) : AndroidWorker {
     override suspend fun doWork(input: String?, env: WorkerEnvironment): WorkerResult =
-        TaskConcurrency.limiter.withPermit { delegate.doWork(input, env) }
+        TaskConcurrency.limiter.withPermit {
+            onAdmitted()
+            delegate.doWork(input, env)
+        }
 }

@@ -508,6 +508,117 @@ void main() {
     }
   });
 
+  // Issue #95: ForegroundNativeWorker used to call setForeground() BEFORE taking
+  // a TaskConcurrency permit, so with maxConcurrentTasks: 1 every waiting worker
+  // still promoted itself to a foreground service and booted its Flutter engine.
+  // Now the order is: wait for permit -> promote -> run callback -> release.
+  // Run with --dart-define=ISSUE84_LIMIT=1. NOTE: this is a smoke test, NOT a
+  // red/green guard — it also passes on the pre-fix code (the limiter already
+  // serialized callbacks). Dart cannot observe promotion order; that regression
+  // is guarded by ForegroundAdmissionTest (JVM). On-device the order is visible in
+  // logcat: `adb logcat | grep "Moving WorkSpec"` shows 6 promotions within
+  // ~130 ms before the fix, and one per ~0.6 s (serialized) after it.
+  testWidgets('issue_95: foreground Dart workers are admitted under the limit',
+      (tester) async {
+    const count = 6;
+    final results = <Future<TaskEvent?>>[];
+    final files = <File>[];
+    for (var i = 0; i < count; i++) {
+      final id = _id('issue95_$i');
+      final file = File('${tmpDir.path}/$id.json');
+      files.add(file);
+      results.add(_waitEvent(id));
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(),
+        worker: DartWorker(
+            callbackId: 'issue84_probe', input: {'path': file.path}),
+        constraints: const Constraints(
+          foregroundNotificationConfig: ForegroundNotificationConfig(
+            title: 'issue_95',
+            body: 'admission test',
+            showCancelButton: false,
+          ),
+        ),
+      );
+    }
+    for (final event in await Future.wait(results)
+        .timeout(const Duration(seconds: 120))) {
+      expect(event?.success, isTrue,
+          reason: 'FGS Dart worker must not be cancelled at startup: $event');
+    }
+    final boundaries = <(int, int)>[];
+    for (final file in files) {
+      final iv = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      boundaries.add((iv['start'] as int, 1));
+      boundaries.add((iv['end'] as int, -1));
+    }
+    boundaries.sort((a, b) =>
+        a.$1 != b.$1 ? a.$1.compareTo(b.$1) : a.$2.compareTo(b.$2));
+    var running = 0;
+    var peak = 0;
+    for (final b in boundaries) {
+      running += b.$2;
+      if (running > peak) peak = running;
+    }
+    print('issue_95: limit=$_issue84Limit peak=$peak completed=${files.length}');
+    expect(running, 0);
+    expect(peak, lessThanOrEqualTo(_issue84Limit));
+  });
+
+  // Issue #95: foreground (promoted) and plain background workers share ONE
+  // limiter. A mixed batch must still respect the limit and all must succeed;
+  // a foreground worker queued behind a background one must wait, not promote.
+  testWidgets('issue_95: mixed foreground and background workers share the limit',
+      (tester) async {
+    final results = <Future<TaskEvent?>>[];
+    final files = <File>[];
+    for (var i = 0; i < 6; i++) {
+      final id = _id('issue95mix_$i');
+      final file = File('${tmpDir.path}/$id.json');
+      files.add(file);
+      results.add(_waitEvent(id));
+      final input = {'path': file.path};
+      await NativeWorkManager.enqueue(
+        taskId: id,
+        trigger: const TaskTrigger.oneTime(),
+        worker: i.isEven
+            ? NativeWorker.custom(className: 'Issue84Probe', input: input)
+            : DartWorker(callbackId: 'issue84_probe', input: input),
+        constraints: i % 3 == 0
+            ? const Constraints()
+            : const Constraints(
+                foregroundNotificationConfig: ForegroundNotificationConfig(
+                  title: 'issue_95',
+                  body: 'mixed admission',
+                  showCancelButton: false,
+                ),
+              ),
+      );
+    }
+    for (final event in await Future.wait(results)
+        .timeout(const Duration(seconds: 120))) {
+      expect(event?.success, isTrue, reason: 'mixed task must complete: $event');
+    }
+    final boundaries = <(int, int)>[];
+    for (final file in files) {
+      final iv = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      boundaries.add((iv['start'] as int, 1));
+      boundaries.add((iv['end'] as int, -1));
+    }
+    boundaries.sort((a, b) =>
+        a.$1 != b.$1 ? a.$1.compareTo(b.$1) : a.$2.compareTo(b.$2));
+    var running = 0;
+    var peak = 0;
+    for (final b in boundaries) {
+      running += b.$2;
+      if (running > peak) peak = running;
+    }
+    print('issue_95 mixed: limit=$_issue84Limit peak=$peak');
+    expect(running, 0);
+    expect(peak, lessThanOrEqualTo(_issue84Limit));
+  });
+
   // ════════════════════════════════════════════════════════════
   // GROUP 1 – Trigger Types
   // Verifies the bug fix: trigger was previously hardcoded to
