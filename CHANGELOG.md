@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.10.1] - 2026-11-09
+
+Android-only patch. Backwards compatible.
 
 ### Fixed
 - **Issue #95 — Android foreground admission:** foreground promotion and worker execution
@@ -15,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Verified on an Android 14 emulator (`maxConcurrentTasks: 1`, 6 foreground Dart
   workers): promotions were spread one per ~0.6 s instead of 6 within ~130 ms.
   The reported cancellation itself is not reproduced and its cause remains
-  unconfirmed. iOS has no foreground-service promotion and already admits through
+  unconfirmed (Pixel 6 Pro, Android 17: not reproduced either, even on 1.9.0 with 12 workers). iOS has no foreground-service promotion and already admits through
   `ConcurrencyLimiter` before execution, so it is unaffected.
 
 ## [1.10.0] - 2026-11-08
