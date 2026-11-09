@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.10.1] - 2026-11-09
 
-Android-only patch. Backwards compatible.
+Android fix for #95, plus a small iOS limiter hardening. Backwards compatible.
+
+### Changed
+- **iOS:** `ConcurrencyLimiter` now ignores a persisted `maxConcurrentTasks` that is not
+  positive and falls back to the default of 4 (before, `0` or a negative value was clamped
+  to 1). The persisted-limit restore path on cold start is now covered by tests (#93).
 
 ### Fixed
 - **Issue #95 — Android foreground admission:** foreground promotion and worker execution
