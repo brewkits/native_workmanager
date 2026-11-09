@@ -40,16 +40,20 @@ class ForegroundNativeWorker(
     override suspend fun doWork(): Result {
         NativeLogger.d("ForegroundNativeWorker: starting doWork for $taskId ($workerClassName)")
 
-        try {
-            setForeground(getForegroundInfo())
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            NativeLogger.e("ForegroundNativeWorker: Failed to set foreground status. This might be due to background-start restrictions on Android 12+.", e)
-            // We continue as background work if possible, but the OS might kill us.
-        }
+        var phase = "waiting-for-admission"
         val workerFactory = SimpleAndroidWorkerFactory(context)
-        val worker = workerFactory.createWorker(workerClassName)
+        val worker = workerFactory.createWorker(workerClassName) {
+            phase = "foreground-promotion"
+            try {
+                setForeground(getForegroundInfo())
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                NativeLogger.e("ForegroundNativeWorker: Failed to set foreground status. This might be due to background-start restrictions on Android 12+.", e)
+                // Retain the existing background fallback when promotion is rejected.
+            }
+            phase = "worker-execution"
+        }
         if (worker == null) {
             NativeLogger.e("ForegroundNativeWorker: Worker class not found: $workerClassName")
             emitToBus(false, "Worker class not found: $workerClassName")
@@ -97,6 +101,13 @@ class ForegroundNativeWorker(
                 }
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
+            // WorkManager owns rescheduling of stopped periodic runs. Never translate
+            // cancellation into callback failure, retry, or a failure event.
+            NativeLogger.d(
+                "ForegroundNativeWorker: cancelled taskId=$taskId workId=$id " +
+                    "phase=$phase isStopped=$isStopped stopReason=$stopReason " +
+                    "runAttemptCount=$runAttemptCount"
+            )
             throw e
         } catch (e: Exception) {
             NativeLogger.e("ForegroundNativeWorker: Error executing worker", e)
@@ -116,6 +127,8 @@ class ForegroundNativeWorker(
                     outputData = outputData
                 )
             )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             NativeLogger.e("ForegroundNativeWorker: Failed to emit to TaskEventBus", e)
         }

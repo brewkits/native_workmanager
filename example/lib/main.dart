@@ -107,6 +107,7 @@ void main() async {
     debugMode: true,
     dartWorkers: {
       'customTask': customTaskCallback,
+      'fgsAdmissionDemo': fgsAdmissionDemoCallback,
       'heavyTask': heavyTaskCallback,
       'longRunningTask': longRunningTaskCallback,
       'cancellableTask': cancellableTaskCallback,

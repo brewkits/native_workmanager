@@ -1,6 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:native_workmanager/native_workmanager.dart';
+import 'dart:async';
 import 'dart:math';
+
+/// Issue #95 demo callback: holds the execution slot for 3 s so the admission
+/// order is visible. Registered as 'fgsAdmissionDemo' in main.dart.
+@pragma('vm:entry-point')
+Future<bool> fgsAdmissionDemoCallback(Map<String, dynamic>? input) async {
+  await Future<void>.delayed(const Duration(seconds: 3));
+  return true;
+}
 
 class FgsBypassDemoPage extends StatefulWidget {
   const FgsBypassDemoPage({super.key});
@@ -20,6 +29,48 @@ class _FgsBypassDemoPageState extends State<FgsBypassDemoPage> {
         "[${DateTime.now().toString().split(' ').last.split('.').first}] $message",
       );
     });
+  }
+
+  /// Issue #95: enqueue several FGS Dart workers at once. Each waits for an
+  /// execution slot BEFORE promoting to foreground, so with a small
+  /// `maxConcurrentTasks` they complete one batch at a time and none is
+  /// cancelled during Flutter-engine start-up.
+  Future<void> _runAdmissionDemo() async {
+    const count = 6;
+    setState(() => _isScheduling = true);
+    final run = Random().nextInt(100000);
+    final pending = <String>{};
+    late final StreamSubscription<TaskEvent> sub;
+    sub = NativeWorkManager.events.listen((e) {
+      if (pending.remove(e.taskId)) {
+        _addLog('${e.success ? "✅" : "❌"} ${e.taskId} finished '
+            '(${pending.length} left)');
+        if (pending.isEmpty) sub.cancel();
+      }
+    });
+    try {
+      for (var i = 0; i < count; i++) {
+        final id = 'fgs_admission_${run}_$i';
+        pending.add(id);
+        await NativeWorkManager.enqueue(
+          taskId: id,
+          worker: DartWorker(callbackId: 'fgsAdmissionDemo'),
+          constraints: const Constraints(
+            foregroundNotificationConfig: ForegroundNotificationConfig(
+              title: 'Admission demo',
+              body: 'Waiting for a slot, then promoting',
+              showCancelButton: false,
+            ),
+          ),
+        );
+      }
+      _addLog('Enqueued $count FGS Dart tasks — expect batches, no failures.');
+    } catch (e) {
+      sub.cancel();
+      _addLog('❌ Error: $e');
+    } finally {
+      setState(() => _isScheduling = false);
+    }
   }
 
   Future<void> _runFgsTask() async {
@@ -112,6 +163,12 @@ class _FgsBypassDemoPageState extends State<FgsBypassDemoPage> {
                     )
                   : const Icon(Icons.bolt),
               label: const Text("RUN HIGH-PRIORITY FGS TASK"),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _isScheduling ? null : _runAdmissionDemo,
+              icon: const Icon(Icons.queue),
+              label: const Text("RUN 6 FGS DART TASKS (ADMISSION, #95)"),
             ),
             const SizedBox(height: 20),
             const Text(

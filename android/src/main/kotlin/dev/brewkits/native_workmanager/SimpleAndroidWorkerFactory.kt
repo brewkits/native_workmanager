@@ -123,13 +123,21 @@ class SimpleAndroidWorkerFactory(
         }
     }
 
-    override fun createWorker(workerClassName: String): AndroidWorker? {
+    override fun createWorker(workerClassName: String): AndroidWorker? =
+        createWorker(workerClassName) {}
+
+    // Foreground promotion must use the same permit as execution, never a nested permit.
+    internal fun createWorker(
+        workerClassName: String,
+        onAdmitted: suspend () -> Unit
+    ): AndroidWorker? {
         val worker = resolveWorker(workerClassName) ?: return null
         // issue_57: wrap every worker (built-in, registry, and factory-chain) so chain step
         // output data reaches ChainStore regardless of which path created it. No-op for
         // standalone (non-chain) tasks — see ChainResultCapturingWorker's doc comment.
         return dev.brewkits.native_workmanager.concurrency.ConcurrencyLimitedWorker(
-            dev.brewkits.native_workmanager.workers.ChainResultCapturingWorker(worker, context)
+            dev.brewkits.native_workmanager.workers.ChainResultCapturingWorker(worker, context),
+            onAdmitted
         )
     }
 
