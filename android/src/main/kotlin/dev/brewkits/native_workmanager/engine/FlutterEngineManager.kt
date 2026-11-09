@@ -22,6 +22,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -57,6 +58,7 @@ object FlutterEngineManager {
      */
     private const val DEFAULT_STOP_HANDLER_BUDGET_MS = 5_000L
     private const val ENGINE_IDLE_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
+    internal const val DART_READY_TIMEOUT_MS = 10_000L
 
     private var engine: FlutterEngine? = null
     private var methodChannel: MethodChannel? = null
@@ -489,6 +491,23 @@ object FlutterEngineManager {
     }
 
     /**
+     * Waits for the Dart isolate's `dartReady` signal.
+     *
+     * Throws [DartEngineStartupTimeoutException] (an ordinary exception, NOT a
+     * CancellationException) when the isolate does not report ready in [timeoutMs], so the
+     * caller's generic failure path runs (retry/backoff honoured). Uses withTimeoutOrNull so only
+     * THIS timer can produce the failure: a genuine cancellation of the calling coroutine still
+     * propagates as a CancellationException.
+     */
+    internal suspend fun awaitDartReady(
+        ready: CompletableDeferred<Unit>,
+        timeoutMs: Long = DART_READY_TIMEOUT_MS
+    ) {
+        withTimeoutOrNull(timeoutMs) { ready.await() }
+            ?: throw DartEngineStartupTimeoutException(timeoutMs)
+    }
+
+    /**
      * Ensure Flutter engine is initialized.
      *
      * This uses double-checked locking for thread safety and performance.
@@ -634,10 +653,12 @@ object FlutterEngineManager {
                 // Now start the Dart isolate — handler is already registered, no race possible.
                 flutterEngine.dartExecutor.executeDartCallback(dartCallback)
 
-                // Wait for Dart to signal it's ready (up to 10 seconds)
-                withTimeout(10_000L) {
-                    readyDeferred.await()
-                }
+                // Wait for Dart to signal it's ready (up to 10 seconds).
+                // Issue #95: this MUST NOT surface as a TimeoutCancellationException. That is a
+                // CancellationException, which every layer above deliberately rethrows, so
+                // WorkManager saw a "cancelled" run (isStopped=false, stopReason=NOT_STOPPED)
+                // instead of a failure — no retry/backoff, no failure event.
+                awaitDartReady(readyDeferred)
                 NativeLogger.d("Dart ready signal received")
 
                 // Store references only after successful initialization
@@ -732,3 +753,7 @@ object FlutterEngineManager {
         return System.currentTimeMillis() - lastUsedTimestamp
     }
 }
+
+/** The Flutter engine started but its Dart isolate never reported ready. Not a cancellation. */
+internal class DartEngineStartupTimeoutException(timeoutMs: Long) :
+    IllegalStateException("Dart isolate did not signal ready within ${timeoutMs}ms (engine startup timeout)")
